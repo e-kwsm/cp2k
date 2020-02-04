@@ -18,7 +18,7 @@
          &LDA_C_VWN
          &END LDA_C_VWN
          !Range separated, need 100% of long-range and 75% of short range LDA exchange
-         !Long-range obtained by substracting short-range from normal => end up with -0.25 scale
+         !Long-range obtained by subtracting short-range from normal => end up with -0.25 scale
          &LDA_X
          &END LDA_X
          &LDA_X_ERF
