@@ -54,11 +54,15 @@
 !>                  - P. J. Mohr, B. N. Taylor, and D. B. Newell,
 !>                    "CODATA recommended values of the fundamental physical
 !>                     constants: 2010", Rev. Mod. Phys. 84, 1527-1605 (2012)
+!>                  - E. Tiesinga, P. J. Mohr, D. B. Newell, and B. N. Taylor,
+!>                    "The 2018 CODATA Recommended Values of the Fundamental
+!>                     Physical Constants", (Web Version 8.1) (2020)
 !> \par History
 !>      - Adapted for use in CP2K (JGH)
 !>      - Updated to CODATA 1998 and cleaned (05.09.2003,MK)
 !>      - Updated to CODATA 2006. (26.03.2008,AK)
 !>      - Updated to CODATA 2010. (10.12.2012,MK)
+!>      - Updated to CODATA 2018. (06.03.2020,Eisuke Kawashima)
 !>      - Turned constants into Fortran parameters (2014, Ole Schuett)
 !>      - Remove all but CODATA 2006 (2015, Ole Schuett)
 !> \author Matthias Krack (MK)
@@ -79,59 +83,59 @@ MODULE physcon
 
    PUBLIC :: write_physcon
 
-   ! CP2K uses the CODATA from 2006
+   ! CP2K uses the CODATA from 2018
 
    ! Exact constants
    ! Speed of light in vacuum [m/s]
    REAL(KIND=dp), PARAMETER :: c_light = 299792458.0_dp
    ! Speed of light in vacuum, in atomic units (=1/a_fine)
-   REAL(KIND=dp), PARAMETER :: c_light_au = 137.035999679_dp
+   REAL(KIND=dp), PARAMETER :: c_light_au = 137.035999084_dp
 
    ! Magnetic constant or permeability of vacuum [N/A**2]
    REAL(KIND=dp), PARAMETER :: mu_perm = 4.0_dp*pi*1.0E-7_dp
 
    ! Electric constant or permittivity of vacuum [F/m]
-   REAL(KIND=dp), PARAMETER :: permittivity = 1.0_dp/(mu_perm*c_light**2)
+   REAL(KIND=dp), PARAMETER :: permittivity = 8.8541878128E-12_dp
 
    ! Recommended fundamental constants of physics
-   ! and chemistry based on the 2006 adjustment
+   ! and chemistry based on the 2018 adjustment
 
    ! Planck constant [J*s]
-   REAL(KIND=dp), PARAMETER :: h_planck = 6.62606896E-34_dp
+   REAL(KIND=dp), PARAMETER :: h_planck = 6.62607015E-34_dp
    REAL(KIND=dp), PARAMETER :: h_bar = h_planck/(2.0_dp*pi)
 
    ! Elementary charge [C]
-   REAL(KIND=dp), PARAMETER :: e_charge = 1.602176487E-19_dp
+   REAL(KIND=dp), PARAMETER :: e_charge = 1.602176634E-19_dp
 
    ! Electron mass [kg]
-   REAL(KIND=dp), PARAMETER :: e_mass = 9.10938215E-31_dp
+   REAL(KIND=dp), PARAMETER :: e_mass = 9.1093837015E-31_dp
 
    ! Proton mass [kg]
-   REAL(KIND=dp), PARAMETER :: p_mass = 1.672621637E-27_dp
+   REAL(KIND=dp), PARAMETER :: p_mass = 1.67262192369E-27_dp
 
    ! Electron g factor [ ]
-   REAL(KIND=dp), PARAMETER :: e_gfactor = -2.0023193043622_dp
+   REAL(KIND=dp), PARAMETER :: e_gfactor = -2.00231930436256_dp
 
    ! Fine-structure constant
 !MK a_fine = 0.5_dp*mu_perm*c_light*e_charge**2/h_planck
-   REAL(KIND=dp), PARAMETER :: a_fine = 7.2973525376E-3_dp
+   REAL(KIND=dp), PARAMETER :: a_fine = 7.2973525693E-3_dp
 
    ! Rydberg constant [1/m]
 !MK rydberg = 0.5_dp*e_mass*c_light*a_fine**2/h_planck
-   REAL(KIND=dp), PARAMETER :: rydberg = 10973731.568527_dp
+   REAL(KIND=dp), PARAMETER :: rydberg = 10973731.568160_dp
 
    ! Avogadro constant [1/mol]
-   REAL(KIND=dp), PARAMETER :: n_avogadro = 6.02214179E+23_dp
+   REAL(KIND=dp), PARAMETER :: n_avogadro = 6.02214076e+23_dp
 
    ! Boltzmann constant [J/K]
-   REAL(KIND=dp), PARAMETER :: boltzmann = 1.3806504E-23_dp
+   REAL(KIND=dp), PARAMETER :: boltzmann = 1.380649E-23_dp
 
    ! Atomic mass unit [kg]; conversion factor [u] -> [kg]
-   REAL(KIND=dp), PARAMETER :: a_mass = 1.660538782E-27_dp
+   REAL(KIND=dp), PARAMETER :: a_mass = 1.66053906660E-27_dp
 
    ! Bohr radius [m]
 !MK a_bohr = a_fine/(4.0_dp*pi*rydberg)
-   REAL(KIND=dp), PARAMETER :: a_bohr = 0.52917720859E-10_dp
+   REAL(KIND=dp), PARAMETER :: a_bohr = 0.529177210903E-10_dp
 
    ! Conversion factors
 
@@ -208,6 +212,7 @@ CONTAINS
 !> \par History
 !>       - Updated to CODATA 1998 and cleaned (05.09.2003,MK)
 !>       - Updated to CODATA 2006. (26.03.2008,AK)
+!>       - Updated to CODATA 2018. (06.03.2028,Eisuke Kawashima)
 !> \author  JGH
 !> \version 1.1
 ! **************************************************************************************************
@@ -217,9 +222,9 @@ CONTAINS
 
       WRITE (UNIT=output_unit, FMT="(T2,/,T2,A,/,/,(T2,A))") &
          "*** Fundamental physical constants (SI units) ***", &
-         "*** Literature: B. J. Mohr and B. N. Taylor,", &
-         "***             CODATA recommended values of the fundamental physical", &
-         "***             constants: 2006, Web Version 5.1", &
+         "*** Literature: E. Tiesinga, P. J. Mohr, D. B. Newell, and B. N. Taylor,", &
+         "***             The 2018 CODATA Recommended Values of the Fundamental", &
+         "***             Physical Constants: 2020, Web Version 8,1", &
          "***             http://physics.nist.gov/constants"
 
       WRITE (UNIT=output_unit, FMT="(/,T2,A,T61,ES20.14)") &
