@@ -54,13 +54,10 @@ case "$with_scalapack" in
         ;;
     __SYSTEM__)
         echo "==================== Finding ScaLAPACK from system paths ===================="
-        (
-          check_lib -lscalapack "ScaLAPACK" || exit
-          add_lib_from_paths SCALAPACK_LDFLAGS "libscalapack.*" $LIB_PATHS
-        ) || (
-          check_lib -lmkl_scalapack_lp64 "ScaLAPACK"
-          add_lib_from_paths SCALAPACK_LDFLAGS "libmkl_scalapack.*" $LIB_PATHS
-        )
+        #check_lib -lscalapack "ScaLAPACK" || exit
+        #add_lib_from_paths SCALAPACK_LDFLAGS "libscalapack.*" $LIB_PATHS
+        check_lib -lmkl_scalapack_lp64 "ScaLAPACK"
+        add_lib_from_paths SCALAPACK_LDFLAGS "libmkl_scalapack.*" $LIB_PATHS
         ;;
     __DONTUSE__)
         ;;
