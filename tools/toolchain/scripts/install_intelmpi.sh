@@ -11,6 +11,8 @@ source "${INSTALLDIR}"/toolchain.env
 [ ${MPI_MODE} != "intelmpi" ] && exit 0
 rm -f "${BUILDDIR}/setup_intelmpi"
 
+INTELMPI_CFLAGS=''
+INTELMPI_LDFLAGS=''
 INTELMPI_LIBS=''
 mkdir -p "${BUILDDIR}"
 cd "${BUILDDIR}"
@@ -26,16 +28,18 @@ case "$with_intelmpi" in
         check_command mpiicc "intelmpi"
         check_command mpiifort "intelmpi"
         check_command mpiicpc "intelmpi"
-        export CC=icc
-        export CXX=icpc
-        export FC=ifort
-        export F77=ifort
-        export F90=ifort
-        export MPICC=mpiicc
-        export MPICXX=mpiicpc
-        export MPIFC=mpiifort
-        export MPIF77=mpiifort
-        export MPIF90=mpiifort
+        export CC=${CC:-icc}
+        export CXX=${CXX:-icpc}
+        export FC=${FC:-ifort}
+        export F77=${F77:-ifort}
+        export F90=${F90:-ifort}
+        export MPICC=${MPICC:-mpiicc}
+        export MPICXX=${MPICXX:-mpiicpc}
+        export MPIFC=${MPIFC:-mpiifort}
+        export MPIF77=${MPIF77:-mpiifort}
+        export MPIF90=${MPIF90:-mpiifort}
+        add_include_from_paths INTELMPI_CFLAGS "mpi.h" $INCLUDE_PATHS
+        add_lib_from_paths INTELMPI_LDFLAGS "libmpi.*" $LIB_PATHS
         check_lib -lmpi "intelmpi"
         check_lib -lmpicxx "intelmpi"
         ;;
@@ -47,6 +51,8 @@ case "$with_intelmpi" in
         check_dir "${pkg_install_dir}/bin"
         check_dir "${pkg_install_dir}/lib"
         check_dir "${pkg_install_dir}/include"
+        INTELMPI_CFLAGS="-I'${pkg_install_dir}/include'"
+        INTELMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
         ;;
 esac
 if [ "$with_intelmpi" != "__DONTUSE__" ] ; then
@@ -67,8 +73,14 @@ EOF
     cat <<EOF >> "${BUILDDIR}/setup_intelmpi"
 export MPI_MODE="${MPI_MODE}"
 export INTELMPI_LIBS="${INTELMPI_LIBS}"
+export INTELMPI_LDFLAGS="${INTELMPI_LDFLAGS}"
+export INTELMPI_LIBS="${INTELMPI_LIBS}"
+export MPI_CFLAGS="${INTELMPI_CFLAGS}"
+export MPI_LDFLAGS="${INTELMPI_LDFLAGS}"
 export MPI_LIBS="${INTELMPI_LIBS}"
 export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__parallel ${mpi2_dflags}|)"
+export CP_CFLAGS="\${CP_CFLAGS} IF_MPI(${INTELMPI_CFLAGS}|)"
+export CP_LDFLAGS="\${CP_LDFLAGS} IF_MPI(${INTELMPI_LDFLAGS}|)"
 export CP_LIBS="\${CP_LIBS} IF_MPI(${INTELMPI_LIBS}|)"
 EOF
 fi
