@@ -15,7 +15,7 @@ fi
 cp2kexe=${cwd}/../../exe/${arch}/cp2k.${version}
 echo "CP2K executable: ${cp2kexe}"
 version_string=$(${cp2kexe} -v | head -1)
-if [[ -n $(echo ${version_string} | grep Development) ]]; then
+if echo ${version_string} | grep -q Development; then
    version_string=trunk
 else
    version_string=$(echo "${version_string}" | awk '{print $3}')

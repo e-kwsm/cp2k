@@ -469,7 +469,7 @@ function run_regtest_dir() {
      fi
      leak_marker=""
      if [[ ${leakcheck} == "YES" ]]; then
-        if [[ -n $(echo ${cp2k_prefix} | grep "valgrind") ]]; then
+        if echo ${cp2k_prefix} | grep -q "valgrind"; then
            leak_error_string="ERROR SUMMARY:"
            nerror=$(grep -i "${leak_error_string}" ${output_file} | awk '{print $4}')
            dum=""
@@ -581,7 +581,7 @@ function run_unittest() {
 
   leak_marker=""
   if [[ ${leakcheck} == "YES" ]]; then
-     if [[ -n $(echo ${cp2k_prefix} | grep "valgrind") ]]; then
+     if echo ${cp2k_prefix} | grep -q "valgrind"; then
         leak_error_string="ERROR SUMMARY:"
         nerror=$(grep -i "${leak_error_string}" ${output_file} | awk '{print $4}')
         dum=""
