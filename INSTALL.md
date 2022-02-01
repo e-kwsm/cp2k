@@ -70,11 +70,11 @@ libraries are bug free. Use the latest versions available, use the interfaces
 matching your compiler, and download all patches!
 
 - The canonical BLAS and LAPACK can be obtained from the Netlib repository:
-  - <http://www.netlib.org/blas/>
-  - <http://www.netlib.org/lapack/> and see also
-  - <http://www.netlib.org/lapack-dev/>
+  - <https://www.netlib.org/blas/>
+  - <https://www.netlib.org/lapack/> and see also
+  - <https://www.netlib.org/lapack-dev/>
 - Open fast alternatives, include:
-  - <http://www.openblas.net>
+  - <https://www.openblas.net>
   - <http://math-atlas.sourceforge.net>
   - <https://www.tacc.utexas.edu/research-development/tacc-software/gotoblas2>
 
@@ -105,15 +105,15 @@ MPI (version 2) and SCALAPACK are needed for parallel code.
 If your computing platform does not provide MPI,
 there are several freely available alternatives:
 
-- MPICH2 MPI: <http://www-unix.mcs.anl.gov/mpi/mpich/>
+- MPICH2 MPI: <https://www.mpich.org/>
   (may require `-fallow-argument-mismatch` when building with GCC 10)
-- OpenMPI MPI: <http://www.open-mpi.org/>
+- OpenMPI MPI: <https://www.open-mpi.org/>
 - ScaLAPACK:
-  - <http://www.netlib.org/scalapack/>
-  - <http://www.netlib.org/lapack-dev/>
+  - <https://www.netlib.org/scalapack/>
+  - <https://www.netlib.org/lapack-dev/>
   - ScaLAPACK can be part of ACML or cluster MKL.
     These libraries are recommended if available.
-  - Recently a [ScaLAPACK installer](http://www.netlib.org/scalapack/scalapack_installer.tgz)
+  - Recently a [ScaLAPACK installer](https://www.netlib.org/scalapack/scalapack_installer.tgz)
     has been added that simplifies the installation.
 
 CP2K assumes that the MPI library implements MPI version 3. If you have an older
@@ -124,7 +124,7 @@ the arch file.
 
 FFTW can be used to improve FFT speed on a wide range of architectures.
 It is strongly recommended to install and use FFTW3. The current version of CP2K
-works with FFTW 3.X (use `-D__FFTW3`). It can be downloaded from <http://www.fftw.org>
+works with FFTW 3.X (use `-D__FFTW3`). It can be downloaded from <https://www.fftw.org>
 
 :warning: Note that FFTW must know the Fortran compiler you will use in order to
 install properly (e.g., `export F77=gfortran` before configure if you intend to
@@ -217,7 +217,7 @@ the FFTW3 threading library libfftw3_threads (or libfftw3_omp) is required.
 Library ELPA for the solution of the eigenvalue problem
 
 - ELPA replaces the ScaLapack `SYEVD` to improve the performance of the diagonalization
-- A version of ELPA can to be downloaded from <http://elpa.rzg.mpg.de/software>.
+- A version of ELPA can to be downloaded from <https://elpa.rzg.mpg.de/software/>.
 - During the installation the `libelpa_openmp.a` is created.
 - Minimal supported version of ELPA is 2018.05.001.
 - Add `-D__ELPA` to `DFLAGS`
