@@ -46,7 +46,7 @@ async def main() -> None:
     parser.add_argument("--timeout", type=int, default=400)
     parser.add_argument("--maxerrors", type=int, default=50)
     parser.add_argument("--mpiexec", default="mpiexec")
-    parser.add_argument("--keepalive", dest="keepalive", action="store_true")
+    parser.add_argument("--keepalive", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--restrictdir", action="append")
     parser.add_argument("--workbasedir", type=Path)
@@ -194,7 +194,7 @@ class Config:
         default_ompthreads = 2 if "smp" in args.version else 1
         self.ompthreads = args.ompthreads if args.ompthreads else default_ompthreads
         self.mpiranks = args.mpiranks if self.use_mpi else 1
-        self.num_workers = int(args.maxtasks / self.ompthreads / self.mpiranks)
+        self.num_workers = args.maxtasks // (self.ompthreads * self.mpiranks)
         self.workers = Semaphore(self.num_workers)
         self.cp2k_root = Path(__file__).resolve().parent.parent.parent
         self.mpiexec = args.mpiexec.split()
