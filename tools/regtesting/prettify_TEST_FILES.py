@@ -14,12 +14,14 @@ def main():
     tests_dir = sys.argv[1]
     assert tests_dir.endswith("/")
 
-    lines = open(tests_dir + "TEST_DIRS", encoding="utf8").readlines()
+    with open(tests_dir + "TEST_DIRS", encoding="utf8") as f:
+        lines = f.readlines()
     test_subdirs = [l.split()[0] for l in lines if l[0] != "#"]
     for d in test_subdirs:
         fn = tests_dir + d + "/TEST_FILES"
         print("Working on: " + fn)
-        content = open(fn, encoding="utf8").read()
+        with open(fn, encoding="utf8") as f:
+            content = f.read()
         output = ""
         for line in content.strip().split("\n"):
             line = line.strip()
@@ -42,9 +44,8 @@ def main():
             output += "\n"
         output += "#EOF\n"
 
-        f = open(fn, "w", encoding="utf8")
-        f.write(output)
-        f.close()
+        with open(fn, "w", encoding="utf8") as f:
+            f.write(output)
 
 
 # ===============================================================================
