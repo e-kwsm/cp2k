@@ -43,7 +43,7 @@ MODULE kg_correction
                                               pw_scale
    USE pw_pool_types,                   ONLY: pw_pool_give_back_pw,&
                                               pw_pool_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_integrate_potential,          ONLY: integrate_v_rspace,&
@@ -55,7 +55,8 @@ MODULE kg_correction
                                               qs_rho_get,&
                                               qs_rho_release,&
                                               qs_rho_set,&
-                                              qs_rho_type
+                                              qs_rho_type,&
+                                              qs_rho_unset_rho_ao
    USE qs_vxc,                          ONLY: qs_vxc_create
    USE virial_types,                    ONLY: virial_type
 #include "./base/base_uses.f90"
@@ -148,9 +149,9 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: density_matrix
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho1_g, rho1_r, rho_r, tau1_r, vxc_rho, &
-                                                            vxc_tau
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho1_g, rho1_r, rho_r, tau1_r, vxc_rho, &
+                                                            vxc_tau
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: old_rho, rho1, rho_struct
       TYPE(section_vals_type), POINTER                   :: xc_section
@@ -186,6 +187,7 @@ CONTAINS
       ! get the density matrix
       CALL qs_rho_get(old_rho, rho_ao=density_matrix)
       ! allocate and initialize the density
+      ALLOCATE (rho_struct)
       CALL qs_rho_create(rho_struct)
       ! set the density matrix to the blocked matrix
       CALL qs_rho_set(rho_struct, rho_ao=density_matrix) ! blocked_matrix
@@ -200,6 +202,7 @@ CONTAINS
       ! 2) integration of response forces
       NULLIFY (rho1)
       IF (PRESENT(pmat_ext)) THEN
+         ALLOCATE (rho1)
          CALL qs_rho_create(rho1)
          CALL qs_rho_set(rho1, rho_ao=pmat_ext)
          CALL qs_rho_rebuild(rho1, qs_env, rebuild_ao=.FALSE., rebuild_grids=.TRUE.)
@@ -248,20 +251,20 @@ CONTAINS
          IF (use_virial) THEN
             ekin_imol = 0.0_dp
             DO ispin = 1, nspins
-               ekin_imol = ekin_imol + pw_integral_ab(rho1_r(ispin)%pw, vxc_rho(ispin)%pw)
+               ekin_imol = ekin_imol + pw_integral_ab(rho1_r(ispin), vxc_rho(ispin))
             END DO
          END IF
       END IF
 
       DO ispin = 1, nspins
-         CALL pw_scale(vxc_rho(ispin)%pw, alpha*vxc_rho(ispin)%pw%pw_grid%dvol)
+         CALL pw_scale(vxc_rho(ispin), alpha*vxc_rho(ispin)%pw_grid%dvol)
       END DO
 
       DO ispin = 1, nspins
          CALL integrate_v_rspace(v_rspace=vxc_rho(ispin), &
                                  pmat=density_matrix(ispin), hmat=ks_matrix(ispin), &
                                  qs_env=qs_env, calculate_forces=calc_force)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
       END DO
       DEALLOCATE (vxc_rho)
       ekin_mol = -ekin_imol
@@ -320,13 +323,13 @@ CONTAINS
             IF (use_virial) THEN
                ekin_imol = 0.0_dp
                DO ispin = 1, nspins
-                  ekin_imol = ekin_imol + pw_integral_ab(rho1_r(ispin)%pw, vxc_rho(ispin)%pw)
+                  ekin_imol = ekin_imol + pw_integral_ab(rho1_r(ispin), vxc_rho(ispin))
                END DO
             END IF
          END IF
 
          DO ispin = 1, nspins
-            CALL pw_scale(vxc_rho(ispin)%pw, -alpha*vxc_rho(ispin)%pw%pw_grid%dvol)
+            CALL pw_scale(vxc_rho(ispin), -alpha*vxc_rho(ispin)%pw_grid%dvol)
 
             CALL integrate_v_rspace(v_rspace=vxc_rho(ispin), &
                                     pmat=density_matrix(ispin), &
@@ -335,9 +338,9 @@ CONTAINS
                                     calculate_forces=calc_force, &
                                     task_list_external=kg_env%subset(isub)%task_list)
             ! clean up vxc_rho
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
             IF (ASSOCIATED(vxc_tau)) THEN
-               CALL pw_scale(vxc_tau(ispin)%pw, -alpha*vxc_tau(ispin)%pw%pw_grid%dvol)
+               CALL pw_scale(vxc_tau(ispin), -alpha*vxc_tau(ispin)%pw_grid%dvol)
                CALL integrate_v_rspace(v_rspace=vxc_tau(ispin), &
                                        pmat=density_matrix(ispin), &
                                        hmat=ks_matrix(ispin), &
@@ -346,7 +349,7 @@ CONTAINS
                                        calculate_forces=calc_force, &
                                        task_list_external=kg_env%subset(isub)%task_list)
                ! clean up vxc_rho
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_tau(ispin)%pw)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_tau(ispin))
             END IF
          END DO
          DEALLOCATE (vxc_rho)
@@ -364,11 +367,13 @@ CONTAINS
       END IF
 
       ! clean up rho_struct
-      CALL qs_rho_set(rho_struct, rho_ao=Null())
+      CALL qs_rho_unset_rho_ao(rho_struct)
       CALL qs_rho_release(rho_struct)
+      DEALLOCATE (rho_struct)
       IF (PRESENT(pmat_ext)) THEN
-         CALL qs_rho_set(rho1, rho_ao_kp=Null())
+         CALL qs_rho_unset_rho_ao(rho1)
          CALL qs_rho_release(rho1)
+         DEALLOCATE (rho1)
       END IF
 
       CALL timestop(handle)
@@ -407,8 +412,8 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(lri_kind_type), DIMENSION(:), POINTER         :: lri_v_int
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vxc_rho, vxc_tau
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: vxc_rho, vxc_tau
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: old_rho, rho_struct
       TYPE(virial_type), POINTER                         :: virial
@@ -438,6 +443,7 @@ CONTAINS
       ! get the density matrix
       CALL qs_rho_get(old_rho, rho_ao=density_matrix)
       ! allocate and initialize the density
+      ALLOCATE (rho_struct)
       CALL qs_rho_create(rho_struct)
       ! set the density matrix to the blocked matrix
       CALL qs_rho_set(rho_struct, rho_ao=density_matrix) ! blocked_matrix
@@ -469,10 +475,10 @@ CONTAINS
          CPABORT(" KG with meta-kinetic energy functionals not implemented")
       END IF
       DO ispin = 1, nspins
-         vxc_rho(ispin)%pw%cr3d = vxc_rho(ispin)%pw%cr3d*vxc_rho(ispin)%pw%pw_grid%dvol
+         vxc_rho(ispin)%cr3d = vxc_rho(ispin)%cr3d*vxc_rho(ispin)%pw_grid%dvol
          lri_v_int => lri_density%lri_coefs(ispin)%lri_kinds
          CALL integrate_v_rspace_one_center(vxc_rho(ispin), qs_env, lri_v_int, calc_force, "LRI_AUX")
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
       END DO
       DEALLOCATE (vxc_rho)
       ekin_mol = -ekin_imol
@@ -496,13 +502,13 @@ CONTAINS
          ekin_mol = ekin_mol + ekin_imol
 
          DO ispin = 1, nspins
-            vxc_rho(ispin)%pw%cr3d = -vxc_rho(ispin)%pw%cr3d*vxc_rho(ispin)%pw%pw_grid%dvol
+            vxc_rho(ispin)%cr3d = -vxc_rho(ispin)%cr3d*vxc_rho(ispin)%pw_grid%dvol
             lri_v_int => lri_density%lri_coefs(ispin)%lri_kinds
             CALL integrate_v_rspace_one_center(vxc_rho(ispin), qs_env, &
                                                lri_v_int, calc_force, &
                                                "LRI_AUX", atomlist=atomlist)
             ! clean up vxc_rho
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
          END DO
          DEALLOCATE (vxc_rho)
 
@@ -533,8 +539,9 @@ CONTAINS
       DEALLOCATE (atomlist, ksmat)
 
       ! clean up rho_struct
-      CALL qs_rho_set(rho_struct, rho_ao=Null())
+      CALL qs_rho_unset_rho_ao(rho_struct)
       CALL qs_rho_release(rho_struct)
+      DEALLOCATE (rho_struct)
 
       CALL timestop(handle)
 
@@ -580,8 +587,8 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env, lri_env1
       TYPE(lri_kind_type), DIMENSION(:), POINTER         :: lri_v_int
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho1_g, rho1_r, tau1_r, vxc_rho, vxc_tau
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho1_g, rho1_r, tau1_r, vxc_rho, vxc_tau
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho, rho1, rho_struct
       TYPE(section_vals_type), POINTER                   :: xc_section
@@ -619,6 +626,7 @@ CONTAINS
       CALL qs_rho_get(rho, rho_ao=density_matrix)
       ! allocate and initialize the density
       NULLIFY (rho_struct)
+      ALLOCATE (rho_struct)
       CALL qs_rho_create(rho_struct)
       ! set the density matrix to the blocked matrix
       CALL qs_rho_set(rho_struct, rho_ao=density_matrix)
@@ -646,6 +654,7 @@ CONTAINS
          ! 1) folding of second derivative while partially integrating, or
          ! 2) integration of response forces
          NULLIFY (rho1)
+         ALLOCATE (rho1)
          CALL qs_rho_create(rho1)
          CALL qs_rho_set(rho1, rho_ao=pmat_ext)
          CALL qs_rho_rebuild(rho1, qs_env, rebuild_ao=.FALSE., rebuild_grids=.TRUE.)
@@ -702,7 +711,7 @@ CONTAINS
       END IF
 
       DO ispin = 1, nspins
-         CALL pw_scale(vxc_rho(ispin)%pw, alpha*vxc_rho(ispin)%pw%pw_grid%dvol)
+         CALL pw_scale(vxc_rho(ispin), alpha*vxc_rho(ispin)%pw_grid%dvol)
 
          IF (PRESENT(pmat_ext) .AND. .NOT. do_kernel) THEN
             ! int w/ pmat_ext
@@ -712,16 +721,13 @@ CONTAINS
             lri_v_int => lri_density%lri_coefs(ispin)%lri_kinds
          END IF
          CALL integrate_v_rspace_one_center(vxc_rho(ispin), qs_env, lri_v_int, calc_force, "LRI_AUX")
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
       END DO
 
       DEALLOCATE (vxc_rho)
       ekin_mol = -ekin_imol
       xcvirial(1:3, 1:3) = 0.0_dp
       IF (use_virial) xcvirial(1:3, 1:3) = xcvirial(1:3, 1:3) - virial%pv_xc(1:3, 1:3)
-!deb
-!     WRITE(6,*) " E KIN (full)       ",-ekin_mol
-!deb
 
       ! loop over all subsets
       ALLOCATE (atomlist(natom))
@@ -768,12 +774,9 @@ CONTAINS
                                exc=ekin_imol)
          END IF
          ekin_mol = ekin_mol + ekin_imol
-!deb
-!     WRITE(6,*) " E KIN (molecule)    ",isub,ekin_imol
-!deb
 
          DO ispin = 1, nspins
-            CALL pw_scale(vxc_rho(ispin)%pw, -alpha*vxc_rho(ispin)%pw%pw_grid%dvol)
+            CALL pw_scale(vxc_rho(ispin), -alpha*vxc_rho(ispin)%pw_grid%dvol)
 
             IF (PRESENT(pmat_ext) .AND. .NOT. do_kernel) THEN
                ! int w/ pmat_ext
@@ -787,7 +790,7 @@ CONTAINS
                                                lri_v_int, calc_force, &
                                                "LRI_AUX", atomlist=atomlist)
             ! clean up vxc_rho
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin)%pw)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc_rho(ispin))
          END DO
          DEALLOCATE (vxc_rho)
 
@@ -846,11 +849,13 @@ CONTAINS
       DEALLOCATE (atomlist, ksmat)
 
       ! clean up rho_struct
-      CALL qs_rho_set(rho_struct, rho_ao=Null())
+      CALL qs_rho_unset_rho_ao(rho_struct)
       CALL qs_rho_release(rho_struct)
+      DEALLOCATE (rho_struct)
       IF (PRESENT(pmat_ext)) THEN
-         CALL qs_rho_set(rho1, rho_ao=Null())
+         CALL qs_rho_unset_rho_ao(rho1)
          CALL qs_rho_release(rho1)
+         DEALLOCATE (rho1)
       END IF
       DEALLOCATE (cell_to_index)
 

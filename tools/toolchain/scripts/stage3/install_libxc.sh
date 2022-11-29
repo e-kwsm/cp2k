@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-libxc_ver="5.2.2"
-libxc_sha256="303c4608f2d75d860d2c599125df4eb5391784166f59704bf49081e5aad5fed8"
+libxc_ver="6.0.0"
+libxc_sha256="c2ca205a762200dfba2e6c9e8ca2061aaddc6b7cf42048859fe717a7aa07de7c"
 source "${SCRIPT_DIR}"/common_vars.sh
 source "${SCRIPT_DIR}"/tool_kit.sh
 source "${SCRIPT_DIR}"/signal_trap.sh
@@ -36,8 +33,7 @@ case "$with_libxc" in
       if [ -f libxc-${libxc_ver}.tar.gz ]; then
         echo "libxc-${libxc_ver}.tar.gz is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${libxc_sha256} \
-          https://www.cp2k.org/static/downloads/libxc-${libxc_ver}.tar.gz
+        download_pkg_from_cp2k_org "${libxc_sha256}" "libxc-${libxc_ver}.tar.gz"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       [ -d libxc-${libxc_ver} ] && rm -rf libxc-${libxc_ver}
@@ -52,7 +48,7 @@ case "$with_libxc" in
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage3/$(basename ${SCRIPT_NAME})"
     fi
     LIBXC_CFLAGS="-I'${pkg_install_dir}/include'"
-    LIBXC_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    LIBXC_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding LIBXC from system paths ===================="
@@ -69,7 +65,7 @@ case "$with_libxc" in
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
     LIBXC_CFLAGS="-I'${pkg_install_dir}/include'"
-    LIBXC_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    LIBXC_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_libxc" != "__DONTUSE__" ]; then

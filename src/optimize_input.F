@@ -197,6 +197,7 @@ CONTAINS
       END IF
 
       ! do IO of ref traj / frc / cell
+      NULLIFY (cell_traj)
       NULLIFY (cell_traj_read, force_traj_read, pos_traj_read, energy_traj_read)
       CALL read_reference_data(oi_env, para_env, force_traj_read, pos_traj_read, energy_traj_read, cell_traj_read)
       n_atom = SIZE(pos_traj_read, 2)
@@ -517,7 +518,7 @@ CONTAINS
       LOGICAL                                            :: at_end, test_ok
       REAL(KIND=dp)                                      :: cell_time, trj_epot, trj_time, vec(3), &
                                                             vol
-      TYPE(cp_parser_type), POINTER                      :: local_parser
+      TYPE(cp_parser_type)                               :: local_parser
 
       CALL timeset(routineN, handle)
 
@@ -526,7 +527,7 @@ CONTAINS
       ! trajectory
       n_frames = 0
       n_frames_current = 0
-      NULLIFY (local_parser, pos_traj, energy_traj, force_traj)
+      NULLIFY (pos_traj, energy_traj, force_traj)
       filename = oi_env%fm_env%ref_traj_file_name
       IF (filename .EQ. "") &
          CPABORT("The reference trajectory file name is empty")

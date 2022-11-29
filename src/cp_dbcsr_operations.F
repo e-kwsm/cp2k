@@ -112,7 +112,7 @@ CONTAINS
 !> \version 2.0
 ! **************************************************************************************************
       SUBROUTINE copy_${fm}$_to_dbcsr(fm, matrix, keep_sparsity)
-         TYPE(cp_${fm}$_type), POINTER                      :: fm
+         TYPE(cp_${fm}$_type), INTENT(IN)                      :: fm
          TYPE(dbcsr_type), INTENT(INOUT)                 :: matrix
          LOGICAL, INTENT(IN), OPTIONAL                      :: keep_sparsity
 
@@ -137,18 +137,18 @@ CONTAINS
 !> \param bc_mat ...
 ! **************************************************************************************************
       SUBROUTINE copy_${fm}$_to_dbcsr_bc(fm, bc_mat)
-         TYPE(cp_${fm}$_type), POINTER                      :: fm
-         TYPE(dbcsr_type)                                :: bc_mat
+         TYPE(cp_${fm}$_type), INTENT(IN)                    :: fm
+         TYPE(dbcsr_type), INTENT(INOUT)                     :: bc_mat
 
          CHARACTER(LEN=*), PARAMETER :: routineN = 'copy_${fm}$_to_dbcsr_bc'
 
          INTEGER :: col, group, handle, ncol_block, ncol_global, nrow_block, nrow_global, row
-         INTEGER, ALLOCATABLE, DIMENSION(:)                 :: first_col, first_row, last_col, last_row
-         INTEGER, DIMENSION(:), POINTER                     :: col_blk_size, row_blk_size
+         INTEGER, ALLOCATABLE, DIMENSION(:)                  :: first_col, first_row, last_col, last_row
+         INTEGER, DIMENSION(:), POINTER                      :: col_blk_size, row_blk_size
          ${type}$ (KIND=dp), DIMENSION(:, :), POINTER        :: fm_block, dbcsr_block
          TYPE(dbcsr_distribution_type)                       :: bc_dist
-         TYPE(dbcsr_iterator_type)                          :: iter
-         INTEGER, DIMENSION(:, :), POINTER                  :: pgrid
+         TYPE(dbcsr_iterator_type)                           :: iter
+         INTEGER, DIMENSION(:, :), POINTER                   :: pgrid
 
          CALL timeset(routineN, handle)
 
@@ -205,8 +205,8 @@ CONTAINS
 !> \param[out] fm             full matrix
 ! **************************************************************************************************
       SUBROUTINE copy_dbcsr_to_${fm}$ (matrix, fm)
-         TYPE(dbcsr_type), INTENT(IN)                    :: matrix
-         TYPE(cp_${fm}$_type), POINTER                      :: fm
+         TYPE(dbcsr_type), INTENT(IN)                       :: matrix
+         TYPE(cp_${fm}$_type), INTENT(IN)                   :: fm
 
          CHARACTER(LEN=*), PARAMETER :: routineN = 'copy_dbcsr_to_${fm}$'
 
@@ -214,7 +214,7 @@ CONTAINS
          INTEGER :: handle, ncol_block, nfullcols_total, &
                     nfullrows_total, nrow_block
          TYPE(dbcsr_type)                                   :: bc_mat, matrix_nosym
-         TYPE(dbcsr_distribution_type)                       :: dist, bc_dist
+         TYPE(dbcsr_distribution_type)                      :: dist, bc_dist
          CHARACTER(len=default_string_length)               :: name
          INTEGER                                            :: group
          INTEGER, DIMENSION(:, :), POINTER                  :: pgrid
@@ -268,15 +268,15 @@ CONTAINS
 !> \param[out] fm             full matrix
 ! **************************************************************************************************
       SUBROUTINE copy_dbcsr_to_${fm}$_bc(bc_mat, fm)
-         TYPE(dbcsr_type), INTENT(IN)                    :: bc_mat
-         TYPE(cp_${fm}$_type), POINTER                      :: fm
+         TYPE(dbcsr_type), INTENT(IN)                       :: bc_mat
+         TYPE(cp_${fm}$_type), INTENT(IN)                   :: fm
 
          CHARACTER(LEN=*), PARAMETER :: routineN = 'copy_dbcsr_to_${fm}$_bc'
 
          INTEGER :: col, handle, row
          INTEGER, ALLOCATABLE, DIMENSION(:)                 :: first_col, first_row, last_col, last_row
-         ${type}$ (KIND=dp), DIMENSION(:, :), POINTER        :: dbcsr_block, fm_block
-         TYPE(dbcsr_iterator_type)                            :: iter
+         ${type}$ (KIND=dp), DIMENSION(:, :), POINTER       :: dbcsr_block, fm_block
+         TYPE(dbcsr_iterator_type)                          :: iter
 
          CALL timeset(routineN, handle)
 
@@ -378,9 +378,9 @@ CONTAINS
 
       INTEGER                                            :: nfullcols_total, nfullrows_total
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_matrix_a, fm_matrix_b
+      TYPE(cp_fm_type)                         :: fm_matrix_a, fm_matrix_b
 
-      NULLIFY (fm_matrix_a, fm_matrix_b, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix_a, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
                                ncol_global=nfullcols_total, para_env=para_env)
@@ -547,7 +547,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_dbcsr_sm_fm_multiply(matrix, fm_in, fm_out, ncol, alpha, beta)
       TYPE(dbcsr_type), INTENT(IN)                    :: matrix
-      TYPE(cp_fm_type), POINTER                          :: fm_in, fm_out
+      TYPE(cp_fm_type), INTENT(IN)                          :: fm_in, fm_out
       INTEGER, INTENT(IN)                                :: ncol
       REAL(dp), INTENT(IN), OPTIONAL                     :: alpha, beta
 
@@ -682,18 +682,24 @@ CONTAINS
 !> \param alpha ...
 !> \param keep_sparsity Determines if the sparsity of sparse_matrix is retained
 !>        by default it is TRUE
+!> \param symmetry_mode There are the following modes
+!>        1:     sparse_matrix += 0.5*alpha*(v*g^T+g^T*v)    (symmetric update)
+!>        -1:    sparse_matrix += 0.5*alpha*(v*g^T-g^T*v)    (skewsymmetric update)
+!>        else:  sparse_matrix += alpha*v*g^T                (no symmetry, default)
+!>        saves some redistribution steps
 ! **************************************************************************************************
-   SUBROUTINE cp_dbcsr_plus_fm_fm_t(sparse_matrix, matrix_v, matrix_g, ncol, alpha, keep_sparsity)
-      TYPE(dbcsr_type), INTENT(INOUT)                 :: sparse_matrix
-      TYPE(cp_fm_type), POINTER                          :: matrix_v
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: matrix_g
+   SUBROUTINE cp_dbcsr_plus_fm_fm_t(sparse_matrix, matrix_v, matrix_g, ncol, alpha, keep_sparsity, symmetry_mode)
+      TYPE(dbcsr_type), INTENT(INOUT)                    :: sparse_matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_v
+      TYPE(cp_fm_type), OPTIONAL, INTENT(IN)             :: matrix_g
       INTEGER, INTENT(IN)                                :: ncol
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: alpha
       LOGICAL, INTENT(IN), OPTIONAL                      :: keep_sparsity
+      INTEGER, INTENT(IN), OPTIONAL :: symmetry_mode
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_plus_fm_fm_t_native'
 
-      INTEGER                                            :: npcols, k, nao, timing_handle, data_type
+      INTEGER                                            :: npcols, k, nao, timing_handle, data_type, my_symmetry_mode
       INTEGER, DIMENSION(:), POINTER                     :: col_blk_size_left, &
                                                             col_dist_left, row_blk_size, row_dist
       LOGICAL                                            :: check_product, my_keep_sparsity
@@ -701,7 +707,7 @@ CONTAINS
       TYPE(dbcsr_type)                                :: mat_g, mat_v, sparse_matrix2, &
                                                          sparse_matrix3
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: fm_matrix
+      TYPE(cp_fm_type)                          :: fm_matrix
       TYPE(dbcsr_distribution_type)                       :: dist_left, sparse_dist
 
       check_product = .FALSE.
@@ -710,6 +716,10 @@ CONTAINS
 
       my_keep_sparsity = .TRUE.
       IF (PRESENT(keep_sparsity)) my_keep_sparsity = keep_sparsity
+
+      my_symmetry_mode = 0
+      IF (PRESENT(symmetry_mode)) my_symmetry_mode = symmetry_mode
+
       NULLIFY (col_dist_left)
 
       IF (ncol .GT. 0) THEN
@@ -743,7 +753,6 @@ CONTAINS
          !
          !
          IF (check_product) THEN
-            NULLIFY (fm_matrix)
             CALL cp_fm_get_info(matrix_v, nrow_global=nao)
             CALL cp_fm_struct_create(fm_struct_tmp, context=matrix_v%matrix_struct%context, nrow_global=nao, &
                                      ncol_global=nao, para_env=matrix_v%matrix_struct%para_env)
@@ -756,10 +765,33 @@ CONTAINS
          my_alpha = 1.0_dp
          IF (PRESENT(alpha)) my_alpha = alpha
          IF (PRESENT(matrix_g)) THEN
-            CALL dbcsr_multiply("N", "T", my_alpha, mat_v, mat_g, &
-                                1.0_dp, sparse_matrix, &
-                                retain_sparsity=my_keep_sparsity, &
-                                last_k=ncol)
+            IF (my_symmetry_mode == 1) THEN
+               ! Symmetric mode
+               CALL dbcsr_multiply("N", "T", 0.5_dp*my_alpha, mat_v, mat_g, &
+                                   1.0_dp, sparse_matrix, &
+                                   retain_sparsity=my_keep_sparsity, &
+                                   last_k=ncol)
+               CALL dbcsr_multiply("N", "T", 0.5_dp*my_alpha, mat_g, mat_v, &
+                                   1.0_dp, sparse_matrix, &
+                                   retain_sparsity=my_keep_sparsity, &
+                                   last_k=ncol)
+            ELSE IF (my_symmetry_mode == -1) THEN
+               ! Skewsymmetric mode
+               CALL dbcsr_multiply("N", "T", 0.5_dp*my_alpha, mat_v, mat_g, &
+                                   1.0_dp, sparse_matrix, &
+                                   retain_sparsity=my_keep_sparsity, &
+                                   last_k=ncol)
+               CALL dbcsr_multiply("N", "T", -0.5_dp*my_alpha, mat_g, mat_v, &
+                                   1.0_dp, sparse_matrix, &
+                                   retain_sparsity=my_keep_sparsity, &
+                                   last_k=ncol)
+            ELSE
+               ! Normal mode
+               CALL dbcsr_multiply("N", "T", my_alpha, mat_v, mat_g, &
+                                   1.0_dp, sparse_matrix, &
+                                   retain_sparsity=my_keep_sparsity, &
+                                   last_k=ncol)
+            END IF
          ELSE
             CALL dbcsr_multiply("N", "T", my_alpha, mat_v, mat_v, &
                                 1.0_dp, sparse_matrix, &
@@ -769,8 +801,20 @@ CONTAINS
 
          IF (check_product) THEN
             IF (PRESENT(matrix_g)) THEN
-               CALL cp_fm_gemm("N", "T", nao, nao, ncol, my_alpha, matrix_v, matrix_g, &
-                               1.0_dp, fm_matrix)
+               IF (my_symmetry_mode == 1) THEN
+                  CALL cp_fm_gemm("N", "T", nao, nao, ncol, 0.5_dp*my_alpha, matrix_v, matrix_g, &
+                                  1.0_dp, fm_matrix)
+                  CALL cp_fm_gemm("N", "T", nao, nao, ncol, 0.5_dp*my_alpha, matrix_g, matrix_v, &
+                                  1.0_dp, fm_matrix)
+               ELSE IF (my_symmetry_mode == -1) THEN
+                  CALL cp_fm_gemm("N", "T", nao, nao, ncol, 0.5_dp*my_alpha, matrix_v, matrix_g, &
+                                  1.0_dp, fm_matrix)
+                  CALL cp_fm_gemm("N", "T", nao, nao, ncol, -0.5_dp*my_alpha, matrix_g, matrix_v, &
+                                  1.0_dp, fm_matrix)
+               ELSE
+                  CALL cp_fm_gemm("N", "T", nao, nao, ncol, my_alpha, matrix_v, matrix_g, &
+                                  1.0_dp, fm_matrix)
+               END IF
             ELSE
                CALL cp_fm_gemm("N", "T", nao, nao, ncol, my_alpha, matrix_v, matrix_v, &
                                1.0_dp, fm_matrix)
@@ -829,7 +873,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_to_dbcsr_row_template(matrix, fm_in, template)
       TYPE(dbcsr_type), INTENT(INOUT)                 :: matrix
-      TYPE(cp_fm_type), POINTER                          :: fm_in
+      TYPE(cp_fm_type), INTENT(IN)                    :: fm_in
       TYPE(dbcsr_type), INTENT(IN)                    :: template
 
       INTEGER                                            :: k_in, data_type
@@ -864,9 +908,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_dbcsr_m_by_n_from_template(matrix, template, m, n, sym, data_type)
       TYPE(dbcsr_type), INTENT(INOUT)                 :: matrix, template
-      INTEGER                                            :: m, n
-      CHARACTER, OPTIONAL                                :: sym
-      INTEGER, OPTIONAL                                  :: data_type
+      INTEGER, INTENT(IN)                                            :: m, n
+      CHARACTER, OPTIONAL, INTENT(IN)                                :: sym
+      INTEGER, OPTIONAL, INTENT(IN)                    :: data_type
 
       CHARACTER                                          :: mysym
       INTEGER                                            :: my_data_type, nprows, npcols

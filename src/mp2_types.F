@@ -14,8 +14,7 @@
 MODULE mp2_types
    USE cp_eri_mme_interface,            ONLY: cp_eri_mme_finalize,&
                                               cp_eri_mme_param
-   USE cp_fm_types,                     ONLY: cp_fm_p_type
-   USE cp_para_types,                   ONLY: cp_para_env_type
+   USE cp_fm_types,                     ONLY: cp_fm_type
    USE dbcsr_api,                       ONLY: dbcsr_p_type,&
                                               dbcsr_type
    USE hfx_types,                       ONLY: hfx_release,&
@@ -29,16 +28,16 @@ MODULE mp2_types
                                               ri_mp2_laplace,&
                                               ri_mp2_method_gpw,&
                                               ri_rpa_method_gpw
+   USE input_section_types,             ONLY: section_vals_release,&
+                                              section_vals_type
    USE iso_c_binding,                   ONLY: c_ptr
    USE kinds,                           ONLY: dp
    USE kpoint_types,                    ONLY: kpoint_type
    USE libint_2c_3c,                    ONLY: libint_potential_type
-   USE machine,                         ONLY: m_walltime
-   USE message_passing,                 ONLY: mp_sum
-   USE offload_gemm,                    ONLY: OFFLOAD_GEMM_PU_GPU,&
-                                              offload_gemm_create,&
-                                              offload_gemm_destroy,&
-                                              offload_gemm_set_op_threshold_gpu
+   USE local_gemm_api,                  ONLY: LOCAL_GEMM_PU_GPU,&
+                                              local_gemm_create,&
+                                              local_gemm_destroy,&
+                                              local_gemm_set_op_threshold_gpu
    USE qs_force_types,                  ONLY: qs_force_type
    USE qs_p_env_types,                  ONLY: qs_p_env_type
 #include "./base/base_uses.f90"
@@ -69,12 +68,7 @@ MODULE mp2_types
              two_dim_int_array, &
              one_dim_real_array, &
              two_dim_real_array, &
-             three_dim_real_array, &
-             dgemm_counter_type, &
-             dgemm_counter_init, &
-             dgemm_counter_start, &
-             dgemm_counter_stop, &
-             dgemm_counter_write
+             three_dim_real_array
 
    INTEGER, SAVE                                         :: init_TShPSC_lmax = -1
 
@@ -106,9 +100,7 @@ MODULE mp2_types
 
    TYPE mp2_laplace_type
       INTEGER       :: n_quadrature
-      INTEGER       :: integ_group_size
-      LOGICAL       :: mo_sos
-      REAL(dp)      :: threshold
+      INTEGER       :: num_integ_groups
    END TYPE
 
    TYPE mp2_direct_type
@@ -125,22 +117,24 @@ MODULE mp2_types
 
    TYPE ri_mp2_type
       INTEGER                  :: block_size
-      REAL(dp)                 :: eps_canonical
-      LOGICAL                  :: free_hfx_buffer
-      LOGICAL                  :: use_old_grad
+      LOGICAL                  :: print_dgemm_info
    END TYPE
 
    TYPE ri_rpa_type
       INTEGER                  :: rpa_num_quad_points
-      INTEGER                  :: rpa_integ_group_size
+      INTEGER                  :: rpa_num_integ_groups
       INTEGER                  :: mm_style
       TYPE(hfx_type), DIMENSION(:, :), POINTER &
          :: x_data => NULL()
+      TYPE(section_vals_type), POINTER         :: xc_section_primary => Null(), &
+                                                  xc_section_aux => Null()
+      LOGICAL                  :: reuse_hfx
       LOGICAL                  :: minimax_quad
       LOGICAL                  :: do_ri_g0w0
       LOGICAL                  :: do_admm
       LOGICAL                  :: do_ri_axk
       LOGICAL                  :: do_rse
+      LOGICAL                  :: print_dgemm_info
       TYPE(dbcsr_type), POINTER             :: mo_coeff_o, &
                                                mo_coeff_v
       REAL(KIND=dp)            :: ener_axk
@@ -151,16 +145,28 @@ MODULE mp2_types
 
    TYPE ri_rpa_im_time_type
       INTEGER                  :: cut_memory
-      LOGICAL                  :: memory_info, make_chi_pos_definite
+      LOGICAL                  :: memory_info, make_chi_pos_definite, trunc_coulomb_ri_x, keep_quad, &
+                                  do_kpoints_from_Gamma, do_extrapolate_kpoints
       REAL(KIND=dp)            :: eps_filter, &
-                                  eps_filter_factor, eps_compress, exp_tailored_weights, regularization_RI
-      REAL(KIND=dp), DIMENSION(:), POINTER :: rel_cutoffs_chi_W
+                                  eps_filter_factor, eps_compress, exp_tailored_weights, regularization_RI, &
+                                  eps_eigval_S, rel_cutoff_trunc_coulomb_ri_x
+      REAL(KIND=dp), DIMENSION(:), POINTER :: rel_cutoffs_chi_W, tau_tj, tau_wj, tj, wj
+      REAL(KIND=dp), DIMENSION(:, :), POINTER :: weights_cos_tf_t_to_w, weights_cos_tf_w_to_t
       REAL(KIND=dp), DIMENSION(2) :: abs_cutoffs_chi_W
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: Eigenval_Gamma, wkp_V
       INTEGER                  :: group_size_P, group_size_3c, kpoint_weights_W_method, k_mesh_g_factor
       INTEGER, DIMENSION(:), POINTER     :: kp_grid
+      INTEGER, DIMENSION(3) ::  kp_grid_extra
       LOGICAL                  :: do_im_time_kpoints
-      INTEGER                  :: min_bsize, min_bsize_mo
+      INTEGER                  :: min_bsize, min_bsize_mo, periodic_gf, nkp_orig, nkp_extra
       TYPE(kpoint_type), POINTER :: kpoints_G, kpoints_Sigma, kpoints_Sigma_no_xc
+      INTEGER, ALLOCATABLE, DIMENSION(:)      :: starts_array_mc_RI, ends_array_mc_RI, &
+                                                 starts_array_mc_block_RI, &
+                                                 ends_array_mc_block_RI, &
+                                                 starts_array_mc, ends_array_mc, &
+                                                 starts_array_mc_block, &
+                                                 ends_array_mc_block
+
    END TYPE
 
    TYPE ri_g0w0_type
@@ -180,7 +186,7 @@ MODULE mp2_types
                                   do_periodic, &
                                   print_self_energy
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :) :: vec_Sigma_x_minus_vxc_gw
-      INTEGER, DIMENSION(:), POINTER    :: kp_grid
+      INTEGER, DIMENSION(:), POINTER    :: kp_grid, kp_grid_Sigma
       INTEGER                  :: num_kp_grids
       REAL(KIND=dp)            :: eps_kpoint
       LOGICAL                  :: do_mo_coeff_gamma, do_average_deg_levels
@@ -196,9 +202,12 @@ MODULE mp2_types
       TYPE(one_dim_real_array), DIMENSION(2) :: ic_corr_list
       INTEGER :: print_exx
       LOGICAL :: do_gamma_only_sigma
-      LOGICAL :: update_xc_energy
-      INTEGER :: n_kp_in_kp_line, n_special_kp
+      LOGICAL :: update_xc_energy, do_kpoints_Sigma
+      INTEGER :: n_kp_in_kp_line, n_special_kp, nkp_self_energy, &
+                 nkp_self_energy_special_kp, nkp_self_energy_monkh_pack
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :) :: xkp_special_kp
+      TYPE(dbcsr_p_type), DIMENSION(:), ALLOCATABLE :: &
+         matrix_sigma_x_minus_vxc, matrix_ks
    END TYPE
 
    TYPE ri_basis_opt
@@ -211,17 +220,22 @@ MODULE mp2_types
    END TYPE
 
    TYPE grad_util
-      TYPE(two_dim_real_array), DIMENSION(2) :: P_ij, P_ab, Gamma_PQ, Gamma_PQ_2
+      TYPE(two_dim_real_array), DIMENSION(2) :: P_ij, P_ab
       TYPE(three_dim_real_array), DIMENSION(2) :: Gamma_P_ia
-      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: operator_half, PQ_half
+      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: operator_half, PQ_half, Gamma_PQ, Gamma_PQ_2
       TYPE(dbcsr_p_type), DIMENSION(:, :), ALLOCATABLE :: G_P_ia
       TYPE(dbcsr_p_type), DIMENSION(:), ALLOCATABLE :: mo_coeff_o, mo_coeff_v
-      TYPE(cp_fm_p_type), ALLOCATABLE, DIMENSION(:) :: P_mo, W_mo, L_jb
-      REAL(KIND=dp) :: cphf_eps_conv
-      INTEGER :: cphf_max_num_iter
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:) :: P_mo, W_mo, L_jb
+      REAL(KIND=dp) :: cphf_eps_conv, scale_step_size
+      INTEGER :: cphf_max_num_iter, z_solver_method, cphf_restart
+      LOGICAL :: enforce_decrease, recalc_residual, polak_ribiere
       TYPE(qs_p_env_type), POINTER :: p_env => NULL()
-      TYPE(qs_force_type), DIMENSION(:), POINTER :: mp2_force
+      TYPE(qs_force_type), DIMENSION(:), POINTER :: mp2_force => NULL()
       REAL(KIND=dp), DIMENSION(3, 3) :: mp2_virial
+      REAL(dp)                 :: eps_canonical
+      LOGICAL                  :: free_hfx_buffer
+      LOGICAL                  :: use_old_grad
+      INTEGER :: dot_blksize
    END TYPE
 
    TYPE mp2_type
@@ -254,7 +268,8 @@ MODULE mp2_types
       LOGICAL  :: do_svd
       REAL(KIND=dp) :: eps_range
       TYPE(libint_potential_type) :: ri_metric
-      TYPE(C_ptr)                 :: offload_gemm_ctx
+      TYPE(C_ptr)                 :: local_gemm_ctx
+      REAL(dp) :: e_gap, e_range
    END TYPE
 
    TYPE integ_mat_buffer_type
@@ -276,13 +291,6 @@ MODULE mp2_types
       INTEGER :: n_element
    END TYPE pair_list_type_mp2
 
-   TYPE dgemm_counter_type
-      PRIVATE
-      REAL(KIND=dp) :: flop_rate, t_start
-      INTEGER :: num_dgemm_call
-      INTEGER :: unit_nr
-   END TYPE
-
 CONTAINS
 
 ! **************************************************************************************************
@@ -299,14 +307,22 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       ! release the HFX section for the EXX calculation
-      IF (ASSOCIATED(mp2_env%ri_rpa%x_data)) THEN
-         CALL hfx_release(mp2_env%ri_rpa%x_data)
+      IF (.NOT. mp2_env%ri_rpa%reuse_hfx) THEN
+         IF (ASSOCIATED(mp2_env%ri_rpa%x_data)) CALL hfx_release(mp2_env%ri_rpa%x_data)
       END IF
+      IF (ASSOCIATED(mp2_env%ri_rpa%xc_section_aux)) CALL section_vals_release(mp2_env%ri_rpa%xc_section_aux)
+      IF (ASSOCIATED(mp2_env%ri_rpa%xc_section_primary)) CALL section_vals_release(mp2_env%ri_rpa%xc_section_primary)
 
       IF (mp2_env%eri_method .EQ. do_eri_mme) CALL cp_eri_mme_finalize(mp2_env%eri_mme_param)
       IF (ASSOCIATED(mp2_env%eri_mme_param)) DEALLOCATE (mp2_env%eri_mme_param)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tau_tj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tau_tj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tau_wj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tau_wj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%wj)) DEALLOCATE (mp2_env%ri_rpa_im_time%wj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%weights_cos_tf_t_to_w)) DEALLOCATE (mp2_env%ri_rpa_im_time%weights_cos_tf_t_to_w)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%weights_cos_tf_w_to_t)) DEALLOCATE (mp2_env%ri_rpa_im_time%weights_cos_tf_w_to_t)
 
-      CALL offload_gemm_destroy(mp2_env%offload_gemm_ctx)
+      CALL local_gemm_destroy(mp2_env%local_gemm_ctx)
 
       CALL timestop(handle)
 
@@ -332,85 +348,13 @@ CONTAINS
       ! these two functions are empty if spla is build without gpu support and
       ! OFFLOAD_GEMM is not given at compilation time
 
-      CALL offload_gemm_create(mp2_env%offload_gemm_ctx, OFFLOAD_GEMM_PU_GPU)
-      CALL offload_gemm_set_op_threshold_gpu(mp2_env%offload_gemm_ctx, 128*128*128*2)
+      CALL local_gemm_create(mp2_env%local_gemm_ctx, LOCAL_GEMM_PU_GPU)
+      CALL local_gemm_set_op_threshold_gpu(mp2_env%local_gemm_ctx, 128*128*128*2)
 
       NULLIFY (mp2_env%ri_rpa%x_data)
 
       CALL timestop(handle)
 
    END SUBROUTINE mp2_env_create
-
-! **************************************************************************************************
-!> \brief Initialize a dgemm_counter
-!> \param dgemm_counter ...
-!> \param unit_nr ...
-! **************************************************************************************************
-   ELEMENTAL SUBROUTINE dgemm_counter_init(dgemm_counter, unit_nr)
-      TYPE(dgemm_counter_type), INTENT(OUT)              :: dgemm_counter
-      INTEGER, INTENT(IN)                                :: unit_nr
-
-      dgemm_counter%num_dgemm_call = 0
-      dgemm_counter%flop_rate = 0.0
-      dgemm_counter%unit_nr = unit_nr
-
-   END SUBROUTINE dgemm_counter_init
-
-! **************************************************************************************************
-!> \brief start timer of the counter
-!> \param dgemm_counter ...
-! **************************************************************************************************
-   SUBROUTINE dgemm_counter_start(dgemm_counter)
-      TYPE(dgemm_counter_type), INTENT(INOUT)            :: dgemm_counter
-
-      dgemm_counter%t_start = m_walltime()
-
-   END SUBROUTINE dgemm_counter_start
-
-! **************************************************************************************************
-!> \brief stop timer of the counter and provide matrix sizes
-!> \param dgemm_counter ...
-!> \param size1 ...
-!> \param size2 ...
-!> \param size3 ...
-! **************************************************************************************************
-   SUBROUTINE dgemm_counter_stop(dgemm_counter, size1, size2, size3)
-      TYPE(dgemm_counter_type), INTENT(INOUT)            :: dgemm_counter
-      INTEGER, INTENT(IN)                                :: size1, size2, size3
-
-      REAL(KIND=dp)                                      :: flop_rate, t_end
-
-      t_end = m_walltime()
-      flop_rate = 2.0_dp*REAL(size1, dp)*REAL(size2, dp)*REAL(size3, dp)/MAX(0.001_dp, t_end - dgemm_counter%t_start)
-      dgemm_counter%num_dgemm_call = dgemm_counter%num_dgemm_call + 1
-      IF (dgemm_counter%unit_nr > 0) THEN
-         WRITE (UNIT=dgemm_counter%unit_nr, FMT="(T3,A,I10)") &
-            "PERFORMANCE| DGEMM call #", dgemm_counter%num_dgemm_call
-         WRITE (UNIT=dgemm_counter%unit_nr, FMT="(T3,A,I12,A,I12,A,I12)") &
-            "PERFORMANCE| DGEMM size (M x N x K) = ", size1, " x ", size2, " x ", size3
-         WRITE (UNIT=dgemm_counter%unit_nr, FMT="(T3,A,F15.5)") &
-            "PERFORMANCE| DGEMM time (s) = ", t_end - dgemm_counter%t_start
-      END IF
-      dgemm_counter%flop_rate = dgemm_counter%flop_rate + flop_rate
-
-   END SUBROUTINE dgemm_counter_stop
-
-! **************************************************************************************************
-!> \brief calculate and print flop rates
-!> \param dgemm_counter ...
-!> \param para_env ...
-! **************************************************************************************************
-   SUBROUTINE dgemm_counter_write(dgemm_counter, para_env)
-      TYPE(dgemm_counter_type), INTENT(INOUT)            :: dgemm_counter
-      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
-
-      dgemm_counter%flop_rate = dgemm_counter%flop_rate/REAL(MAX(dgemm_counter%num_dgemm_call, 1), dp)/1.0E9_dp
-      ! Average over all ranks
-      CALL mp_sum(dgemm_counter%flop_rate, para_env%group)
-      dgemm_counter%flop_rate = dgemm_counter%flop_rate/(REAL(para_env%num_pe, dp)*REAL(para_env%num_pe, dp))
-      IF (dgemm_counter%unit_nr > 0) WRITE (UNIT=dgemm_counter%unit_nr, FMT="(T3,A,T66,F15.2)") &
-         "PERFORMANCE| Average DGEMM flop rate (Gflops / MPI rank):", dgemm_counter%flop_rate
-
-   END SUBROUTINE dgemm_counter_write
 
 END MODULE mp2_types

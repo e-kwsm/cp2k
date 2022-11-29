@@ -1,17 +1,14 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-plumed_ver="2.7.3"
-plumed_pkg="plumed-${plumed_ver}.tgz"
-plumed_sha256="2895515f31aae42002a539222f5b8558037496548a061b5d0db136d3a46f618b"
+plumed_ver="2.8.0"
+plumed_pkg="plumed-src-${plumed_ver}.tgz"
+plumed_sha256="c1fc97d60b8acb2583071e247d13307c89ea5c1be1fe630bcbeb33302f588d91"
 
 source "${SCRIPT_DIR}"/common_vars.sh
 source "${SCRIPT_DIR}"/tool_kit.sh
@@ -38,8 +35,7 @@ case "$with_plumed" in
       if [ -f ${plumed_pkg} ]; then
         echo "${plumed_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${plumed_sha256} \
-          "https://www.cp2k.org/static/downloads/${plumed_pkg}"
+        download_pkg_from_cp2k_org "${plumed_sha256}" "${plumed_pkg}"
       fi
 
       [ -d plumed-${plumed_ver} ] && rm -rf plumed-${plumed_ver}
@@ -62,7 +58,6 @@ case "$with_plumed" in
         CXXFLAGS="${CXXFLAGS//-g/-g0} ${GSL_CFLAGS}" \
         LDFLAGS="${LDFLAGS} ${GSL_LDFLAGS}" \
         LIBS="${libs}" \
-        --disable-shared \
         --prefix=${pkg_install_dir} \
         --libdir="${pkg_install_dir}/lib" \
         > configure.log 2>&1 || tail -n ${LOG_LINES} configure.log
@@ -70,7 +65,7 @@ case "$with_plumed" in
       make install > install.log 2>&1 || tail -n ${LOG_LINES} install.log
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage6/$(basename ${SCRIPT_NAME})"
     fi
-    PLUMED_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    PLUMED_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding PLUMED from system paths ===================="
@@ -83,7 +78,7 @@ case "$with_plumed" in
     echo "==================== Linking PLUMED to user paths ===================="
     pkg_install_dir="$with_plumed"
     check_dir "${pkg_install_dir}/lib"
-    PLUMED_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    PLUMED_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 

@@ -1,16 +1,19 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-quip_ver="b4336484fb65b0e73211a8f920ae4361c7c353fd"
-quip_sha256="60fe54d60f5bcccd99abdccb6ca8d5d59c3c1c6997f95cee775318137743084e"
+# Installing QUIP without GAP because its ASL licence is not GPL-compatible.
+# See also https://github.com/libAtoms/QUIP/issues/481
+
+quip_ver="0.9.10"
+quip_sha256="c03505779634459ea0ba3f7ddc120ac17f0546d44dc9b5096f008f1c3c6620ef"
+
+fox_ver="b5b69ef9a46837bd944ba5c9bc1cf9d00a6198a7"
+fox_sha256="a87dd7faf80612a0df94dc272474f37689c6213c6ac4705fb637644409c5cd4e"
 
 source "${SCRIPT_DIR}"/common_vars.sh
 source "${SCRIPT_DIR}"/tool_kit.sh
@@ -28,11 +31,8 @@ EOF
   exit 0
 fi
 
-if [ "${with_intel}" != "__DONTUSE__" ]; then
+if [ "${with_quip}" != "__DONTUSE__" ] && [ "${with_intel}" != "__DONTUSE__" ]; then
   report_warning "A QUIP installation using the Intel compiler is currently not supported. The QUIP package will not be installed."
-  cat << EOF > ${BUILDDIR}/setup_quip
-with_quip="__DONTUSE__"
-EOF
   exit 0
 fi
 
@@ -54,13 +54,21 @@ case "${with_quip}" in
       if [ -f QUIP-${quip_ver}.tar.gz ]; then
         echo "QUIP-${quip_ver}.tar.gz is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${quip_sha256} \
-          https://www.cp2k.org/static/downloads/QUIP-${quip_ver}.tar.gz
+        download_pkg_from_cp2k_org "${quip_sha256}" "QUIP-${quip_ver}.tar.gz"
+      fi
+      if [ -f fox-${fox_ver}.tar.gz ]; then
+        echo "fox-${fox_ver}.tar.gz is found"
+      else
+        download_pkg_from_cp2k_org "${fox_sha256}" "fox-${fox_ver}.tar.gz"
       fi
       [ -d QUIP-${quip_ver} ] && rm -rf QUIP-${quip_ver}
+      [ -d fox-${fox_ver} ] && rm -rf fox-${fox_ver}
       echo "Installing from scratch into ${pkg_install_dir}"
       tar -xzf QUIP-${quip_ver}.tar.gz
+      tar -xzf fox-${fox_ver}.tar.gz
       cd QUIP-${quip_ver}
+      rmdir ./src/fox
+      ln -s ../../fox-${fox_ver} ./src/fox
       # translate OPENBLAS_ARCH
       case $OPENBLAS_ARCH in
         x86_64)
@@ -127,7 +135,7 @@ case "${with_quip}" in
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage6/$(basename ${SCRIPT_NAME})"
     fi
     QUIP_CFLAGS="-I'${pkg_install_dir}/include'"
-    QUIP_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    QUIP_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding Quip_DIST from system paths ===================="
@@ -148,7 +156,7 @@ case "${with_quip}" in
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
     QUIP_CFLAGS="-I'${pkg_install_dir}/include'"
-    QUIP_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    QUIP_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "${with_quip}" != "__DONTUSE__" ]; then

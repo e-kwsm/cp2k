@@ -20,8 +20,8 @@ MODULE ec_env_types
                                               ls_scf_release
    USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
    USE qs_dispersion_types,             ONLY: qs_dispersion_release,&
                                               qs_dispersion_type
    USE qs_force_types,                  ONLY: deallocate_qs_force,&
@@ -70,8 +70,9 @@ MODULE ec_env_types
       INTEGER                                          :: mao_iolevel
       ! energy components
       REAL(KIND=dp)                                    :: etotal
-      REAL(KIND=dp)                                    :: eband, exc, ehartree, vhxc
-      REAL(KIND=dp)                                    :: edispersion, efield_nuclear
+      REAL(KIND=dp)                                    :: eband, ecore, exc, ehartree, vhxc
+      REAL(KIND=dp)                                    :: edispersion, efield_elec, &
+                                                          efield_nuclear, exc_aux_fit
       ! forces
       TYPE(qs_force_type), DIMENSION(:), POINTER       :: force => Null()
       ! full neighbor lists and corresponding task list
@@ -97,10 +98,10 @@ MODULE ec_env_types
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER        :: cpmos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER        :: matrix_hz, matrix_z, matrix_wz, z_admm
       ! Harris (rhoout), and response density (rhoz) on grid
-      TYPE(pw_p_type), DIMENSION(:), POINTER           :: rhoout_r, rhoz_r
+      TYPE(pw_type), DIMENSION(:), POINTER           :: rhoout_r, rhoz_r
       ! potentials from input density
-      TYPE(pw_p_type), POINTER                         :: vh_rspace
-      TYPE(pw_p_type), DIMENSION(:), POINTER           :: vxc_rspace, vtau_rspace, vadmm_rspace
+      TYPE(pw_type)                                    :: vh_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER           :: vxc_rspace, vtau_rspace, vadmm_rspace
       ! efield
       TYPE(efield_berry_type), POINTER                 :: efield => NULL()
       ! LS matrices and types
@@ -149,6 +150,7 @@ CONTAINS
          IF (ASSOCIATED(ec_env%cpmos)) THEN
             DO iab = 1, SIZE(ec_env%cpmos)
                CALL cp_fm_release(ec_env%cpmos(iab)%matrix)
+               DEALLOCATE (ec_env%cpmos(iab)%matrix)
             END DO
             DEALLOCATE (ec_env%cpmos)
             NULLIFY (ec_env%cpmos)
@@ -166,25 +168,24 @@ CONTAINS
             DEALLOCATE (ec_env%p_env)
          END IF
          ! potential
-         IF (ASSOCIATED(ec_env%vh_rspace)) THEN
-            CALL pw_release(ec_env%vh_rspace%pw)
-            DEALLOCATE (ec_env%vh_rspace)
+         IF (ASSOCIATED(ec_env%vh_rspace%pw_grid)) THEN
+            CALL pw_release(ec_env%vh_rspace)
          END IF
          IF (ASSOCIATED(ec_env%vxc_rspace)) THEN
             DO iab = 1, SIZE(ec_env%vxc_rspace)
-               CALL pw_release(ec_env%vxc_rspace(iab)%pw)
+               CALL pw_release(ec_env%vxc_rspace(iab))
             END DO
             DEALLOCATE (ec_env%vxc_rspace)
          END IF
          IF (ASSOCIATED(ec_env%vtau_rspace)) THEN
             DO iab = 1, SIZE(ec_env%vtau_rspace)
-               CALL pw_release(ec_env%vtau_rspace(iab)%pw)
+               CALL pw_release(ec_env%vtau_rspace(iab))
             END DO
             DEALLOCATE (ec_env%vtau_rspace)
          END IF
          IF (ASSOCIATED(ec_env%vadmm_rspace)) THEN
             DO iab = 1, SIZE(ec_env%vadmm_rspace)
-               CALL pw_release(ec_env%vadmm_rspace(iab)%pw)
+               CALL pw_release(ec_env%vadmm_rspace(iab))
             END DO
             DEALLOCATE (ec_env%vadmm_rspace)
          END IF

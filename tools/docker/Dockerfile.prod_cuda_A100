@@ -3,11 +3,15 @@
 # Usage: docker build -f ./Dockerfile.prod_cuda_A100 ../../
 #
 
-FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Setup CUDA environment.
 ENV CUDA_PATH /usr/local/cuda
 ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+
+# Disable JIT cache as there seems to be an issue with file locking on overlayfs.
+# See also https://github.com/cp2k/cp2k/pull/2337
+ENV CUDA_CACHE_DISABLE 1
 
 # Install Ubuntu packages.
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -85,7 +89,10 @@ RUN /bin/bash -c " \
     echo 'Compiling cp2k...' && \
     source /opt/cp2k-toolchain/install/setup && \
     make -j ARCH=local_cuda VERSION=psmp && \
-    rm -rf lib obj exe/local_cuda/libcp2k_unittest.psmp"
+    ln -sf ./cp2k.psmp ./exe/local_cuda/cp2k && \
+    ln -sf ./cp2k_shell.psmp ./exe/local_cuda/cp2k_shell && \
+    rm -rf lib obj exe/local_cuda/libcp2k_unittest.psmp && \
+    ( [ ! -f ./exe/local_cuda/cp2k.psmp ] || ldd ./exe/local_cuda/cp2k.psmp | grep -q libmpi )"
 COPY ./data ./data
 COPY ./tests ./tests
 COPY ./tools/regtesting ./tools/regtesting

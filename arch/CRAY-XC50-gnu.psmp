@@ -3,15 +3,15 @@
 # CP2K arch file for Cray-XC50 (Piz Daint, CSCS, GPU partition)
 #
 # Tested with: GNU 9.3.0, Cray-MPICH 7.7.18, Cray-libsci 20.09.1, Cray-FFTW 3.3.8.10,
-#              COSMA 2.5.1, ELPA 2021.11.002, LIBINT 2.6.0, LIBPEXSI 1.2.0,
-#              LIBXC 5.2.2, LIBVORI 210412, LIBXSMM 1.17, PLUMED 2.7.2,
-#              SIRIUS 7.3.1, SPGLIB 1.16.2
+#              COSMA 2.6.2, ELPA 2022.05.001, LIBINT 2.6.0, LIBPEXSI 1.2.0,
+#              LIBXC 6.0.0, LIBVORI 220621, LIBXSMM 1.17, PLUMED 2.8.0,
+#              SIRIUS 7.3.2, SPGLIB 1.16.2
 #
 # Usage: Source this arch file and then run make as instructed.
 #        A full toolchain installation is performed as default.
 #        Replace or adapt the "module add" commands below if needed.
 #
-# Author: Matthias Krack (11.03.2022)
+# Author: Matthias Krack (26.10.2022)
 #
 # \
    if [ "${0}" = "${BASH_SOURCE}" ]; then \
@@ -47,38 +47,38 @@
    echo "To load the required modules in your batch job script, use:"; \
    echo "   module restore cp2k_gpu_gnu_psmp"; \
    cd tools/toolchain; \
-   ./install_cp2k_toolchain.sh --enable-cuda=yes --gpu-ver=P100 --with-gcc=system --with-libvdwxc --with-pexsi --with-plumed; \
+   ./install_cp2k_toolchain.sh --enable-cuda=yes --gpu-ver=P100 --no-arch-files --with-gcc=system --with-libvdwxc --with-pexsi --with-plumed; \
    cd ../..; \
    printf "Sourcing ${PWD}/tools/toolchain/install/setup ... "; \
    source ${PWD}/tools/toolchain/install/setup; \
    printf "done\n"; \
    echo "Check the output above for error messages and consistency!"; \
    echo "If everything is OK, you can build a CP2K production binary with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.}"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.}"; \
    echo "Alternatively, you can add further checks, e.g. for regression testing, with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
    echo "or build CP2K as a library with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} libcp2k"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} libcp2k"; \
    return
 
 # Set options
 DO_CHECKS      := no
 USE_ACC        := yes
-USE_COSMA      := 2.5.1
-USE_ELPA       := 2021.11.002
+USE_COSMA      := 2.6.2
+USE_ELPA       := 2022.05.001
 USE_LIBINT     := 2.6.0
 USE_LIBPEXSI   := 1.2.0
-USE_LIBVORI    := 210412
-USE_LIBXC      := 5.2.2
+USE_LIBVORI    := 220621
+USE_LIBXC      := 6.0.0
 USE_LIBXSMM    := 1.17
-USE_PLUMED     := 2.7.3
-#USE_QUIP       := b4336484fb65b0e73211a8f920ae4361c7c353fd
-USE_SIRIUS     := 7.3.1
+USE_PLUMED     := 2.8.0
+#USE_QUIP       := 0.9.10
+USE_SIRIUS     := 7.3.2
 USE_SPGLIB     := 1.16.2
 # Only needed for SIRIUS
 LIBVDWXC_VER   := 0.4.0
-SPFFT_VER      := 1.0.5
-SPLA_VER       := 1.5.3
+SPFFT_VER      := 1.0.6
+SPLA_VER       := 1.5.4
 HDF5_VER       := 1.12.0
 # Only needed for LIBPEXSI
 SCOTCH_VER     := 6.0.0

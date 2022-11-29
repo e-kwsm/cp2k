@@ -2,15 +2,15 @@
 #
 # CP2K (GNU aarch64) arch file for Linux clusters
 #
-# Tested with: GNU 11.2.0, MPICH 3.3.2,
-#              ScaLAPACK 2.1.0, OpenBLAS 0.3.20, FFTW 3.3.10, LIBINT 2.6.0,
-#              LIBXC 5.2.2, ELPA 2021.11.002, PLUMED 2.7.3, SPGLIB 1.16.2,
-#              LIBVORI 210412, GSL 2.7, COSMA 2.5.1, SIRIUS 7.3.0
+# Tested with: GNU 12.2.0, MPICH 3.4.3,
+#              ScaLAPACK 2.2.1, OpenBLAS 0.3.21, FFTW 3.3.10, LIBINT 2.6.0,
+#              LIBXC 6.0.0, ELPA 2022.05.001, PLUMED 2.8.0, SPGLIB 1.16.2,
+#              LIBVORI 220621, GSL 2.7, COSMA 2.6.2, SIRIUS 7.3.2
 #
 # Usage: Source this arch file and then run make as instructed.
 #        A full toolchain installation is performed as default.
 #
-# Author: Matthias Krack (23.03.2022)
+# Author: Matthias Krack (25.11.2022)
 #
 # \
    if [[ "${0}" == "${BASH_SOURCE}" ]]; then \
@@ -20,42 +20,45 @@
    fi; \
    this_file=${BASH_SOURCE##*/}; \
    cd tools/toolchain; \
-   ./install_cp2k_toolchain.sh --install-all --with-gcc --with-mpich; \
+   [[ -z "${mpi_implementation}" ]] && mpi_implementation="mpich"; \
+   [[ -z "${target_cpu}" ]] && target_cpu="native"; \
+   ./install_cp2k_toolchain.sh --install-all --no-arch-files --target-cpu=${target_cpu} --with-gcc --with-${mpi_implementation} --with-libxsmm=no; \
    source ./install/setup; \
    cd ../..; \
    echo; \
    echo "Check the output above for error messages and consistency!"; \
    echo "If everything is OK, you can build a CP2K production binary with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.}"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.}"; \
    echo "Alternatively, you can add further checks, e.g. for regression testing, with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
    echo "or build CP2K only with shared libraries using"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} SHARED=yes"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} SHARED=yes"; \
    echo "or build CP2K as a library with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} libcp2k"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} libcp2k"; \
    return
 
 # Set options
 DO_CHECKS      := no
 SHARED         := no
-USE_COSMA      := 2.5.1
-USE_ELPA       := 2021.11.002
+TARGET_CPU     := native
+USE_COSMA      := 2.6.2
+USE_ELPA       := 2022.05.001
 USE_FFTW       := 3.3.10
 USE_LIBINT     := 2.6.0
 USE_LIBPEXSI   := 1.2.0
-USE_LIBVORI    := 210412
-USE_LIBXC      := 5.2.2
+USE_LIBVORI    := 220621
+USE_LIBXC      := 6.0.0
 #USE_LIBXSMM    := 1.17
-USE_OPENBLAS   := 0.3.20
-USE_PLUMED     := 2.7.3
-USE_QUIP       := b4336484fb65b0e73211a8f920ae4361c7c353fd
-USE_SCALAPACK  := 2.1.0
-USE_SIRIUS     := 7.3.1
+USE_OPENBLAS   := 0.3.21
+USE_PLUMED     := 2.8.0
+USE_QUIP       := 0.9.10
+USE_SCALAPACK  := 2.2.1
+USE_SIRIUS     := 7.3.2
 USE_SPGLIB     := 1.16.2
 # Only needed for SIRIUS
 LIBVDWXC_VER   := 0.4.0
-SPFFT_VER      := 1.0.5
-SPLA_VER       := 1.5.3
+SPFFT_VER      := 1.0.6
+SPLA_VER       := 1.5.4
 HDF5_VER       := 1.12.0
 # Only needed for LIBPEXSI
 SCOTCH_VER     := 6.0.0
@@ -69,7 +72,7 @@ FC             := mpif90
 LD             := mpif90
 AR             := ar -r
 
-CFLAGS         := -O2 -fopenmp -fopenmp-simd -ftree-vectorize -funroll-loops -g -mtune=native
+CFLAGS         := -O2 -fopenmp -fopenmp-simd -ftree-vectorize -funroll-loops -g -mtune=$(TARGET_CPU)
 
 DFLAGS         := -D__parallel
 DFLAGS         += -D__SCALAPACK
@@ -91,6 +94,8 @@ endif
 # Settings for regression testing
 ifeq ($(DO_CHECKS), yes)
    DFLAGS         += -D__CHECK_DIAG
+#  CFLAGS_DEBUG   := -fsanitize=address
+   CFLAGS_DEBUG   := -fsanitize=leak
    FCFLAGS_DEBUG  := -fcheck=bounds,do,recursion,pointer
    FCFLAGS_DEBUG  += -fcheck=all,no-array-temps
    FCFLAGS_DEBUG  += -ffpe-trap=invalid,overflow,zero
@@ -99,7 +104,6 @@ ifeq ($(DO_CHECKS), yes)
    FCFLAGS_DEBUG  += -finit-real=snan
    FCFLAGS_DEBUG  += -finit-integer=-42
    FCFLAGS_DEBUG  += -finline-matmul-limit=0
-   LDFLAGS        += -fsanitize=leak
    WFLAGS         := -Werror=aliasing
    WFLAGS         += -Werror=ampersand
    WFLAGS         += -Werror=c-binding-type
@@ -347,7 +351,7 @@ ifneq ($(USE_OPENBLAS),)
    endif
 endif
 
-CFLAGS         += $(DFLAGS)
+CFLAGS         += $(DFLAGS) $(CFLAGS_DEBUG)
 
 FCFLAGS        := $(CFLAGS) $(FCFLAGS_DEBUG) $(WFLAGS)
 ifeq ($(shell [ $(shell gcc -dumpversion | cut -d. -f1) -gt 9 ] && echo yes), yes)

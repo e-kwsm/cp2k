@@ -27,7 +27,7 @@ MODULE qs_loc_states
    USE molecular_states,                ONLY: construct_molecular_states
    USE molecule_types,                  ONLY: molecule_type
    USE particle_list_types,             ONLY: particle_list_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
                                               set_qs_env
@@ -35,8 +35,8 @@ MODULE qs_loc_states
                                               centers_second_moments_loc,&
                                               qs_loc_driver
    USE qs_loc_molecules,                ONLY: wfc_to_molecule
-   USE qs_loc_types,                    ONLY: qs_loc_env_new_type
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_loc_types,                    ONLY: qs_loc_env_type
+   USE qs_mo_types,                     ONLY: mo_set_type
    USE wannier_states,                  ONLY: construct_wannier_states
    USE wannier_states_types,            ONLY: wannier_centres_type
 #include "./base/base_uses.f90"
@@ -69,10 +69,11 @@ CONTAINS
                                     wf_r, wf_g, particles, coeff, evals, marked_states)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: loc_section
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_local
-      TYPE(pw_p_type)                                    :: wf_r, wf_g
+      TYPE(pw_type), INTENT(INOUT)                       :: wf_r
+      TYPE(pw_type), INTENT(IN)                          :: wf_g
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: coeff
       TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: evals
@@ -82,12 +83,12 @@ CONTAINS
 
       INTEGER                                            :: handle, ispin, mystate, ns, output_unit
       INTEGER, DIMENSION(:), POINTER                     :: lstates, marked_states_spin
-      LOGICAL                                            :: do_homo
+      LOGICAL                                            :: do_homo, do_mixed
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: scenter
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(section_vals_type), POINTER                   :: loc_print_section
       TYPE(wannier_centres_type), DIMENSION(:), POINTER  :: wc
@@ -101,6 +102,7 @@ CONTAINS
       output_unit = cp_logger_get_default_io_unit(logger)
       loc_print_section => section_vals_get_subs_vals(loc_section, "PRINT")
       do_homo = qs_loc_env%localized_wfn_control%do_homo
+      do_mixed = qs_loc_env%localized_wfn_control%do_mixed
       IF (BTEST(cp_print_key_should_output(logger%iter_info, loc_print_section, &
                                            "WANNIER_STATES"), cp_p_file)) THEN
          CALL get_qs_env(qs_env=qs_env, WannierCentres=wc)
@@ -122,7 +124,11 @@ CONTAINS
             IF (output_unit > 0 .AND. do_homo) WRITE (output_unit, "(/,T2,A,I3)") &
                "LOCALIZATION| Computing localization properties "// &
                "for OCCUPIED ORBITALS. Spin:", ispin
-            IF (output_unit > 0 .AND. (.NOT. do_homo)) WRITE (output_unit, "(/,T2,A,I3)") &
+            IF (output_unit > 0 .AND. do_mixed) WRITE (output_unit, "(/,T2,A,/,T16,A,I3)") &
+               "LOCALIZATION| Computing localization properties for OCCUPIED, ", &
+               "PARTIALLY OCCUPIED and UNOCCUPIED ORBITALS. Spin:", ispin
+            IF (output_unit > 0 .AND. (.NOT. do_homo) .AND. (.NOT. do_mixed)) &
+               WRITE (output_unit, "(/,T2,A,I3)") &
                "LOCALIZATION| Computing localization properties "// &
                "for UNOCCUPIED ORBITALS. Spin:", ispin
 

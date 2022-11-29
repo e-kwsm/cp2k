@@ -136,7 +136,7 @@ CONTAINS
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_work_finalize(has_redistributed)
-      LOGICAL                                            :: has_redistributed
+      LOGICAL, INTENT(IN)                                :: has_redistributed
 
       IF (ASSOCIATED(work_redistribute%group_distribution)) THEN
          IF (has_redistributed) THEN
@@ -167,8 +167,8 @@ CONTAINS
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_init(a, x, should_print, elpa_force_redistribute)
-      INTEGER                                            :: a, x
-      LOGICAL                                            :: should_print, elpa_force_redistribute
+      INTEGER, INTENT(IN)                                :: a, x
+      LOGICAL, INTENT(IN)                                :: should_print, elpa_force_redistribute
 
       work_redistribute%a = a
       work_redistribute%x = x
@@ -203,7 +203,7 @@ CONTAINS
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    FUNCTION cp_fm_max_ncpu_non_zero_column(matrix) RESULT(ncpu)
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       INTEGER                                            :: ncpu
 
       INTEGER                                            :: gcd_max, ipe, jpe, ncol_block, &
@@ -284,8 +284,8 @@ CONTAINS
    SUBROUTINE cp_fm_redistribute_start(matrix, eigenvectors, matrix_new, eigenvectors_new, &
                                        caller_is_elpa, redist_info)
 
-      TYPE(cp_fm_type), POINTER                :: matrix, eigenvectors
-      TYPE(cp_fm_type), POINTER, INTENT(OUT)   :: matrix_new, eigenvectors_new
+      TYPE(cp_fm_type), INTENT(IN)             :: matrix, eigenvectors
+      TYPE(cp_fm_type), INTENT(OUT)            :: matrix_new, eigenvectors_new
       LOGICAL, OPTIONAL, INTENT(IN)            :: caller_is_elpa
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_start'
@@ -316,8 +316,6 @@ CONTAINS
 
 #if defined(__SCALAPACK)
 
-      NULLIFY (matrix_new)
-      NULLIFY (eigenvectors_new)
       logger => cp_get_default_logger()
       io_unit = cp_logger_get_default_io_unit(logger)
 
@@ -428,8 +426,8 @@ CONTAINS
          END IF
       ELSE
          ! No need to redistribute, just return pointers to the original arrays
-         matrix_new => matrix
-         eigenvectors_new => eigenvectors
+         matrix_new = matrix
+         eigenvectors_new = eigenvectors
       END IF
 
       IF (PRESENT(redist_info)) &
@@ -463,9 +461,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_end(matrix, eigenvectors, eig, matrix_new, eigenvectors_new)
 
-      TYPE(cp_fm_type), POINTER                :: matrix, eigenvectors
-      REAL(KIND=dp), DIMENSION(:)              :: eig
-      TYPE(cp_fm_type), POINTER, INTENT(OUT)   :: matrix_new, eigenvectors_new
+      TYPE(cp_fm_type), INTENT(IN)             :: matrix, eigenvectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)  :: eig
+      TYPE(cp_fm_type), INTENT(INOUT)          :: matrix_new, eigenvectors_new
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_end'
 
@@ -507,12 +505,6 @@ CONTAINS
 
          ! finally, also the eigenvalues need to end up on the non-group member tasks
          CALL mp_bcast(eig, 0, para_env%group)
-
-      ELSE
-         ! Just nullify pointers to the original matrices
-         NULLIFY (matrix_new)
-         NULLIFY (eigenvectors_new)
-
       END IF
 
 #else

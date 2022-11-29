@@ -21,8 +21,7 @@ MODULE eip_environment
                                               get_cell
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_subsys_methods,               ONLY: cp_subsys_create
-   USE cp_subsys_types,                 ONLY: cp_subsys_release,&
-                                              cp_subsys_set,&
+   USE cp_subsys_types,                 ONLY: cp_subsys_set,&
                                               cp_subsys_type
    USE distribution_1d_types,           ONLY: distribution_1d_release,&
                                               distribution_1d_type
@@ -115,7 +114,6 @@ CONTAINS
 
       CALL cell_release(cell)
       CALL cell_release(cell_ref)
-      CALL cp_subsys_release(subsys)
 
       CALL timestop(handle)
 
@@ -165,8 +163,7 @@ CONTAINS
       CALL write_molecule_kind_set(molecule_kind_set, subsys_section)
 
 !   *** Print the atomic coordinates
-      CALL write_fist_particle_coordinates(particle_set, subsys_section, &
-                                           charges=Null())
+      CALL write_fist_particle_coordinates(particle_set, subsys_section)
       CALL write_particle_distances(particle_set, cell=cell, &
                                     subsys_section=subsys_section)
       CALL write_structure_data(particle_set, cell=cell, &

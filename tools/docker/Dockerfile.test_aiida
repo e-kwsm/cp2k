@@ -3,12 +3,12 @@
 # Usage: docker build -f ./Dockerfile.test_aiida ../../
 #
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 # Install requirements for the toolchain.
 WORKDIR /opt/cp2k-toolchain
 COPY ./tools/toolchain/install_requirements*.sh ./
-RUN ./install_requirements.sh ubuntu:20.04
+RUN ./install_requirements.sh ubuntu:22.04
 
 # Install the toolchain.
 RUN mkdir scripts
@@ -22,7 +22,7 @@ COPY ./tools/toolchain/scripts/VERSION \
 COPY ./tools/toolchain/install_cp2k_toolchain.sh .
 RUN ./install_cp2k_toolchain.sh \
     --install-all \
-    --mpi-mode=mpich \
+    --with-gcc=system \
     --dry-run
 
 # Dry-run leaves behind config files for the followup install scripts.
@@ -81,5 +81,6 @@ RUN ./test_aiida.sh 2>&1 | tee report.log
 
 # Output the report if the image is old and was therefore pulled from the build cache.
 CMD cat $(find ./report.log -mmin +10) | sed '/^Summary:/ s/$/ (cached)/'
+ENTRYPOINT []
 
 #EOF

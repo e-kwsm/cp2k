@@ -31,6 +31,7 @@ MODULE negf_green_methods
                                               z_mone,&
                                               z_one,&
                                               z_zero
+   USE parallel_gemm_api,               ONLY: parallel_gemm
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -83,6 +84,7 @@ CONTAINS
       CPASSERT(nrows == ncols)
 
       NULLIFY (work%a, work%a0, work%a_inv, work%b, work%c, work%d, work%e, work%scratch)
+      ALLOCATE (work%a, work%a0, work%a_inv, work%b, work%c, work%d, work%e, work%scratch)
       CALL cp_cfm_create(work%a, fm_struct)
       CALL cp_cfm_create(work%a0, fm_struct)
       CALL cp_cfm_create(work%a_inv, fm_struct)
@@ -109,14 +111,46 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      IF (ASSOCIATED(work%a)) CALL cp_cfm_release(work%a)
-      IF (ASSOCIATED(work%a0)) CALL cp_cfm_release(work%a0)
-      IF (ASSOCIATED(work%a_inv)) CALL cp_cfm_release(work%a_inv)
-      IF (ASSOCIATED(work%b)) CALL cp_cfm_release(work%b)
-      IF (ASSOCIATED(work%c)) CALL cp_cfm_release(work%c)
-      IF (ASSOCIATED(work%d)) CALL cp_cfm_release(work%d)
-      IF (ASSOCIATED(work%e)) CALL cp_cfm_release(work%e)
-      IF (ASSOCIATED(work%scratch)) CALL cp_cfm_release(work%scratch)
+      IF (ASSOCIATED(work%a)) THEN
+         CALL cp_cfm_release(work%a)
+         DEALLOCATE (work%a)
+         NULLIFY (work%a)
+      END IF
+      IF (ASSOCIATED(work%a0)) THEN
+         CALL cp_cfm_release(work%a0)
+         DEALLOCATE (work%a0)
+         NULLIFY (work%a0)
+      END IF
+      IF (ASSOCIATED(work%a_inv)) THEN
+         CALL cp_cfm_release(work%a_inv)
+         DEALLOCATE (work%a_inv)
+         NULLIFY (work%a_inv)
+      END IF
+      IF (ASSOCIATED(work%b)) THEN
+         CALL cp_cfm_release(work%b)
+         DEALLOCATE (work%b)
+         NULLIFY (work%b)
+      END IF
+      IF (ASSOCIATED(work%c)) THEN
+         CALL cp_cfm_release(work%c)
+         DEALLOCATE (work%c)
+         NULLIFY (work%c)
+      END IF
+      IF (ASSOCIATED(work%d)) THEN
+         CALL cp_cfm_release(work%d)
+         DEALLOCATE (work%d)
+         NULLIFY (work%d)
+      END IF
+      IF (ASSOCIATED(work%e)) THEN
+         CALL cp_cfm_release(work%e)
+         DEALLOCATE (work%e)
+         NULLIFY (work%e)
+      END IF
+      IF (ASSOCIATED(work%scratch)) THEN
+         CALL cp_cfm_release(work%scratch)
+         DEALLOCATE (work%scratch)
+         NULLIFY (work%scratch)
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE sancho_work_matrices_release
@@ -135,9 +169,9 @@ CONTAINS
 !> \author Sergey Chulkov
 ! **************************************************************************************************
    SUBROUTINE do_sancho(g_surf, omega, h0, s0, h1, s1, conv, transp, work)
-      TYPE(cp_cfm_type), POINTER                         :: g_surf
+      TYPE(cp_cfm_type), INTENT(IN)                      :: g_surf
       COMPLEX(kind=dp), INTENT(in)                       :: omega
-      TYPE(cp_fm_type), POINTER                          :: h0, s0, h1, s1
+      TYPE(cp_fm_type), INTENT(IN)                       :: h0, s0, h1, s1
       REAL(kind=dp), INTENT(in)                          :: conv
       LOGICAL, INTENT(in)                                :: transp
       TYPE(sancho_work_matrices_type), INTENT(in)        :: work
@@ -185,21 +219,21 @@ CONTAINS
          CALL cp_cfm_lu_invert(work%a_inv)
 
          ! scratch <- A_n^-1 * B_n
-         CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_one, work%a_inv, work%b, z_zero, work%scratch)
+         CALL parallel_gemm('N', 'N', nrows, nrows, nrows, z_one, work%a_inv, work%b, z_zero, work%scratch)
          ! E_n = - C_n A_n^-1 B_n
          CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_mone, work%c, work%scratch, z_zero, work%e)
          ! g_surf <- B_{n+1} = B_n A_n^-1 B_n
          ! keep B_n, as we need it to compute the matrix product B_n A_n^-1 C_n
-         CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_one, work%b, work%scratch, z_zero, g_surf)
+         CALL parallel_gemm('N', 'N', nrows, nrows, nrows, z_one, work%b, work%scratch, z_zero, g_surf)
 
          ! scratch <- A_n^-1 * C_n
-         CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_one, work%a_inv, work%c, z_zero, work%scratch)
+         CALL parallel_gemm('N', 'N', nrows, nrows, nrows, z_one, work%a_inv, work%c, z_zero, work%scratch)
          ! D_n = - B_n A_n^-1 C_n
          CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_mone, work%b, work%scratch, z_zero, work%d)
          ! we do not need B_n any longer, so the matrix B now holds the B_{n+1} matrix
          CALL cp_cfm_to_cfm(g_surf, work%b)
          ! C_{n+1} = C_n A_n^-1 C_n
-         CALL cp_cfm_gemm('N', 'N', nrows, nrows, nrows, z_one, work%c, work%scratch, z_zero, g_surf)
+         CALL parallel_gemm('N', 'N', nrows, nrows, nrows, z_one, work%c, work%scratch, z_zero, g_surf)
          CALL cp_cfm_to_cfm(g_surf, work%c)
 
          ! A0_{n+1} = A0_n + D_n = A0_n - B_n A_n^-1 C_n
@@ -233,11 +267,11 @@ CONTAINS
 !> \author Sergey Chulkov
 ! **************************************************************************************************
    SUBROUTINE negf_contact_self_energy(self_energy_c, omega, g_surf_c, h_sc0, s_sc0, zwork1, zwork2, transp)
-      TYPE(cp_cfm_type), POINTER                         :: self_energy_c
+      TYPE(cp_cfm_type), INTENT(IN)                      :: self_energy_c
       COMPLEX(kind=dp), INTENT(in)                       :: omega
-      TYPE(cp_cfm_type), POINTER                         :: g_surf_c
-      TYPE(cp_fm_type), POINTER                          :: h_sc0, s_sc0
-      TYPE(cp_cfm_type), POINTER                         :: zwork1, zwork2
+      TYPE(cp_cfm_type), INTENT(IN)                      :: g_surf_c
+      TYPE(cp_fm_type), INTENT(IN)                       :: h_sc0, s_sc0
+      TYPE(cp_cfm_type), INTENT(IN)                      :: zwork1, zwork2
       LOGICAL, INTENT(in)                                :: transp
 
       CHARACTER(len=*), PARAMETER :: routineN = 'negf_contact_self_energy'
@@ -255,16 +289,16 @@ CONTAINS
          CALL cp_fm_get_info(s_sc0, nrow_global=nao_contact, ncol_global=nao_scattering)
 
          ! zwork2 = g_surf_c * [omega * S_SC0^T - KS_SC0^T]
-         CALL cp_cfm_gemm('N', 'N', nao_contact, nao_scattering, nao_contact, z_one, g_surf_c, zwork1, z_zero, zwork2)
+         CALL parallel_gemm('N', 'N', nao_contact, nao_scattering, nao_contact, z_one, g_surf_c, zwork1, z_zero, zwork2)
          ! [omega * S_SC0^T - KS_SC0^T]^T * g_surf_c * [omega * S_SC0^T - KS_SC0^T]
-         CALL cp_cfm_gemm('T', 'N', nao_scattering, nao_scattering, nao_contact, z_one, zwork1, zwork2, z_zero, self_energy_c)
+         CALL parallel_gemm('T', 'N', nao_scattering, nao_scattering, nao_contact, z_one, zwork1, zwork2, z_zero, self_energy_c)
       ELSE
          CALL cp_fm_get_info(s_sc0, nrow_global=nao_scattering, ncol_global=nao_contact)
 
          ! zwork2 = [omega * S_SC0 - KS_SC0] * g_surf_c
-         CALL cp_cfm_gemm('N', 'N', nao_scattering, nao_contact, nao_contact, z_one, zwork1, g_surf_c, z_zero, zwork2)
+         CALL parallel_gemm('N', 'N', nao_scattering, nao_contact, nao_contact, z_one, zwork1, g_surf_c, z_zero, zwork2)
          ! [omega * S_SC0 - KS_SC0] * g_surf_c * [omega * S_SC0 - KS_SC0]^T
-         CALL cp_cfm_gemm('N', 'T', nao_scattering, nao_scattering, nao_contact, z_one, zwork2, zwork1, z_zero, self_energy_c)
+         CALL parallel_gemm('N', 'T', nao_scattering, nao_scattering, nao_contact, z_one, zwork2, zwork1, z_zero, self_energy_c)
       END IF
 
       CALL timestop(handle)
@@ -278,7 +312,7 @@ CONTAINS
 !> \author Sergey Chulkov
 ! **************************************************************************************************
    SUBROUTINE negf_contact_broadening_matrix(gamma_c, self_energy_c)
-      TYPE(cp_cfm_type), POINTER                         :: gamma_c, self_energy_c
+      TYPE(cp_cfm_type), INTENT(IN)                      :: gamma_c, self_energy_c
 
       CHARACTER(len=*), PARAMETER :: routineN = 'negf_contact_broadening_matrix'
 
@@ -312,10 +346,11 @@ CONTAINS
 !> \author Sergey Chulkov
 ! **************************************************************************************************
    SUBROUTINE negf_retarded_green_function(g_ret_s, omega, self_energy_ret_sum, h_s, s_s, v_hartree_s)
-      TYPE(cp_cfm_type), POINTER                         :: g_ret_s
+      TYPE(cp_cfm_type), INTENT(IN)                      :: g_ret_s
       COMPLEX(kind=dp), INTENT(in)                       :: omega
-      TYPE(cp_cfm_type), POINTER                         :: self_energy_ret_sum
-      TYPE(cp_fm_type), POINTER                          :: h_s, s_s, v_hartree_s
+      TYPE(cp_cfm_type), INTENT(IN)                      :: self_energy_ret_sum
+      TYPE(cp_fm_type), INTENT(IN)                       :: h_s, s_s
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: v_hartree_s
 
       CHARACTER(len=*), PARAMETER :: routineN = 'negf_retarded_green_function'
 
@@ -328,7 +363,7 @@ CONTAINS
       ! omega * S_S - H_S - V_Hartree
       CALL cp_fm_to_cfm(msourcer=s_s, mtarget=g_ret_s)
       CALL cp_cfm_scale_and_add_fm(omega, g_ret_s, z_mone, h_s)
-      IF (ASSOCIATED(v_hartree_s)) &
+      IF (PRESENT(v_hartree_s)) &
          CALL cp_cfm_scale_and_add_fm(z_one, g_ret_s, z_one, v_hartree_s)
 
       ! g_ret_s = [omega * S_S - H_S - \sum_{contact} self_energy_{contact}^{ret.} ]^-1

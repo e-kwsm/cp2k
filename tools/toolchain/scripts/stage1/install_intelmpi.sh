@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -33,18 +30,19 @@ case "${with_intelmpi}" in
   __SYSTEM__)
     echo "==================== Finding Intel MPI from system paths ===================="
     check_command mpirun "intelmpi" && MPIRUN="$(command -v mpirun)" || exit 1
-    check_command mpiicc "intelmpi" && MPICC="$(command -v mpiicc)" || exit 1
-    if [ $(command -v mpiicpc) ]; then
-      check_command mpiicpc "intelmpi" && MPICXX="$(command -v mpiicpc)"
-    elif [ $(command -v mpic++) ]; then
-      check_command mpic++ "intelmpi" && MPICXX="$(command -v mpic++)"
+    if [ "${with_intel}" != "__DONTUSE__" ]; then
+      check_command mpiicc "intelmpi" && MPICC="$(command -v mpiicc)" || exit 1
+      check_command mpiicpc "intelmpi" && MPICXX="$(command -v mpiicpc)" || exit 1
+      check_command mpiifort "intelmpi" && MPIFC="$(command -v mpiifort)" || exit 1
     else
+      check_command mpicc "intelmpi" && MPICC="$(command -v mpicc)" || exit 1
       check_command mpicxx "intelmpi" && MPICXX="$(command -v mpicxx)" || exit 1
+      check_command mpif90 "intelmpi" && MPIFC="$(command -v mpif90)" || exit 1
     fi
-    check_command mpiifort "intelmpi" && MPIFC="$(command -v mpiifort)" || exit 1
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
-    add_include_from_paths INTELMPI_CFLAGS "mpi.h" $INCLUDE_PATHS
+    # include path is already handled by compiler wrapper scripts (can cause wrong mpi.mod with GNU Fortran)
+    # add_include_from_paths INTELMPI_CFLAGS "mpi.h" $INCLUDE_PATHS
     add_lib_from_paths INTELMPI_LDFLAGS "libmpi.*" $LIB_PATHS
     check_lib -lmpi "intelmpi"
     check_lib -lmpicxx "intelmpi"
@@ -59,13 +57,20 @@ case "${with_intelmpi}" in
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
     check_command ${pkg_install_dir}/bin/mpirun "intel" && MPIRUN="${pkg_install_dir}/bin/mpirun" || exit 1
-    check_command ${pkg_install_dir}/bin/mpiicc "intel" && MPICC="${pkg_install_dir}/bin/mpiicc" || exit 1
-    check_command ${pkg_install_dir}/bin/mpiicpc "intel" && MPICXX="${pkg_install_dir}/bin/mpiicpc" || exit 1
-    check_command ${pkg_install_dir}/bin/mpiifort "intel" && MPIFC="${pkg_install_dir}/bin/mpiifort" || exit 1
+    if [ "${with_intel}" != "__DONTUSE__" ]; then
+      check_command ${pkg_install_dir}/bin/mpiicc "intel" && MPICC="${pkg_install_dir}/bin/mpiicc" || exit 1
+      check_command ${pkg_install_dir}/bin/mpiicpc "intel" && MPICXX="${pkg_install_dir}/bin/mpiicpc" || exit 1
+      check_command ${pkg_install_dir}/bin/mpiifort "intel" && MPIFC="${pkg_install_dir}/bin/mpiifort" || exit 1
+    else
+      check_command ${pkg_install_dir}/bin/mpicc "intel" && MPICC="${pkg_install_dir}/bin/mpicc" || exit 1
+      check_command ${pkg_install_dir}/bin/mpicxx "intel" && MPICXX="${pkg_install_dir}/bin/mpicxx" || exit 1
+      check_command ${pkg_install_dir}/bin/mpif90 "intel" && MPIFC="${pkg_install_dir}/bin/mpif90" || exit 1
+    fi
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
-    INTELMPI_CFLAGS="-I'${pkg_install_dir}/include'"
-    INTELMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    # include path is already handled by compiler wrapper scripts (can cause wrong mpi.mod with GNU Fortran)
+    #INTELMPI_CFLAGS="-I'${pkg_install_dir}/include'"
+    INTELMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "${with_intelmpi}" != "__DONTUSE__" ]; then

@@ -26,7 +26,7 @@ MODULE efield_utils
    USE mathconstants,                   ONLY: pi
    USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -60,7 +60,7 @@ CONTAINS
    SUBROUTINE efield_potential(qs_env, v_efield_rspace)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type)                                    :: v_efield_rspace
+      TYPE(pw_type)                                      :: v_efield_rspace
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'efield_potential'
 
@@ -70,7 +70,7 @@ CONTAINS
       REAL(kind=dp), DIMENSION(3)                        :: dr, grid_p
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_rho_type), POINTER                         :: rho
 
@@ -85,13 +85,13 @@ CONTAINS
 
       CALL qs_rho_get(rho, rho_r=rho_r)
 
-      v_efield_rspace%pw%cr3d = 0.0_dp
+      v_efield_rspace%cr3d = 0.0_dp
 
-      bo_local = v_efield_rspace%pw%pw_grid%bounds_local
-      bo_global = v_efield_rspace%pw%pw_grid%bounds
+      bo_local = v_efield_rspace%pw_grid%bounds_local
+      bo_global = v_efield_rspace%pw_grid%bounds
 
-      dvol = v_efield_rspace%pw%pw_grid%dvol
-      dr = v_efield_rspace%pw%pw_grid%dr
+      dvol = v_efield_rspace%pw_grid%dvol
+      dr = v_efield_rspace%pw_grid%dr
 
       CALL make_field(dft_control, field, qs_env%sim_step, qs_env%sim_time)
 
@@ -101,13 +101,13 @@ CONTAINS
                grid_p(1) = (i - bo_global(1, 1))*dr(1)
                grid_p(2) = (j - bo_global(1, 2))*dr(2)
                grid_p(3) = (k - bo_global(1, 3))*dr(3)
-               v_efield_rspace%pw%cr3d(i, j, k) = v_efield_rspace%pw%cr3d(i, j, k) + DOT_PRODUCT(field(:), grid_p(:))
+               v_efield_rspace%cr3d(i, j, k) = v_efield_rspace%cr3d(i, j, k) + DOT_PRODUCT(field(:), grid_p(:))
             END DO
          END DO
       END DO
       efield_ener = 0.0_dp
       DO i = 1, dft_control%nspins
-         efield_ener = efield_ener + accurate_dot_product(v_efield_rspace%pw%cr3d, rho_r(i)%pw%cr3d)*dvol
+         efield_ener = efield_ener + accurate_dot_product(v_efield_rspace%cr3d, rho_r(i)%cr3d)*dvol
       END DO
       CALL mp_sum(efield_ener, para_env%group)
       energy%efield = efield_ener

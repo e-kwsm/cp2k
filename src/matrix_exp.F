@@ -12,8 +12,7 @@
 
 MODULE matrix_exp
 
-   USE cp_cfm_basic_linalg,             ONLY: cp_cfm_gemm,&
-                                              cp_cfm_scale_and_add,&
+   USE cp_cfm_basic_linalg,             ONLY: cp_cfm_scale_and_add,&
                                               cp_cfm_solve
    USE cp_cfm_types,                    ONLY: cp_cfm_create,&
                                               cp_cfm_p_type,&
@@ -34,7 +33,6 @@ MODULE matrix_exp
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_to_string
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE kinds,                           ONLY: dp
@@ -45,6 +43,7 @@ MODULE matrix_exp
                                               mp_max,&
                                               mp_reordering,&
                                               mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -73,7 +72,7 @@ CONTAINS
 
    SUBROUTINE taylor_only_imaginary(exp_H, im_matrix, nsquare, ntaylor)
       TYPE(cp_fm_p_type), DIMENSION(2)                   :: exp_H
-      TYPE(cp_fm_type), POINTER                          :: im_matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: im_matrix
       INTEGER, INTENT(in)                                :: nsquare, ntaylor
 
       CHARACTER(len=*), PARAMETER :: routineN = 'taylor_only_imaginary'
@@ -81,8 +80,9 @@ CONTAINS
 
       INTEGER                                            :: handle, i, ndim, nloop
       REAL(KIND=dp)                                      :: square_fac, Tfac, tmp
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data_im
-      TYPE(cp_fm_type), POINTER                          :: T1, T2, Tres_im, Tres_re
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data_im
+      TYPE(cp_fm_type)                                   :: T1, T2, Tres_im, Tres_re
 
       CALL timeset(routineN, handle)
 
@@ -115,16 +115,16 @@ CONTAINS
 
       DO i = 1, nloop
          tmp = tmp*(REAL(i, dp)*2.0_dp - 1.0_dp)
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, square_fac, im_matrix, T1, zero, &
-                      !       CALL cp_gemm("N","N",ndim,ndim,ndim,one,im_matrix,T1,zero,&
-                      T2)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, square_fac, im_matrix, T1, zero, &
+                            !       CALL parallel_gemm("N","N",ndim,ndim,ndim,one,im_matrix,T1,zero,&
+                            T2)
          Tfac = 1._dp/tmp
          IF (MOD(i, 2) == 0) Tfac = -Tfac
          CALL cp_fm_scale_and_add(one, Tres_im, Tfac, T2)
          tmp = tmp*REAL(i, dp)*2.0_dp
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, square_fac, im_matrix, T2, zero, &
-                      !       CALL cp_gemm("N","N",ndim,ndim,ndim,one,im_matrix,T2,zero,&
-                      T1)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, square_fac, im_matrix, T2, zero, &
+                            !       CALL parallel_gemm("N","N",ndim,ndim,ndim,one,im_matrix,T2,zero,&
+                            T1)
          Tfac = 1._dp/tmp
          IF (MOD(i, 2) == 1) Tfac = -Tfac
          CALL cp_fm_scale_and_add(one, Tres_re, Tfac, T1)
@@ -168,7 +168,7 @@ CONTAINS
 
    SUBROUTINE taylor_full_complex(exp_H, re_part, im_part, nsquare, ntaylor)
       TYPE(cp_fm_p_type), DIMENSION(2)                   :: exp_H
-      TYPE(cp_fm_type), POINTER                          :: re_part, im_part
+      TYPE(cp_fm_type), INTENT(IN)                       :: re_part, im_part
       INTEGER, INTENT(in)                                :: nsquare, ntaylor
 
       CHARACTER(len=*), PARAMETER :: routineN = 'taylor_full_complex'
@@ -176,8 +176,9 @@ CONTAINS
       COMPLEX(KIND=dp)                                   :: Tfac
       INTEGER                                            :: handle, i, ndim
       REAL(KIND=dp)                                      :: square_fac, tmp
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data_im, local_data_re
-      TYPE(cp_cfm_type), POINTER                         :: T1, T2, T3, Tres
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data_im, local_data_re
+      TYPE(cp_cfm_type)                                  :: T1, T2, T3, Tres
 
       CALL timeset(routineN, handle)
       CALL cp_fm_get_info(re_part, local_data=local_data_re)
@@ -208,8 +209,8 @@ CONTAINS
 
       DO i = 1, ntaylor
          tmp = tmp*REAL(i, dp)
-         CALL cp_cfm_gemm("N", "N", ndim, ndim, ndim, z_one, T1, T2, z_zero, &
-                          T3)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, z_one, T1, T2, z_zero, &
+                            T3)
          Tfac = CMPLX(1._dp/tmp, 0.0_dp, kind=dp)
          CALL cp_cfm_scale_and_add(z_one, Tres, Tfac, T3)
          CALL cp_cfm_to_cfm(T3, T2)
@@ -217,8 +218,8 @@ CONTAINS
 
       IF (nsquare .GT. 0) THEN
          DO i = 1, nsquare
-            CALL cp_cfm_gemm("N", "N", ndim, ndim, ndim, z_one, Tres, Tres, z_zero, &
-                             T2)
+            CALL parallel_gemm("N", "N", ndim, ndim, ndim, z_one, Tres, Tres, z_zero, &
+                               T2)
             CALL cp_cfm_to_cfm(T2, Tres)
          END DO
       END IF
@@ -344,7 +345,7 @@ CONTAINS
 
    SUBROUTINE exp_pade_full_complex(exp_H, re_part, im_part, nsquare, npade)
       TYPE(cp_fm_p_type), DIMENSION(2)                   :: exp_H
-      TYPE(cp_fm_type), POINTER                          :: re_part, im_part
+      TYPE(cp_fm_type), INTENT(IN)                       :: re_part, im_part
       INTEGER, INTENT(in)                                :: nsquare, npade
 
       CHARACTER(len=*), PARAMETER :: routineN = 'exp_pade_full_complex'
@@ -352,9 +353,12 @@ CONTAINS
       COMPLEX(KIND=dp)                                   :: scaleD, scaleN
       INTEGER                                            :: handle, i, ldim, ndim, p, q
       REAL(KIND=dp)                                      :: square_fac, tmp
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data_im, local_data_re
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data_im, local_data_re
       TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: mult_p
-      TYPE(cp_cfm_type), POINTER                         :: Dpq, fin_p, Npq, T1, T2, Tres
+      TYPE(cp_cfm_type)                                  :: Dpq, T1
+      TYPE(cp_cfm_type), POINTER                         :: fin_p
+      TYPE(cp_cfm_type), TARGET                          :: Npq, T2, Tres
 
       p = npade
       q = npade
@@ -403,8 +407,8 @@ CONTAINS
          DO i = 2, npade
             IF (i .LE. p) scaleN = CMPLX(fac(p + q - i)*fac(p)/(fac(p + q)*fac(i)*fac(p - i)), 0.0_dp, kind=dp)
             scaleD = CMPLX((-1.0_dp)**i*fac(p + q - i)*fac(q)/(fac(p + q)*fac(i)*fac(q - i)), 0.0_dp, kind=dp)
-            CALL cp_cfm_gemm("N", "N", ndim, ndim, ndim, z_one, T1, mult_p(MOD(i, 2) + 1)%matrix, z_zero, &
-                             mult_p(MOD(i + 1, 2) + 1)%matrix)
+            CALL parallel_gemm("N", "N", ndim, ndim, ndim, z_one, T1, mult_p(MOD(i, 2) + 1)%matrix, z_zero, &
+                               mult_p(MOD(i + 1, 2) + 1)%matrix)
             IF (i .LE. p) CALL cp_cfm_scale_and_add(z_one, Npq, scaleN, mult_p(MOD(i + 1, 2) + 1)%matrix)
             IF (i .LE. q) CALL cp_cfm_scale_and_add(z_one, Dpq, scaleD, mult_p(MOD(i + 1, 2) + 1)%matrix)
          END DO
@@ -416,8 +420,8 @@ CONTAINS
       mult_p(1)%matrix => Tres
       IF (nsquare .GT. 0) THEN
          DO i = 1, nsquare
-           CALL cp_cfm_gemm("N", "N", ndim, ndim, ndim, z_one, mult_p(MOD(i, 2) + 1)%matrix, mult_p(MOD(i, 2) + 1)%matrix, z_zero, &
-                             mult_p(MOD(i + 1, 2) + 1)%matrix)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, z_one, mult_p(MOD(i, 2) + 1)%matrix, mult_p(MOD(i, 2) + 1)%matrix, z_zero, &
+                               mult_p(MOD(i + 1, 2) + 1)%matrix)
             fin_p => mult_p(MOD(i + 1, 2) + 1)%matrix
          END DO
       ELSE
@@ -450,7 +454,7 @@ CONTAINS
 
    SUBROUTINE exp_pade_only_imaginary(exp_H, im_part, nsquare, npade)
       TYPE(cp_fm_p_type), DIMENSION(2)                   :: exp_H
-      TYPE(cp_fm_type), POINTER                          :: im_part
+      TYPE(cp_fm_type), INTENT(IN)                       :: im_part
       INTEGER, INTENT(in)                                :: nsquare, npade
 
       CHARACTER(len=*), PARAMETER :: routineN = 'exp_pade_only_imaginary'
@@ -459,10 +463,13 @@ CONTAINS
       COMPLEX(KIND=dp)                                   :: scaleD, scaleN
       INTEGER                                            :: handle, i, j, k, ldim, ndim, p, q
       REAL(KIND=dp)                                      :: my_fac, square_fac
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data_im
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data_im
       TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: cmult_p
-      TYPE(cp_cfm_type), POINTER                         :: Dpq, fin_p, Npq, T1
-      TYPE(cp_fm_type), POINTER                          :: T2, Tres
+      TYPE(cp_cfm_type)                                  :: Dpq
+      TYPE(cp_cfm_type), POINTER                         :: fin_p
+      TYPE(cp_cfm_type), TARGET                          :: Npq, T1
+      TYPE(cp_fm_type)                                   :: T2, Tres
 
       CALL timeset(routineN, handle)
       p = npade
@@ -512,7 +519,7 @@ CONTAINS
             my_fac = (-rone)**j
             IF (i .LE. p) scaleN = CMPLX(my_fac*fac(p + q - i)*fac(p)/(fac(p + q)*fac(i)*fac(p - i)), 0.0_dp, dp)
             scaleD = CMPLX(my_fac*fac(p + q - i)*fac(q)/(fac(p + q)*fac(i)*fac(q - i)), 0.0_dp, dp)
-            CALL cp_gemm("N", "N", ndim, ndim, ndim, square_fac, im_part, T2, rzero, Tres)
+            CALL parallel_gemm("N", "N", ndim, ndim, ndim, square_fac, im_part, T2, rzero, Tres)
 
             DO k = 1, ldim
                Npq%local_data(:, k) = Npq%local_data(:, k) + scaleN*Tres%local_data(:, k)
@@ -523,7 +530,7 @@ CONTAINS
                i = 2*j + 1
                IF (i .LE. p) scaleN = CMPLX(my_fac*fac(p + q - i)*fac(p)/(fac(p + q)*fac(i)*fac(p - i)), rzero, dp)
                scaleD = CMPLX(-my_fac*fac(p + q - i)*fac(q)/(fac(p + q)*fac(i)*fac(q - i)), rzero, dp)
-               CALL cp_gemm("N", "N", ndim, ndim, ndim, square_fac, im_part, Tres, rzero, T2)
+               CALL parallel_gemm("N", "N", ndim, ndim, ndim, square_fac, im_part, Tres, rzero, T2)
 
                DO k = 1, ldim
                   Npq%local_data(:, k) = Npq%local_data(:, k) + scaleN*CMPLX(rzero, T2%local_data(:, k), dp)
@@ -539,8 +546,8 @@ CONTAINS
       cmult_p(1)%matrix => T1
       IF (nsquare .GT. 0) THEN
          DO i = 1, nsquare
-         CALL cp_cfm_gemm("N", "N", ndim, ndim, ndim, z_one, cmult_p(MOD(i, 2) + 1)%matrix, cmult_p(MOD(i, 2) + 1)%matrix, z_zero, &
-                             cmult_p(MOD(i + 1, 2) + 1)%matrix)
+       CALL parallel_gemm("N", "N", ndim, ndim, ndim, z_one, cmult_p(MOD(i, 2) + 1)%matrix, cmult_p(MOD(i, 2) + 1)%matrix, z_zero, &
+                               cmult_p(MOD(i + 1, 2) + 1)%matrix)
             fin_p => cmult_p(MOD(i + 1, 2) + 1)%matrix
          END DO
       ELSE
@@ -572,8 +579,7 @@ CONTAINS
 ! **************************************************************************************************
 
    SUBROUTINE exp_pade_real(exp_H, matrix, nsquare, npade)
-      TYPE(cp_fm_type)                                   :: exp_H
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: exp_H, matrix
       INTEGER, INTENT(in)                                :: nsquare, npade
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'exp_pade_real'
@@ -581,9 +587,12 @@ CONTAINS
 
       INTEGER                                            :: handle, i, j, k, ldim, ndim, p, q
       REAL(KIND=dp)                                      :: my_fac, scaleD, scaleN, square_fac
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mult_p
-      TYPE(cp_fm_type), POINTER                          :: Dpq, fin_p, Npq, T1, T2, Tres
+      TYPE(cp_fm_type)                                   :: Dpq
+      TYPE(cp_fm_type), POINTER                          :: fin_p
+      TYPE(cp_fm_type), TARGET                           :: Npq, T1, T2, Tres
 
       CALL timeset(routineN, handle)
       p = npade
@@ -634,8 +643,8 @@ CONTAINS
             my_fac = (-1.0_dp)**j
             scaleN = fac(p + q - j)*fac(p)/(fac(p + q)*fac(j)*fac(p - j))
             scaleD = my_fac*fac(p + q - j)*fac(q)/(fac(p + q)*fac(j)*fac(q - j))
-            CALL cp_gemm("N", "N", ndim, ndim, ndim, one, mult_p(MOD(j, 2) + 1)%matrix, T1, &
-                         zero, mult_p(MOD(j + 1, 2) + 1)%matrix)
+            CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, mult_p(MOD(j, 2) + 1)%matrix, T1, &
+                               zero, mult_p(MOD(j + 1, 2) + 1)%matrix)
 
             DO k = 1, ldim
                Npq%local_data(:, k) = Npq%local_data(:, k) + scaleN*mult_p(MOD(j + 1, 2) + 1)%matrix%local_data(:, k)
@@ -650,10 +659,10 @@ CONTAINS
       mult_p(1)%matrix => T1
       IF (nsquare .GT. 0) THEN
          DO i = 1, nsquare
-            CALL cp_gemm("N", "N", ndim, ndim, ndim, one, mult_p(MOD(i, 2) + 1)%matrix, mult_p(MOD(i, 2) + 1)%matrix, zero, &
-                         mult_p(MOD(i + 1, 2) + 1)%matrix)
-            fin_p => mult_p(MOD(i + 1, 2) + 1)%matrix
+            CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, mult_p(MOD(i, 2) + 1)%matrix, mult_p(MOD(i, 2) + 1)%matrix, zero, &
+                               mult_p(MOD(i + 1, 2) + 1)%matrix)
          END DO
+         fin_p => mult_p(MOD(nsquare + 1, 2) + 1)%matrix
       ELSE
          fin_p => Npq
       END IF
@@ -689,8 +698,8 @@ CONTAINS
 
       TYPE(cp_fm_p_type), DIMENSION(2)                   :: mos_old, mos_new
       REAL(KIND=dp), INTENT(in)                          :: eps_exp
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: Hre
-      TYPE(cp_fm_type), POINTER                          :: Him
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: Hre
+      TYPE(cp_fm_type), INTENT(IN)                       :: Him
       TYPE(cp_fm_p_type), DIMENSION(2), OPTIONAL         :: mos_next
       INTEGER, INTENT(inout)                             :: narn_old
 
@@ -708,7 +717,7 @@ CONTAINS
       REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: D, mat1, mat2, mat3, N
       REAL(dp), ALLOCATABLE, DIMENSION(:, :, :)          :: H_approx, H_approx_save
       REAL(KIND=dp)                                      :: conv_norm, prefac, scaleD, scaleN
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: V_mats
+      TYPE(cp_fm_p_type), ALLOCATABLE, DIMENSION(:)      :: V_mats
       TYPE(cp_fm_struct_type), POINTER                   :: mo_struct, newstruct
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
@@ -734,6 +743,7 @@ CONTAINS
       H_approx_save = rzero
 
       DO i = 1, narnoldi + 1
+         ALLOCATE (V_mats(i)%matrix)
          CALL cp_fm_create(V_mats(i)%matrix, matrix_struct=newstruct, &
                            name="V_mat"//cp_to_string(i))
       END DO
@@ -762,7 +772,7 @@ CONTAINS
       ! arnoldi subspace procedure to get H_approx
       DO i = 2, narnoldi + 1
          !Be careful, imaginary matrix multiplied with complex. Unfortunately requires a swap of arrays afterwards
-         CALL cp_gemm("N", "N", nao, newdim, nao, 1.0_dp, Him, V_mats(i - 1)%matrix, 0.0_dp, V_mats(i)%matrix)
+         CALL parallel_gemm("N", "N", nao, newdim, nao, 1.0_dp, Him, V_mats(i - 1)%matrix, 0.0_dp, V_mats(i)%matrix)
 
 !$OMP PARALLEL DO PRIVATE(icol_local) DEFAULT(NONE) SHARED(mos_new,V_mats,ncol_local,i)
          DO icol_local = 1, ncol_local
@@ -772,7 +782,7 @@ CONTAINS
          END DO
 
          IF (PRESENT(Hre)) THEN
-            CALL cp_gemm("N", "N", nao, newdim, nao, 1.0_dp, Hre, V_mats(i - 1)%matrix, 1.0_dp, V_mats(i)%matrix)
+            CALL parallel_gemm("N", "N", nao, newdim, nao, 1.0_dp, Hre, V_mats(i - 1)%matrix, 1.0_dp, V_mats(i)%matrix)
          END IF
 
          DO l = 1, i - 1
@@ -958,6 +968,7 @@ CONTAINS
 
       DO i = 1, SIZE(V_mats)
          CALL cp_fm_release(V_mats(i)%matrix)
+         DEALLOCATE (V_mats(i)%matrix)
       END DO
       CALL cp_fm_struct_release(newstruct)
       CALL mp_comm_free(col_group)

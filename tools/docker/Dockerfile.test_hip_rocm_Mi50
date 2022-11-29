@@ -3,7 +3,7 @@
 # Usage: docker build -f ./Dockerfile.test_hip_rocm_Mi50 ../../
 #
 
-FROM rocm/dev-ubuntu-20.04:4.5.2-complete
+FROM rocm/dev-ubuntu-22.04:5.3.2-complete
 
 # Install some Ubuntu packages.
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -86,7 +86,8 @@ RUN /bin/bash -c " \
     ln -vs /opt/cp2k-toolchain/install/arch/local_hip.psmp ./arch/ && \
     echo 'Compiling cp2k...' && \
     source /opt/cp2k-toolchain/install/setup && \
-    ( make -j ARCH=local_hip VERSION=psmp &> /dev/null || true )"
+    ( make -j ARCH=local_hip VERSION=psmp &> /dev/null || true ) && \
+    ( [ ! -f ./exe/local_hip/cp2k.psmp ] || ldd ./exe/local_hip/cp2k.psmp | grep -q libmpi )"
 COPY ./data ./data
 COPY ./tests ./tests
 COPY ./tools/regtesting ./tools/regtesting

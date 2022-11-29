@@ -8,7 +8,16 @@
 #ifndef DBM_MULTIPLY_INTERNAL_H
 #define DBM_MULTIPLY_INTERNAL_H
 
-#include "dbm_shard.h"
+/*******************************************************************************
+ * \brief Internal struct for storing a dbm_block_t plus its norm.
+ * \author Ole Schuett
+ ******************************************************************************/
+typedef struct {
+  int free_index; // Free index in Einstein notation of matrix multiplication.
+  int sum_index;  // Summation index - also called dummy index.
+  int offset;
+  float norm;
+} dbm_pack_block_t;
 
 /*******************************************************************************
  * \brief Internal struct for storing a pack - essentially a shard for MPI.
@@ -17,7 +26,7 @@
 typedef struct {
   int nblocks;
   int data_size;
-  dbm_block_t *blocks;
+  dbm_pack_block_t *blocks;
   double *data;
 } dbm_pack_t;
 

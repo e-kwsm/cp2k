@@ -12,12 +12,12 @@
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
 MODULE pw_env_types
+   USE cp_para_types,                   ONLY: cp_para_env_type
    USE cube_utils,                      ONLY: cube_info_type,&
                                               destroy_cube_info
    USE gaussian_gridlevels,             ONLY: destroy_gaussian_gridlevel,&
                                               gridlevel_info_type
-   USE input_section_types,             ONLY: section_vals_release,&
-                                              section_vals_type
+   USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
    USE pw_poisson_types,                ONLY: pw_poisson_release,&
                                               pw_poisson_type
@@ -27,7 +27,6 @@ MODULE pw_env_types
                                               pw_pools_dealloc
    USE realspace_grid_types,            ONLY: realspace_grid_desc_p_type,&
                                               realspace_grid_desc_type,&
-                                              realspace_grid_p_type,&
                                               realspace_grid_type,&
                                               rs_grid_release,&
                                               rs_grid_release_descriptor
@@ -77,7 +76,7 @@ MODULE pw_env_types
       TYPE(pw_pool_type), POINTER                 :: vdw_pw_pool
       TYPE(realspace_grid_desc_p_type), &
          DIMENSION(:), POINTER                    :: rs_descs
-      TYPE(realspace_grid_p_type), &
+      TYPE(realspace_grid_type), &
          DIMENSION(:), POINTER                    :: rs_grids
       TYPE(gridlevel_info_type), POINTER          :: gridlevel_info
       TYPE(cube_info_type), DIMENSION(:), POINTER :: cube_info
@@ -124,7 +123,7 @@ CONTAINS
       TYPE(realspace_grid_type), OPTIONAL, POINTER       :: auxbas_rs_grid
       TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: rs_descs
-      TYPE(realspace_grid_p_type), DIMENSION(:), &
+      TYPE(realspace_grid_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: rs_grids
       TYPE(pw_pool_type), OPTIONAL, POINTER              :: xc_pw_pool, vdw_pw_pool
       TYPE(pw_poisson_type), OPTIONAL, POINTER           :: poisson_env
@@ -144,7 +143,7 @@ CONTAINS
          auxbas_rs_desc => pw_env%rs_descs(pw_env%auxbas_grid)%rs_desc
       END IF
       IF (PRESENT(auxbas_rs_grid)) THEN
-         auxbas_rs_grid => pw_env%rs_grids(pw_env%auxbas_grid)%rs_grid
+         auxbas_rs_grid => pw_env%rs_grids(pw_env%auxbas_grid)
       END IF
       IF (PRESENT(auxbas_grid)) auxbas_grid = pw_env%auxbas_grid
       IF (PRESENT(xc_pw_pool)) xc_pw_pool => pw_env%xc_pw_pool
@@ -171,20 +170,17 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief releases the given pw_env (see doc/ReferenceCounting.html)
 !> \param pw_env the pw_env to release
-!> \param kg ...
+!> \param para_env ...
 !> \par History
 !>      10.2002 created [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE pw_env_release(pw_env, kg)
+   SUBROUTINE pw_env_release(pw_env, para_env)
       TYPE(pw_env_type), POINTER                         :: pw_env
-      LOGICAL, OPTIONAL                                  :: kg
+      TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
       INTEGER                                            :: i, igrid_level
-      LOGICAL                                            :: my_kg
 
-      my_kg = .FALSE.
-      IF (PRESENT(kg)) my_kg = kg
       IF (ASSOCIATED(pw_env)) THEN
          CPASSERT(pw_env%ref_count > 0)
          pw_env%ref_count = pw_env%ref_count - 1
@@ -192,13 +188,7 @@ CONTAINS
             CALL pw_poisson_release(pw_env%poisson_env)
             CALL pw_pools_dealloc(pw_env%pw_pools)
             IF (ASSOCIATED(pw_env%gridlevel_info)) THEN
-               IF (my_kg) THEN
-                  DEALLOCATE (pw_env%gridlevel_info%cutoff)
-                  CALL section_vals_release(pw_env%gridlevel_info%print_section)
-                  DEALLOCATE (pw_env%gridlevel_info%count)
-               ELSE
-                  CALL destroy_gaussian_gridlevel(pw_env%gridlevel_info)
-               END IF
+               CALL destroy_gaussian_gridlevel(pw_env%gridlevel_info, para_env)
                DEALLOCATE (pw_env%gridlevel_info)
             END IF
             IF (ASSOCIATED(pw_env%cube_info)) THEN
@@ -217,7 +207,7 @@ CONTAINS
             END IF
             IF (ASSOCIATED(pw_env%rs_grids)) THEN
                DO i = 1, SIZE(pw_env%rs_grids)
-                  CALL rs_grid_release(pw_env%rs_grids(i)%rs_grid)
+                  CALL rs_grid_release(pw_env%rs_grids(i))
                END DO
                DEALLOCATE (pw_env%rs_grids)
             END IF

@@ -25,7 +25,6 @@ MODULE rpa_im_time
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
         dbcsr_add, dbcsr_clear, dbcsr_copy, dbcsr_create, dbcsr_distribution_get, &
@@ -38,26 +37,28 @@ MODULE rpa_im_time
         dbt_get_info, dbt_nblks_total, dbt_nd_mp_comm, dbt_pgrid_destroy, dbt_pgrid_type, dbt_type
    USE hfx_types,                       ONLY: block_ind_type,&
                                               hfx_compression_type
+   USE input_constants,                 ONLY: gw_gf_gamma,&
+                                              gw_gf_mic
    USE kinds,                           ONLY: dp,&
                                               int_8
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_env_type,&
                                               kpoint_type
-   USE machine,                         ONLY: m_walltime
+   USE machine,                         ONLY: m_flush,&
+                                              m_walltime
    USE mathconstants,                   ONLY: twopi
    USE message_passing,                 ONLY: mp_sync
    USE mp2_types,                       ONLY: mp2_type
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
    USE qs_tensors,                      ONLY: decompress_tensor,&
                                               get_tensor_occupancy
    USE qs_tensors_types,                ONLY: create_2c_tensor
-   USE rpa_gw_im_time_util,             ONLY: compute_shortest_lattice_vector,&
-                                              compute_weight_re_im,&
+   USE rpa_gw_im_time_util,             ONLY: compute_weight_re_im,&
                                               get_atom_index_from_basis_function_index
 #include "./base/base_uses.f90"
 
@@ -70,7 +71,9 @@ MODULE rpa_im_time
    PUBLIC :: compute_mat_P_omega, &
              compute_transl_dm, &
              init_cell_index_rpa, &
-             zero_mat_P_omega
+             zero_mat_P_omega, &
+             compute_periodic_dm, &
+             compute_mat_dm_global
 
 CONTAINS
 
@@ -136,8 +139,8 @@ CONTAINS
                                   has_mat_P_blocks, do_ri_sos_laplace_mp2, &
                                   dbcsr_time, dbcsr_nflop)
       TYPE(dbcsr_p_type), DIMENSION(:, :), INTENT(IN)    :: mat_P_omega
-      TYPE(cp_fm_type), POINTER :: fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, fm_mo_coeff_occ, &
-         fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, fm_mo_coeff_virt_scaled
+      TYPE(cp_fm_type), INTENT(IN) :: fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, &
+         fm_mo_coeff_occ, fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, fm_mo_coeff_virt_scaled
       TYPE(dbcsr_p_type), INTENT(INOUT)                  :: mat_P_global
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       INTEGER, INTENT(IN)                                :: ispin
@@ -569,8 +572,8 @@ CONTAINS
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(/T3,A,1X,I3)') &
                'RPA_LOW_SCALING_INFO| Info for time point', jquad
-            WRITE (unit_nr, '(T6,A,T56,F25.6)') &
-               'Time:', t2 - t1
+            WRITE (unit_nr, '(T6,A,T56,F25.1)') &
+               'Execution time (s):', t2 - t1
             WRITE (unit_nr, '(T6,A,T63,ES7.1,1X,A1,1X,F7.3,A1)') &
                'Occupancy of D occ:', REAL(nze_dm_occ, dp), '/', occ_dm_occ*100, '%'
             WRITE (unit_nr, '(T6,A,T63,ES7.1,1X,A1,1X,F7.3,A1)') &
@@ -584,6 +587,7 @@ CONTAINS
                   'Occupancy of M virt:', REAL(nze_M_virt, dp), '/', occ_M_virt*100, '%'
             END IF
             WRITE (unit_nr, *)
+            CALL m_flush(unit_nr)
          END IF
 
       END DO ! time points
@@ -659,13 +663,13 @@ CONTAINS
                                     jquad, do_kpoints_cubic_RPA, do_kpoints_from_Gamma, qs_env, &
                                     num_cells_dm, index_to_cell_dm, para_env)
 
-      TYPE(cp_fm_type), POINTER                          :: fm_scaled_dm_occ_tau, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_scaled_dm_occ_tau, &
                                                             fm_scaled_dm_virt_tau
       INTEGER, INTENT(IN)                                :: num_integ_points
       REAL(KIND=dp), DIMENSION(0:num_integ_points), &
          INTENT(IN)                                      :: tau_tj
       INTEGER, INTENT(IN)                                :: nmo
-      TYPE(cp_fm_type), POINTER                          :: fm_mo_coeff_occ, fm_mo_coeff_virt, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mo_coeff_occ, fm_mo_coeff_virt, &
                                                             fm_mo_coeff_occ_scaled, &
                                                             fm_mo_coeff_virt_scaled
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_occ_global, mat_dm_virt_global
@@ -712,13 +716,18 @@ CONTAINS
 
       ELSE IF (do_kpoints_from_Gamma) THEN
 
-         CALL compute_mic_dm(mat_dm_occ_global, qs_env, &
-                             ispin, num_integ_points, jquad, e_fermi, tau, &
-                             num_cells_dm, remove_occ=.FALSE., remove_virt=.TRUE., first_jquad=1)
+         CALL compute_periodic_dm(mat_dm_occ_global, qs_env, &
+                                  ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ=.FALSE., remove_virt=.TRUE., first_jquad=1, &
+                                  symmetrize=.FALSE.)
 
-         CALL compute_mic_dm(mat_dm_virt_global, qs_env, &
-                             ispin, num_integ_points, jquad, e_fermi, tau, &
-                             num_cells_dm, remove_occ=.TRUE., remove_virt=.FALSE., first_jquad=1)
+         CALL compute_periodic_dm(mat_dm_virt_global, qs_env, &
+                                  ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ=.TRUE., remove_virt=.FALSE., first_jquad=1, &
+                                  symmetrize=.FALSE.)
+
+         num_cells_dm = 1
+
       ELSE
 
          num_cells_dm = 1
@@ -780,13 +789,13 @@ CONTAINS
          size_dm_occ = nmo
          size_dm_virt = nmo
 
-         CALL cp_gemm(transa="N", transb="T", m=size_dm_occ, n=size_dm_occ, k=nmo, alpha=1.0_dp, &
-                      matrix_a=fm_mo_coeff_occ_scaled, matrix_b=fm_mo_coeff_occ_scaled, beta=0.0_dp, &
-                      matrix_c=fm_scaled_dm_occ_tau)
+         CALL parallel_gemm(transa="N", transb="T", m=size_dm_occ, n=size_dm_occ, k=nmo, alpha=1.0_dp, &
+                            matrix_a=fm_mo_coeff_occ_scaled, matrix_b=fm_mo_coeff_occ_scaled, beta=0.0_dp, &
+                            matrix_c=fm_scaled_dm_occ_tau)
 
-         CALL cp_gemm(transa="N", transb="T", m=size_dm_virt, n=size_dm_virt, k=nmo, alpha=1.0_dp, &
-                      matrix_a=fm_mo_coeff_virt_scaled, matrix_b=fm_mo_coeff_virt_scaled, beta=0.0_dp, &
-                      matrix_c=fm_scaled_dm_virt_tau)
+         CALL parallel_gemm(transa="N", transb="T", m=size_dm_virt, n=size_dm_virt, k=nmo, alpha=1.0_dp, &
+                            matrix_a=fm_mo_coeff_virt_scaled, matrix_b=fm_mo_coeff_virt_scaled, beta=0.0_dp, &
+                            matrix_c=fm_scaled_dm_virt_tau)
 
          IF (jquad == 1) THEN
 
@@ -877,7 +886,8 @@ CONTAINS
       INTEGER, DIMENSION(2)                              :: kp_range
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, exp_scaling, occupation
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: cpmat, fwork, rpmat
+      TYPE(cp_fm_type)                                   :: fwork
+      TYPE(cp_fm_type), POINTER                          :: cpmat, rpmat
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(mo_set_type), POINTER                         :: mo_set
 
@@ -887,7 +897,7 @@ CONTAINS
       CPASSERT(kpoint%use_real_wfn .EQV. .FALSE.)
 
       ! work matrix
-      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)%mo_set
+      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)
       CALL get_mo_set(mo_set, nao=nao, nmo=nmo)
 
       ! if this CPASSERT is triggered, please add all virtual MOs to SCF section,
@@ -906,7 +916,7 @@ CONTAINS
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          nspin = SIZE(kp%mos, 2)
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             CALL get_mo_set(mo_set, eigenvalues=eigenvalues)
             rpmat => kp%wmat(1, ispin)%matrix
             cpmat => kp%wmat(2, ispin)%matrix
@@ -937,12 +947,12 @@ CONTAINS
             CALL cp_fm_column_scale(fwork, exp_scaling)
 
             ! Re(c)*Re(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
-            mo_set => kp%mos(2, ispin)%mo_set
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
+            mo_set => kp%mos(2, ispin)
             ! Im(c)*Re(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
             ! Re(c)*Im(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
 
             CALL cp_fm_to_fm(mo_set%mo_coeff, fwork)
 
@@ -968,7 +978,7 @@ CONTAINS
 
             CALL cp_fm_column_scale(fwork, exp_scaling)
             ! Im(c)*Im(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
 
          END DO
 
@@ -1016,14 +1026,15 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work, matrix_s_kp
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
       CALL get_qs_env(qs_env, &
                       matrix_s_kp=matrix_s_kp, &
                       mos=mos, &
-                      kpoints=kpoints)
+                      kpoints=kpoints, &
+                      cell=cell)
 
       nspin = SIZE(mos)
 
@@ -1114,28 +1125,27 @@ CONTAINS
 !> \param jquad ...
 !> \param e_fermi ...
 !> \param tau ...
-!> \param num_cells_dm ...
 !> \param remove_occ ...
 !> \param remove_virt ...
 !> \param first_jquad ...
+!> \param symmetrize ...
 ! **************************************************************************************************
-   SUBROUTINE compute_mic_dm(mat_dm_global, qs_env, ispin, num_integ_points, jquad, e_fermi, tau, &
-                             num_cells_dm, remove_occ, remove_virt, &
-                             first_jquad)
+   SUBROUTINE compute_periodic_dm(mat_dm_global, qs_env, ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ, remove_virt, first_jquad, symmetrize)
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN)                                :: ispin, num_integ_points, jquad
       REAL(KIND=dp), INTENT(IN)                          :: e_fermi, tau
-      INTEGER, INTENT(OUT)                               :: num_cells_dm
       LOGICAL, INTENT(IN)                                :: remove_occ, remove_virt
       INTEGER, INTENT(IN)                                :: first_jquad
+      LOGICAL, INTENT(IN)                                :: symmetrize
 
-      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'compute_mic_dm'
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_periodic_dm'
 
-      INTEGER                                            :: handle, iquad, jspin, nspin
+      INTEGER                                            :: handle, iquad, jspin, nspin, num_cells_dm
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work, matrix_s_kp
       TYPE(kpoint_type), POINTER                         :: kpoints_G
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
@@ -1154,6 +1164,23 @@ CONTAINS
       NULLIFY (mat_dm_global_work)
       CALL dbcsr_allocate_matrix_set(mat_dm_global_work, nspin, num_cells_dm)
 
+      ! jquad = first_jquad to allocate the matrix set
+      IF (jquad == first_jquad) THEN
+
+         NULLIFY (mat_dm_global)
+         ALLOCATE (mat_dm_global(first_jquad:num_integ_points, num_cells_dm))
+
+         DO iquad = first_jquad, num_integ_points
+            NULLIFY (mat_dm_global(iquad, 1)%matrix)
+            ALLOCATE (mat_dm_global(iquad, 1)%matrix)
+            CALL dbcsr_create(matrix=mat_dm_global(iquad, 1)%matrix, &
+                              template=matrix_s_kp(1, 1)%matrix, &
+                              matrix_type=dbcsr_type_no_symmetry)
+
+         END DO
+
+      END IF
+
       DO jspin = 1, nspin
 
          ALLOCATE (mat_dm_global_work(jspin, 1)%matrix)
@@ -1171,26 +1198,15 @@ CONTAINS
       CALL kpoint_density_matrices_rpa(kpoints_G, tau, e_fermi, &
                                        remove_occ=remove_occ, remove_virt=remove_virt)
 
-      ! density matrices in real space, the cell vectors T for transforming are taken from kpoints%index_to_cell
-      ! (custom made for RPA) and not from sab_nl (which is symmetric and from SCF)
-      CALL density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env)
-
-      ! normally, jquad = 1 to allocate the matrix set, but GW jquad = 0 is the exchange self-energy
-      IF (jquad == first_jquad) THEN
-
-         NULLIFY (mat_dm_global)
-         ALLOCATE (mat_dm_global(first_jquad:num_integ_points, num_cells_dm))
-
-         DO iquad = first_jquad, num_integ_points
-            NULLIFY (mat_dm_global(iquad, 1)%matrix)
-            ALLOCATE (mat_dm_global(iquad, 1)%matrix)
-            CALL dbcsr_create(matrix=mat_dm_global(iquad, 1)%matrix, &
-                              template=matrix_s_kp(1, 1)%matrix, &
-                              matrix_type=dbcsr_type_no_symmetry)
-
-         END DO
-
-      END IF
+      SELECT CASE (qs_env%mp2_env%ri_rpa_im_time%periodic_gf)
+      CASE (gw_gf_mic)
+         ! density matrices in real space, the cell vectors T for transforming are taken from kpoints%index_to_cell
+         ! (custom made for RPA) and not from sab_nl (which is symmetric and from SCF)
+         CALL density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only=.FALSE.)
+      CASE (gw_gf_gamma)
+         ! Gamma-only: take Gamma-k-point matrix
+         CALL density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only=.TRUE.)
+      END SELECT
 
       CALL dbcsr_copy(mat_dm_global(jquad, 1)%matrix, &
                       mat_dm_global_work(ispin, 1)%matrix)
@@ -1199,19 +1215,22 @@ CONTAINS
 
       CALL timestop(handle)
 
-   END SUBROUTINE compute_mic_dm
+   END SUBROUTINE compute_periodic_dm
 
    ! **************************************************************************************************
 !> \brief ...
 !> \param kpoints_G ...
 !> \param mat_dm_global_work ...
 !> \param qs_env ...
+!> \param symmetrize ...
+!> \param gamma_only ...
 ! **************************************************************************************************
-   SUBROUTINE density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env)
+   SUBROUTINE density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only)
 
       TYPE(kpoint_type), POINTER                         :: kpoints_G
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work
       TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL                                            :: symmetrize, gamma_only
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_from_kp_to_mic'
 
@@ -1222,14 +1241,14 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_from_ao_index
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell
-      REAL(KIND=dp)                                      :: contribution, shortest_lattice_vector, &
-                                                            weight_im, weight_re
+      REAL(KIND=dp)                                      :: contribution, weight_im, weight_re
       REAL(KIND=dp), DIMENSION(2)                        :: abs_cutoffs_chi_W
       REAL(KIND=dp), DIMENSION(3, 3)                     :: hmat
       REAL(KIND=dp), DIMENSION(:), POINTER               :: wkp
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: xkp
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_fm_type), POINTER                          :: cpmat, fm_mat_work, rpmat
+      TYPE(cp_fm_type)                                   :: fm_mat_work
+      TYPE(cp_fm_type), POINTER                          :: cpmat, rpmat
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(mo_set_type), POINTER                         :: mo_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -1238,7 +1257,6 @@ CONTAINS
 
       NULLIFY (xkp, wkp)
 
-      NULLIFY (fm_mat_work)
       CALL cp_fm_create(fm_mat_work, kpoints_G%kp_env(1)%kpoint_env%wmat(1, 1)%matrix%matrix_struct)
       CALL cp_fm_set_all(fm_mat_work, 0.0_dp)
 
@@ -1250,7 +1268,7 @@ CONTAINS
 
       nspin = SIZE(mat_dm_global_work, 1)
 
-      mo_set => kpoints_G%kp_env(1)%kpoint_env%mos(1, 1)%mo_set
+      mo_set => kpoints_G%kp_env(1)%kpoint_env%mos(1, 1)
       CALL get_mo_set(mo_set, nao=nao)
 
       ALLOCATE (atom_from_ao_index(nao))
@@ -1267,11 +1285,7 @@ CONTAINS
       CALL get_qs_env(qs_env, cell=cell, particle_set=particle_set)
       CALL get_cell(cell=cell, h=hmat)
 
-      CALL compute_shortest_lattice_vector(shortest_lattice_vector, hmat, index_to_cell, num_cells)
-      abs_cutoffs_chi_W(1:2) = qs_env%mp2_env%ri_rpa_im_time%rel_cutoffs_chi_W(1:2)* &
-                               shortest_lattice_vector
-
-      qs_env%mp2_env%ri_rpa_im_time%abs_cutoffs_chi_W(1:2) = abs_cutoffs_chi_W(1:2)
+      abs_cutoffs_chi_W(1:2) = qs_env%mp2_env%ri_rpa_im_time%abs_cutoffs_chi_W(1:2)
 
       iatom_old = 0
       jatom_old = 0
@@ -1296,7 +1310,8 @@ CONTAINS
 
                      CALL compute_weight_re_im(weight_re, weight_im, &
                                                num_cells, iatom, jatom, xkp(1:3, ik), wkp(ik), &
-                                               cell, index_to_cell, hmat, particle_set, abs_cutoffs_chi_W)
+                                               cell, index_to_cell, hmat, particle_set, abs_cutoffs_chi_W, &
+                                               symmetrize, gamma_only)
 
                      iatom_old = iatom
                      jatom_old = jatom

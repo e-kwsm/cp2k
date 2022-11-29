@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-openblas_ver="0.3.20" # Keep in sync with get_openblas_arch.sh
-openblas_sha256="8495c9affc536253648e942908e88e097f2ec7753ede55aca52e5dead3029e3c"
+openblas_ver="0.3.21" # Keep in sync with get_openblas_arch.sh
+openblas_sha256="f36ba3d7a60e7c8bcc54cd9aaa9b1223dd42eaf02c811791c37e8ca707c241ca"
 openblas_pkg="OpenBLAS-${openblas_ver}.tar.gz"
 
 source "${SCRIPT_DIR}"/common_vars.sh
@@ -39,8 +36,7 @@ case "${with_openblas}" in
       if [ -f ${openblas_pkg} ]; then
         echo "${openblas_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${openblas_sha256} \
-          https://www.cp2k.org/static/downloads/${openblas_pkg}
+        download_pkg_from_cp2k_org "${openblas_sha256}" "${openblas_pkg}"
       fi
 
       echo "Installing from scratch into ${pkg_install_dir}"
@@ -56,7 +52,7 @@ case "${with_openblas}" in
       #                     for a good compromise between memory usage and scalability
       #
       # Unfortunately, NO_SHARED=1 breaks ScaLAPACK build.
-      if [ "${generic}" = "__TRUE__" ]; then
+      if [ "${TARGET_CPU}" = "generic" ]; then
         make -j $(get_nprocs) \
           MAKE_NB_JOBS=0 \
           TARGET=NEHALEM \
@@ -108,7 +104,7 @@ case "${with_openblas}" in
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage2/$(basename ${SCRIPT_NAME})"
     fi
     OPENBLAS_CFLAGS="-I'${pkg_install_dir}/include'"
-    OPENBLAS_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    OPENBLAS_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     OPENBLAS_ROOT="${pkg_install_dir}"
     OPENBLAS_LIBS="-lopenblas"
     ;;
@@ -131,7 +127,7 @@ case "${with_openblas}" in
     check_dir "${pkg_install_dir}/include"
     check_dir "${pkg_install_dir}/lib"
     OPENBLAS_CFLAGS="-I'${pkg_install_dir}/include'"
-    OPENBLAS_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    OPENBLAS_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     OPENBLAS_LIBS="-lopenblas"
     # detect separate omp builds
     (__libdir="${pkg_install_dir}/lib" LIB_PATHS="__libdir" check_lib -lopenblas_openmp 2> /dev/null) &&

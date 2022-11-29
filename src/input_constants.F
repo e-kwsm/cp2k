@@ -448,7 +448,15 @@ MODULE input_constants
                                                do_loc_crazy = 2, &
                                                do_loc_direct = 3, &
                                                do_loc_l1_norm_sd = 4, &
-                                               do_loc_scdm = 5
+                                               do_loc_scdm = 5, &
+                                               do_loc_gapo = 6
+
+   INTEGER, PARAMETER, PUBLIC               :: do_loc_cpo_atomic = 0, &
+                                               do_loc_cpo_restart = 1, &
+                                               do_loc_cpo_random = 2
+
+   INTEGER, PARAMETER, PUBLIC               :: do_loc_cpo_space_wan = 0, &
+                                               do_loc_cpo_space_nmo = 1
 
    INTEGER, PARAMETER, PUBLIC               :: do_loc_min = 0, &
                                                do_loc_max = 1, &
@@ -460,11 +468,13 @@ MODULE input_constants
                                                state_loc_range = 1, &
                                                state_loc_list = 2, &
                                                energy_loc_range = 3, &
-                                               state_loc_none = 4
+                                               state_loc_none = 4, &
+                                               state_loc_mixed = 5
 
    INTEGER, PARAMETER, PUBLIC               :: do_loc_homo = 0, &
                                                do_loc_lumo = 1, &
-                                               do_loc_both = 2
+                                               do_loc_both = 2, &
+                                               do_loc_mixed = 3
 
    INTEGER, PARAMETER, PUBLIC               :: orb_s = 0, &
                                                orb_px = 1, &
@@ -840,7 +850,8 @@ MODULE input_constants
                                                do_admm_aux_exch_func_default_libxc = 5, &
                                                do_admm_aux_exch_func_pbex_libxc = 6, &
                                                do_admm_aux_exch_func_opt_libxc = 7, &
-                                               do_admm_aux_exch_func_bee_libxc = 8
+                                               do_admm_aux_exch_func_bee_libxc = 8, &
+                                               do_admm_aux_exch_func_sx_libxc = 9
 
    ! Define scaling of the exchange correction
    INTEGER, PARAMETER, PUBLIC               :: do_admm_exch_scaling_none = 0, &
@@ -877,6 +888,9 @@ MODULE input_constants
                                                fftw_plan_measure = 2, &
                                                fftw_plan_patient = 3, &
                                                fftw_plan_exhaustive = 4
+   ! Local DGEMM library
+   INTEGER, PARAMETER, PUBLIC               :: do_dgemm_spla = 1, &
+                                               do_dgemm_blas = 2
 
    !real time propagation
    INTEGER, PARAMETER, PUBLIC               :: do_taylor = 1, &
@@ -1013,6 +1027,12 @@ MODULE input_constants
                                                wfc_mm_style_gemm = 11, &
                                                wfc_mm_style_syrk = 12
 
+   ! solvers of the z-vector equations
+   INTEGER, PARAMETER, PUBLIC               :: z_solver_pople = 1, &
+                                               z_solver_cg = 2, &
+                                               z_solver_richardson = 3, &
+                                               z_solver_sd = 4
+
    ! GW parameter
    INTEGER, PARAMETER, PUBLIC               :: ri_rpa_g0w0_crossing_z_shot = 1, &
                                                ri_rpa_g0w0_crossing_newton = 2, &
@@ -1025,7 +1045,9 @@ MODULE input_constants
                                                gw_two_pole_model = 10, &
                                                kp_weights_W_auto = 11, &
                                                kp_weights_W_uniform = 12, &
-                                               kp_weights_W_tailored = 13
+                                               kp_weights_W_tailored = 13, &
+                                               gw_gf_mic = 14, &
+                                               gw_gf_gamma = 15
 
    ! periodic RESP parameters
    INTEGER, PARAMETER, PUBLIC               :: do_resp_x_dir = 0, &
@@ -1076,13 +1098,16 @@ MODULE input_constants
    INTEGER, PARAMETER, PUBLIC               :: kg_cholesky = 3001
 
    ! non-scf energy corrections
+   INTEGER, PARAMETER, PUBLIC               :: ec_functional_harris = 2001, &
+                                               ec_functional_dc = 2002
+
+   ! Energy correction solver
    INTEGER, PARAMETER, PUBLIC               :: ec_diagonalization = 1001, &
                                                ec_curvy_steps = 1002, &
                                                ec_matrix_sign = 1003, &
                                                ec_matrix_trs4 = 1004, &
                                                ec_matrix_tc2 = 1005, &
                                                ec_ot_diag = 1006
-   INTEGER, PARAMETER, PUBLIC               :: ec_functional_harris = 2001
 
    ! response solver for energy correction
    INTEGER, PARAMETER, PUBLIC               :: ec_ot_atomic = 1, &
@@ -1147,7 +1172,8 @@ MODULE input_constants
    ! Active Space Section: orbital selection methods
    INTEGER, PARAMETER, PUBLIC               :: casci_canonical = 100, &
                                                wannier_projection = 101, &
-                                               mao_projection = 102
+                                               mao_projection = 102, &
+                                               manual_selection = 103
    INTEGER, PARAMETER, PUBLIC               :: eri_method_full_gpw = 1, &
                                                eri_method_gpw_ht = 2
    INTEGER, PARAMETER, PUBLIC               :: eri_operator_coulomb = 1, &

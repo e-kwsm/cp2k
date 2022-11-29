@@ -57,22 +57,19 @@ MODULE qs_scf_post_gpw
                                               dbcsr_type
    USE dct,                             ONLY: pw_shrink
    USE et_coupling_types,               ONLY: set_et_coupling_type
+   USE hfx_ri,                          ONLY: print_ri_hfx
    USE hirshfeld_methods,               ONLY: comp_hirshfeld_charges,&
                                               comp_hirshfeld_i_charges,&
                                               create_shape_function,&
+                                              save_hirshfeld_charges,&
                                               write_hirshfeld_charges
    USE hirshfeld_types,                 ONLY: create_hirshfeld_type,&
                                               hirshfeld_type,&
                                               release_hirshfeld_type,&
                                               set_hirshfeld_info
-   USE input_constants,                 ONLY: do_loc_both,&
-                                              do_loc_homo,&
-                                              do_loc_lumo,&
-                                              ot_precond_full_all,&
-                                              radius_covalent,&
-                                              radius_user,&
-                                              ref_charge_atomic,&
-                                              ref_charge_mulliken
+   USE input_constants,                 ONLY: &
+        do_loc_both, do_loc_homo, do_loc_lumo, do_loc_mixed, ot_precond_full_all, radius_covalent, &
+        radius_user, ref_charge_atomic, ref_charge_mulliken
    USE input_section_types,             ONLY: section_get_ival,&
                                               section_get_ivals,&
                                               section_get_lval,&
@@ -127,7 +124,6 @@ MODULE qs_scf_post_gpw
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qs_active_space_methods,         ONLY: active_space_main
    USE qs_chargemol,                    ONLY: write_wfx
@@ -154,8 +150,8 @@ MODULE qs_scf_post_gpw
    USE qs_loc_dipole,                   ONLY: loc_dipole
    USE qs_loc_states,                   ONLY: get_localization_info
    USE qs_loc_types,                    ONLY: qs_loc_env_create,&
-                                              qs_loc_env_destroy,&
-                                              qs_loc_env_new_type
+                                              qs_loc_env_release,&
+                                              qs_loc_env_type
    USE qs_loc_utils,                    ONLY: loc_write_restart,&
                                               qs_loc_control_init,&
                                               qs_loc_env_init,&
@@ -168,7 +164,7 @@ MODULE qs_scf_post_gpw
                                               make_mo_eig
    USE qs_mo_occupation,                ONLY: set_mo_occupation
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_moments,                      ONLY: qs_moment_berry_phase,&
                                               qs_moment_locop
    USE qs_neighbor_list_types,          ONLY: get_iterator_info,&
@@ -226,6 +222,7 @@ CONTAINS
 !> \brief collects possible post - scf calculations and prints info / computes properties.
 !> \param qs_env the qs_env in which the qs_env lives
 !> \param wf_type ...
+!> \param do_mp2 ...
 !> \par History
 !>      02.2003 created [fawzi]
 !>      10.2004 moved here from qs_scf [Joost VandeVondele]
@@ -239,45 +236,47 @@ CONTAINS
 !>      change afterwards slightly the forces (hence small numerical differences between MD
 !>      with and without the debug print level). Ideally this should not happen...
 ! **************************************************************************************************
-   SUBROUTINE scf_post_calculation_gpw(qs_env, wf_type)
+   SUBROUTINE scf_post_calculation_gpw(qs_env, wf_type, do_mp2)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       CHARACTER(6), OPTIONAL                             :: wf_type
+      LOGICAL, OPTIONAL                                  :: do_mp2
 
       CHARACTER(len=*), PARAMETER :: routineN = 'scf_post_calculation_gpw'
 
-      INTEGER                                            :: handle, homo, ispin, min_lumos, n_rep, &
-                                                            nhomo, nlumo, nlumo_stm, nlumo_tddft, &
-                                                            nlumos, nmo, output_unit, unit_nr
+      INTEGER :: handle, homo, ispin, min_lumos, n_rep, nchk_nmoloc, nhomo, nlumo, nlumo_stm, &
+         nlumo_tddft, nlumos, nmo, output_unit, unit_nr
       INTEGER, DIMENSION(:, :, :), POINTER               :: marked_states
-      LOGICAL :: check_write, compute_lumos, do_homo, do_kpoints, do_mo_cubes, do_mp2, do_stm, &
-         do_wannier_cubes, has_homo, has_lumo, loc_explicit, loc_print_explicit, my_localized_wfn, &
-         p_loc, p_loc_homo, p_loc_lumo
+      LOGICAL :: check_write, compute_lumos, do_homo, do_kpoints, do_mixed, do_mo_cubes, do_stm, &
+         do_wannier_cubes, has_homo, has_lumo, loc_explicit, loc_print_explicit, my_do_mp2, &
+         my_localized_wfn, p_loc, p_loc_homo, p_loc_lumo, p_loc_mixed
       REAL(dp)                                           :: e_kin
-      REAL(KIND=dp)                                      :: gap, homo_lumo(2, 2)
+      REAL(KIND=dp)                                      :: gap, homo_lumo(2, 2), total_zeff_corr
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-      TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: occupied_evals, unoccupied_evals, &
-                                                            unoccupied_evals_stm
+      TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: mixed_evals, occupied_evals, &
+                                                            unoccupied_evals, unoccupied_evals_stm
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER :: homo_localized, lumo_localized, lumo_ptr, &
-         mo_loc_history, occupied_orbs, unoccupied_orbs, unoccupied_orbs_stm
+         mixed_localized, mixed_orbs, mo_loc_history, occupied_orbs, unoccupied_orbs, &
+         unoccupied_orbs_stm
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv, matrix_p_mp2, matrix_s, &
                                                             mo_derivs
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: kinetic_m, rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env_homo, qs_loc_env_lumo
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env_homo, qs_loc_env_lumo, &
+                                                            qs_loc_env_mixed
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(qs_subsys_type), POINTER                      :: subsys
@@ -292,7 +291,8 @@ CONTAINS
       output_unit = cp_logger_get_default_io_unit(logger)
 
       ! Print out the type of wavefunction to distinguish between SCF and post-SCF
-      do_mp2 = .FALSE.
+      my_do_mp2 = .FALSE.
+      IF (PRESENT(do_mp2)) my_do_mp2 = do_mp2
       IF (PRESENT(wf_type)) THEN
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, FMT='(/,(T1,A))') REPEAT("-", 40)
@@ -310,17 +310,18 @@ CONTAINS
                mo_coeff, ks_rmpv, matrix_s, qs_loc_env_homo, qs_loc_env_lumo, scf_control, &
                unoccupied_orbs, unoccupied_orbs_stm, mo_eigenvalues, unoccupied_evals, &
                unoccupied_evals_stm, molecule_set, mo_derivs, &
-               subsys, particles, input, print_key, kinetic_m, marked_states)
-      NULLIFY (homo_localized, lumo_localized, lumo_ptr, rho_ao)
+               subsys, particles, input, print_key, kinetic_m, marked_states, &
+               mixed_orbs, mixed_evals, qs_loc_env_mixed)
+      NULLIFY (homo_localized, lumo_localized, lumo_ptr, rho_ao, mixed_localized)
 
       has_homo = .FALSE.
       has_lumo = .FALSE.
       p_loc = .FALSE.
       p_loc_homo = .FALSE.
       p_loc_lumo = .FALSE.
+      p_loc_mixed = .FALSE.
 
       CPASSERT(ASSOCIATED(scf_env))
-      CPASSERT(scf_env%ref_count > 0)
       CPASSERT(ASSOCIATED(qs_env))
       ! Here we start with data that needs a postprocessing...
       CALL get_qs_env(qs_env, &
@@ -339,7 +340,7 @@ CONTAINS
 
       CALL qs_rho_get(rho, rho_ao_kp=rho_ao)
 
-      IF (do_mp2) THEN
+      IF (my_do_mp2) THEN
          ! Get the HF+MP2 density
          CALL get_qs_env(qs_env, matrix_p_mp2=matrix_p_mp2)
          DO ispin = 1, dft_control%nspins
@@ -404,10 +405,12 @@ CONTAINS
                        section_get_ival(localize_section, "STATES") == do_loc_both) .AND. p_loc
          p_loc_lumo = (section_get_ival(localize_section, "STATES") == do_loc_lumo .OR. &
                        section_get_ival(localize_section, "STATES") == do_loc_both) .AND. p_loc
+         p_loc_mixed = (section_get_ival(localize_section, "STATES") == do_loc_mixed) .AND. p_loc
          CALL section_vals_val_get(localize_section, "LIST_UNOCCUPIED", n_rep_val=n_rep)
       ELSE
          p_loc_homo = .FALSE.
          p_loc_lumo = .FALSE.
+         p_loc_mixed = .FALSE.
          n_rep = 0
       END IF
 
@@ -445,10 +448,10 @@ CONTAINS
       IF (((do_mo_cubes .OR. do_wannier_cubes) .AND. (nlumo /= 0 .OR. nhomo /= 0)) .OR. p_loc) THEN
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                          pw_pools=pw_pools)
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
       END IF
@@ -476,7 +479,7 @@ CONTAINS
                END IF
             END IF
             DO ispin = 1, dft_control%nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, eigenvalues=mo_eigenvalues, homo=homo)
+               CALL get_mo_set(mo_set=mos(ispin), eigenvalues=mo_eigenvalues, homo=homo)
                homo_lumo(ispin, 1) = mo_eigenvalues(homo)
             END DO
             has_homo = .TRUE.
@@ -484,7 +487,7 @@ CONTAINS
          IF (do_mo_cubes .AND. nhomo /= 0) THEN
             DO ispin = 1, dft_control%nspins
                ! Prints the cube files of OCCUPIED ORBITALS
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                                eigenvalues=mo_eigenvalues, homo=homo, nmo=nmo)
                CALL qs_scf_post_occ_cubes(input, dft_section, dft_control, logger, qs_env, &
                                           mo_coeff, wf_g, wf_r, particles, homo, ispin)
@@ -507,10 +510,11 @@ CONTAINS
             ALLOCATE (occupied_evals(dft_control%nspins))
             ALLOCATE (homo_localized(dft_control%nspins))
             DO ispin = 1, dft_control%nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                                eigenvalues=mo_eigenvalues)
                occupied_orbs(ispin)%matrix => mo_coeff
                occupied_evals(ispin)%array => mo_eigenvalues
+               ALLOCATE (homo_localized(ispin)%matrix)
                CALL cp_fm_create(homo_localized(ispin)%matrix, occupied_orbs(ispin)%matrix%matrix_struct)
                CALL cp_fm_to_fm(occupied_orbs(ispin)%matrix, homo_localized(ispin)%matrix)
             END DO
@@ -518,6 +522,7 @@ CONTAINS
             CALL get_qs_env(qs_env, mo_loc_history=mo_loc_history)
             do_homo = .TRUE.
 
+            ALLOCATE (qs_loc_env_homo)
             CALL qs_loc_env_create(qs_loc_env_homo)
             CALL qs_loc_control_init(qs_loc_env_homo, localize_section, do_homo=do_homo)
             CALL qs_loc_init(qs_env, qs_loc_env_homo, localize_section, homo_localized, do_homo, &
@@ -558,7 +563,7 @@ CONTAINS
          compute_lumos = compute_lumos .OR. p_loc_lumo
 
          DO ispin = 1, dft_control%nspins
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, homo=homo, nmo=nmo)
+            CALL get_mo_set(mo_set=mos(ispin), homo=homo, nmo=nmo)
             compute_lumos = compute_lumos .AND. homo == nmo
          END DO
 
@@ -567,7 +572,7 @@ CONTAINS
             nlumo = section_get_ival(dft_section, "PRINT%MO_CUBES%NLUMO")
             DO ispin = 1, dft_control%nspins
 
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, homo=homo, nmo=nmo, eigenvalues=mo_eigenvalues)
+               CALL get_mo_set(mo_set=mos(ispin), homo=homo, nmo=nmo, eigenvalues=mo_eigenvalues)
                IF (nlumo > nmo - homo) THEN
                   ! this case not yet implemented
                ELSE
@@ -580,7 +585,7 @@ CONTAINS
                   IF (output_unit > 0) WRITE (output_unit, '(4(1X,1F16.8))') mo_eigenvalues(homo + 1:homo + nlumo)
 
                   ! Prints the cube files of UNOCCUPIED ORBITALS
-                  CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+                  CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
                   CALL qs_scf_post_unocc_cubes(input, dft_section, dft_control, logger, qs_env, &
                                                mo_coeff, wf_g, wf_r, particles, nlumo, homo, ispin, lumo=homo + 1)
                END IF
@@ -594,6 +599,7 @@ CONTAINS
             IF (nlumo == 0) check_write = .FALSE.
             IF (p_loc_lumo) THEN
                do_homo = .FALSE.
+               ALLOCATE (qs_loc_env_lumo)
                CALL qs_loc_env_create(qs_loc_env_lumo)
                CALL qs_loc_control_init(qs_loc_env_lumo, localize_section, do_homo=do_homo)
                min_lumos = MAX(MAXVAL(qs_loc_env_lumo%localized_wfn_control%loc_states(:, :)), nlumo)
@@ -606,7 +612,7 @@ CONTAINS
             DO ispin = 1, dft_control%nspins
                has_lumo = .TRUE.
                homo_lumo(ispin, 2) = unoccupied_evals(ispin)%array(1)
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, homo=homo)
+               CALL get_mo_set(mo_set=mos(ispin), homo=homo)
                IF (check_write) THEN
                   IF (p_loc_lumo .AND. nlumo .NE. -1) nlumos = MIN(nlumo, nlumos)
                   ! Prints the cube files of UNOCCUPIED ORBITALS
@@ -628,6 +634,7 @@ CONTAINS
             IF (p_loc_lumo) THEN
                ALLOCATE (lumo_localized(dft_control%nspins))
                DO ispin = 1, dft_control%nspins
+                  ALLOCATE (lumo_localized(ispin)%matrix)
                   CALL cp_fm_create(lumo_localized(ispin)%matrix, unoccupied_orbs(ispin)%matrix%matrix_struct)
                   CALL cp_fm_to_fm(unoccupied_orbs(ispin)%matrix, lumo_localized(ispin)%matrix)
                END DO
@@ -656,16 +663,85 @@ CONTAINS
          END IF
       END IF
 
+      IF (p_loc_mixed) THEN
+         IF (do_kpoints) THEN
+            CPWARN("Localization not implemented for k-point calculations!!")
+         ELSEIF (dft_control%restricted) THEN
+            IF (output_unit > 0) WRITE (output_unit, *) &
+               " Unclear how we define MOs / localization in the restricted case... skipping"
+         ELSE
+
+            ALLOCATE (mixed_orbs(dft_control%nspins))
+            ALLOCATE (mixed_evals(dft_control%nspins))
+            ALLOCATE (mixed_localized(dft_control%nspins))
+            DO ispin = 1, dft_control%nspins
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
+                               eigenvalues=mo_eigenvalues)
+               mixed_orbs(ispin)%matrix => mo_coeff
+               mixed_evals(ispin)%array => mo_eigenvalues
+               ALLOCATE (mixed_localized(ispin)%matrix)
+               CALL cp_fm_create(mixed_localized(ispin)%matrix, mixed_orbs(ispin)%matrix%matrix_struct)
+               CALL cp_fm_to_fm(mixed_orbs(ispin)%matrix, mixed_localized(ispin)%matrix)
+            END DO
+
+            CALL get_qs_env(qs_env, mo_loc_history=mo_loc_history)
+            do_homo = .FALSE.
+            do_mixed = .TRUE.
+            total_zeff_corr = scf_env%sum_zeff_corr
+            ALLOCATE (qs_loc_env_mixed)
+            CALL qs_loc_env_create(qs_loc_env_mixed)
+            CALL qs_loc_control_init(qs_loc_env_mixed, localize_section, do_homo=do_homo, do_mixed=do_mixed)
+            CALL qs_loc_init(qs_env, qs_loc_env_mixed, localize_section, mixed_localized, do_homo, &
+                             do_mo_cubes, mo_loc_history=mo_loc_history, tot_zeff_corr=total_zeff_corr, &
+                             do_mixed=do_mixed)
+
+            DO ispin = 1, dft_control%nspins
+               CALL cp_fm_get_info(mixed_localized(ispin)%matrix, ncol_global=nchk_nmoloc)
+            END DO
+
+            CALL get_localization_info(qs_env, qs_loc_env_mixed, localize_section, mixed_localized, &
+                                       wf_r, wf_g, particles, mixed_orbs, mixed_evals, marked_states)
+
+            !retain the homo_localized for future use
+            IF (qs_loc_env_mixed%localized_wfn_control%use_history) THEN
+               CALL retain_history(mo_loc_history, mixed_localized)
+               CALL set_qs_env(qs_env, mo_loc_history=mo_loc_history)
+            END IF
+
+            !write restart for localization of occupied orbitals
+            CALL loc_write_restart(qs_loc_env_mixed, loc_print_section, mos, &
+                                   mixed_localized, do_homo, do_mixed=do_mixed)
+            CALL cp_fm_vect_dealloc(mixed_localized)
+            DEALLOCATE (mixed_orbs)
+            DEALLOCATE (mixed_evals)
+            ! Print Total Dipole if the localization has been performed
+! Revisit the formalism later
+            !IF (qs_loc_env_mixed%do_localize) THEN
+            !   CALL loc_dipole(input, dft_control, qs_loc_env_mixed, logger, qs_env)
+            !END IF
+         END IF
+      END IF
+
       ! Deallocate grids needed to compute wavefunctions
       IF (((do_mo_cubes .OR. do_wannier_cubes) .AND. (nlumo /= 0 .OR. nhomo /= 0)) .OR. p_loc) THEN
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
       END IF
 
       ! Destroy the localization environment
       IF (.NOT. do_kpoints) THEN
-         IF (p_loc_homo) CALL qs_loc_env_destroy(qs_loc_env_homo)
-         IF (p_loc_lumo) CALL qs_loc_env_destroy(qs_loc_env_lumo)
+         IF (p_loc_homo) THEN
+            CALL qs_loc_env_release(qs_loc_env_homo)
+            DEALLOCATE (qs_loc_env_homo)
+         END IF
+         IF (p_loc_lumo) THEN
+            CALL qs_loc_env_release(qs_loc_env_lumo)
+            DEALLOCATE (qs_loc_env_lumo)
+         END IF
+         IF (p_loc_mixed) THEN
+            CALL qs_loc_env_release(qs_loc_env_mixed)
+            DEALLOCATE (qs_loc_env_mixed)
+         END IF
       END IF
 
       ! generate a mix of wfns, and write to a restart
@@ -686,8 +762,10 @@ CONTAINS
          IF (compute_lumos) THEN
             DO ispin = 1, dft_control%nspins
                DEALLOCATE (unoccupied_evals(ispin)%array)
-               IF (.NOT. dft_control%do_tddfpt_calculation) &
+               IF (.NOT. dft_control%do_tddfpt_calculation) THEN
                   CALL cp_fm_release(unoccupied_orbs(ispin)%matrix)
+                  DEALLOCATE (unoccupied_orbs(ispin)%matrix)
+               END IF
             END DO
             DEALLOCATE (unoccupied_evals)
             IF (.NOT. dft_control%do_tddfpt_calculation) THEN
@@ -715,6 +793,7 @@ CONTAINS
                DO ispin = 1, dft_control%nspins
                   DEALLOCATE (unoccupied_evals_stm(ispin)%array)
                   CALL cp_fm_release(unoccupied_orbs_stm(ispin)%matrix)
+                  DEALLOCATE (unoccupied_orbs_stm(ispin)%matrix)
                END DO
                DEALLOCATE (unoccupied_evals_stm)
                DEALLOCATE (unoccupied_orbs_stm)
@@ -746,7 +825,7 @@ CONTAINS
       ! Do active space calculation
       CALL active_space_main(input, logger, qs_env)
 
-      IF (do_mp2) THEN
+      IF (my_do_mp2) THEN
          ! Get everything back
          DO ispin = 1, dft_control%nspins
             CALL dbcsr_add(rho_ao(ispin, 1)%matrix, matrix_p_mp2(ispin)%matrix, 1.0_dp, -1.0_dp)
@@ -789,7 +868,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(preconditioner_type), POINTER                 :: local_preconditioner
       TYPE(scf_control_type), POINTER                    :: scf_control
 
@@ -816,13 +895,14 @@ CONTAINS
          IF (output_unit > 0) WRITE (output_unit, *) " "
          IF (output_unit > 0) WRITE (output_unit, *) " Lowest Eigenvalues of the unoccupied subspace spin ", ispin
          IF (output_unit > 0) WRITE (output_unit, FMT='(1X,A)') "-----------------------------------------------------"
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, homo=homo, nao=nao, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, homo=homo, nao=nao, nmo=nmo)
          CALL cp_fm_get_info(mo_coeff, nrow_global=n)
          nlumos = MAX(1, MIN(nlumo, nao - nmo))
          IF (nlumo == -1) nlumos = nao - nmo
          ALLOCATE (unoccupied_evals(ispin)%array(nlumos))
          CALL cp_fm_struct_create(fm_struct_tmp, para_env=para_env, context=blacs_env, &
                                   nrow_global=n, ncol_global=nlumos)
+         ALLOCATE (unoccupied_orbs(ispin)%matrix)
          CALL cp_fm_create(unoccupied_orbs(ispin)%matrix, fm_struct_tmp, name="lumos")
          CALL cp_fm_struct_release(fm_struct_tmp)
          CALL cp_fm_init_random(unoccupied_orbs(ispin)%matrix, nlumos)
@@ -942,8 +1022,9 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff
+      TYPE(pw_type), INTENT(IN)                          :: wf_g
+      TYPE(pw_type), INTENT(INOUT)                       :: wf_r
       TYPE(particle_list_type), POINTER                  :: particles
       INTEGER, INTENT(IN)                                :: homo, ispin
 
@@ -1012,7 +1093,7 @@ CONTAINS
                                            middle_name=TRIM(filename), file_position=my_pos_cube, log_filename=.FALSE., &
                                            mpi_io=mpi_io)
             WRITE (title, *) "WAVEFUNCTION ", ivector, " spin ", ispin, " i.e. HOMO - ", ivector - homo
-            CALL cp_pw_to_cube(wf_r%pw, unit_nr, title, particles=particles, &
+            CALL cp_pw_to_cube(wf_r, unit_nr, title, particles=particles, &
                                stride=section_get_ivals(dft_section, "PRINT%MO_CUBES%STRIDE"), mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, input, "DFT%PRINT%MO_CUBES", mpi_io=mpi_io)
          END DO
@@ -1045,8 +1126,9 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: unoccupied_orbs
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
+      TYPE(cp_fm_type), INTENT(IN)                       :: unoccupied_orbs
+      TYPE(pw_type), INTENT(IN)                          :: wf_g
+      TYPE(pw_type), INTENT(INOUT)                       :: wf_r
       TYPE(particle_list_type), POINTER                  :: particles
       INTEGER, INTENT(IN)                                :: nlumos, homo, ispin
       INTEGER, INTENT(IN), OPTIONAL                      :: lumo
@@ -1097,7 +1179,7 @@ CONTAINS
                                            middle_name=TRIM(filename), file_position=my_pos_cube, log_filename=.FALSE., &
                                            mpi_io=mpi_io)
             WRITE (title, *) "WAVEFUNCTION ", index_mo, " spin ", ispin, " i.e. LUMO + ", ifirst + ivector - 2
-            CALL cp_pw_to_cube(wf_r%pw, unit_nr, title, particles=particles, &
+            CALL cp_pw_to_cube(wf_r, unit_nr, title, particles=particles, &
                                stride=section_get_ivals(dft_section, "PRINT%MO_CUBES%STRIDE"), mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, input, "DFT%PRINT%MO_CUBES", mpi_io=mpi_io)
          END DO
@@ -1339,11 +1421,11 @@ CONTAINS
             ALLOCATE (my_mos(dft_control%nspins))
             ALLOCATE (qs_env%et_coupling%et_mo_coeff(dft_control%nspins))
             DO ispin = 1, dft_control%nspins
-               NULLIFY (my_mos(ispin)%matrix)
+               ALLOCATE (my_mos(ispin)%matrix)
                CALL cp_fm_create(matrix=my_mos(ispin)%matrix, &
-                                 matrix_struct=qs_env%mos(ispin)%mo_set%mo_coeff%matrix_struct, &
+                                 matrix_struct=qs_env%mos(ispin)%mo_coeff%matrix_struct, &
                                  name="FIRST_RUN_COEFF"//TRIM(ADJUSTL(cp_to_string(ispin)))//"MATRIX")
-               CALL cp_fm_to_fm(qs_env%mos(ispin)%mo_set%mo_coeff, &
+               CALL cp_fm_to_fm(qs_env%mos(ispin)%mo_coeff, &
                                 my_mos(ispin)%matrix)
             END DO
             CALL set_et_coupling_type(qs_env%et_coupling, et_mo_coeff=my_mos)
@@ -1379,9 +1461,9 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: elf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: elf_r
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: elf_section
 
@@ -1392,7 +1474,7 @@ CONTAINS
       IF (BTEST(cp_print_key_should_output(logger%iter_info, input, &
                                            "DFT%PRINT%ELF_CUBE"), cp_p_file)) THEN
 
-         NULLIFY (dft_control, pw_env, auxbas_pw_pool, pw_pools, particles, subsys, elf_r)
+         NULLIFY (dft_control, pw_env, auxbas_pw_pool, pw_pools, particles, subsys)
          CALL get_qs_env(qs_env, dft_control=dft_control, pw_env=pw_env, subsys=subsys)
          CALL qs_subsys_get(subsys, particles=particles)
 
@@ -1403,10 +1485,10 @@ CONTAINS
             CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                             pw_pools=pw_pools)
             DO ispin = 1, dft_control%nspins
-               CALL pw_pool_create_pw(auxbas_pw_pool, elf_r(ispin)%pw, &
+               CALL pw_pool_create_pw(auxbas_pw_pool, elf_r(ispin), &
                                       use_data=REALDATA3D, &
                                       in_space=REALSPACE)
-               CALL pw_zero(elf_r(ispin)%pw)
+               CALL pw_zero(elf_r(ispin))
             END DO
 
             IF (output_unit > 0) THEN
@@ -1441,11 +1523,11 @@ CONTAINS
                      TRIM(filename)
                END IF
 
-               CALL cp_pw_to_cube(elf_r(ispin)%pw, unit_nr, title, particles=particles, &
+               CALL cp_pw_to_cube(elf_r(ispin), unit_nr, title, particles=particles, &
                                   stride=section_get_ivals(elf_section, "STRIDE"), mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, input, "DFT%PRINT%ELF_CUBE", mpi_io=mpi_io)
 
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, elf_r(ispin)%pw)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, elf_r(ispin))
             END DO
 
             ! deallocate
@@ -1484,9 +1566,10 @@ CONTAINS
       REAL(KIND=dp)                                      :: S_cond_number
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues
       TYPE(cp_fm_struct_type), POINTER                   :: ao_ao_fmstruct
-      TYPE(cp_fm_type), POINTER                          :: fm_s, fm_work, mo_coeff
+      TYPE(cp_fm_type)                                   :: fm_s, fm_work
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(section_vals_type), POINTER                   :: print_key
 
@@ -1500,7 +1583,7 @@ CONTAINS
          CALL get_qs_env(qs_env, energy=energy, matrix_s=matrix_s, mos=mos)
 
          ! set up the two needed full matrices, using mo_coeff as a template
-         CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff, nao=nao)
+         CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff, nao=nao)
          CALL cp_fm_struct_create(fmstruct=ao_ao_fmstruct, &
                                   nrow_global=nao, ncol_global=nao, &
                                   template_fmstruct=mo_coeff%matrix_struct)
@@ -1621,15 +1704,15 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: mo_coeff_deriv
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_r
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_rho_type), POINTER                         :: rho
@@ -1691,7 +1774,7 @@ CONTAINS
                CALL calculate_dos_kp(kpoints, qs_env, dft_section)
             ELSE
                CALL get_qs_env(qs_env, mos=mos)
-               CALL calculate_dos(mos, qs_env, dft_section)
+               CALL calculate_dos(mos, dft_section)
             END IF
          END IF
 
@@ -1711,7 +1794,7 @@ CONTAINS
                   END IF
                   IF (PRESENT(scf_env)) THEN
                      IF (scf_env%method == ot_method_nr) THEN
-                        CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+                        CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                                         eigenvalues=mo_eigenvalues)
                         IF (ASSOCIATED(qs_env%mo_derivs)) THEN
                            mo_coeff_deriv => qs_env%mo_derivs(ispin)%matrix
@@ -1721,14 +1804,14 @@ CONTAINS
                         CALL calculate_subspace_eigenvalues(mo_coeff, ks_rmpv(ispin)%matrix, mo_eigenvalues, &
                                                             do_rotation=.TRUE., &
                                                             co_rotate_dbcsr=mo_coeff_deriv)
-                        CALL set_mo_occupation(mo_set=mos(ispin)%mo_set)
+                        CALL set_mo_occupation(mo_set=mos(ispin))
                      END IF
                   END IF
                   IF (dft_control%nspins == 2) THEN
-                     CALL calculate_projected_dos(mos(ispin)%mo_set, atomic_kind_set, &
+                     CALL calculate_projected_dos(mos(ispin), atomic_kind_set, &
                                                   qs_kind_set, particle_set, qs_env, dft_section, ispin=ispin)
                   ELSE
-                     CALL calculate_projected_dos(mos(ispin)%mo_set, atomic_kind_set, &
+                     CALL calculate_projected_dos(mos(ispin), atomic_kind_set, &
                                                   qs_kind_set, particle_set, qs_env, dft_section)
                   END IF
                   ! With ADMM, we have to undo the modification of the Kohn-Sham matrix
@@ -1746,15 +1829,15 @@ CONTAINS
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                          pw_pools=pw_pools)
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_copy(rho_r(1)%pw, wf_r%pw)
-         CALL pw_axpy(rho_r(2)%pw, wf_r%pw, alpha=-1._dp)
-         total_abs_spin_dens = pw_integrate_function(wf_r%pw, oprt="ABS")
+         CALL pw_copy(rho_r(1), wf_r)
+         CALL pw_axpy(rho_r(2), wf_r, alpha=-1._dp)
+         total_abs_spin_dens = pw_integrate_function(wf_r, oprt="ABS")
          IF (output_unit > 0) WRITE (UNIT=output_unit, FMT='(/,(T3,A,T61,F20.10))') &
             "Integrated absolute spin density  : ", total_abs_spin_dens
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
          !
          ! XXX Fix Me XXX
          ! should be extended to the case where added MOs are present
@@ -1765,7 +1848,7 @@ CONTAINS
          ELSE
             all_equal = .TRUE.
             DO ispin = 1, dft_control%nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, &
+               CALL get_mo_set(mo_set=mos(ispin), &
                                occupation_numbers=occupation_numbers, &
                                homo=homo, &
                                nmo=nmo, &
@@ -1811,10 +1894,10 @@ CONTAINS
       CHARACTER(LEN=default_path_length)                 :: filename, mpi_filename, my_pos_cube, &
                                                             my_pos_voro
       CHARACTER(LEN=default_string_length)               :: name
-      INTEGER :: after, handle, i, iat, id, ikind, img, iso, ispin, iw, l, nd(3), ngto, niso, &
-         nkind, np, nr, output_unit, print_level, should_print_bqb, should_print_voro, unit_nr, &
-         unit_nr_voro
-      LOGICAL :: append_cube, append_voro, do_kpoints, mpi_io, omit_headers, print_it, &
+      INTEGER :: after, handle, i, iat, id, ikind, img, iso, ispin, iw, l, n_rep_hf, nd(3), ngto, &
+         niso, nkind, np, nr, output_unit, print_level, should_print_bqb, should_print_voro, &
+         unit_nr, unit_nr_voro
+      LOGICAL :: append_cube, append_voro, do_hfx, do_kpoints, mpi_io, omit_headers, print_it, &
          print_total_density, rho_r_valid, voro_print_txt, write_ks, write_xc, xrd_interface
       REAL(KIND=dp)                                      :: q_max, rho_hard, rho_soft, rho_total, &
                                                             rho_total_rspace, udvol, volume
@@ -1833,25 +1916,25 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: aux_g, aux_r, rho_elec_gspace, &
-                                                            rho_elec_rspace, wf_r
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
-      TYPE(pw_p_type), POINTER                           :: rho0_s_gs, rho_core, vee
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
-      TYPE(pw_type), POINTER                             :: mb_rho, v_hartree_rspace
+      TYPE(pw_type)                                      :: aux_g, aux_r, rho_elec_gspace, &
+                                                            rho_elec_rspace, wf_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
+      TYPE(pw_type), POINTER                             :: mb_rho, rho0_s_gs, rho_core, &
+                                                            v_hartree_rspace, vee
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(rho_atom_type), DIMENSION(:), POINTER         :: rho_atom_set
       TYPE(rho_atom_type), POINTER                       :: rho_atom
-      TYPE(section_vals_type), POINTER                   :: dft_section, input, print_key, &
-                                                            print_key_bqb, print_key_voro, &
-                                                            xc_section
+      TYPE(section_vals_type), POINTER                   :: dft_section, hfx_section, input, &
+                                                            print_key, print_key_bqb, &
+                                                            print_key_voro, xc_section
 
       CALL timeset(routineN, handle)
-      NULLIFY (cell, dft_control, pw_env, auxbas_pw_pool, pw_pools, &
+      NULLIFY (cell, dft_control, pw_env, auxbas_pw_pool, pw_pools, hfx_section, &
                atomic_kind_set, qs_kind_set, particle_set, rho, ks_rmpv, rho_ao, rho_r, &
                dft_section, xc_section, input, particles, subsys, matrix_vxc, v_hartree_rspace, vee)
 
@@ -1888,31 +1971,31 @@ CONTAINS
                          rho0_s_gs=rho0_s_gs)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                          pw_pools=pw_pools)
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
          IF (dft_control%qs_control%gapw) THEN
-            CALL pw_transfer(rho0_s_gs%pw, wf_r%pw)
+            CALL pw_transfer(rho0_s_gs, wf_r)
             IF (dft_control%qs_control%gapw_control%nopaw_as_gpw) THEN
-               CALL pw_axpy(rho_core%pw, wf_r%pw)
+               CALL pw_axpy(rho_core, wf_r)
             END IF
          ELSE
-            CALL pw_transfer(rho_core%pw, wf_r%pw)
+            CALL pw_transfer(rho_core, wf_r)
          END IF
          DO ispin = 1, dft_control%nspins
-            CALL pw_axpy(rho_r(ispin)%pw, wf_r%pw)
+            CALL pw_axpy(rho_r(ispin), wf_r)
          END DO
          filename = "TOTAL_DENSITY"
          mpi_io = .TRUE.
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%TOT_DENSITY_CUBE", &
                                         extension=".cube", middle_name=TRIM(filename), file_position=my_pos_cube, &
                                         log_filename=.FALSE., mpi_io=mpi_io)
-         CALL cp_pw_to_cube(wf_r%pw, unit_nr, "TOTAL DENSITY", &
+         CALL cp_pw_to_cube(wf_r, unit_nr, "TOTAL DENSITY", &
                             particles=particles, &
                             stride=section_get_ivals(dft_section, "PRINT%TOT_DENSITY_CUBE%STRIDE"), mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%TOT_DENSITY_CUBE", mpi_io=mpi_io)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
       END IF
 
       ! Write cube file with electron density
@@ -2053,16 +2136,16 @@ CONTAINS
                             auxbas_pw_pool=auxbas_pw_pool, &
                             pw_pools=pw_pools)
             CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                                   pw=rho_elec_rspace%pw, &
+                                   pw=rho_elec_rspace, &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(rho_elec_rspace%pw)
+            CALL pw_zero(rho_elec_rspace)
             CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                                   pw=rho_elec_gspace%pw, &
+                                   pw=rho_elec_gspace, &
                                    use_data=COMPLEXDATA1D, &
                                    in_space=RECIPROCALSPACE)
-            CALL pw_zero(rho_elec_gspace%pw)
-            CALL get_pw_grid_info(pw_grid=rho_elec_gspace%pw%pw_grid, &
+            CALL pw_zero(rho_elec_gspace)
+            CALL get_pw_grid_info(pw_grid=rho_elec_gspace%pw_grid, &
                                   dr=dr, &
                                   vol=volume)
             q_max = SQRT(SUM((pi/dr(:))**2))
@@ -2073,10 +2156,10 @@ CONTAINS
                                               rho_hard=rho_hard, &
                                               rho_soft=rho_soft)
             rho_total = rho_hard + rho_soft
-            CALL get_pw_grid_info(pw_grid=rho_elec_gspace%pw%pw_grid, &
+            CALL get_pw_grid_info(pw_grid=rho_elec_gspace%pw_grid, &
                                   vol=volume)
-            CALL pw_transfer(rho_elec_gspace%pw, rho_elec_rspace%pw, debug=.FALSE.)
-            rho_total_rspace = pw_integrate_function(rho_elec_rspace%pw, isign=-1)/volume
+            CALL pw_transfer(rho_elec_gspace, rho_elec_rspace, debug=.FALSE.)
+            rho_total_rspace = pw_integrate_function(rho_elec_rspace, isign=-1)/volume
             filename = "TOTAL_ELECTRON_DENSITY"
             mpi_io = .TRUE.
             unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%E_DENSITY_CUBE", &
@@ -2099,15 +2182,15 @@ CONTAINS
                   "Total electronic charge (G-space):", rho_total, &
                   "Total electronic charge (R-space):", rho_total_rspace
             END IF
-            CALL cp_pw_to_cube(rho_elec_rspace%pw, unit_nr, "TOTAL ELECTRON DENSITY", &
+            CALL cp_pw_to_cube(rho_elec_rspace, unit_nr, "TOTAL ELECTRON DENSITY", &
                                particles=particles, &
                                stride=section_get_ivals(dft_section, "PRINT%E_DENSITY_CUBE%STRIDE"), mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                               "DFT%PRINT%E_DENSITY_CUBE", mpi_io=mpi_io)
             ! Print total spin density for spin-polarized systems
             IF (dft_control%nspins > 1) THEN
-               CALL pw_zero(rho_elec_gspace%pw)
-               CALL pw_zero(rho_elec_rspace%pw)
+               CALL pw_zero(rho_elec_gspace)
+               CALL pw_zero(rho_elec_rspace)
                CALL calculate_rhotot_elec_gspace(qs_env=qs_env, &
                                                  auxbas_pw_pool=auxbas_pw_pool, &
                                                  rhotot_elec_gspace=rho_elec_gspace, &
@@ -2116,8 +2199,8 @@ CONTAINS
                                                  rho_soft=rho_soft, &
                                                  fsign=-1.0_dp)
                rho_total = rho_hard + rho_soft
-               CALL pw_transfer(rho_elec_gspace%pw, rho_elec_rspace%pw, debug=.FALSE.)
-               rho_total_rspace = pw_integrate_function(rho_elec_rspace%pw, isign=-1)/volume
+               CALL pw_transfer(rho_elec_gspace, rho_elec_rspace, debug=.FALSE.)
+               rho_total_rspace = pw_integrate_function(rho_elec_rspace, isign=-1)/volume
                filename = "TOTAL_SPIN_DENSITY"
                mpi_io = .TRUE.
                unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%E_DENSITY_CUBE", &
@@ -2140,14 +2223,14 @@ CONTAINS
                      "Total spin density (G-space)           :", rho_total, &
                      "Total spin density (R-space)           :", rho_total_rspace
                END IF
-               CALL cp_pw_to_cube(rho_elec_rspace%pw, unit_nr, "TOTAL SPIN DENSITY", &
+               CALL cp_pw_to_cube(rho_elec_rspace, unit_nr, "TOTAL SPIN DENSITY", &
                                   particles=particles, &
                                   stride=section_get_ivals(dft_section, "PRINT%E_DENSITY_CUBE%STRIDE"), mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                                  "DFT%PRINT%E_DENSITY_CUBE", mpi_io=mpi_io)
             END IF
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_gspace%pw)
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_rspace%pw)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_gspace)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_rspace)
          ELSE
             IF (dft_control%nspins > 1) THEN
                CALL get_qs_env(qs_env=qs_env, &
@@ -2156,11 +2239,11 @@ CONTAINS
                                auxbas_pw_pool=auxbas_pw_pool, &
                                pw_pools=pw_pools)
                CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                                      pw=rho_elec_rspace%pw, &
+                                      pw=rho_elec_rspace, &
                                       use_data=REALDATA3D, &
                                       in_space=REALSPACE)
-               CALL pw_copy(rho_r(1)%pw, rho_elec_rspace%pw)
-               CALL pw_axpy(rho_r(2)%pw, rho_elec_rspace%pw)
+               CALL pw_copy(rho_r(1), rho_elec_rspace)
+               CALL pw_axpy(rho_r(2), rho_elec_rspace)
                filename = "ELECTRON_DENSITY"
                mpi_io = .TRUE.
                unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%E_DENSITY_CUBE", &
@@ -2177,13 +2260,13 @@ CONTAINS
                      "The sum of alpha and beta density is written in cube file format to the file:", &
                      TRIM(filename)
                END IF
-               CALL cp_pw_to_cube(rho_elec_rspace%pw, unit_nr, "SUM OF ALPHA AND BETA DENSITY", &
+               CALL cp_pw_to_cube(rho_elec_rspace, unit_nr, "SUM OF ALPHA AND BETA DENSITY", &
                                   particles=particles, stride=section_get_ivals(dft_section, "PRINT%E_DENSITY_CUBE%STRIDE"), &
                                   mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                                  "DFT%PRINT%E_DENSITY_CUBE", mpi_io=mpi_io)
-               CALL pw_copy(rho_r(1)%pw, rho_elec_rspace%pw)
-               CALL pw_axpy(rho_r(2)%pw, rho_elec_rspace%pw, alpha=-1.0_dp)
+               CALL pw_copy(rho_r(1), rho_elec_rspace)
+               CALL pw_axpy(rho_r(2), rho_elec_rspace, alpha=-1.0_dp)
                filename = "SPIN_DENSITY"
                mpi_io = .TRUE.
                unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%E_DENSITY_CUBE", &
@@ -2200,12 +2283,12 @@ CONTAINS
                      "The spin density is written in cube file format to the file:", &
                      TRIM(filename)
                END IF
-               CALL cp_pw_to_cube(rho_elec_rspace%pw, unit_nr, "SPIN DENSITY", &
+               CALL cp_pw_to_cube(rho_elec_rspace, unit_nr, "SPIN DENSITY", &
                                   particles=particles, &
                                   stride=section_get_ivals(dft_section, "PRINT%E_DENSITY_CUBE%STRIDE"), mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                                  "DFT%PRINT%E_DENSITY_CUBE", mpi_io=mpi_io)
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_rspace%pw)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_rspace)
             ELSE
                filename = "ELECTRON_DENSITY"
                mpi_io = .TRUE.
@@ -2223,7 +2306,7 @@ CONTAINS
                      "The electron density is written in cube file format to the file:", &
                      TRIM(filename)
                END IF
-               CALL cp_pw_to_cube(rho_r(1)%pw, unit_nr, "ELECTRON DENSITY", &
+               CALL cp_pw_to_cube(rho_r(1), unit_nr, "ELECTRON DENSITY", &
                                   particles=particles, &
                                   stride=section_get_ivals(dft_section, "PRINT%E_DENSITY_CUBE%STRIDE"), mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, input, &
@@ -2245,7 +2328,7 @@ CONTAINS
                          pw_env=pw_env, &
                          v_hartree_rspace=v_hartree_rspace)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
 
@@ -2261,16 +2344,16 @@ CONTAINS
                                         extension=".cube", middle_name="v_hartree", file_position=my_pos_cube, mpi_io=mpi_io)
          udvol = 1.0_dp/v_hartree_rspace%pw_grid%dvol
 
-         CALL pw_copy(v_hartree_rspace, aux_r%pw)
-         CALL pw_scale(aux_r%pw, udvol)
+         CALL pw_copy(v_hartree_rspace, aux_r)
+         CALL pw_scale(aux_r, udvol)
 
-         CALL cp_pw_to_cube(aux_r%pw, unit_nr, "HARTREE POTENTIAL", particles=particles, &
+         CALL cp_pw_to_cube(aux_r, unit_nr, "HARTREE POTENTIAL", particles=particles, &
                             stride=section_get_ivals(dft_section, &
                                                      "PRINT%V_HARTREE_CUBE%STRIDE"), mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%V_HARTREE_CUBE", mpi_io=mpi_io)
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
       END IF
 
       ! Print the external potential
@@ -2279,7 +2362,7 @@ CONTAINS
          IF (dft_control%apply_external_potential) THEN
             CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, vee=vee)
             CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-            CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
 
@@ -2293,15 +2376,15 @@ CONTAINS
             unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%EXTERNAL_POTENTIAL_CUBE", &
                                            extension=".cube", middle_name="ext_pot", file_position=my_pos_cube, mpi_io=mpi_io)
 
-            CALL pw_copy(vee%pw, aux_r%pw)
+            CALL pw_copy(vee, aux_r)
 
-            CALL cp_pw_to_cube(aux_r%pw, unit_nr, "EXTERNAL POTENTIAL", particles=particles, &
+            CALL cp_pw_to_cube(aux_r, unit_nr, "EXTERNAL POTENTIAL", particles=particles, &
                                stride=section_get_ivals(dft_section, &
                                                         "PRINT%EXTERNAL_POTENTIAL_CUBE%STRIDE"), mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                               "DFT%PRINT%EXTERNAL_POTENTIAL_CUBE", mpi_io=mpi_io)
 
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
          END IF
       END IF
 
@@ -2311,10 +2394,10 @@ CONTAINS
 
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_g, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
 
@@ -2333,14 +2416,14 @@ CONTAINS
                                            extension=".cube", middle_name="efield_"//cdir(id), file_position=my_pos_cube, &
                                            mpi_io=mpi_io)
 
-            CALL pw_transfer(v_hartree_rspace, aux_g%pw)
+            CALL pw_transfer(v_hartree_rspace, aux_g)
             nd = 0
             nd(id) = 1
-            CALL pw_derive(aux_g%pw, nd)
-            CALL pw_transfer(aux_g%pw, aux_r%pw)
-            CALL pw_scale(aux_r%pw, udvol)
+            CALL pw_derive(aux_g, nd)
+            CALL pw_transfer(aux_g, aux_r)
+            CALL pw_scale(aux_r, udvol)
 
-            CALL cp_pw_to_cube(aux_r%pw, &
+            CALL cp_pw_to_cube(aux_r, &
                                unit_nr, "ELECTRIC FIELD", particles=particles, &
                                stride=section_get_ivals(dft_section, &
                                                         "PRINT%EFIELD_CUBE%STRIDE"), mpi_io=mpi_io)
@@ -2348,8 +2431,8 @@ CONTAINS
                                               "DFT%PRINT%EFIELD_CUBE", mpi_io=mpi_io)
          END DO
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_g%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_g)
       END IF
 
       ! Write cube files from the local energy
@@ -2514,17 +2597,18 @@ CONTAINS
                CALL pw_env_get(pw_env=pw_env, &
                                auxbas_pw_pool=auxbas_pw_pool, &
                                pw_pools=pw_pools)
+               NULLIFY (mb_rho)
+               ALLOCATE (mb_rho)
                CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                                      pw=rho_elec_rspace%pw, &
+                                      pw=mb_rho, &
                                       use_data=REALDATA3D, &
                                       in_space=REALSPACE)
-               CALL pw_copy(rho_r(1)%pw, rho_elec_rspace%pw)
-               CALL pw_axpy(rho_r(2)%pw, rho_elec_rspace%pw)
-               mb_rho => rho_elec_rspace%pw
-               !CALL voronoi_analysis( qs_env, rho_elec_rspace%pw, print_key, unit_nr )
+               CALL pw_copy(rho_r(1), mb_rho)
+               CALL pw_axpy(rho_r(2), mb_rho)
+               !CALL voronoi_analysis(qs_env, rho_elec_rspace, print_key, unit_nr)
             ELSE
-               mb_rho => rho_r(1)%pw
-               !CALL voronoi_analysis( qs_env, rho_r(1)%pw, print_key, unit_nr )
+               mb_rho => rho_r(1)
+               !CALL voronoi_analysis( qs_env, rho_r(1), print_key, unit_nr )
             END IF ! nspins
 
             IF (should_print_voro /= 0) THEN
@@ -2548,7 +2632,8 @@ CONTAINS
                                       unit_nr_voro, qs_env, mb_rho)
 
             IF (dft_control%nspins > 1) THEN
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_elec_rspace%pw)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, mb_rho)
+               DEALLOCATE (mb_rho)
             END IF
 
             IF (unit_nr_voro > 0) THEN
@@ -2572,6 +2657,16 @@ CONTAINS
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%MINBAS_ANALYSIS", extension=".mao", log_filename=.FALSE.)
          CALL minbas_analysis(qs_env, print_key, unit_nr)
          CALL cp_print_key_finished_output(unit_nr, logger, input, "DFT%PRINT%MINBAS_ANALYSIS")
+      END IF
+
+      ! Print the density in the RI-HFX basis
+      hfx_section => section_vals_get_subs_vals(input, "DFT%XC%HF")
+      CALL section_vals_get(hfx_section, explicit=do_hfx)
+      CALL section_vals_get(hfx_section, n_repetition=n_rep_hf)
+      IF (do_hfx) THEN
+         DO i = 1, n_rep_hf
+            IF (qs_env%x_data(i, 1)%do_hfx_ri) CALL print_ri_hfx(qs_env%x_data(i, 1)%ri_data, qs_env)
+         END DO
       END IF
 
       CALL timestop(handle)
@@ -2689,6 +2784,8 @@ CONTAINS
          CALL write_hirshfeld_charges(charges, hirshfeld_env, particle_set, &
                                       qs_kind_set, unit_nr)
       END IF
+      ! Save the charges to the results under the tag [HIRSHFELD-CHARGES]
+      CALL save_hirshfeld_charges(charges, particle_set, qs_kind_set, qs_env)
       !
       CALL release_hirshfeld_type(hirshfeld_env)
       DEALLOCATE (charges)
@@ -2786,8 +2883,8 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: eden
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: eden
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section
 
@@ -2802,7 +2899,7 @@ CONTAINS
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, subsys=subsys)
          CALL qs_subsys_get(subsys, particles=particles)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, eden%pw, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL pw_pool_create_pw(auxbas_pw_pool, eden, use_data=REALDATA3D, in_space=REALSPACE)
          !
          CALL qs_local_energy(qs_env, eden)
          !
@@ -2816,7 +2913,7 @@ CONTAINS
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%LOCAL_ENERGY_CUBE", &
                                         extension=".cube", middle_name="local_energy", &
                                         file_position=my_pos_cube, mpi_io=mpi_io)
-         CALL cp_pw_to_cube(eden%pw, &
+         CALL cp_pw_to_cube(eden, &
                             unit_nr, "LOCAL ENERGY", particles=particles, &
                             stride=section_get_ivals(dft_section, &
                                                      "PRINT%LOCAL_ENERGY_CUBE%STRIDE"), mpi_io=mpi_io)
@@ -2833,7 +2930,7 @@ CONTAINS
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%LOCAL_ENERGY_CUBE", mpi_io=mpi_io)
          !
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, eden%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, eden)
       END IF
       CALL timestop(handle)
 
@@ -2862,8 +2959,8 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: stress
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: stress
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section
 
@@ -2878,11 +2975,11 @@ CONTAINS
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, subsys=subsys)
          CALL qs_subsys_get(subsys, particles=particles)
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, stress%pw, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL pw_pool_create_pw(auxbas_pw_pool, stress, use_data=REALDATA3D, in_space=REALSPACE)
          !
          ! use beta=0: kinetic energy density in symmetric form
          beta = 0.0_dp
-         CALL qs_local_stress(qs_env, pressure=stress, beta=beta)
+         CALL qs_local_stress(qs_env, beta=beta)
          !
          append_cube = section_get_lval(input, "DFT%PRINT%LOCAL_STRESS_CUBE%APPEND")
          IF (append_cube) THEN
@@ -2894,7 +2991,7 @@ CONTAINS
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%LOCAL_STRESS_CUBE", &
                                         extension=".cube", middle_name="local_stress", &
                                         file_position=my_pos_cube, mpi_io=mpi_io)
-         CALL cp_pw_to_cube(stress%pw, &
+         CALL cp_pw_to_cube(stress, &
                             unit_nr, "LOCAL STRESS", particles=particles, &
                             stride=section_get_ivals(dft_section, &
                                                      "PRINT%LOCAL_STRESS_CUBE%STRIDE"), mpi_io=mpi_io)
@@ -2912,7 +3009,7 @@ CONTAINS
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%LOCAL_STRESS_CUBE", mpi_io=mpi_io)
          !
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, stress%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, stress)
       END IF
 
       CALL timestop(handle)
@@ -2942,9 +3039,9 @@ CONTAINS
          has_dirichlet_bc, has_implicit_ps, mpi_io, tile_cubes
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: aux_r
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: aux_r
       TYPE(pw_type), POINTER                             :: dirichlet_tile
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section
@@ -2976,27 +3073,27 @@ CONTAINS
                                         extension=".cube", middle_name="DIELECTRIC_CONSTANT", file_position=my_pos_cube, &
                                         mpi_io=mpi_io)
          CALL pw_env_get(pw_env, poisson_env=poisson_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, use_data=REALDATA3D, in_space=REALSPACE)
 
          boundary_condition = pw_env%poisson_env%parameters%ps_implicit_params%boundary_condition
          SELECT CASE (boundary_condition)
          CASE (PERIODIC_BC, MIXED_PERIODIC_BC)
-            CALL pw_copy(poisson_env%implicit_env%dielectric%eps, aux_r%pw)
+            CALL pw_copy(poisson_env%implicit_env%dielectric%eps, aux_r)
          CASE (MIXED_BC, NEUMANN_BC)
             CALL pw_shrink(pw_env%poisson_env%parameters%ps_implicit_params%neumann_directions, &
                            pw_env%poisson_env%implicit_env%dct_env%dests_shrink, &
                            pw_env%poisson_env%implicit_env%dct_env%srcs_shrink, &
                            pw_env%poisson_env%implicit_env%dct_env%bounds_local_shftd, &
-                           poisson_env%implicit_env%dielectric%eps, aux_r%pw)
+                           poisson_env%implicit_env%dielectric%eps, aux_r)
          END SELECT
 
-         CALL cp_pw_to_cube(aux_r%pw, unit_nr, "DIELECTRIC CONSTANT", particles=particles, &
+         CALL cp_pw_to_cube(aux_r, unit_nr, "DIELECTRIC CONSTANT", particles=particles, &
                             stride=section_get_ivals(dft_section, "PRINT%IMPLICIT_PSOLVER%DIELECTRIC_CUBE%STRIDE"), &
                             mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%IMPLICIT_PSOLVER%DIELECTRIC_CUBE", mpi_io=mpi_io)
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
       END IF
 
       ! Write Dirichlet constraint charges into a cube file
@@ -3024,27 +3121,27 @@ CONTAINS
                                         extension=".cube", middle_name="dirichlet_cstr_charge", file_position=my_pos_cube, &
                                         mpi_io=mpi_io)
          CALL pw_env_get(pw_env, poisson_env=poisson_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, use_data=REALDATA3D, in_space=REALSPACE)
 
          boundary_condition = pw_env%poisson_env%parameters%ps_implicit_params%boundary_condition
          SELECT CASE (boundary_condition)
          CASE (MIXED_PERIODIC_BC)
-            CALL pw_copy(poisson_env%implicit_env%cstr_charge, aux_r%pw)
+            CALL pw_copy(poisson_env%implicit_env%cstr_charge, aux_r)
          CASE (MIXED_BC)
             CALL pw_shrink(pw_env%poisson_env%parameters%ps_implicit_params%neumann_directions, &
                            pw_env%poisson_env%implicit_env%dct_env%dests_shrink, &
                            pw_env%poisson_env%implicit_env%dct_env%srcs_shrink, &
                            pw_env%poisson_env%implicit_env%dct_env%bounds_local_shftd, &
-                           poisson_env%implicit_env%cstr_charge, aux_r%pw)
+                           poisson_env%implicit_env%cstr_charge, aux_r)
          END SELECT
 
-         CALL cp_pw_to_cube(aux_r%pw, unit_nr, "DIRICHLET CONSTRAINT CHARGE", particles=particles, &
+         CALL cp_pw_to_cube(aux_r, unit_nr, "DIRICHLET CONSTRAINT CHARGE", particles=particles, &
                             stride=section_get_ivals(dft_section, "PRINT%IMPLICIT_PSOLVER%DIRICHLET_CSTR_CHARGE_CUBE%STRIDE"), &
                             mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%PRINT%IMPLICIT_PSOLVER%DIRICHLET_CSTR_CHARGE_CUBE", mpi_io=mpi_io)
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
       END IF
 
       ! Write Dirichlet type constranits into cube files
@@ -3067,8 +3164,8 @@ CONTAINS
          tile_cubes = section_get_lval(input, "DFT%PRINT%IMPLICIT_PSOLVER%DIRICHLET_BC_CUBE%TILE_CUBES")
 
          CALL pw_env_get(pw_env, poisson_env=poisson_env, auxbas_pw_pool=auxbas_pw_pool)
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, use_data=REALDATA3D, in_space=REALSPACE)
-         CALL pw_zero(aux_r%pw)
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL pw_zero(aux_r)
 
          IF (tile_cubes) THEN
             ! one cube file per tile
@@ -3083,9 +3180,9 @@ CONTAINS
                                                  extension=".cube", middle_name=filename, file_position=my_pos_cube, &
                                                  mpi_io=mpi_io)
 
-                  CALL pw_copy(poisson_env%implicit_env%contacts(j)%dirichlet_bc%tiles(i)%tile%tile_pw, aux_r%pw)
+                  CALL pw_copy(poisson_env%implicit_env%contacts(j)%dirichlet_bc%tiles(i)%tile%tile_pw, aux_r)
 
-                  CALL cp_pw_to_cube(aux_r%pw, unit_nr, "DIRICHLET TYPE CONSTRAINT", particles=particles, &
+                  CALL cp_pw_to_cube(aux_r, unit_nr, "DIRICHLET TYPE CONSTRAINT", particles=particles, &
                                      stride=section_get_ivals(dft_section, "PRINT%IMPLICIT_PSOLVER%DIRICHLET_BC_CUBE%STRIDE"), &
                                      mpi_io=mpi_io)
                   CALL cp_print_key_finished_output(unit_nr, logger, input, &
@@ -3095,6 +3192,7 @@ CONTAINS
          ELSE
             ! a single cube file
             NULLIFY (dirichlet_tile)
+            ALLOCATE (dirichlet_tile)
             CALL pw_pool_create_pw(auxbas_pw_pool, dirichlet_tile, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_tile)
             mpi_io = .TRUE.
@@ -3107,19 +3205,20 @@ CONTAINS
                n_tiles = poisson_env%implicit_env%contacts(j)%dirichlet_bc%n_tiles
                DO i = 1, n_tiles
                   CALL pw_copy(poisson_env%implicit_env%contacts(j)%dirichlet_bc%tiles(i)%tile%tile_pw, dirichlet_tile)
-                  CALL pw_axpy(dirichlet_tile, aux_r%pw)
+                  CALL pw_axpy(dirichlet_tile, aux_r)
                END DO
             END DO
 
-            CALL cp_pw_to_cube(aux_r%pw, unit_nr, "DIRICHLET TYPE CONSTRAINT", particles=particles, &
+            CALL cp_pw_to_cube(aux_r, unit_nr, "DIRICHLET TYPE CONSTRAINT", particles=particles, &
                                stride=section_get_ivals(dft_section, "PRINT%IMPLICIT_PSOLVER%DIRICHLET_BC_CUBE%STRIDE"), &
                                mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                               "DFT%PRINT%IMPLICIT_PSOLVER%DIRICHLET_BC_CUBE", mpi_io=mpi_io)
             CALL pw_pool_give_back_pw(auxbas_pw_pool, dirichlet_tile)
+            DEALLOCATE (dirichlet_tile)
          END IF
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
       END IF
 
       CALL timestop(handle)
@@ -3255,18 +3354,17 @@ CONTAINS
 
       LOGICAL                                            :: use_virial
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: rho_tot_gspace, v_hartree_gspace, &
-                                                            v_hartree_rspace
-      TYPE(pw_p_type), POINTER                           :: rho_core
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rho_tot_gspace, v_hartree_gspace
+      TYPE(pw_type), POINTER                             :: rho_core, v_hartree_rspace
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(virial_type), POINTER                         :: virial
 
-      NULLIFY (auxbas_pw_pool, pw_env, poisson_env, energy, rho_core, v_hartree_rspace%pw, virial)
+      NULLIFY (auxbas_pw_pool, pw_env, poisson_env, energy, rho_core, v_hartree_rspace, virial)
       CALL get_qs_env(qs_env, pw_env=pw_env, energy=energy, &
                       rho_core=rho_core, virial=virial, &
-                      v_hartree_rspace=v_hartree_rspace%pw)
+                      v_hartree_rspace=v_hartree_rspace)
 
       use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
 
@@ -3275,23 +3373,23 @@ CONTAINS
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                          poisson_env=poisson_env)
          CALL pw_pool_create_pw(auxbas_pw_pool, &
-                                v_hartree_gspace%pw, &
+                                v_hartree_gspace, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
          CALL pw_pool_create_pw(auxbas_pw_pool, &
-                                rho_tot_gspace%pw, &
+                                rho_tot_gspace, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
 
          CALL calc_rho_tot_gspace(rho_tot_gspace, qs_env, rho)
-         CALL pw_poisson_solve(poisson_env, rho_tot_gspace%pw, energy%hartree, &
-                               v_hartree_gspace%pw, rho_core=rho_core)
+         CALL pw_poisson_solve(poisson_env, rho_tot_gspace, energy%hartree, &
+                               v_hartree_gspace, rho_core=rho_core)
 
-         CALL pw_transfer(v_hartree_gspace%pw, v_hartree_rspace%pw)
-         CALL pw_scale(v_hartree_rspace%pw, v_hartree_rspace%pw%pw_grid%dvol)
+         CALL pw_transfer(v_hartree_gspace, v_hartree_rspace)
+         CALL pw_scale(v_hartree_rspace, v_hartree_rspace%pw_grid%dvol)
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_gspace%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_gspace)
       END IF
 
    END SUBROUTINE update_hartree_with_mp2

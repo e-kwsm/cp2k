@@ -107,7 +107,10 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="INTENSITIES", &
-                          description="Calculation of the IR-Intensities. Calculation of dipoles has to be specified explicitly ", &
+                          description="Calculation of the IR/Raman-Intensities."// &
+                          "Calculation of dipoles and/or polarizabilities have to be "// &
+                          "specified explicitly in DFT/PRINT/MOMENTS and/or "// &
+                          "PROPERTIES/LINRES/POLAR", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -128,6 +131,12 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="TC_PRESSURE", &
                           description="Pressure for the calculation of the thermochemical data  ", &
                           default_r_val=cp_unit_to_cp2k(value=101325.0_dp, unit_str="Pa"), unit_str="Pa")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="NAMD_PRINT", &
+                          description="Adjust cartesian eigenvalues / vectors to NewtonX format.", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

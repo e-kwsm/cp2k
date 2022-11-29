@@ -10,25 +10,21 @@
 !> \author MK (12.06.2002)
 ! **************************************************************************************************
 MODULE qs_force
-   USE admm_methods,                    ONLY: calc_aux_mo_derivs_none,&
-                                              calc_mixed_overlap_force
-   USE admm_types,                      ONLY: admm_type
    USE atomic_kind_types,               ONLY: atomic_kind_type,&
                                               get_atomic_kind_set
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: dbcsr_allocate_matrix_set,&
                                               dbcsr_deallocate_matrix_set
    USE cp_dbcsr_output,                 ONLY: cp_dbcsr_write_sparse_matrix
-   USE cp_fm_types,                     ONLY: cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
+                                              cp_logger_get_default_io_unit,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_p_file,&
                                               cp_print_key_finished_output,&
                                               cp_print_key_should_output,&
                                               cp_print_key_unit_nr
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: dbcsr_add,&
-                                              dbcsr_copy,&
+   USE dbcsr_api,                       ONLY: dbcsr_copy,&
                                               dbcsr_p_type,&
                                               dbcsr_set
    USE dft_plus_u,                      ONLY: plus_u
@@ -36,8 +32,11 @@ MODULE qs_force
    USE efield_utils,                    ONLY: calculate_ecore_efield
    USE energy_corrections,              ONLY: energy_correction
    USE excited_states,                  ONLY: excited_state_energy
-   USE input_constants,                 ONLY: do_admm_purify_none
-   USE input_section_types,             ONLY: section_vals_get_subs_vals,&
+   USE input_constants,                 ONLY: ri_mp2_laplace,&
+                                              ri_mp2_method_gpw,&
+                                              ri_rpa_method_gpw
+   USE input_section_types,             ONLY: section_vals_get,&
+                                              section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
@@ -55,8 +54,7 @@ MODULE qs_force
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_methods,          ONLY: qs_env_rebuild_pw_env
    USE qs_environment_types,            ONLY: get_qs_env,&
-                                              qs_environment_type,&
-                                              set_qs_env
+                                              qs_environment_type
    USE qs_external_potential,           ONLY: external_c_potential,&
                                               external_e_potential
    USE qs_force_types,                  ONLY: allocate_qs_force,&
@@ -64,19 +62,15 @@ MODULE qs_force
                                               replicate_qs_force,&
                                               zero_qs_force
    USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
-   USE qs_ks_types,                     ONLY: qs_ks_did_change,&
-                                              qs_ks_env_type,&
+   USE qs_ks_types,                     ONLY: qs_ks_env_type,&
                                               set_ks_env
-   USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
-                                              mo_set_type
-   USE qs_rho_methods,                  ONLY: qs_rho_update_rho
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_scf_post_scf,                 ONLY: qs_scf_compute_properties
    USE qs_subsys_types,                 ONLY: qs_subsys_set,&
                                               qs_subsys_type
    USE ri_environment_methods,          ONLY: build_ri_matrices
+   USE rpa_hfx,                         ONLY: calculate_exx
    USE rt_propagation_forces,           ONLY: calc_c_mat_force,&
                                               rt_admm_force
    USE se_core_core,                    ONLY: se_core_core_interaction
@@ -112,14 +106,13 @@ CONTAINS
       LOGICAL                                            :: calc_force, consistent_energies, linres
 
       qs_env%linres_run = linres
-      CALL set_qs_env(qs_env)
       IF (calc_force) THEN
          CALL qs_forces(qs_env)
       ELSE
          CALL qs_energies(qs_env, calc_forces=.FALSE., &
                           consistent_energies=consistent_energies)
       END IF
-      CALL get_qs_env(qs_env)
+
    END SUBROUTINE qs_calc_energy_force
 
 ! **************************************************************************************************
@@ -139,29 +132,24 @@ CONTAINS
                                                             ispin, iw, natom, nkind, nspin, &
                                                             output_unit
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of, natom_of_kind
-      LOGICAL                                            :: has_unit_metric, omit_headers, perform_ec
-      TYPE(admm_type), POINTER                           :: admm_env
+      LOGICAL                                            :: do_admm, do_exx, do_gw, has_unit_metric, &
+                                                            omit_headers, perform_ec
+      REAL(dp)                                           :: dummy_real, dummy_real2(2)
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff, mo_coeff_aux_fit
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks_aux_fit, matrix_p_mp2, &
-                                                            matrix_s, matrix_s_aux_fit, &
-                                                            matrix_s_aux_fit_vs_orb, matrix_w, &
-                                                            rho_ao
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, matrix_w, rho_ao
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_w_kp
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(energy_correction_type), POINTER              :: ec_env
       TYPE(lri_environment_type), POINTER                :: lri_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_aux_fit
-      TYPE(mo_set_type), POINTER                         :: mo_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_subsys_type), POINTER                      :: subsys
-      TYPE(section_vals_type), POINTER                   :: print_section
+      TYPE(section_vals_type), POINTER                   :: hfx_sections, print_section
       TYPE(virial_type), POINTER                         :: virial
 
       CALL timeset(routineN, handle)
@@ -300,7 +288,8 @@ CONTAINS
          CALL build_xtb_matrices(qs_env=qs_env, para_env=para_env, &
                                  calculate_forces=.TRUE.)
       ELSEIF (perform_ec) THEN
-         !
+         ! Calculates core and grid based forces
+         CALL energy_correction(qs_env, ec_init=.FALSE., calculate_forces=.TRUE.)
       ELSE
          ! Dispersion energy and forces are calculated in qs_energy?
          CALL build_core_hamiltonian_matrix(qs_env=qs_env, calculate_forces=.TRUE.)
@@ -322,67 +311,34 @@ CONTAINS
 
       ! MP2 Code
       IF (ASSOCIATED(qs_env%mp2_env)) THEN
-         ! We will determine the gradients later
-         NULLIFY (matrix_p_mp2, rho, ks_env, energy)
-         CALL get_qs_env(qs_env, &
-                         matrix_p_mp2=matrix_p_mp2, &
-                         ks_env=ks_env, &
-                         rho=rho, &
-                         energy=energy)
-         NULLIFY (rho_ao)
-         CALL qs_rho_get(rho, rho_ao=rho_ao)
-
-         ! Calculate MP2 properties
-         CALL qs_rho_update_rho(rho, qs_env=qs_env)
-         CALL qs_scf_compute_properties(qs_env, wf_type='MP2   ')
-
-         ! Return to the correct density and calculate the energy
-         DO ispin = 1, dft_control%nspins
-            CALL dbcsr_add(rho_ao(ispin)%matrix, matrix_p_mp2(ispin)%matrix, 1.0_dp, -1.0_dp)
-         END DO
-         CALL qs_rho_update_rho(rho, qs_env=qs_env)
-
-         CALL qs_ks_did_change(ks_env, rho_changed=.TRUE.)
+         NULLIFY (energy)
+         CALL get_qs_env(qs_env, energy=energy)
+         CALL qs_scf_compute_properties(qs_env, wf_type='MP2   ', do_mp2=.TRUE.)
          CALL qs_ks_update_qs_env(qs_env, just_energy=.TRUE.)
          energy%total = energy%total + energy%mp2
+
+         IF ((qs_env%mp2_env%method == ri_mp2_method_gpw .OR. qs_env%mp2_env%method == ri_mp2_laplace .OR. &
+              qs_env%mp2_env%method == ri_rpa_method_gpw) &
+             .AND. .NOT. qs_env%mp2_env%do_im_time) THEN
+            CALL update_mp2_forces(qs_env)
+         END IF
+
+         !RPA EXX energy and forces
+         IF (qs_env%mp2_env%method == ri_rpa_method_gpw) THEN
+            do_exx = .FALSE.
+            hfx_sections => section_vals_get_subs_vals(qs_env%input, "DFT%XC%WF_CORRELATION%RI_RPA%HF")
+            CALL section_vals_get(hfx_sections, explicit=do_exx)
+            IF (do_exx) THEN
+               do_gw = qs_env%mp2_env%ri_rpa%do_ri_g0w0
+               do_admm = qs_env%mp2_env%ri_rpa%do_admm
+               output_unit = cp_logger_get_default_io_unit()
+               dummy_real = 0.0_dp
+               CALL calculate_exx(qs_env, output_unit, do_gw, do_admm, .TRUE., dummy_real, dummy_real2, dummy_real)
+            END IF
+         END IF
       ELSEIF (.NOT. perform_ec) THEN
          ! Compute grid-based forces
          CALL qs_ks_update_qs_env(qs_env, calculate_forces=.TRUE.)
-      END IF
-
-      ! Add forces resulting from wavefunction fitting
-      IF (dft_control%do_admm_dm) THEN
-         CPABORT("Forces with ADMM DM methods not implemented")
-      END IF
-      IF (dft_control%do_admm_mo .AND. .NOT. qs_env%run_rtp) THEN
-         NULLIFY (matrix_s_aux_fit, matrix_s_aux_fit_vs_orb, matrix_ks_aux_fit, &
-                  mos_aux_fit, mos, admm_env)
-         CALL get_qs_env(qs_env=qs_env, &
-                         matrix_s_aux_fit=matrix_s_aux_fit, &
-                         matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb, &
-                         matrix_ks_aux_fit=matrix_ks_aux_fit, &
-                         mos_aux_fit=mos_aux_fit, &
-                         mos=mos, &
-                         admm_env=admm_env)
-         DO ispin = 1, dft_control%nspins
-            mo_set => mos(ispin)%mo_set
-            CALL get_mo_set(mo_set=mo_set, mo_coeff=mo_coeff)
-            ! if no purification we need to calculate the H matrix for forces
-            IF (admm_env%purification_method == do_admm_purify_none) THEN
-               CALL get_mo_set(mo_set=mos_aux_fit(ispin)%mo_set, mo_coeff=mo_coeff_aux_fit)
-               CALL calc_aux_mo_derivs_none(ispin, qs_env%admm_env, mo_set, &
-                                            mo_coeff_aux_fit, matrix_ks_aux_fit)
-            END IF
-         END DO
-         CALL calc_mixed_overlap_force(qs_env)
-      END IF
-
-      IF (ASSOCIATED(qs_env%mp2_env)) THEN
-         CALL update_mp2_forces(qs_env)
-      END IF
-
-      IF (perform_ec) THEN
-         CALL energy_correction(qs_env, ec_init=.FALSE., calculate_forces=.TRUE.)
       END IF
 
       ! Excited state forces
@@ -437,6 +393,9 @@ CONTAINS
                CALL get_qs_env(qs_env, ec_env=ec_env)
                energy%hartree = ec_env%ehartree
                energy%exc = ec_env%exc
+               IF (dft_control%do_admm) THEN
+                  energy%exc_aux_fit = ec_env%exc_aux_fit
+               END IF
             END IF
             DO i = 1, 3
                virial%pv_ehartree(i, i) = virial%pv_ehartree(i, i) &
@@ -467,7 +426,7 @@ CONTAINS
       ELSE IF (dft_control%qs_control%xtb) THEN
          CALL write_forces(force, atomic_kind_set, 4, output_unit=output_unit, &
                            print_section=print_section)
-      ELSE IF (dft_control%qs_control%gapw) THEN
+      ELSE IF (dft_control%qs_control%gapw .OR. dft_control%qs_control%gapw_xc) THEN
          CALL write_forces(force, atomic_kind_set, 1, output_unit=output_unit, &
                            print_section=print_section)
       ELSE
@@ -483,7 +442,8 @@ CONTAINS
                       matrix_w_kp=matrix_w_kp, &
                       ks_env=ks_env)
       CALL dbcsr_deallocate_matrix_set(matrix_w_kp)
-      CALL set_ks_env(ks_env, matrix_w=Null(), matrix_w_kp=Null())
+      NULLIFY (matrix_w_kp)
+      CALL set_ks_env(ks_env, matrix_w_kp=matrix_w_kp)
 
       DEALLOCATE (atom_of_kind, kind_of)
 

@@ -76,7 +76,7 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE cp_para_env_retain(para_env)
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
 
       CPASSERT(ASSOCIATED(para_env))
       CPASSERT(para_env%ref_count > 0)
@@ -93,9 +93,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_para_env_type), INTENT(IN)                 :: para_env_template
       INTEGER, INTENT(IN)                                :: color
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_para_env_split', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: comm
 
@@ -171,9 +168,8 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE cp_cart_update(cart)
-      TYPE(cp_para_cart_type), POINTER                   :: cart
+      TYPE(cp_para_cart_type), INTENT(INOUT)             :: cart
 
-      CPASSERT(ASSOCIATED(cart))
       CPASSERT(cart%ref_count > 0)
       CALL mp_environ(cart%group, cart%ndims, cart%num_pe, task_coor=cart%mepos, &
                       periods=cart%periodic)

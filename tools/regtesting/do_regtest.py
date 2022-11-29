@@ -33,8 +33,10 @@ KEEPALIVE_SKIP_DIRS = [
     "LIBTEST/libbqb",
     "QS/regtest-ec",
     "QS/regtest-gapw",
+    "QS/regtest-gapw_xc",
     "QS/regtest-gpw-1",
-    "QS/regtest-mp2-grad",
+    "QS/regtest-mp2-grad-1",
+    "QS/regtest-mp2-grad-2",
 ]
 
 # ======================================================================================
@@ -50,6 +52,7 @@ async def main() -> None:
     parser.add_argument("--keepalive", dest="keepalive", action="store_true")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--restrictdir", action="append")
+    parser.add_argument("--skipdir", action="append")
     parser.add_argument("--workbasedir", type=Path)
     parser.add_argument("arch")
     parser.add_argument("version")
@@ -121,17 +124,21 @@ async def main() -> None:
 
     # Create async tasks.
     tasks = []
-    num_restrictdirs = 0
+    num_restrictdirs = num_skipdirs = 0
     for batch in batches:
         if not batch.requirements_satisfied(flags, cfg.mpiranks):
             print(f"Skipping {batch.name} because its requirements are not satisfied.")
         elif not any(re.fullmatch(p, batch.name) for p in cfg.restrictdirs):
             num_restrictdirs += 1
+        elif any(re.fullmatch(p, batch.name) for p in cfg.skipdirs):
+            num_skipdirs += 1
         else:
             tasks.append(asyncio.get_event_loop().create_task(run_batch(batch, cfg)))
 
     if num_restrictdirs:
         print(f"Skipping {num_restrictdirs} test directories because of --restrictdir.")
+    if num_skipdirs:
+        print(f"Skipping {num_skipdirs} test directories because of --skipdir.")
     if not tasks:
         print("\nNo test directories selected, check --restrictdir filter.")
         sys.exit(1)
@@ -205,6 +212,7 @@ class Config:
         self.debug = args.debug
         self.max_errors = args.maxerrors
         self.restrictdirs = args.restrictdir if args.restrictdir else [".*"]
+        self.skipdirs = args.skipdir if args.skipdir else []
         datestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         leaf_dir = f"TEST-{args.arch}-{args.version}-{datestamp}"
         self.work_base_dir = (
@@ -252,7 +260,7 @@ class Config:
 
 # ======================================================================================
 class TestType:
-    """ Search pattern for result values, ie. a line in the TEST_TYPES file. """
+    """Search pattern for result values, ie. a line in the TEST_TYPES file."""
 
     def __init__(self, line: str):
         parts = line.rsplit("!", 1)
@@ -279,7 +287,7 @@ class TestType:
 
 # ======================================================================================
 class Unittest:
-    """ A unit test, ie. a standalone binary that matches '*_unittest.{cfg.version}'."""
+    """A unit test, ie. a standalone binary that matches '*_unittest.{cfg.version}'."""
 
     def __init__(self, name: str, workdir: Path):
         self.name = name
@@ -288,7 +296,7 @@ class Unittest:
 
 # ======================================================================================
 class Regtest:
-    """ A single input file to test, ie. a line in a TEST_FILES file. """
+    """A single input file to test, ie. a line in a TEST_FILES file."""
 
     def __init__(self, line: str, test_types: List[Optional[TestType]], workdir: Path):
         parts = line.split()
@@ -305,7 +313,7 @@ class Regtest:
 
 # ======================================================================================
 class Batch:
-    """ A directory of tests, ie. a line in the TEST_DIRS file. """
+    """A directory of tests, ie. a line in the TEST_DIRS file."""
 
     def __init__(self, line: str, cfg: Config):
         parts = line.split()
@@ -341,7 +349,7 @@ class TestResult:
 
     def __str__(self) -> str:
         value = f"{self.value:.10g}" if self.value else "-"
-        return f"    {self.test.name :<50s} {value :>17} {self.status :>12s} ( {self.duration:6.2f} sec)"
+        return f"    {self.test.name :<80s} {value :>17} {self.status :>12s} ( {self.duration:6.2f} sec)"
 
 
 # ======================================================================================
@@ -380,7 +388,7 @@ class Cp2kShell:
     async def sendline(self, line: str) -> None:
         if self.cfg.debug:
             print("Sending: " + line)
-        assert len(line) < 80  # input buffer size
+        assert len(line) < 1024  # input buffer size
         assert self._child and self._child.stdin
         data = (line + "\n").encode("utf8")
         self._child.stdin.write(data)

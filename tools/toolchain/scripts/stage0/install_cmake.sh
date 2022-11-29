@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -23,13 +20,13 @@ cd "${BUILDDIR}"
 case "${with_cmake}" in
   __INSTALL__)
     echo "==================== Installing CMake ===================="
-    cmake_ver="3.22.1"
+    cmake_ver="3.24.2"
     if [ "${OPENBLAS_ARCH}" = "arm64" ]; then
-      cmake_arch="Linux-aarch64"
-      cmake_sha256="ff886c6c16be867229a6c1fe4bc963ff77ae24187d5a8d64ef72a06f84c1a25c"
+      cmake_arch="linux-aarch64"
+      cmake_sha256="281b42627c9a1beed03e29706574d04c6c53fae4994472e90985ef018dd29c02"
     elif [ "${OPENBLAS_ARCH}" = "x86_64" ]; then
-      cmake_arch="Linux-x86_64"
-      cmake_sha256="808a712bcb039fd71f6960dca82a9befb977d8bdb074718218cf7646fd08bb7a"
+      cmake_arch="linux-x86_64"
+      cmake_sha256="739d372726cb23129d57a539ce1432453448816e345e1545f6127296926b6754"
     else
       report_error ${LINENO} \
         "cmake installation for ARCH=${ARCH} is not supported. You can try to use the system installation using the flag --with-cmake=system instead."
@@ -43,8 +40,7 @@ case "${with_cmake}" in
       if [ -f cmake-${cmake_ver}-${cmake_arch}.sh ]; then
         echo "cmake-${cmake_ver}-${cmake_arch}.sh is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${cmake_sha256} \
-          https://github.com/Kitware/CMake/releases/download/v${cmake_ver}/cmake-${cmake_ver}-${cmake_arch}.sh
+        download_pkg_from_cp2k_org "${cmake_sha256}" "cmake-${cmake_ver}-${cmake_arch}.sh"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       mkdir -p ${pkg_install_dir}

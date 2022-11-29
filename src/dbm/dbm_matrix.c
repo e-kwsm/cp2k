@@ -48,10 +48,9 @@ void dbm_create(dbm_matrix_t **matrix_out, dbm_distribution_t *dist,
   matrix->col_sizes = malloc(size);
   memcpy(matrix->col_sizes, col_sizes, size);
 
-  matrix->nshards = SHARDS_PER_THREAD * omp_get_max_threads();
-  matrix->shards = malloc(matrix->nshards * sizeof(dbm_shard_t));
+  matrix->shards = malloc(dbm_get_num_shards(matrix) * sizeof(dbm_shard_t));
 #pragma omp parallel for
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_init(&matrix->shards[ishard]);
   }
 
@@ -65,14 +64,14 @@ void dbm_create(dbm_matrix_t **matrix_out, dbm_distribution_t *dist,
  ******************************************************************************/
 void dbm_release(dbm_matrix_t *matrix) {
   assert(omp_get_num_threads() == 1);
-  dbm_distribution_release(matrix->dist);
-  free(matrix->name);
-  free(matrix->row_sizes);
-  free(matrix->col_sizes);
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_release(&matrix->shards[ishard]);
   }
+  dbm_distribution_release(matrix->dist);
+  free(matrix->row_sizes);
+  free(matrix->col_sizes);
   free(matrix->shards);
+  free(matrix->name);
   free(matrix);
 }
 
@@ -93,32 +92,11 @@ void dbm_copy(dbm_matrix_t *matrix_a, const dbm_matrix_t *matrix_b) {
     assert(matrix_b->col_sizes[i] == matrix_a->col_sizes[i]);
   }
 
-  assert(matrix_a->nshards == matrix_b->nshards);
   assert(matrix_a->dist == matrix_b->dist);
 
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix_a->nshards; ishard++) {
-    dbm_shard_t *shard_a = &matrix_a->shards[ishard];
-    const dbm_shard_t *shard_b = &matrix_b->shards[ishard];
-
-    free(shard_a->blocks);
-    shard_a->nblocks = shard_b->nblocks;
-    shard_a->nblocks_allocated = shard_b->nblocks_allocated;
-    shard_a->blocks = malloc(shard_b->nblocks_allocated * sizeof(dbm_block_t));
-    memcpy(shard_a->blocks, shard_b->blocks,
-           shard_b->nblocks * sizeof(dbm_block_t));
-
-    free(shard_a->hashtable);
-    shard_a->hashtable_size = shard_b->hashtable_size;
-    shard_a->hashtable = malloc(shard_b->hashtable_size * sizeof(int));
-    memcpy(shard_a->hashtable, shard_b->hashtable,
-           shard_b->hashtable_size * sizeof(int));
-
-    free(shard_a->data);
-    shard_a->data_allocated = shard_b->data_allocated;
-    shard_a->data = malloc(shard_b->data_allocated * sizeof(double));
-    shard_a->data_size = shard_b->data_size;
-    memcpy(shard_a->data, shard_b->data, shard_b->data_size * sizeof(double));
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix_a); ishard++) {
+    dbm_shard_copy(&matrix_a->shards[ishard], &matrix_b->shards[ishard]);
   }
 }
 
@@ -145,7 +123,7 @@ void dbm_redistribute(const dbm_matrix_t *matrix, dbm_matrix_t *redist) {
   // 1st pass: Compute send_count.
   int send_count[nranks];
   memset(send_count, 0, nranks * sizeof(int));
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     for (int iblock = 0; iblock < shard->nblocks; iblock++) {
       const dbm_block_t *blk = &shard->blocks[iblock];
@@ -177,7 +155,7 @@ void dbm_redistribute(const dbm_matrix_t *matrix, dbm_matrix_t *redist) {
   // 2nd pass: Fill send_data.
   int send_data_positions[nranks];
   memcpy(send_data_positions, send_displ, nranks * sizeof(int));
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     for (int iblock = 0; iblock < shard->nblocks; iblock++) {
       const dbm_block_t *blk = &shard->blocks[iblock];
@@ -234,11 +212,10 @@ void dbm_get_block_p(dbm_matrix_t *matrix, const int row, const int col,
   *col_size = matrix->col_sizes[col];
   *block = NULL;
 
-  const int ishard = row % matrix->nshards;
+  const int ishard = dbm_get_shard_index(matrix, row, col);
   const dbm_shard_t *shard = &matrix->shards[ishard];
   dbm_block_t *blk = dbm_shard_lookup(shard, row, col);
   if (blk != NULL) {
-    blk->norm = -1.0; // Invalidate norm because caller might modify block data.
     *block = &shard->data[blk->offset];
   }
 }
@@ -257,7 +234,7 @@ void dbm_put_block(dbm_matrix_t *matrix, const int row, const int col,
   const int col_size = matrix->col_sizes[col];
   const int block_size = row_size * col_size;
 
-  const int ishard = row % matrix->nshards;
+  const int ishard = dbm_get_shard_index(matrix, row, col);
   dbm_shard_t *shard = &matrix->shards[ishard];
   omp_set_lock(&shard->lock);
   dbm_block_t *blk =
@@ -270,7 +247,6 @@ void dbm_put_block(dbm_matrix_t *matrix, const int row, const int col,
   } else {
     memcpy(blk_data, block, block_size * sizeof(double));
   }
-  blk->norm = -1.0; // Invalidate norm because block data has changed.
   omp_unset_lock(&shard->lock);
 }
 
@@ -282,39 +258,13 @@ void dbm_clear(dbm_matrix_t *matrix) {
   assert(omp_get_num_threads() == 1);
 
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     shard->nblocks = 0;
     shard->data_size = 0;
     shard->data_promised = 0;
     // Does not deallocate memory, hence data_allocated remains unchanged.
     memset(shard->hashtable, 0, shard->hashtable_size * sizeof(int));
-  }
-}
-
-/*******************************************************************************
- * \brief Internal routine for re-computing any invalid block norms.
- * \author Ole Schuett
- ******************************************************************************/
-void dbm_compute_block_norms(dbm_matrix_t *matrix) {
-  assert(omp_get_num_threads() == 1);
-
-#pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
-    dbm_shard_t *shard = &matrix->shards[ishard];
-    for (int iblock = 0; iblock < shard->nblocks; iblock++) {
-      dbm_block_t *blk = &shard->blocks[iblock];
-      if (blk->norm < 0.0) { // negative norms are invalid
-        const double *blk_data = &shard->data[blk->offset];
-        const int row_size = matrix->row_sizes[blk->row];
-        const int col_size = matrix->col_sizes[blk->col];
-        double norm = 0.0; // Compute as double ...
-        for (int i = 0; i < row_size * col_size; i++) {
-          norm += blk_data[i] * blk_data[i];
-        }
-        blk->norm = (float)norm; // ...store as float.
-      }
-    }
   }
 }
 
@@ -330,10 +280,8 @@ void dbm_filter(dbm_matrix_t *matrix, const double eps) {
     return;
   }
 
-  dbm_compute_block_norms(matrix);
-
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     const int old_nblocks = shard->nblocks;
     shard->nblocks = 0;
@@ -342,21 +290,24 @@ void dbm_filter(dbm_matrix_t *matrix, const double eps) {
 
     for (int iblock = 0; iblock < old_nblocks; iblock++) {
       const dbm_block_t old_blk = shard->blocks[iblock];
+      const double *old_blk_data = &shard->data[old_blk.offset];
       const int row_size = matrix->row_sizes[old_blk.row];
       const int col_size = matrix->col_sizes[old_blk.col];
       const int block_size = row_size * col_size;
+      double norm = 0.0; // Compute norm as double, but compare as float.
+      for (int i = 0; i < block_size; i++) {
+        norm += old_blk_data[i] * old_blk_data[i];
+      }
       // For historic reasons zero-sized blocks are never filtered.
-      if (sqrt(old_blk.norm) < eps && block_size > 0) {
+      if (sqrt((float)norm) < eps && block_size > 0) {
         continue; // filter the block
       }
       // Re-create block.
       dbm_block_t *new_blk = dbm_shard_promise_new_block(
           shard, old_blk.row, old_blk.col, block_size);
-      new_blk->norm = old_blk.norm;
       assert(new_blk->offset <= old_blk.offset);
       if (new_blk->offset != old_blk.offset) {
         // Using memmove instead of memcpy because it handles overlap correctly.
-        const double *old_blk_data = &shard->data[old_blk.offset];
         double *new_blk_data = &shard->data[new_blk->offset];
         memmove(new_blk_data, old_blk_data, block_size * sizeof(double));
       }
@@ -368,27 +319,32 @@ void dbm_filter(dbm_matrix_t *matrix, const double eps) {
 
 /*******************************************************************************
  * \brief Adds list of blocks efficiently. The blocks will be filled with zeros.
+ *        This routine must always be called within an OpenMP parallel region.
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_reserve_blocks(dbm_matrix_t *matrix, const int nblocks,
                         const int rows[], const int cols[]) {
-  assert(omp_get_num_threads() == 1);
+  assert(omp_get_num_threads() == omp_get_max_threads() &&
+         "Please call dbm_reserve_blocks within an OpenMP parallel region.");
   const int my_rank = matrix->dist->my_rank;
-
-#pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int i = 0; i < nblocks; i++) {
+    const int ishard = dbm_get_shard_index(matrix, rows[i], cols[i]);
     dbm_shard_t *shard = &matrix->shards[ishard];
-    for (int i = 0; i < nblocks; i++) {
-      if (rows[i] % matrix->nshards == ishard) {
-        assert(0 <= rows[i] && rows[i] < matrix->nrows);
-        assert(0 <= cols[i] && cols[i] < matrix->ncols);
-        assert(dbm_get_stored_coordinates(matrix, rows[i], cols[i]) == my_rank);
-        const int row_size = matrix->row_sizes[rows[i]];
-        const int col_size = matrix->col_sizes[cols[i]];
-        const int block_size = row_size * col_size;
-        dbm_shard_get_or_promise_block(shard, rows[i], cols[i], block_size);
-      }
-    }
+    omp_set_lock(&shard->lock);
+    assert(0 <= rows[i] && rows[i] < matrix->nrows);
+    assert(0 <= cols[i] && cols[i] < matrix->ncols);
+    assert(dbm_get_stored_coordinates(matrix, rows[i], cols[i]) == my_rank);
+    const int row_size = matrix->row_sizes[rows[i]];
+    const int col_size = matrix->col_sizes[cols[i]];
+    const int block_size = row_size * col_size;
+    dbm_shard_get_or_promise_block(shard, rows[i], cols[i], block_size);
+    omp_unset_lock(&shard->lock);
+  }
+#pragma omp barrier
+
+#pragma omp for schedule(dynamic)
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
+    dbm_shard_t *shard = &matrix->shards[ishard];
     dbm_shard_allocate_promised_blocks(shard);
   }
 }
@@ -408,15 +364,10 @@ void dbm_scale(dbm_matrix_t *matrix, const double alpha) {
   }
 
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     for (int i = 0; i < shard->data_size; i++) {
       shard->data[i] *= alpha;
-    }
-    const double alpha2 = alpha * alpha;
-    for (int iblock = 0; iblock < shard->nblocks; iblock++) {
-      dbm_block_t *blk = &shard->blocks[iblock];
-      blk->norm *= alpha2;
     }
   }
 }
@@ -429,12 +380,9 @@ void dbm_zero(dbm_matrix_t *matrix) {
   assert(omp_get_num_threads() == 1);
 
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     memset(shard->data, 0, shard->data_size * sizeof(double));
-    for (int iblock = 0; iblock < shard->nblocks; iblock++) {
-      shard->blocks[iblock].norm = 0.0;
-    }
   }
 }
 
@@ -444,11 +392,10 @@ void dbm_zero(dbm_matrix_t *matrix) {
  ******************************************************************************/
 void dbm_add(dbm_matrix_t *matrix_a, const dbm_matrix_t *matrix_b) {
   assert(omp_get_num_threads() == 1);
-  assert(matrix_a->nshards == matrix_b->nshards);
   assert(matrix_a->dist == matrix_b->dist);
 
 #pragma omp parallel for schedule(dynamic)
-  for (int ishard = 0; ishard < matrix_b->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix_b); ishard++) {
     dbm_shard_t *shard_a = &matrix_a->shards[ishard];
     const dbm_shard_t *shard_b = &matrix_b->shards[ishard];
     for (int iblock = 0; iblock < shard_b->nblocks; iblock++) {
@@ -466,7 +413,6 @@ void dbm_add(dbm_matrix_t *matrix_a, const dbm_matrix_t *matrix_b) {
       for (int i = 0; i < block_size; i++) {
         data_a[i] += data_b[i];
       }
-      blk_a->norm = -1.0; // Invalidate norm because block data has changed.
     }
   }
 }
@@ -474,22 +420,36 @@ void dbm_add(dbm_matrix_t *matrix_a, const dbm_matrix_t *matrix_b) {
 /*******************************************************************************
  * \brief Creates an iterator for the blocks of the given matrix.
  *        The iteration order is not stable.
+ *        This routine must always be called within an OpenMP parallel region.
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_iterator_start(dbm_iterator_t **iter_out, const dbm_matrix_t *matrix) {
-  assert(omp_get_num_threads() == 1);
+  assert(omp_get_num_threads() == omp_get_max_threads() &&
+         "Please call dbm_iterator_start within an OpenMP parallel region.");
   dbm_iterator_t *iter = malloc(sizeof(dbm_iterator_t));
   iter->matrix = matrix;
   iter->next_block = 0;
-  iter->next_shard = 0;
-  while (iter->next_shard < matrix->nshards) {
-    if (matrix->shards[iter->next_shard].nblocks > 0) {
-      break;
-    }
-    iter->next_shard++;
+  iter->next_shard = omp_get_thread_num();
+  while (iter->next_shard < dbm_get_num_shards(matrix) &&
+         matrix->shards[iter->next_shard].nblocks == 0) {
+    iter->next_shard += omp_get_num_threads();
   }
   assert(*iter_out == NULL);
   *iter_out = iter;
+}
+
+/*******************************************************************************
+ * \brief Returns number of blocks the iterator will provide to calling thread.
+ * \author Ole Schuett
+ ******************************************************************************/
+int dbm_iterator_num_blocks(const dbm_iterator_t *iter) {
+  int num_blocks = 0;
+  for (int ishard = omp_get_thread_num();
+       ishard < dbm_get_num_shards(iter->matrix);
+       ishard += omp_get_num_threads()) {
+    num_blocks += iter->matrix->shards[ishard].nblocks;
+  }
+  return num_blocks;
 }
 
 /*******************************************************************************
@@ -497,8 +457,7 @@ void dbm_iterator_start(dbm_iterator_t **iter_out, const dbm_matrix_t *matrix) {
  * \author Ole Schuett
  ******************************************************************************/
 bool dbm_iterator_blocks_left(const dbm_iterator_t *iter) {
-  assert(omp_get_num_threads() == 1);
-  return iter->next_shard < iter->matrix->nshards;
+  return iter->next_shard < dbm_get_num_shards(iter->matrix);
 }
 
 /*******************************************************************************
@@ -507,9 +466,8 @@ bool dbm_iterator_blocks_left(const dbm_iterator_t *iter) {
  ******************************************************************************/
 void dbm_iterator_next_block(dbm_iterator_t *iter, int *row, int *col,
                              double **block, int *row_size, int *col_size) {
-  assert(omp_get_num_threads() == 1);
   const dbm_matrix_t *matrix = iter->matrix;
-  assert(iter->next_shard < matrix->nshards);
+  assert(iter->next_shard < dbm_get_num_shards(matrix));
   const dbm_shard_t *shard = &matrix->shards[iter->next_shard];
   assert(iter->next_block < shard->nblocks);
   dbm_block_t *blk = &shard->blocks[iter->next_block];
@@ -519,15 +477,14 @@ void dbm_iterator_next_block(dbm_iterator_t *iter, int *row, int *col,
   *row_size = matrix->row_sizes[blk->row];
   *col_size = matrix->col_sizes[blk->col];
   *block = &shard->data[blk->offset];
-  blk->norm = -1.0; // Invalidate norm because caller might modify block data.
 
   iter->next_block++;
   if (iter->next_block >= shard->nblocks) {
     // Advance to the next non-empty shard...
-    iter->next_shard++;
-    while (iter->next_shard < matrix->nshards &&
+    iter->next_shard += omp_get_num_threads();
+    while (iter->next_shard < dbm_get_num_shards(matrix) &&
            matrix->shards[iter->next_shard].nblocks == 0) {
-      iter->next_shard++;
+      iter->next_shard += omp_get_num_threads();
     }
     iter->next_block = 0; // ...and continue with its first block.
   }
@@ -537,10 +494,7 @@ void dbm_iterator_next_block(dbm_iterator_t *iter, int *row, int *col,
  * \brief Releases the given iterator.
  * \author Ole Schuett
  ******************************************************************************/
-void dbm_iterator_stop(dbm_iterator_t *iter) {
-  assert(omp_get_num_threads() == 1);
-  free(iter);
-}
+void dbm_iterator_stop(dbm_iterator_t *iter) { free(iter); }
 
 /*******************************************************************************
  * \brief Computes a checksum of the given matrix.
@@ -548,7 +502,7 @@ void dbm_iterator_stop(dbm_iterator_t *iter) {
  ******************************************************************************/
 double dbm_checksum(const dbm_matrix_t *matrix) {
   double checksum = 0.0;
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     const dbm_shard_t *shard = &matrix->shards[ishard];
     for (int i = 0; i < shard->data_size; i++) {
       checksum += shard->data[i] * shard->data[i];
@@ -564,7 +518,7 @@ double dbm_checksum(const dbm_matrix_t *matrix) {
  ******************************************************************************/
 double dbm_maxabs(const dbm_matrix_t *matrix) {
   double maxabs = 0.0;
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     dbm_shard_t *shard = &matrix->shards[ishard];
     for (int i = 0; i < shard->data_size; i++) {
       maxabs = fmax(maxabs, fabs(shard->data[i]));
@@ -586,7 +540,7 @@ const char *dbm_get_name(const dbm_matrix_t *matrix) { return matrix->name; }
  ******************************************************************************/
 int dbm_get_nze(const dbm_matrix_t *matrix) {
   int nze = 0;
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     nze += matrix->shards[ishard].data_size;
   }
   return nze;
@@ -598,7 +552,7 @@ int dbm_get_nze(const dbm_matrix_t *matrix) {
  ******************************************************************************/
 int dbm_get_num_blocks(const dbm_matrix_t *matrix) {
   int nblocks = 0;
-  for (int ishard = 0; ishard < matrix->nshards; ishard++) {
+  for (int ishard = 0; ishard < dbm_get_num_shards(matrix); ishard++) {
     nblocks += matrix->shards[ishard].nblocks;
   }
   return nblocks;

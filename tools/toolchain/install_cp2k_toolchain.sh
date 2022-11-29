@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")" && pwd -P)"
@@ -85,8 +82,8 @@ OPTIONS:
                           --with-PKG option placed AFTER this option on the
                           command line.
 --mpi-mode                Selects which MPI flavour to use. Available options
-                          are: mpich, openmpi, intelmpi, and no. By selecting no,
-                          you will be disabling MPI support. By default the script
+                          are: mpich, openmpi, intelmpi, and no. By selecting "no",
+                          MPI is not supported and disabled. By default the script
                           will try to determine the flavour based on the MPI library
                           currently available in your system path. For CRAY (CLE)
                           systems, the default flavour is mpich. Note that explicitly
@@ -94,25 +91,26 @@ OPTIONS:
                           options to values other than no will also switch --mpi-mode
                           to the respective mode.
 --math-mode               Selects which core math library to use. Available options
-                          are: acml, cray, mkl, and openblas. cray
+                          are: acml, cray, mkl, and openblas. The option "cray"
                           corresponds to cray libsci, and is the default for CRAY
                           (CLE) systems. For non-CRAY systems, if env variable MKLROOT
                           exists then mkl will be default, otherwise openblas is the
-                          default option. Explicitly setting
-                          --with-acml, --with-mkl or --with-openblas options will
-                          switch --math-mode to the respective modes.
+                          default option. Explicitly setting --with-acml, --with-mkl,
+                          or --with-openblas options will switch --math-mode to the
+                          respective modes.
 --gpu-ver                 Selects the GPU architecture for which to compile. Available
-                          options are: K20X, K40, K80, P100, V100, Mi50, Mi100, no.
-                          The script will determine the correct corresponding value for
-                          nvcc's '-arch' flag.
+                          options are: K20X, K40, K80, P100, V100, Mi50, Mi100, Mi250, 
+                          and no.
+                          This setting determines the value of nvcc's '-arch' flag.
                           Default = no.
 --libint-lmax             Maximum supported angular momentum by libint.
                           Higher values will increase build time and library size.
                           Default = 5
 --log-lines               Number of log file lines dumped in case of a non-zero exit code.
                           Default = 200
---generic                 Compile for a generic target system, i.e. do not optimize for
-                          the actual host system.
+--target-cpu              Compile for the specified target CPU (e.g. haswell or generic), i.e.
+                          do not optimize for the actual host system which is the default (native)
+--no-arch-files           Do not generate arch files
 --dry-run                 Write only config files, but don't actually build packages.
 
 The --enable-FEATURE options follow the rules:
@@ -121,17 +119,14 @@ The --enable-FEATURE options follow the rules:
   --enable-FEATURE        The option keyword alone is equivalent to
                           --enable-FEATURE=yes
 
-  --enable-gcc-master     If you are installing GCC using this script
-                          this option forces the master development version
-                          to be installed.
-                          Default = no
-  --enable-libxsmm-master If you are installing libxsmm using this script
-                          this option forces the master development version
-                          to be installed.
-                          Default = no
-  --enable-cuda           Turn on GPU (CUDA) support.
+  --enable-cuda           Turn on GPU (CUDA) support (can be combined
+                          with --enable-opencl).
                           Default = no
   --enable-hip            Turn on GPU (HIP) support.
+                          Default = no
+  --enable-opencl         Turn on OpenCL (GPU) support. Requires the OpenCL
+                          development packages and runtime. If combined with
+                          --enable-cuda, OpenCL alongside of CUDA is used.
                           Default = no
   --enable-cray           Turn on or off support for CRAY Linux Environment
                           (CLE) manually. By default the script will automatically
@@ -157,11 +152,13 @@ The --with-PKG options follow the rules:
                           Default = system
   --with-cmake            Cmake utilities
                           Default = install
-  --with-openmpi          OpenMPI, important if you want parallel version of CP2K.
+  --with-openmpi          OpenMPI, important if you want a parallel version of CP2K.
                           Default = system
   --with-mpich            MPICH, MPI library like OpenMPI. one should
                           use only one of OpenMPI, MPICH or Intel MPI.
                           Default = system
+  --with-mpich-device     Select the MPICH device, implies the use of MPICH as MPI library
+                          Default = ch3
   --with-intelmpi         Intel MPI, MPI library like OpenMPI. one should
                           use only one of OpenMPI, MPICH or Intel MPI.
                           Default = system
@@ -186,15 +183,7 @@ The --with-PKG options follow the rules:
   --with-scalapack        Parallel linear algebra library, needed for parallel
                           calculations.
                           Default = install
-  --with-libsmm           CP2K's own small matrix multiplication library. An optimised
-                          libsmm should increase the code performance. If you set
-                          --with-libsmm=install, then instead of actually compiling
-                          the library (which may take a long time), the script will
-                          try to download a preexisting version from the CP2K website
-                          that is compatible with your system.
-                          Default = no
-  --with-libxsmm          Small matrix multiplication library. If the system architecture
-                          is x86_64, then LIBXSMM can be used instead of libsmm.
+  --with-libxsmm          Small matrix multiplication library.
                           Default = install
   --with-elpa             Eigenvalue SoLvers for Petaflop-Applications library.
                           Fast library for large parallel jobs.
@@ -264,7 +253,7 @@ EOF
 tool_list="gcc intel cmake"
 mpi_list="mpich openmpi intelmpi"
 math_list="mkl acml openblas"
-lib_list="fftw libint libxc libsmm libxsmm cosma scalapack elpa plumed \
+lib_list="fftw libint libxc libxsmm cosma scalapack elpa plumed \
           spfft spla ptscotch superlu pexsi quip gsl spglib hdf5 libvdwxc sirius
           libvori"
 package_list="${tool_list} ${mpi_list} ${math_list} ${lib_list}"
@@ -313,7 +302,7 @@ with_spla="__DONTUSE__"
 with_cosma="__INSTALL__"
 with_libvori="__INSTALL__"
 # for MPI, we try to detect system MPI variant
-if (command -v mpirun >&- 2>&-); then
+if (command -v mpirun > /dev/null 2>&1); then
   # check if we are dealing with openmpi, mpich or intelmpi
   if (mpirun --version 2>&1 | grep -s -q "HYDRA"); then
     echo "MPI is detected and it appears to be MPICH"
@@ -341,13 +330,14 @@ fi
 
 # default enable options
 dry_run="__FALSE__"
-export generic="__FALSE__"
+no_arch_files="__FALSE__"
 enable_tsan="__FALSE__"
-enable_gcc_master="__FALSE__"
-enable_libxsmm_master="__FALSE__"
+enable_opencl="__FALSE__"
 enable_cuda="__FALSE__"
 enable_hip="__FALSE__"
 export GPUVER="no"
+export MPICH_DEVICE="ch3"
+export TARGET_CPU="native"
 
 # default for libint
 export LIBINT_LMAX="5"
@@ -445,15 +435,19 @@ while [ $# -ge 1 ]; do
     --gpu-ver=*)
       user_input="${1#*=}"
       case "${user_input}" in
-        K20X | K40 | K80 | P100 | V100 | A100 | Mi50 | Mi100 | no)
+        K20X | K40 | K80 | P100 | V100 | A100 | Mi50 | Mi100 | Mi250 | no)
           export GPUVER="${user_input}"
           ;;
         *)
           report_error ${LINENO} \
-            "--gpu-ver currently only supports K20X, K40, K80, P100, V100, A100, Mi50, Mi100 and no as options"
+            "--gpu-ver currently only supports K20X, K40, K80, P100, V100, A100, Mi50, Mi100, Mi250, and no as options"
           exit 1
           ;;
       esac
+      ;;
+    --target-cpu=*)
+      user_input="${1#*=}"
+      export TARGET_CPU="${user_input}"
       ;;
     --log-lines=*)
       user_input="${1#*=}"
@@ -463,8 +457,8 @@ while [ $# -ge 1 ]; do
       user_input="${1#*=}"
       export LIBINT_LMAX="${user_input}"
       ;;
-    --generic)
-      export generic="__TRUE__"
+    --no-arch-files)
+      no_arch_files="__TRUE__"
       ;;
     --dry-run)
       dry_run="__TRUE__"
@@ -473,20 +467,6 @@ while [ $# -ge 1 ]; do
       enable_tsan=$(read_enable $1)
       if [ "${enable_tsan}" = "__INVALID__" ]; then
         report_error "invalid value for --enable-tsan, please use yes or no"
-        exit 1
-      fi
-      ;;
-    --enable-gcc-master*)
-      enable_gcc_master=$(read_enable $1)
-      if [ "${enable_gcc_master}" = "__INVALID__" ]; then
-        report_error "invalid value for --enable-gcc-master, please use yes or no"
-        exit 1
-      fi
-      ;;
-    --enable-libxsmm-master*)
-      enable_libxsmm_master=$(read_enable $1)
-      if [ "${enable_libxsmm_master}" = "__INVALID__" ]; then
-        report_error "invalid value for --enable-libxsmm-master, please use yes or no"
         exit 1
       fi
       ;;
@@ -504,6 +484,13 @@ while [ $# -ge 1 ]; do
         exit 1
       fi
       ;;
+    --enable-opencl*)
+      enable_opencl=$(read_enable $1)
+      if [ $enable_opencl = "__INVALID__" ]; then
+        report_error "invalid value for --enable-opencl, please use yes or no"
+        exit 1
+      fi
+      ;;
     --enable-cray*)
       enable_cray=$(read_enable $1)
       if [ "${enable_cray}" = "__INVALID__" ]; then
@@ -516,6 +503,11 @@ while [ $# -ge 1 ]; do
       ;;
     --with-cmake*)
       with_cmake=$(read_with "${1}")
+      ;;
+    --with-mpich-device=*)
+      user_input="${1#*=}"
+      export MPICH_DEVICE="${user_input}"
+      export MPI_MODE=mpich
       ;;
     --with-mpich*)
       with_mpich=$(read_with "${1}")
@@ -567,9 +559,6 @@ while [ $# -ge 1 ]; do
       ;;
     --with-scalapack*)
       with_scalapack=$(read_with "${1}")
-      ;;
-    --with-libsmm*)
-      with_libsmm=$(read_with "${1}")
       ;;
     --with-libxsmm*)
       with_libxsmm=$(read_with "${1}")
@@ -639,9 +628,8 @@ done
 export ENABLE_TSAN="${enable_tsan}"
 export ENABLE_CUDA="${enable_cuda}"
 export ENABLE_HIP="${enable_hip}"
+export ENABLE_OPENCL="${enable_opencl}"
 export ENABLE_CRAY="${enable_cray}"
-[ "${enable_gcc_master}" = "__TRUE__" ] && export gcc_ver="master"
-[ "${enable_libxsmm_master}" = "__TRUE__" ] && export libxsmm_ver="master"
 
 # ------------------------------------------------------------------------
 # Check and solve known conflicts before installations proceed
@@ -724,6 +712,14 @@ if [ "${ENABLE_CUDA}" = "__TRUE__" ] || [ "${ENABLE_HIP}" = "__TRUE__" ]; then
   fi
 fi
 
+# If OpenCL is enabled, make sure LIBXSMM is enabled as well.
+if [ "${ENABLE_OPENCL}" = "__TRUE__" ]; then
+  if [ "${with_libxsmm}" = "__DONTUSE__" ]; then
+    report_error "LIBXSMM is necessary for the OpenCL backend (--with-libxsmm)"
+    exit 1
+  fi
+fi
+
 # PEXSI and its dependencies
 if [ "${with_pexsi}" = "__DONTUSE__" ]; then
   if [ "${with_ptscotch}" != "__DONTUSE__" ]; then
@@ -769,8 +765,8 @@ if [ "${with_sirius}" = "__INSTALL__" ]; then
   [ "${with_fftw}" = "__DONTUSE__" ] && with_fftw="__INSTALL__"
   [ "${with_spglib}" = "__DONTUSE__" ] && with_spglib="__INSTALL__"
   [ "${with_hdf5}" = "__DONTUSE__" ] && with_hdf5="__INSTALL__"
-#  [ "${with_libvdwxc}" = "__DONTUSE__" ] && with_libvdwxc="__INSTALL__"
-#  [ "${with_cosma}" = "__DONTUSE__" ] && with_cosma="__INSTALL__"
+  [ "${with_libvdwxc}" = "__DONTUSE__" ] && with_libvdwxc="__INSTALL__"
+  [ "${with_cosma}" = "__DONTUSE__" ] && with_cosma="__INSTALL__"
 fi
 
 if [ "${with_plumed}" = "__INSTALL__" ]; then
@@ -884,7 +880,7 @@ fi
 # Installing tools required for building CP2K and associated libraries
 # ------------------------------------------------------------------------
 
-echo "Compiling with $(get_nprocs) processes."
+echo "Compiling with $(get_nprocs) processes for target ${TARGET_CPU}."
 
 # Select the correct compute number based on the GPU architecture
 case ${GPUVER} in
@@ -912,12 +908,15 @@ case ${GPUVER} in
   Mi100)
     # TODO: export ARCH_NUM=
     ;;
+  Mi250)
+    # TODO: export ARCH_NUM=
+    ;;
   no)
     export ARCH_NUM="no"
     ;;
   *)
     report_error ${LINENO} \
-      "--gpu-ver currently only supports K20X, K40, K80, P100, V100, A100, Mi50, Mi100 and no as options"
+      "--gpu-ver currently only supports K20X, K40, K80, P100, V100, A100, Mi50, Mi100, Mi250, and no as options"
     exit 1
     ;;
 esac
@@ -948,7 +947,9 @@ else
   ./scripts/stage7/install_stage7.sh
   ./scripts/stage8/install_stage8.sh
   # Stage 9 is reserved for DBCSR.
-  ./scripts/generate_arch_files.sh
+  if [ "${no_arch_files}" = "__FALSE__" ]; then
+    ./scripts/generate_arch_files.sh
+  fi
 fi
 
 #EOF

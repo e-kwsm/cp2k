@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -40,8 +37,7 @@ case "$with_fftw" in
       if [ -f ${fftw_pkg} ]; then
         echo "${fftw_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${fftw_sha256} \
-          "https://www.cp2k.org/static/downloads/${fftw_pkg}"
+        download_pkg_from_cp2k_org "${fftw_sha256}" "${fftw_pkg}"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       [ -d fftw-${fftw_ver} ] && rm -rf fftw-${fftw_ver}
@@ -51,10 +47,12 @@ case "$with_fftw" in
       # fftw has mpi support but not compiled by default. so compile it if we build with mpi.
       # it will create a second library to link with if needed
       [ "${MPI_MODE}" != "no" ] && FFTW_FLAGS="--enable-mpi ${FFTW_FLAGS}"
-      if [ -f /proc/cpuinfo ]; then
-        grep '\bavx\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx"
-        grep '\bavx2\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx2"
-        grep '\bavx512f\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx512"
+      if [ "${TARGET_CPU}" = "native" ]; then
+        if [ -f /proc/cpuinfo ]; then
+          grep '\bavx\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx"
+          grep '\bavx2\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx2"
+          grep '\bavx512f\b' /proc/cpuinfo 1> /dev/null && FFTW_FLAGS="${FFTW_FLAGS} --enable-avx512"
+        fi
       fi
       ./configure --prefix=${pkg_install_dir} --libdir="${pkg_install_dir}/lib" ${FFTW_FLAGS} \
         > configure.log 2>&1 || tail -n ${LOG_LINES} configure.log
@@ -64,18 +62,15 @@ case "$with_fftw" in
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage3/$(basename ${SCRIPT_NAME})"
     fi
     FFTW_CFLAGS="-I'${pkg_install_dir}/include'"
-    FFTW_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    FFTW_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding FFTW from system paths ===================="
     check_lib -lfftw3 "FFTW"
     check_lib -lfftw3_omp "FFTW"
     [ "${MPI_MODE}" != "no" ] && check_lib -lfftw3_mpi "FFTW"
-    #add_include_from_paths FFTW_CFLAGS "fftw3.h" ${INCLUDE_PATHS}
+    add_include_from_paths FFTW_CFLAGS "fftw3.h" FFTW_INC ${INCLUDE_PATHS}
     add_lib_from_paths FFTW_LDFLAGS "libfftw3.*" ${LIB_PATHS}
-    pkg_install_dir="${FFTW_ROOT}"
-    FFTW_CFLAGS+="-I'${pkg_install_dir}/include'"
-    FFTW_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib' ${FFTW_LDFLAGS}"
     ;;
   __DONTUSE__)
     # Nothing to do
@@ -86,7 +81,7 @@ case "$with_fftw" in
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
     FFTW_CFLAGS="-I'${pkg_install_dir}/include'"
-    FFTW_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    FFTW_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_fftw" != "__DONTUSE__" ]; then
@@ -112,7 +107,7 @@ export CP_CFLAGS="\${CP_CFLAGS} ${FFTW_CFLAGS}"
 export CP_LDFLAGS="\${CP_LDFLAGS} ${FFTW_LDFLAGS}"
 export CP_LIBS="${FFTW_LIBS} \${CP_LIBS}"
 prepend_path PKG_CONFIG_PATH "$pkg_install_dir/lib/pkgconfig"
-export FFTW_ROOT="${pkg_install_dir}"
+export FFTW_ROOT=${FFTW_ROOT:-${pkg_install_dir}}
 EOF
   cat "${BUILDDIR}/setup_fftw" >> $SETUPFILE
 fi

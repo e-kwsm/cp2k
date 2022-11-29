@@ -20,7 +20,7 @@ MODULE environment
                                               cite_reference
    USE cp2k_info,                       ONLY: &
         compile_arch, compile_date, compile_host, compile_revision, cp2k_flags, cp2k_home, &
-        cp2k_version, cp2k_year, get_runtime_info, id_cp2k_version, r_host_name, r_pid, r_user_name
+        cp2k_version, cp2k_year, get_runtime_info, r_host_name, r_pid, r_user_name
    USE cp_error_handling,               ONLY: warning_counter
    USE cp_files,                        ONLY: close_file,&
                                               get_data_dir,&
@@ -59,9 +59,9 @@ MODULE environment
    USE header,                          ONLY: cp2k_footer,&
                                               cp2k_header
    USE input_constants,                 ONLY: &
-        callgraph_all, callgraph_none, do_cosma, do_cp2k, do_diag_elpa, do_diag_scalapack, do_eip, &
-        do_farming, do_fft_fftw3, do_fft_sg, do_fist, do_qs, do_scalapack, do_sirius, do_test, &
-        energy_run, id_development_version, mol_dyn_run, none_run
+        callgraph_all, callgraph_none, do_cosma, do_cp2k, do_dgemm_blas, do_dgemm_spla, &
+        do_diag_elpa, do_diag_scalapack, do_eip, do_farming, do_fft_fftw3, do_fft_sg, do_fist, &
+        do_qs, do_scalapack, do_sirius, do_test, energy_run, mol_dyn_run, none_run
    USE input_cp2k_global,               ONLY: create_global_section
    USE input_enumeration_types,         ONLY: enum_i2c,&
                                               enumeration_type
@@ -76,6 +76,7 @@ MODULE environment
                                               dp,&
                                               int_8,&
                                               print_kind_info
+   USE local_gemm_api,                  ONLY: local_gemm_set_library
    USE machine,                         ONLY: &
         flush_should_flush, m_cpuid, m_cpuid_name, m_cpuid_static, m_cpuinfo, m_energy, &
         m_get_omp_stacksize, m_memory_details, m_procrun
@@ -148,7 +149,6 @@ CONTAINS
       CHARACTER(LEN=*), OPTIONAL                         :: wdir
 
       CHARACTER(LEN=10*default_string_length)            :: cp_flags
-      CHARACTER(LEN=default_string_length)               :: dev_flag
       INTEGER                                            :: i, ilen, my_output_unit
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -158,10 +158,6 @@ CONTAINS
 
       ! Message passing performance
       CALL add_mp_perf_env()
-
-      ! Set flag if this is a development version
-      dev_flag = ""
-      IF (id_cp2k_version == id_development_version) dev_flag = " (Development Version)"
 
       ! Init the default logger
       IF (para_env%ionode) THEN
@@ -184,8 +180,7 @@ CONTAINS
 
       IF (my_output_unit > 0) THEN
          WRITE (UNIT=my_output_unit, FMT="(/,T2,A,T31,A50)") &
-            "CP2K| version string: ", &
-            ADJUSTR(TRIM(cp2k_version)//TRIM(dev_flag))
+            "CP2K| version string: ", ADJUSTR(TRIM(cp2k_version))
          WRITE (UNIT=my_output_unit, FMT="(T2,A,T41,A40)") &
             "CP2K| source code revision number:", &
             ADJUSTR(compile_revision)
@@ -496,8 +491,9 @@ CONTAINS
       CHARACTER(len=default_string_length)               :: env_num, model_name, project_name
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: trace_routines
-      INTEGER :: cpuid, cpuid_static, i_diag, i_fft, i_grid_backend, iforce_eval, method_name_id, &
-         n_rep_val, nforce_eval, num_threads, output_unit, print_level, trace_max, unit_nr
+      INTEGER :: cpuid, cpuid_static, i_dgemm, i_diag, i_fft, i_grid_backend, iforce_eval, &
+         method_name_id, n_rep_val, nforce_eval, num_threads, output_unit, print_level, trace_max, &
+         unit_nr
       INTEGER(kind=int_8) :: Buffers, Buffers_avr, Buffers_max, Buffers_min, Cached, Cached_avr, &
          Cached_max, Cached_min, MemFree, MemFree_avr, MemFree_max, MemFree_min, MemLikelyFree, &
          MemLikelyFree_avr, MemLikelyFree_max, MemLikelyFree_min, MemTotal, MemTotal_avr, &
@@ -522,6 +518,7 @@ CONTAINS
       CALL section_vals_val_get(global_section, "BLACS_GRID", i_val=globenv%blacs_grid_layout)
       CALL section_vals_val_get(global_section, "BLACS_REPEATABLE", l_val=globenv%blacs_repeatable)
       CALL section_vals_val_get(global_section, "PREFERRED_DIAG_LIBRARY", i_val=i_diag)
+      CALL section_vals_val_get(global_section, "PREFERRED_DGEMM_LIBRARY", i_val=i_dgemm)
       CALL section_vals_val_get(global_section, "EPS_CHECK_DIAG", r_val=globenv%eps_check_diag)
       CALL section_vals_val_get(global_section, "ENABLE_MPI_IO", l_val=flag)
       CALL cp_mpi_io_set(flag)
@@ -564,6 +561,7 @@ CONTAINS
 
       CALL fm_setup(global_section)
       CALL fm_diag_rules_setup(global_section)
+      CALL dgemm_setup(global_section)
 
       IF (trace .AND. (.NOT. trace_master .OR. para_env%mepos == 0)) THEN
          unit_nr = -1
@@ -597,6 +595,15 @@ CONTAINS
          CALL cite_reference(Frigo2005)
       CASE DEFAULT
          CPABORT("Unknown FFT library specified")
+      END SELECT
+
+      SELECT CASE (i_dgemm)
+      CASE (do_dgemm_spla)
+         globenv%default_dgemm_library = "SPLA"
+      CASE (do_dgemm_blas)
+         globenv%default_dgemm_library = "BLAS"
+      CASE DEFAULT
+         CPABORT("Unknown DGEMM library specified")
       END SELECT
 
       IF (globenv%run_type_id == 0) THEN
@@ -756,7 +763,9 @@ CONTAINS
             start_section_label//"| FFT library", &
             ADJUSTR(globenv%default_fft_library(:40)), &
             start_section_label//"| Diagonalization library", &
-            ADJUSTR(globenv%diag_library(:40))
+            ADJUSTR(globenv%diag_library(:40)), &
+            start_section_label//"| DGEMM library", &
+            ADJUSTR(globenv%default_dgemm_library(:40))
 
          IF (globenv%diag_library == "ELPA") THEN
             WRITE (UNIT=output_unit, FMT="(T2,A,T71,I10)") &
@@ -1070,6 +1079,21 @@ CONTAINS
    END SUBROUTINE fm_setup
 
 ! **************************************************************************************************
+!> \brief ...
+!> \param glob_section ...
+! **************************************************************************************************
+   SUBROUTINE dgemm_setup(glob_section)
+      TYPE(section_vals_type), POINTER                   :: glob_section
+
+      INTEGER                                            :: dgemm_type
+
+      CALL section_vals_val_get(glob_section, "PREFERRED_DGEMM_LIBRARY", i_val=dgemm_type)
+
+      CALL local_gemm_set_library(dgemm_type)
+
+   END SUBROUTINE dgemm_setup
+
+! **************************************************************************************************
 !> \brief   Parses the input section used to define the heuristic rules which determine if
 !>          a FM matrix should be redistributed before diagonalizing it.
 !> \param glob_section the global input section
@@ -1152,7 +1176,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: q_finalize
 
       CHARACTER(LEN=default_path_length)                 :: cg_filename
-      CHARACTER(LEN=default_string_length)               :: dev_flag
       INTEGER                                            :: cg_mode, iw, unit_exit
       LOGICAL                                            :: delete_it, do_finalize, report_maxloc, &
                                                             sort_by_self_time
@@ -1162,9 +1185,6 @@ CONTAINS
       ! Look if we inherited a failure, more care is needed if so
       ! i.e. the input is most likely not available
       ! Set flag if this is a development version
-
-      dev_flag = ""
-      IF (id_cp2k_version == id_development_version) dev_flag = " (Development Version)"
 
       do_finalize = .TRUE.
       IF (PRESENT(q_finalize)) do_finalize = q_finalize
@@ -1200,7 +1220,7 @@ CONTAINS
          WRITE (UNIT=iw, FMT="(T2,A)") REPEAT("-", 79)
 
          WRITE (UNIT=iw, FMT="(T2,A)") ""
-         WRITE (UNIT=iw, FMT="(T2,A)") TRIM(cp2k_version)//TRIM(dev_flag)//", the CP2K developers group ("//TRIM(cp2k_year)//")."
+         WRITE (UNIT=iw, FMT="(T2,A)") TRIM(cp2k_version)//", the CP2K developers group ("//TRIM(cp2k_year)//")."
          WRITE (UNIT=iw, FMT="(T2,A)") "CP2K is freely available from "//TRIM(cp2k_home)//" ."
 
          CALL print_all_references(sorted=.TRUE., cited_only=.TRUE., &

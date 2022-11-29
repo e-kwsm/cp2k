@@ -25,7 +25,6 @@ MODULE dirichlet_bc_methods
    USE mathconstants,                   ONLY: pi,&
                                               twopi
    USE mathlib,                         ONLY: inv_3x3,&
-                                              matvec_3x3,&
                                               vector_product
    USE message_passing,                 ONLY: mp_max,&
                                               mp_sum
@@ -323,6 +322,7 @@ CONTAINS
          ALLOCATE (tile_maxvals(n_tiles))
          tile_maxvals = 0.0_dp
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -354,10 +354,13 @@ CONTAINS
          dirichlet_bc%tiles = tiles
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T7,A,I5)') "number of partitions : ", n_tiles
 
+         NULLIFY (cylinder_pw)
+         ALLOCATE (cylinder_pw)
          CALL pw_pool_create_pw(pw_pool, cylinder_pw, use_data=REALDATA3D, in_space=REALSPACE)
          CALL pw_zero(cylinder_pw)
 
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -387,6 +390,7 @@ CONTAINS
          END IF
 
          CALL pw_pool_give_back_pw(pw_pool, cylinder_pw)
+         DEALLOCATE (cylinder_pw)
 
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T3,A)') REPEAT('=', 78)
 
@@ -402,6 +406,7 @@ CONTAINS
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T7,A,I5)') "number of partitions : ", n_tiles
 
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -1179,14 +1184,14 @@ CONTAINS
       Tpoint = 0.0_dp
 
       IF (direction .EQ. FWROT) THEN
-         CALL matvec_3x3(vec_tmp, Rmat, vec)
+         vec_tmp = MATMUL(Rmat, vec)
          vec_transfd = vec_tmp + Tp
       ELSEIF (direction .EQ. BWROT) THEN
          Rmat_inv = inv_3x3(Rmat)
          Tpoint(1) = Rmat_inv(1, 1)*Tp(1) + Rmat_inv(1, 2)*Tp(2) + Rmat_inv(1, 3)*Tp(3)
          Tpoint(2) = Rmat_inv(2, 1)*Tp(1) + Rmat_inv(2, 2)*Tp(2) + Rmat_inv(2, 3)*Tp(3)
          Tpoint(3) = Rmat_inv(3, 1)*Tp(1) + Rmat_inv(3, 2)*Tp(2) + Rmat_inv(3, 3)*Tp(3)
-         CALL matvec_3x3(vec_tmp, Rmat_inv, vec)
+         vec_tmp = MATMUL(Rmat_inv, vec)
          vec_transfd = vec_tmp - Tpoint
       END IF
 
