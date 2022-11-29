@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -90,9 +92,9 @@ CONTAINS
       DO i = 1, width
       DO j = 1, width
          forward(ilayer, i) = forward(ilayer, i) + A(ilayer, i, j)*TANH(forward(ilayer - 1, j))
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       ! Turning Point ------------------------------------------------------------------------------
       backward = 0.0_dp
@@ -102,9 +104,9 @@ CONTAINS
       DO i = 1, width
       DO j = 1, width
   backward(ilayer - 1, j) = backward(ilayer - 1, j) + backward(ilayer, i)*A(ilayer, i, j)*(1.0_dp - TANH(forward(ilayer - 1, j))**2)
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       gradient(:) = backward(0, 1:width_in)
 
@@ -150,9 +152,9 @@ CONTAINS
          DO i = 1, width
          DO j = 1, width
             training_matrix%NN(ilayer, i, j) = -1.0_dp + 2.0_dp*rng_stream%next()
-         ENDDO
-         ENDDO
-         ENDDO
+         END DO
+         END DO
+         END DO
 
          ! train the network using backpropagation
          ALLOCATE (gradient(nlayers, width, width))
@@ -165,7 +167,7 @@ CONTAINS
                                      goal=training_matrix%outputs(:, ipoint), &
                                      gradient=gradient, &
                                      error=error)
-            ENDDO
+            END DO
             training_matrix%NN(:, :, :) = training_matrix%NN - step_size*gradient
 
             IF (pao%iw > 0 .AND. MOD(icycle, 100) == 0) WRITE (pao%iw, *) &
@@ -173,7 +175,7 @@ CONTAINS
                " training-cycle:", icycle, "SQRT(error):", SQRT(error), "grad:", SUM(gradient**2)
 
             IF (SUM(gradient**2) < convergence_eps) EXIT
-         ENDDO
+         END DO
 
          ! numeric gradient for debugging ----------------------------------------------------------
          IF (.FALSE.) THEN
@@ -209,10 +211,10 @@ CONTAINS
                num_grad = (error1 - error2)/(2.0_dp*eps)
                IF (pao%iw > 0) WRITE (pao%iw, *) "PAO|ML| Numeric gradient:", i, j, gradient(ilayer, i, j), num_grad
 
-            ENDDO
-            ENDDO
+            END DO
+            END DO
             DEALLOCATE (prediction)
-         ENDIF
+         END IF
          !------------------------------------------------------------------------------------------
 
          DEALLOCATE (gradient)
@@ -226,10 +228,10 @@ CONTAINS
             error = MAXVAL(ABS(training_matrix%outputs(:, ipoint) - prediction))
             IF (pao%iw > 0) WRITE (pao%iw, *) "PAO|ML| ", TRIM(training_matrix%kindname), &
                " verify training-point:", ipoint, "SQRT(error):", SQRT(error)
-         ENDDO
+         END DO
          DEALLOCATE (prediction)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE pao_ml_nn_train
 
@@ -262,9 +264,9 @@ CONTAINS
       DO i = 1, width
       DO j = 1, width
          forward(ilayer, i) = forward(ilayer, i) + A(ilayer, i, j)*TANH(forward(ilayer - 1, j))
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       prediction(:) = forward(nlayers, 1:width_out)
 
@@ -303,9 +305,9 @@ CONTAINS
       DO i = 1, width
       DO j = 1, width
          forward(ilayer, i) = forward(ilayer, i) + A(ilayer, i, j)*TANH(forward(ilayer - 1, j))
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       prediction(:) = forward(nlayers, 1:width_out)
 
@@ -320,9 +322,9 @@ CONTAINS
       DO j = 1, width
          gradient(ilayer, i, j) = gradient(ilayer, i, j) + 2.0_dp*backward(ilayer, i)*TANH(forward(ilayer - 1, j))
   backward(ilayer - 1, j) = backward(ilayer - 1, j) + backward(ilayer, i)*A(ilayer, i, j)*(1.0_dp - TANH(forward(ilayer - 1, j))**2)
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       DEALLOCATE (forward, backward, prediction)
    END SUBROUTINE nn_backpropagate

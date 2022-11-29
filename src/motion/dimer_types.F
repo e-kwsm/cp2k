@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,7 +41,6 @@ MODULE dimer_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'dimer_types'
-   INTEGER, PRIVATE, SAVE :: last_dimer_id = 0
 
    PUBLIC :: dimer_env_type, &
              dimer_env_create, &
@@ -90,7 +91,7 @@ MODULE dimer_types
 !> \author Luca Bellucci and Teodoro Laino - created [tlaino] - 01.2008
 ! **************************************************************************************************
    TYPE dimer_env_type
-      INTEGER                                    :: ref_count, id_nr
+      INTEGER                                    :: ref_count
       REAL(KIND=dp)                              :: dr
       REAL(KIND=dp), POINTER, DIMENSION(:)       :: nvec
       REAL(KIND=dp)                              :: beta
@@ -119,9 +120,6 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(section_vals_type), POINTER                   :: dimer_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dimer_env_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, isize, j, k, n_rep_val, natom, unit_nr
       LOGICAL                                            :: explicit
       REAL(KIND=dp)                                      :: norm, xval(3)
@@ -132,8 +130,6 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(dimer_env))
       ALLOCATE (dimer_env)
       dimer_env%ref_count = 1
-      last_dimer_id = last_dimer_id + 1
-      dimer_env%id_nr = last_dimer_id
       ! Setup NVEC
       NULLIFY (dimer_env%nvec, dimer_env%rot%g0, dimer_env%rot%g1, dimer_env%rot%g1p, &
                dimer_env%tsl%tls_vec)
@@ -217,9 +213,6 @@ CONTAINS
    SUBROUTINE dimer_env_retain(dimer_env)
       TYPE(dimer_env_type), POINTER                      :: dimer_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dimer_env_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(dimer_env))
       CPASSERT(dimer_env%ref_count > 0)
       dimer_env%ref_count = dimer_env%ref_count + 1
@@ -234,9 +227,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dimer_env_release(dimer_env)
       TYPE(dimer_env_type), POINTER                      :: dimer_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dimer_env_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(dimer_env)) THEN
          CPASSERT(dimer_env%ref_count > 0)
@@ -267,7 +257,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Set parts of a given array vec to zero according to fixed atom constraints.
 !>        When atoms are (partially) fixed then the relevant components of
-!>        nvec should be set to zero.  Furthermore, the relevent components
+!>        nvec should be set to zero.  Furthermore, the relevant components
 !>        of the gradient in CG should also be set to zero.
 !> \param vec : vector to be modified
 !> \param subsys : subsys type object used by CP2k
@@ -278,9 +268,6 @@ CONTAINS
    SUBROUTINE dimer_fixed_atom_control(vec, subsys)
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: vec
       TYPE(cp_subsys_type), POINTER                      :: subsys
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dimer_fixed_atom_control', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii, ikind, ind, iparticle, nfixed_atoms, &
                                                             nkinds

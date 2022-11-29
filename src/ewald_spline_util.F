@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -84,9 +86,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: print_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'Setup_Ewald_Spline', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: bo(2, 3), iounit
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -114,12 +113,14 @@ CONTAINS
                                         "")
       ! pw_pool initialized
       CALL pw_pool_create(pw_pool, pw_grid=pw_grid)
+      ALLOCATE (pw, coeff)
       CALL pw_pool_create_pw(pw_pool, pw, use_data=REALDATA3D, in_space=REALSPACE)
       CALL pw_pool_create_pw(pw_pool, coeff, use_data=REALDATA3D, in_space=REALSPACE)
       ! Evaluate function on grid
       CALL eval_pw_TabLR(pw, pw_pool, coeff, Lg, gx, gy, gz, hmat_mm=hmat, &
                          param_section=param_section, tag=tag)
       CALL pw_pool_give_back_pw(pw_pool, pw)
+      DEALLOCATE (pw)
       CALL cell_release(cell)
 
    END SUBROUTINE Setup_Ewald_Spline
@@ -151,7 +152,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: param_section
       CHARACTER(LEN=*), INTENT(IN)                       :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eval_pw_TabLR', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eval_pw_TabLR'
 
       INTEGER :: act_nx, act_ny, aint_precond, handle, i, iii, is, j, js, k, ks, Lg_loc_max, &
          Lg_loc_min, max_iter, my_i, my_j, my_k, n1, n2, n3, n_extra, NLg_loc, nxlim, nylim, &
@@ -164,7 +165,7 @@ CONTAINS
                                                             cos_gz(:, :), lhs(:, :), rhs(:, :), &
                                                             sin_gx(:, :), sin_gy(:, :), &
                                                             sin_gz(:, :)
-      TYPE(pw_spline_precond_type), POINTER              :: precond
+      TYPE(pw_spline_precond_type)                       :: precond
       TYPE(section_vals_type), POINTER                   :: interp_section
 
 !NB pull expensive Cos() out of inner looop
@@ -294,7 +295,7 @@ CONTAINS
          !NB parallelization
       ELSE ! no work for this node, just zero contribution
          grid%cr3d(gbo(1, 1):nxlim, gbo(1, 2):nylim, gbo(1, 3):nzlim) = 0.0_dp
-      ENDIF ! NLg_loc > 0
+      END IF ! NLg_loc > 0
 
       CALL mp_sum(grid%cr3d(gbo(1, 1):nxlim, gbo(1, 2):nylim, gbo(1, 3):nzlim), grid%pw_grid%para%group)
 
@@ -363,8 +364,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: param_section
       CHARACTER(LEN=*), INTENT(IN)                       :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_spline_interp_TabLR', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'check_spline_interp_TabLR'
 
       INTEGER                                            :: handle, i, iw, kg, npoints
       REAL(KIND=dp)                                      :: dn(3), dr1, dr2, dr3, dxTerm, dyTerm, &

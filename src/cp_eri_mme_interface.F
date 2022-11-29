@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -95,9 +97,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       INTEGER, INTENT(IN), OPTIONAL                      :: default_n_minimax
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_eri_mme_section', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: my_default_n_minimax
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -109,7 +108,7 @@ CONTAINS
          my_default_n_minimax = default_n_minimax
       ELSE
          my_default_n_minimax = 20
-      ENDIF
+      END IF
 
       CALL section_create(section, __LOCATION__, name="ERI_MME", &
                           description="Parameters for the calculation of periodic electron repulsion "// &
@@ -246,9 +245,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: mme_section
       TYPE(cp_eri_mme_param), INTENT(INOUT)              :: param
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_eri_mme_init_read_input', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: debug_nsum, n_minimax, unit_nr
       LOGICAL                                            :: debug, do_calib_cutoff, do_error_est, &
                                                             print_calib
@@ -303,9 +299,6 @@ CONTAINS
    SUBROUTINE cp_eri_mme_finalize(param)
       TYPE(cp_eri_mme_param), INTENT(INOUT)              :: param
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_eri_mme_finalize', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: count_2c, count_3c, unit_nr
 
       count_2c = param%G_count_2c + param%R_count_2c
@@ -320,7 +313,7 @@ CONTAINS
                100.0_dp*param%G_count_2c/count_2c
             WRITE (unit_nr, '(T2, A, T76, F5.1/)') "ERI_MME|   R space:", &
                100.0_dp*param%R_count_2c/count_2c
-         ENDIF
+         END IF
          IF (count_3c .GT. 0) THEN
             WRITE (unit_nr, '(/T2, A)') "ERI_MME| Percentage of 3-center integrals evaluated in"
             WRITE (unit_nr, '(T2, A, T76, F5.1)') "ERI_MME|   G/G space:", &
@@ -329,8 +322,8 @@ CONTAINS
                100.0_dp*param%GR_count_3c/count_3c
             WRITE (unit_nr, '(T2, A, T76, F5.1/)') "ERI_MME|   R/R space:", &
                100.0_dp*param%RR_count_3c/count_3c
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL eri_mme_release(param%par)
       CALL cp_print_key_finished_output(unit_nr, param%logger, param%mme_section, "ERI_MME_INFO")
@@ -360,8 +353,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: potential
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pot_par
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eri_mme_set_params_from_basis', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'eri_mme_set_params_from_basis'
 
       INTEGER                                            :: handle, l_max, l_max_zet
       REAL(KIND=dp)                                      :: zet_max, zet_min
@@ -417,11 +409,11 @@ CONTAINS
                param%par%do_calib_cutoff = .FALSE.
             ELSE
                param%par%do_calib_cutoff = .TRUE.
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       ELSE
          param%par%do_calib_cutoff = .FALSE.
-      ENDIF
+      END IF
 
       CALL eri_mme_set_params(param%par, hmat, is_ortho, zet_min, zet_max, l_max_zet, l_max, para_env, &
                               potential, pot_par)
@@ -449,8 +441,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: zet_min, zet_max
       INTEGER, INTENT(OUT)                               :: l_max_zet, l_max
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'error_est_pgf_params_from_basis', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'error_est_pgf_params_from_basis'
 
       CHARACTER(len=default_string_length)               :: basis_type
       INTEGER                                            :: handle, ibasis, ikind, ipgf, iset, l_m, &
@@ -477,7 +468,7 @@ CONTAINS
                basis_type = basis_type_1
             ELSE
                basis_type = basis_type_2
-            ENDIF
+            END IF
             CALL get_qs_kind(qs_kind=qs_kind_set(ikind), basis_set=basis_set, &
                              basis_type=basis_type)
             CPASSERT(ASSOCIATED(basis_set))
@@ -490,10 +481,10 @@ CONTAINS
                   zet_min = MINVAL(basis_set%zet(1:npgf(iset), iset))
                ELSE
                   zet_min = MIN(zet_min, MINVAL(basis_set%zet(1:npgf(iset), iset)))
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDDO
+               END IF
+            END DO
+         END DO
+      END DO
 
       ! 2) get largest zet for max l and largest l for max zet
       DO ikind = 1, nkind
@@ -502,7 +493,7 @@ CONTAINS
                basis_type = basis_type_1
             ELSE
                basis_type = basis_type_2
-            ENDIF
+            END IF
             CALL get_qs_kind(qs_kind=qs_kind_set(ikind), basis_set=basis_set, &
                              basis_type=basis_type)
             DO iset = 1, basis_set%nset
@@ -510,11 +501,11 @@ CONTAINS
                   IF (ABS(zet_m - basis_set%zet(ipgf, iset)) .LE. (zet_m*1.0E-12_dp) &
                       .AND. (basis_set%lmax(iset) .GT. l_zet)) THEN
                      l_zet = basis_set%lmax(iset)
-                  ENDIF
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+                  END IF
+               END DO
+            END DO
+         END DO
+      END DO
 
       CPASSERT(l_zet .GE. 0)
 
@@ -554,12 +545,12 @@ CONTAINS
          CASE (eri_mme_longrange)
             WRITE (unit_nr, '(/T2, A, ES9.2)') "ERI_MME| Potential: long-range Coulomb with a=", param%par%pot_par
          END SELECT
-      ENDIF
+      END IF
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(/T2, A, T71, F10.1)') "ERI_MME| Cutoff for ERIs [a.u.]:", param%par%cutoff
          WRITE (unit_nr, '(/T2, A, T78, I3/)') "ERI_MME| Number of terms in minimax approximation:", param%par%n_minimax
-      ENDIF
+      END IF
       IF (param%par%is_ortho) THEN
          IF (unit_nr > 0) THEN
             IF (param%par%do_error_est) THEN
@@ -567,17 +558,17 @@ CONTAINS
                WRITE (unit_nr, '(T2, A, T72, ES9.2)') "ERI_MME|   Minimax error:", param%par%err_mm
                WRITE (unit_nr, '(T2, A, T72, ES9.2)') "ERI_MME|   Cutoff error:", param%par%err_c
              WRITE (unit_nr, '(T2, A, T72, ES9.2)') "ERI_MME|   Total error (minimax + cutoff):", param%par%err_mm + param%par%err_c
-            ENDIF
+            END IF
             IF (param%par%print_calib) &
                WRITE (unit_nr, '(T2, A, T68, F13.10)') "ERI_MME|   Minimax scaling constant in AM-GM estimate:", param%par%C_mm
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (print_multigrids) THEN
          DO igrid = 1, param%par%n_grids
             CALL eri_mme_print_grid_info(param%par%minimax_grid(igrid), igrid, unit_nr)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       IF (unit_nr > 0) WRITE (unit_nr, *)
 
@@ -589,9 +580,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_eri_mme_test_section(section)
       TYPE(section_type), INTENT(INOUT), POINTER         :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_eri_mme_test_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -727,27 +715,27 @@ CONTAINS
       IF (PRESENT(G_count_2c)) THEN
          CALL mp_sum(G_count_2c, para_env%group)
          param%G_count_2c = param%G_count_2c + G_count_2c
-      ENDIF
+      END IF
 
       IF (PRESENT(R_count_2c)) THEN
          CALL mp_sum(R_count_2c, para_env%group)
          param%R_count_2c = param%R_count_2c + R_count_2c
-      ENDIF
+      END IF
 
       IF (PRESENT(GG_count_3c)) THEN
          CALL mp_sum(GG_count_3c, para_env%group)
          param%GG_count_3c = param%GG_count_3c + GG_count_3c
-      ENDIF
+      END IF
 
       IF (PRESENT(GR_count_3c)) THEN
          CALL mp_sum(GR_count_3c, para_env%group)
          param%GR_count_3c = param%GR_count_3c + GR_count_3c
-      ENDIF
+      END IF
 
       IF (PRESENT(RR_count_3c)) THEN
          CALL mp_sum(RR_count_3c, para_env%group)
          param%RR_count_3c = param%RR_count_3c + RR_count_3c
-      ENDIF
+      END IF
 
    END SUBROUTINE cp_eri_mme_update_local_counts
 
@@ -761,9 +749,6 @@ CONTAINS
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
       INTEGER, INTENT(IN)                                :: iw
       TYPE(section_vals_type), POINTER                   :: eri_mme_test_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_eri_mme_perf_acc_test', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: count_r, G_count, GG_count, GR_count, i, &
                                                             ix, iy, iz, l_max, min_nR, nR, nR_xyz, &
@@ -810,8 +795,8 @@ CONTAINS
          zet_fac = (zetmax/zetmin)**(1.0_dp/(nzet - 1))
          DO i = 1, nzet - 1
             zet(i + 1) = zet(i)*zet_fac
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       ! initialize cell
       CALL cell_create(box)
@@ -836,9 +821,9 @@ CONTAINS
                                  iy*ABS(cell_par(2)), &
                                  iz*ABS(cell_par(3))]/nR_xyz + &
                                 0.1_dp*ABS(cell_par(:)), box)
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       ! initialize MME method
       CALL cp_eri_mme_set_params(param, box%hmat, box%orthorhombic, MINVAL(zet), MAXVAL(zet), l_max, l_max, para_env, &

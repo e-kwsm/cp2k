@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -120,7 +122,7 @@ CONTAINS
       IF (pot%filename(l - 4:l) == '.json') THEN
          pot%zion = 0.0
          RETURN
-      ENDIF
+      END IF
 
       CALL atom_read_upf_v2(pot, upf_filename, readall)
 
@@ -189,10 +191,9 @@ CONTAINS
       CHARACTER(LEN=default_string_length)               :: nametag
       INTEGER                                            :: ib, ntag
       LOGICAL                                            :: at_end
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       ntag = 0
-      NULLIFY (parser)
       CALL parser_create(parser, upf_filename)
       DO
          at_end = .FALSE.
@@ -211,7 +212,7 @@ CONTAINS
                CALL parser_get_object(parser, nametag, lower_to_upper=.TRUE.)
                CPASSERT(nametag(1:1) == ">")
                ntag = 1
-            ENDIF
+            END IF
          ELSE IF (ntag == 1) THEN
             ! we are looking for 1st level tags
             IF (nametag(2:8) == "PP_INFO") THEN
@@ -251,7 +252,7 @@ CONTAINS
                ! skip section for now
             ELSEIF (nametag(2:6) == "/UPF>") THEN
                EXIT
-            ENDIF
+            END IF
          END IF
       END DO
       CALL parser_release(parser)
@@ -287,7 +288,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_info_section(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: line, string
@@ -316,7 +317,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_header_option(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: string
@@ -398,7 +399,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_mesh_option(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: string
@@ -438,7 +439,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_mesh_section(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: line, string, string2
@@ -543,7 +544,7 @@ CONTAINS
 !> \param options ...
 ! **************************************************************************************************
    SUBROUTINE upf_nlcc_section(parser, pot, options)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
       LOGICAL, INTENT(IN)                                :: options
 
@@ -605,7 +606,7 @@ CONTAINS
 !> \param options ...
 ! **************************************************************************************************
    SUBROUTINE upf_local_section(parser, pot, options)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
       LOGICAL, INTENT(IN)                                :: options
 
@@ -669,7 +670,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_nonlocal_section(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: line, string
@@ -798,7 +799,7 @@ CONTAINS
 !> \param pot ...
 ! **************************************************************************************************
    SUBROUTINE upf_semilocal_section(parser, pot)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(atom_upfpot_type)                             :: pot
 
       CHARACTER(LEN=default_string_length)               :: line, string

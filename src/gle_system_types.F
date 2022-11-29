@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,8 +69,6 @@ CONTAINS
       TYPE(gle_type), POINTER                            :: gle
       REAL(dp), INTENT(IN)                               :: dt, temp
       TYPE(section_vals_type), POINTER                   :: section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gle_init', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ir, j, k, n_rep
       REAL(dp), DIMENSION(:), POINTER                    :: list
@@ -166,9 +166,6 @@ CONTAINS
       TYPE(gle_type), POINTER                            :: gle
       INTEGER, INTENT(IN)                                :: mal_size
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gle_thermo_create', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=40)                                  :: name
       INTEGER                                            :: i, ithermo, my_index
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: seed
@@ -219,8 +216,6 @@ CONTAINS
    SUBROUTINE gle_dealloc(gle)
       TYPE(gle_type), POINTER                            :: gle
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gle_dealloc', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(gle)) THEN
@@ -241,14 +236,14 @@ CONTAINS
                DEALLOCATE (gle%nvt(i)%s)
             END DO
             DEALLOCATE (gle%nvt)
-         ENDIF
+         END IF
          IF (ASSOCIATED(gle%mal)) THEN
             DEALLOCATE (gle%mal)
          END IF
 
          CALL release_map_info_type(gle%map_info)
          DEALLOCATE (gle)
-      ENDIF
+      END IF
 
    END SUBROUTINE gle_dealloc
 

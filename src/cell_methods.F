@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,8 +79,6 @@ CONTAINS
       TYPE(section_vals_type), OPTIONAL, POINTER         :: cell_section
       LOGICAL, INTENT(IN), OPTIONAL                      :: check_for_ref
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_cell', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: my_per
       INTEGER, DIMENSION(:), POINTER                     :: multiple_unit_cell
@@ -205,9 +205,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: check_this_section
       LOGICAL                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'parsed_cp2k_input', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: my_check
       TYPE(section_vals_type), POINTER                   :: glob_section
 
@@ -238,9 +235,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       INTEGER, DIMENSION(:), POINTER                     :: multiple_unit_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_multiple_unit_cell', &
-         routineP = moduleN//':'//routineN
-
 ! Fail is one of the value is set to zero..
 
       IF (ANY(multiple_unit_cell <= 0)) &
@@ -268,9 +262,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: cell_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_cell_from_external_file', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: cell_file_name
       INTEGER                                            :: i, idum, j, my_format, n_rep
       LOGICAL                                            :: explicit, my_end
@@ -278,9 +269,8 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3)                     :: hmat
       REAL(KIND=dp), DIMENSION(:), POINTER               :: cell_par
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser)
       CALL section_vals_val_get(cell_section, "CELL_FILE_NAME", c_val=cell_file_name)
       CALL section_vals_val_get(cell_section, "CELL_FILE_FORMAT", i_val=my_format)
       SELECT CASE (my_format)
@@ -293,7 +283,7 @@ CONTAINS
             CALL parser_get_next_line(parser, 1, at_end=my_end)
          END DO
          CALL parser_release(parser)
-         ! Conver to CP2K units
+         ! Convert to CP2K units
          DO i = 1, 3
             DO j = 1, 3
                hmat(j, i) = cp_unit_to_cp2k(hmat(j, i), "angstrom")
@@ -304,7 +294,7 @@ CONTAINS
          CALL parser_get_next_line(parser, 1)
          READ (parser%input_line, *) idum, hmat(:, 1), hmat(:, 2), hmat(:, 3)
          CALL parser_release(parser)
-         ! Conver to CP2K units
+         ! Convert to CP2K units
          DO i = 1, 3
             DO j = 1, 3
                hmat(j, i) = cp_unit_to_cp2k(hmat(j, i), "angstrom")
@@ -373,17 +363,16 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_cell_cif', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'read_cell_cif'
 
       INTEGER                                            :: handle
       INTEGER, DIMENSION(3)                              :: periodic
       LOGICAL                                            :: found
       REAL(KIND=dp), DIMENSION(3)                        :: cell_angles, cell_lengths
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (parser)
       CALL parser_create(parser, cif_file_name, &
                          para_env=para_env, apply_preprocessing=.FALSE.)
 
@@ -456,10 +445,8 @@ CONTAINS
 !> \author Teodoro Laino [tlaino]
 ! **************************************************************************************************
    SUBROUTINE cif_get_real(parser, r)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       REAL(KIND=dp), INTENT(OUT)                         :: r
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cif_get_real', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: s_tag
       INTEGER                                            :: iln
@@ -489,8 +476,7 @@ CONTAINS
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell_ref
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_cell', routineP = moduleN//':'//routineN
-
+      CHARACTER(LEN=3)                                   :: string
       CHARACTER(LEN=default_string_length)               :: my_label, unit_str
       INTEGER                                            :: output_unit
       REAL(KIND=dp)                                      :: alpha, beta, gamma, val
@@ -514,17 +500,17 @@ CONTAINS
          CALL get_cell(cell=cell, abc=abc, alpha=alpha, beta=beta, gamma=gamma)
          WRITE (UNIT=output_unit, FMT='( )')
          val = cp_unit_from_cp2k(cell%deth, TRIM(unit_str)//"^3")
-         WRITE (UNIT=output_unit, FMT="(T2,A,T61,F20.3)") &
+         WRITE (UNIT=output_unit, FMT="(T2,A,T61,F20.6)") &
             TRIM(my_label)//" Volume ["//TRIM(unit_str)//"^3]:", val
          val = cp_unit_from_cp2k(1.0_dp, TRIM(unit_str))
-         WRITE (UNIT=output_unit, FMT="(T2,A,T30,3F10.3,4X,A6,F11.3)") &
+         WRITE (UNIT=output_unit, FMT="(T2,A,T30,3F10.3,3X,A6,F12.6)") &
             TRIM(my_label)//" Vector a ["//TRIM(unit_str)//"]:", cell%hmat(:, 1)*val, &
             "|a| = ", abc(1)*val, &
             TRIM(my_label)//" Vector b ["//TRIM(unit_str)//"]:", cell%hmat(:, 2)*val, &
             "|b| = ", abc(2)*val, &
             TRIM(my_label)//" Vector c ["//TRIM(unit_str)//"]:", cell%hmat(:, 3)*val, &
             "|c| = ", abc(3)*val
-         WRITE (UNIT=output_unit, FMT="(T2,A,T70,F11.3)") &
+         WRITE (UNIT=output_unit, FMT="(T2,A,T69,F12.6)") &
             TRIM(my_label)//" Angle (b,c), alpha [degree]: ", alpha, &
             TRIM(my_label)//" Angle (a,c), beta  [degree]: ", beta, &
             TRIM(my_label)//" Angle (a,b), gamma [degree]: ", gamma
@@ -543,6 +529,17 @@ CONTAINS
          ELSE
             WRITE (UNIT=output_unit, FMT="(T2,A,T78,A3)") &
                TRIM(my_label)//" Numerically orthorhombic: ", " NO"
+         END IF
+         IF (SUM(cell%perd(1:3)) == 0) THEN
+            WRITE (UNIT=output_unit, FMT="(T2,A,T77,A4)") &
+               TRIM(my_label)//" Periodicity", "NONE"
+         ELSE
+            string = ""
+            IF (cell%perd(1) == 1) string = TRIM(string)//"X"
+            IF (cell%perd(2) == 1) string = TRIM(string)//"Y"
+            IF (cell%perd(3) == 1) string = TRIM(string)//"Z"
+            WRITE (UNIT=output_unit, FMT="(T2,A,T78,A3)") &
+               TRIM(my_label)//" Periodicity", ADJUSTR(string)
          END IF
       END IF
       CALL cp_print_key_finished_output(output_unit, logger, subsys_section, &

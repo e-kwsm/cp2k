@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 MODULE input_cp2k_loc
    USE bibliography,                    ONLY: Hunt2003
@@ -10,9 +12,10 @@ MODULE input_cp2k_loc
                                               high_print_level,&
                                               low_print_level
    USE input_constants,                 ONLY: &
-        do_loc_both, do_loc_crazy, do_loc_direct, do_loc_homo, do_loc_jacobi, do_loc_l1_norm_sd, &
-        do_loc_lumo, do_loc_max, do_loc_min, do_loc_none, do_loc_scdm, op_loc_berry, op_loc_boys, &
-        op_loc_pipek
+        do_loc_both, do_loc_cpo_atomic, do_loc_cpo_random, do_loc_cpo_restart, &
+        do_loc_cpo_space_nmo, do_loc_cpo_space_wan, do_loc_crazy, do_loc_direct, do_loc_gapo, &
+        do_loc_homo, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_lumo, do_loc_max, do_loc_min, &
+        do_loc_mixed, do_loc_none, do_loc_scdm, op_loc_berry, op_loc_boys, op_loc_pipek
    USE input_cp2k_mm,                   ONLY: create_dipoles_section
    USE input_cp2k_motion_print,         ONLY: add_format_keyword
    USE input_keyword_types,             ONLY: keyword_create,&
@@ -49,9 +52,6 @@ CONTAINS
    SUBROUTINE create_localize_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_localize_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, print_section, subsection
@@ -135,19 +135,48 @@ CONTAINS
       CALL keyword_create( &
          keyword, __LOCATION__, name="METHOD", &
          description="Method of optimization if any", &
-         usage="METHOD (JACOBI|CRAZY|DIRECT|L1SD|SCDM|NONE)", &
-         enum_c_vals=s2a("NONE", "JACOBI", "CRAZY", "L1SD", "DIRECT", "SCDM"), &
+         usage="METHOD (JACOBI|CRAZY|DIRECT|GAPO|L1SD|SCDM|NONE)", &
+         enum_c_vals=s2a("NONE", "JACOBI", "CRAZY", "GAPO", "L1SD", "DIRECT", "SCDM"), &
          enum_i_vals=(/do_loc_none, &
                        do_loc_jacobi, &
                        do_loc_crazy, &
+                       do_loc_gapo, &
                        do_loc_l1_norm_sd, &
                        do_loc_direct, do_loc_scdm/), &
          enum_desc=s2a("No localization is applied", &
                        "Using 2 x 2 rotations of the orbitals, slow but robust", &
                        "A new fast method is applied, might be slightly less robust than jacobi, but usually much faster", &
+                       "Gradient ascent for partially occupied wannier functions", &
                        "Steepest descent minimization of an approximate l1 norm", &
                        "Using a direct minimisation approacha", "Use QR factorization"), &
          default_i_val=do_loc_jacobi)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="CPO_GUESS", &
+                          description="Initial guess for coefficients if METHOD GAPO is used", &
+                          usage="CPO_GUESS (ATOMIC|RESTART|RANDOM)", &
+                          enum_c_vals=s2a("ATOMIC", "RESTART", "RANDOM"), &
+                          enum_i_vals=(/do_loc_cpo_atomic, do_loc_cpo_restart, do_loc_cpo_random/), &
+                          default_i_val=do_loc_cpo_atomic)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="CPO_GUESS_SPACE", &
+                          description="Orbital space from which initial guess for coefficients is determined "// &
+                          "if METHOD GAPO and CPO_GUESS ATOMIC are employed", &
+                          usage="CPO_GUESS_SPACE (WAN|ALL)", &
+                          enum_c_vals=s2a("WAN", "ALL"), &
+                          enum_i_vals=(/do_loc_cpo_space_wan, do_loc_cpo_space_nmo/), &
+                          default_i_val=do_loc_cpo_space_wan)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="CG_PO", &
+                          description="Use conjugate gradient in conjunction with METHOD GAPO. If FALSE, "// &
+                          " steepest descent is used instead.", &
+                          usage="CG_PO", default_l_val=.TRUE., &
+                          lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -178,6 +207,14 @@ CONTAINS
                           description="File name where to read the MOS from"// &
                           "which to restart the localization procedure for occupied states", &
                           usage="LOCHOMO_RESTART_FILE_NAME <FILENAME>", &
+                          type_of_var=lchar_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="LOCMIXD_RESTART_FILE_NAME", &
+                          description="File name where to read the MOS from"// &
+                          "which to restart the localization procedure for MIXED states", &
+                          usage="LOCMIXD_RESTART_FILE_NAME <FILENAME>", &
                           type_of_var=lchar_t)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -219,11 +256,20 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="NEXTRA", &
+                          description="Number of orbitals above fully occupied MOs to be localized, "// &
+                          "up to now only valid in combination with GPW. "// &
+                          "This keyword has to be present for STATES MIXED option. "// &
+                          "Otherwise, only the fully occupied MOs are localized.", &
+                          usage="NEXTRA 5", default_i_val=0)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="STATES", &
                           description="Which states to localize, LUMO up to now only available in GPW", &
-                          usage="STATES (HOMO|LUMO|ALL)", &
-                          enum_c_vals=s2a("OCCUPIED", "UNOCCUPIED", "ALL"), &
-                          enum_i_vals=(/do_loc_homo, do_loc_lumo, do_loc_both/), &
+                          usage="STATES (HOMO|LUMO|MIXED|ALL)", &
+                          enum_c_vals=s2a("OCCUPIED", "UNOCCUPIED", "MIXED", "ALL"), &
+                          enum_i_vals=(/do_loc_homo, do_loc_lumo, do_loc_mixed, do_loc_both/), &
                           default_i_val=do_loc_homo)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -297,8 +343,6 @@ CONTAINS
    SUBROUTINE print_wanniers(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_wanniers', routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -362,6 +406,23 @@ CONTAINS
       CALL cp_print_key_section_create(print_key, __LOCATION__, "WANNIER_SPREADS", &
                                        description="Controls the printing of the wannier functions", &
                                        print_level=high_print_level, add_last=add_last_numeric, filename="")
+
+      CALL keyword_create(keyword, __LOCATION__, name="SECOND_MOMENTS", &
+                          description="Prints out the upper triangular part of the position covariance matrix. "// &
+                          "Default is to use a non-periodic position operator. ", &
+                          usage="SECOND_MOMENTS", default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="PERIODIC", &
+                          description="For the covariance matrix, use the periodic position operator."// &
+                          " Requires setting LMAXN1 in QS section to 6 or higher.", &
+                          usage="PERIODIC", default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
@@ -381,9 +442,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_molecular_states_section(print_key)
       TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_molecular_states_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key2
@@ -434,9 +492,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_wannier_states_section(print_key)
       TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_wannier_states_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key2

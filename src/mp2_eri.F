@@ -1,13 +1,15 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief Interface to direct methods for electron repulsion integrals for MP2.
 ! **************************************************************************************************
 #:def conditional(n)
-$:'' if n else '.NOT.'
+   $:'' if n else '.NOT.'
 #:enddef
 
 MODULE mp2_eri
@@ -46,6 +48,7 @@ MODULE mp2_eri
                                   section_vals_type, &
                                   section_vals_val_get
    USE kinds, ONLY: dp
+   USE libint_2c_3c, ONLY: libint_potential_type
    USE message_passing, ONLY: mp_sum
    USE orbital_pointers, ONLY: coset, &
                                init_orbital_pointers, &
@@ -80,7 +83,9 @@ MODULE mp2_eri
       mp2_eri_3c_integrate, &
       mp2_eri_allocate_forces, &
       mp2_eri_deallocate_forces, &
-      mp2_eri_force
+      mp2_eri_force, &
+      integrate_set_2c, &
+      convert_potential_type
 
    TYPE mp2_eri_force
       REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: forces
@@ -93,6 +98,7 @@ CONTAINS
 !>        Contiguous column-wise distribution and parallelization over pairs of sets.
 !> \param param ...
 !> \param para_env mpi environment for local columns
+!> \param potential_parameter ...
 !> \param qs_env ...
 !> \param basis_type_a ...
 !> \param basis_type_b ...
@@ -110,12 +116,11 @@ CONTAINS
 !> \param do_reflection_a ...
 !> \param do_reflection_b ...
 ! **************************************************************************************************
-   SUBROUTINE mp2_eri_2c_integrate(param, potential_type, omega, para_env, qs_env, basis_type_a, basis_type_b, hab, first_b, &
+   SUBROUTINE mp2_eri_2c_integrate(param, potential_parameter, para_env, qs_env, basis_type_a, basis_type_b, hab, first_b, &
                                    last_b, eri_method, pab, force_a, force_b, hdab, hadb, &
                                    reflection_z_a, reflection_z_b, do_reflection_a, do_reflection_b)
       TYPE(cp_eri_mme_param), INTENT(INOUT)              :: param
-      INTEGER, INTENT(IN)                                :: potential_type
-      REAL(KIND=dp), INTENT(IN)                          :: omega
+      TYPE(libint_potential_type), INTENT(IN)            :: potential_parameter
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
       TYPE(qs_environment_type), INTENT(IN), POINTER     :: qs_env
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: basis_type_a, basis_type_b
@@ -131,8 +136,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: reflection_z_a, reflection_z_b
       LOGICAL, INTENT(IN), OPTIONAL                      :: do_reflection_a, do_reflection_b
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp2_eri_2c_integrate', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp2_eri_2c_integrate'
 
       INTEGER :: atom_a, atom_b, atom_end, atom_start, first_set, G_count, handle, iatom, ikind, &
                  iset, jatom, jkind, jset, jset_end, jset_start, last_set, my_eri_method, my_setpair, &
@@ -196,14 +200,14 @@ CONTAINS
          ikind = kind_of(iatom)
          CALL get_qs_kind(qs_kind=qs_kind_set(ikind), basis_set=basis_set_a, basis_type=basis_type_a)
          nseta_total = nseta_total + basis_set_a%nset
-      ENDDO
+      END DO
 
       nsetb_total = 0
       DO jatom = atom_start, atom_end
          jkind = kind_of(jatom)
          CALL get_qs_kind(qs_kind=qs_kind_set(jkind), basis_set=basis_set_b, basis_type=basis_type_b)
          nsetb_total = nsetb_total + basis_set_b%nset
-      ENDDO
+      END DO
 
       n_setpair = nseta_total*nsetb_total
 
@@ -275,39 +279,39 @@ CONTAINS
                   map_it_here = MODULO(my_setpair, para_env%num_pe) == para_env%mepos
 
                   IF (map_it_here) THEN
-#!some fypp magic to deal with combinations of optional arguments
-#:for doforce_1 in [0, 1]
-#:for doforce_2 in [0, 1]
-                     IF (${conditional(doforce_1)}$PRESENT(force_a) .AND. &
-                         ${conditional(doforce_2)}$PRESENT(force_b)) THEN
+                     #!some fypp magic to deal with combinations of optional arguments
+                     #:for doforce_1 in [0, 1]
+                        #:for doforce_2 in [0, 1]
+                           IF (${conditional(doforce_1)}$PRESENT(force_a) .AND. &
+                               ${conditional(doforce_2)}$PRESENT(force_b)) THEN
 
-                        CALL integrate_set_2c( &
-                           param%par, potential_type, omega, &
-                           la_min(iset), la_max(iset), &
-                           lb_min(jset), lb_max(jset), &
-                           npgfa(iset), npgfb(jset), &
-                           zeta(:, iset), zetb(:, jset), &
-                           ra, rb, &
-                           hab, nsgfa(iset), last_set - first_set + 1, &
-                           offset_a_start, offset_b_start, &
-                           0, first_set - 1, &
-                           sphi_a, sphi_b, &
-                           sgfa, sgfb, nsgfa(iset), nsgfb(jset), &
-                           my_eri_method, &
-                           pab, &
+                              CALL integrate_set_2c( &
+                                 param%par, potential_parameter, &
+                                 la_min(iset), la_max(iset), &
+                                 lb_min(jset), lb_max(jset), &
+                                 npgfa(iset), npgfb(jset), &
+                                 zeta(:, iset), zetb(:, jset), &
+                                 ra, rb, &
+                                 hab, nsgfa(iset), last_set - first_set + 1, &
+                                 offset_a_start, offset_b_start, &
+                                 0, first_set - 1, &
+                                 sphi_a, sphi_b, &
+                                 sgfa, sgfb, nsgfa(iset), nsgfb(jset), &
+                                 my_eri_method, &
+                                 pab, &
                            $:                         'force_a=force_a(ikind)%forces(:, atom_a), &'*doforce_1
                            $:                         'force_b=force_b(jkind)%forces(:, atom_b), &'*doforce_2
-                           hdab=hdab, hadb=hadb, &
-                           G_count=G_count, R_count=R_count, &
-                           do_reflection_a=do_reflection_a, do_reflection_b=do_reflection_b)
-                     ENDIF
-#:endfor
-#:endfor
-                  ENDIF
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+                                 hdab=hdab, hadb=hadb, &
+                                 G_count=G_count, R_count=R_count, &
+                                 do_reflection_a=do_reflection_a, do_reflection_b=do_reflection_b)
+                           END IF
+                        #:endfor
+                     #:endfor
+                  END IF
+               END DO
+            END DO
+         END DO
+      END DO
 
       IF (my_eri_method == do_eri_mme) THEN
 
@@ -325,6 +329,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Integrate set pair and contract with sphi matrix.
 !> \param param ...
+!> \param potential_parameter ...
 !> \param la_min ...
 !> \param la_max ...
 !> \param lb_min ...
@@ -359,14 +364,13 @@ CONTAINS
 !> \param do_reflection_a ...
 !> \param do_reflection_b ...
 ! **************************************************************************************************
-   SUBROUTINE integrate_set_2c(param, potential_type, omega, la_min, la_max, lb_min, lb_max, npgfa, npgfb, zeta, zetb, &
+   SUBROUTINE integrate_set_2c(param, potential_parameter, la_min, la_max, lb_min, lb_max, npgfa, npgfb, zeta, zetb, &
                                ra, rb, hab, n_hab_a, n_hab_b, offset_hab_a, offset_hab_b, &
                                offset_set_a, offset_set_b, sphi_a, sphi_b, sgfa, sgfb, nsgfa, nsgfb, &
                                eri_method, pab, force_a, force_b, hdab, hadb, G_count, R_count, &
                                do_reflection_a, do_reflection_b)
       TYPE(eri_mme_param), INTENT(INOUT)                 :: param
-      INTEGER, INTENT(IN)                                :: potential_type
-      REAL(KIND=dp), INTENT(IN)                          :: omega
+      TYPE(libint_potential_type), INTENT(IN)            :: potential_parameter
       INTEGER, INTENT(IN)                                :: la_min, la_max, lb_min, lb_max, npgfa
       REAL(KIND=dp), DIMENSION(npgfa), INTENT(IN)        :: zeta
       INTEGER, INTENT(IN)                                :: npgfb
@@ -389,8 +393,7 @@ CONTAINS
       INTEGER, INTENT(INOUT), OPTIONAL                   :: G_count, R_count
       LOGICAL, INTENT(IN), OPTIONAL                      :: do_reflection_a, do_reflection_b
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_set_2c', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_set_2c'
 
       INTEGER :: ax, ay, az, bx, by, bz, hab_a_end, hab_a_start, hab_b_end, hab_b_start, handle, &
                  i_xyz, ico, icox, icoy, icoz, ipgf, jco, jcox, jcoy, jcoz, jpgf, la, la_max_d, lb, &
@@ -423,7 +426,7 @@ CONTAINS
       IF (PRESENT(force_a) .OR. PRESENT(force_b)) THEN
          CPASSERT(PRESENT(pab))
          CPASSERT(ALL(SHAPE(pab) .EQ. SHAPE(hab)))
-      ENDIF
+      END IF
 
       la_max_d = la_max
       lb_max_d = lb_max
@@ -431,7 +434,7 @@ CONTAINS
       IF (calculate_forces) THEN
          IF (do_force_a) la_max_d = la_max + 1
          IF (do_force_b) lb_max_d = lb_max + 1
-      ENDIF
+      END IF
 
       ncoa = npgfa*ncoset(la_max)
       ncob = npgfb*ncoset(lb_max)
@@ -442,10 +445,10 @@ CONTAINS
       ALLOCATE (hab_uncontr(ncoa, ncob)); hab_uncontr(:, :) = 0.0_dp
       IF (PRESENT(hdab)) THEN
          ALLOCATE (hdab_uncontr(3, ncoa, ncob)); hdab_uncontr(:, :, :) = 0.0_dp
-      ENDIF
+      END IF
       IF (PRESENT(hadb)) THEN
          ALLOCATE (hadb_uncontr(3, ncoa, ncob)); hadb_uncontr(:, :, :) = 0.0_dp
-      ENDIF
+      END IF
 
       hab_a_start = offset_hab_a + 1; hab_a_end = offset_hab_a + n_hab_a
       hab_b_start = offset_hab_b + 1; hab_b_end = offset_hab_b + n_hab_b
@@ -453,7 +456,7 @@ CONTAINS
       set_b_start = offset_set_b + 1; set_b_end = offset_set_b + n_hab_b
 
       IF (eri_method == do_eri_mme) THEN
-         CALL eri_mme_set_potential(param, convert_potential_type(potential_type), omega)
+         CALL eri_mme_set_potential(param, convert_potential_type(potential_parameter%potential_type), potential_parameter%omega)
 
          IF (calculate_forces .AND. PRESENT(pab)) THEN
             ! uncontracted hermite-gaussian representation of density matrix
@@ -464,10 +467,10 @@ CONTAINS
             pab_ss(:, :) = pab(hab_a_start:hab_a_end, hab_b_start:hab_b_end)
             ALLOCATE (pab_hs(ncoa, n_hab_b)); ALLOCATE (pab_hh(ncoa, ncob))
             CALL dgemm("N", "N", ncoa, n_hab_b, n_hab_a, 1.0_dp, &
-                       sphi_a(1, sphi_a_start), SIZE(sphi_a, 1), pab_ss, n_hab_a, 0.0_dp, pab_hs, ncoa)
+                       sphi_a(:, sphi_a_start), SIZE(sphi_a, 1), pab_ss, n_hab_a, 0.0_dp, pab_hs, ncoa)
             CALL dgemm("N", "T", ncoa, ncob, n_hab_b, 1.0_dp, &
-                       pab_hs, ncoa, sphi_b(1, sphi_b_start), SIZE(sphi_b, 1), 0.0_dp, pab_hh, ncoa)
-         ENDIF
+                       pab_hs, ncoa, sphi_b(:, sphi_b_start), SIZE(sphi_b, 1), 0.0_dp, pab_hh, ncoa)
+         END IF
 
          DO ipgf = 1, npgfa
             na = (ipgf - 1)*ncoset(la_max)
@@ -505,35 +508,35 @@ CONTAINS
                                         [pab_hh(na + ico, nb + jco)*hab_uncontr_d(icox, jco), &
                                          pab_hh(na + ico, nb + jco)*hab_uncontr_d(icoy, jco), &
                                          pab_hh(na + ico, nb + jco)*hab_uncontr_d(icoz, jco)]
-                        ENDIF
+                        END IF
                         IF (PRESENT(force_b)) THEN
                            force_b(:) = force_b(:) + 2.0_dp*zetb(jpgf)* &
                                         [pab_hh(na + ico, nb + jco)*hab_uncontr_d(ico, jcox), &
                                          pab_hh(na + ico, nb + jco)*hab_uncontr_d(ico, jcoy), &
                                          pab_hh(na + ico, nb + jco)*hab_uncontr_d(ico, jcoz)]
-                        ENDIF
+                        END IF
                         IF (PRESENT(hdab)) THEN
                            hdab_uncontr(1:3, na + ico, nb + jco) = 2.0_dp*zeta(ipgf)* &
                                                                    [hab_uncontr_d(icox, jco), &
                                                                     hab_uncontr_d(icoy, jco), &
                                                                     hab_uncontr_d(icoz, jco)]
-                        ENDIF
+                        END IF
                         IF (PRESENT(hadb)) THEN
                            hadb_uncontr(1:3, na + ico, nb + jco) = 2.0_dp*zetb(jpgf)* &
                                                                    [hab_uncontr_d(ico, jcox), &
                                                                     hab_uncontr_d(ico, jcoy), &
                                                                     hab_uncontr_d(ico, jcoz)]
-                        ENDIF
-                     ENDDO
-                     ENDDO
-                     ENDDO
-                  ENDDO
-                  ENDDO
-                  ENDDO
-               ENDIF
+                        END IF
+                     END DO
+                     END DO
+                     END DO
+                  END DO
+                  END DO
+                  END DO
+               END IF
 
-            ENDDO
-         ENDDO
+            END DO
+         END DO
 
       ELSE IF (eri_method == do_eri_os) THEN
 
@@ -558,10 +561,10 @@ CONTAINS
       ALLOCATE (hab_contr(nsgfa, nsgfb))
       IF (PRESENT(hdab)) THEN
          ALLOCATE (hdab_contr(3, nsgfa, nsgfb))
-      ENDIF
+      END IF
       IF (PRESENT(hadb)) THEN
          ALLOCATE (hadb_contr(3, nsgfa, nsgfb))
-      ENDIF
+      END IF
 
       CALL ab_contract(hab_contr, hab_uncontr, sphi_a(:, sgfa:), sphi_b(:, sgfb:), ncoa, ncob, nsgfa, nsgfb)
 
@@ -570,13 +573,13 @@ CONTAINS
             IF (PRESENT(hdab)) THEN
                CALL ab_contract(hdab_contr(i_xyz, :, :), hdab_uncontr(i_xyz, :, :), &
                                 sphi_a(:, sgfa:), sphi_b(:, sgfb:), ncoa, ncob, nsgfa, nsgfb)
-            ENDIF
+            END IF
             IF (PRESENT(hadb)) THEN
                CALL ab_contract(hadb_contr(i_xyz, :, :), hadb_uncontr(i_xyz, :, :), &
                                 sphi_a(:, sgfa:), sphi_b(:, sgfb:), ncoa, ncob, nsgfa, nsgfb)
-            ENDIF
-         ENDDO
-      ENDIF
+            END IF
+         END DO
+      END IF
 
       hab(hab_a_start:hab_a_end, hab_b_start:hab_b_end) = hab_contr(set_a_start:set_a_end, set_b_start:set_b_end)
 
@@ -585,7 +588,7 @@ CONTAINS
             hdab_contr(:, set_a_start:set_a_end, set_b_start:set_b_end)
          IF (PRESENT(hadb)) hadb(:, hab_a_start:hab_a_end, hab_b_start:hab_b_end) = &
             hadb_contr(:, set_a_start:set_a_end, set_b_start:set_b_end)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -595,6 +598,7 @@ CONTAINS
 !> \brief high-level integration routine for 3c integrals (ab|c) over CP2K basis sets.
 !>        For each local function of c, (ab|c) is written to a DBCSR matrix mat_ab.
 !> \param param ...
+!> \param potential_parameter ...
 !> \param para_env ...
 !> \param qs_env ...
 !> \param first_c start index of local range of c
@@ -613,15 +617,14 @@ CONTAINS
 !> \param mat_adbc ...
 !> \param mat_abdc ...
 ! **************************************************************************************************
-   SUBROUTINE mp2_eri_3c_integrate(param, potential_type, omega, para_env, qs_env, &
+   SUBROUTINE mp2_eri_3c_integrate(param, potential_parameter, para_env, qs_env, &
                                    first_c, last_c, mat_ab, &
                                    basis_type_a, basis_type_b, basis_type_c, &
                                    sab_nl, eri_method, &
                                    pabc, force_a, force_b, force_c, &
                                    mat_dabc, mat_adbc, mat_abdc)
       TYPE(cp_eri_mme_param), INTENT(INOUT)              :: param
-      INTEGER, INTENT(IN)                                :: potential_type
-      REAL(KIND=dp), INTENT(IN)                          :: omega
+      TYPE(libint_potential_type), INTENT(IN)            :: potential_parameter
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
       TYPE(qs_environment_type), INTENT(IN), POINTER     :: qs_env
       INTEGER, INTENT(IN)                                :: first_c, last_c
@@ -639,8 +642,7 @@ CONTAINS
          DIMENSION(3, last_c - first_c + 1), INTENT(INOUT), &
          OPTIONAL                                        :: mat_dabc, mat_adbc, mat_abdc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mp2_eri_3c_integrate', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'mp2_eri_3c_integrate'
 
       INTEGER :: atom_a, atom_b, atom_c, atom_end, atom_start, first_set, GG_count, GR_count, &
                  handle, i_xyz, iatom, ic, icol, ikind, inode, irow, iset, jatom, jkind, jset, katom, &
@@ -682,7 +684,7 @@ CONTAINS
 
       IF (PRESENT(force_a) .OR. PRESENT(force_b) .OR. PRESENT(force_c)) THEN
          CPASSERT(PRESENT(pabc))
-      ENDIF
+      END IF
 
       GG_count = 0; GR_count = 0; RR_count = 0
 
@@ -801,15 +803,15 @@ CONTAINS
          IF (PRESENT(mat_dabc)) THEN
             ALLOCATE (hdabc(3, na, nb, nc))
             hdabc(:, :, :, :) = 0.0_dp
-         ENDIF
+         END IF
          IF (PRESENT(mat_adbc)) THEN
             ALLOCATE (hadbc(3, na, nb, nc))
             hadbc(:, :, :, :) = 0.0_dp
-         ENDIF
+         END IF
          IF (PRESENT(mat_abdc)) THEN
             ALLOCATE (habdc(3, na, nb, nc))
             habdc(:, :, :, :) = 0.0_dp
-         ENDIF
+         END IF
 
          IF (calculate_forces .AND. PRESENT(pabc)) THEN
             ALLOCATE (pabc_block(na, nb, nc))
@@ -826,9 +828,9 @@ CONTAINS
                   to_be_asserted = SIZE(pab_block, 2) .EQ. SIZE(pabc_block, 1) .AND. SIZE(pab_block, 1) .EQ. SIZE(pabc_block, 2)
                   CPASSERT(to_be_asserted)
                   pabc_block(:, :, ic) = TRANSPOSE(pab_block(:, :))
-               ENDIF
-            ENDDO
-         ENDIF
+               END IF
+            END DO
+         END IF
 
          rab(:) = pbc(rab, cell)
          dab = SQRT(rab(1)**2 + rab(2)**2 + rab(3)**2)
@@ -880,59 +882,59 @@ CONTAINS
                      offset_c_end = offset_c_end + last_set + 1 - first_set
                      sgfc = first_sgfc(1, kset)
 
-#!some fypp magic to deal with combinations of optional arguments
-#:for pabc_present in [0, 1]
-#:for doforce_1 in [0, 1]
-#:for doforce_2 in [0, 1]
-#:for doforce_3 in [0, 1]
-#:for dabc in [0, 1]
-#:for adbc in [0, 1]
-#:for abdc in [0, 1]
-                     IF (${conditional(doforce_1)}$PRESENT(force_a) .AND. &
-                         ${conditional(doforce_2)}$PRESENT(force_b) .AND. &
-                         ${conditional(doforce_3)}$PRESENT(force_c) .AND. &
-                         ${conditional(pabc_present)}$PRESENT(pabc) .AND. &
-                         ${conditional(dabc)}$PRESENT(mat_dabc) .AND. &
-                         ${conditional(adbc)}$PRESENT(mat_adbc) .AND. &
-                         ${conditional(abdc)}$PRESENT(mat_abdc)) THEN
-                        CALL integrate_set_3c( &
-                           param%par, potential_type, omega, &
-                           la_min(iset), la_max(iset), &
-                           lb_min(jset), lb_max(jset), &
-                           lc_min(kset), lc_max(kset), &
-                           npgfa(iset), npgfb(jset), npgfc(kset), &
-                           zeta(:, iset), zetb(:, jset), zetc(:, kset), &
-                           ra, rb, rc, &
-                           habc, &
-                           nsgfa(iset), nsgfb(jset), last_set - first_set + 1, &
-                           offset_a_start, offset_b_start, offset_c_start, &
-                           0, 0, first_set - 1, &
-                           sphi_a, sphi_b, sphi_c, &
-                           sgfa, sgfb, sgfc, &
-                           nsgfa(iset), nsgfb(jset), nsgfc(kset), &
-                           my_eri_method, &
+                     #!some fypp magic to deal with combinations of optional arguments
+                     #:for pabc_present in [0, 1]
+                        #:for doforce_1 in [0, 1]
+                           #:for doforce_2 in [0, 1]
+                              #:for doforce_3 in [0, 1]
+                                 #:for dabc in [0, 1]
+                                    #:for adbc in [0, 1]
+                                       #:for abdc in [0, 1]
+                                          IF (${conditional(doforce_1)}$PRESENT(force_a) .AND. &
+                                              ${conditional(doforce_2)}$PRESENT(force_b) .AND. &
+                                              ${conditional(doforce_3)}$PRESENT(force_c) .AND. &
+                                              ${conditional(pabc_present)}$PRESENT(pabc) .AND. &
+                                              ${conditional(dabc)}$PRESENT(mat_dabc) .AND. &
+                                              ${conditional(adbc)}$PRESENT(mat_adbc) .AND. &
+                                              ${conditional(abdc)}$PRESENT(mat_abdc)) THEN
+                                             CALL integrate_set_3c( &
+                                                param%par, potential_parameter, &
+                                                la_min(iset), la_max(iset), &
+                                                lb_min(jset), lb_max(jset), &
+                                                lc_min(kset), lc_max(kset), &
+                                                npgfa(iset), npgfb(jset), npgfc(kset), &
+                                                zeta(:, iset), zetb(:, jset), zetc(:, kset), &
+                                                ra, rb, rc, &
+                                                habc, &
+                                                nsgfa(iset), nsgfb(jset), last_set - first_set + 1, &
+                                                offset_a_start, offset_b_start, offset_c_start, &
+                                                0, 0, first_set - 1, &
+                                                sphi_a, sphi_b, sphi_c, &
+                                                sgfa, sgfb, sgfc, &
+                                                nsgfa(iset), nsgfb(jset), nsgfc(kset), &
+                                                my_eri_method, &
                            $:                         'pabc=pabc_block, &'*pabc_present
                            $:                         'force_a=force_a(ikind)%forces(:, atom_a), &'*doforce_1
                            $:                         'force_b=force_b(jkind)%forces(:, atom_b), &'*doforce_2
                            $:                         'force_c=force_c(kkind)%forces(:, atom_c), &'*doforce_3
-                           do_symmetric=do_symmetric, &
-                           on_diagonal=iatom .EQ. jatom, &
+                                                do_symmetric=do_symmetric, &
+                                                on_diagonal=iatom .EQ. jatom, &
                            $:                         'hdabc=hdabc, &'*dabc
                            $:                         'hadbc=hadbc, &'*adbc
                            $:                         'habdc=habdc, &'*abdc
-                           GG_count=GG_count, GR_count=GR_count, RR_count=RR_count)
-                     ENDIF
-#:endfor
-#:endfor
-#:endfor
-#:endfor
-#:endfor
-#:endfor
-#:endfor
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
+                                                GG_count=GG_count, GR_count=GR_count, RR_count=RR_count)
+                                          END IF
+                                       #:endfor
+                                    #:endfor
+                                 #:endfor
+                              #:endfor
+                           #:endfor
+                        #:endfor
+                     #:endfor
+                  END DO
+               END DO
+            END DO
+         END DO
 
          IF (calculate_forces .AND. PRESENT(pabc)) DEALLOCATE (pabc_block)
          DO ic = 1, nc
@@ -949,8 +951,8 @@ CONTAINS
                to_be_asserted = SIZE(munu_block, 2) .EQ. SIZE(habc, 1) .AND. SIZE(munu_block, 1) .EQ. SIZE(habc, 2)
                CPASSERT(to_be_asserted)
                munu_block(:, :) = TRANSPOSE(habc(:, :, ic))
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          DEALLOCATE (habc)
          IF (calculate_forces) THEN
             DO ic = 1, nc
@@ -965,8 +967,8 @@ CONTAINS
                         munu_block(:, :) = hdabc(i_xyz, :, :, ic)
                      ELSE
                         munu_block(:, :) = TRANSPOSE(hdabc(i_xyz, :, :, ic))
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   IF (PRESENT(mat_adbc)) THEN
                      NULLIFY (munu_block)
                      CALL dbcsr_get_block_p(matrix=mat_adbc(i_xyz, ic)%matrix, &
@@ -977,8 +979,8 @@ CONTAINS
                         munu_block(:, :) = hadbc(i_xyz, :, :, ic)
                      ELSE
                         munu_block(:, :) = TRANSPOSE(hadbc(i_xyz, :, :, ic))
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   IF (PRESENT(mat_abdc)) THEN
                      NULLIFY (munu_block)
                      CALL dbcsr_get_block_p(matrix=mat_abdc(i_xyz, ic)%matrix, &
@@ -989,15 +991,15 @@ CONTAINS
                         munu_block(:, :) = habdc(i_xyz, :, :, ic)
                      ELSE
                         munu_block(:, :) = TRANSPOSE(habdc(i_xyz, :, :, ic))
-                     ENDIF
-                  ENDIF
-               ENDDO
-            ENDDO
+                     END IF
+                  END IF
+               END DO
+            END DO
             IF (PRESENT(mat_dabc)) DEALLOCATE (hdabc)
             IF (PRESENT(mat_adbc)) DEALLOCATE (hadbc)
             IF (PRESENT(mat_abdc)) DEALLOCATE (habdc)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       DEALLOCATE (basis_set_list_a, basis_set_list_b)
       CALL neighbor_list_iterator_release(nl_iterator)
@@ -1010,6 +1012,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Integrate set triple and contract with sphi matrix
 !> \param param ...
+!> \param potential_parameter ...
 !> \param la_min ...
 !> \param la_max ...
 !> \param lb_min ...
@@ -1059,7 +1062,7 @@ CONTAINS
 !> \param RR_count ...
 !> \note
 ! **************************************************************************************************
-   SUBROUTINE integrate_set_3c(param, potential_type, omega, &
+   SUBROUTINE integrate_set_3c(param, potential_parameter, &
                                la_min, la_max, lb_min, lb_max, lc_min, lc_max, &
                                npgfa, npgfb, npgfc, &
                                zeta, zetb, zetc, &
@@ -1079,8 +1082,7 @@ CONTAINS
                                GG_count, GR_count, RR_count)
 
       TYPE(eri_mme_param), INTENT(INOUT)                 :: param
-      INTEGER, INTENT(IN)                                :: potential_type
-      REAL(KIND=dp), INTENT(IN)                          :: omega
+      TYPE(libint_potential_type), INTENT(IN)            :: potential_parameter
       INTEGER, INTENT(IN)                                :: la_min, la_max, lb_min, lb_max, lc_min, &
                                                             lc_max, npgfa, npgfb, npgfc
       REAL(KIND=dp), DIMENSION(npgfa), INTENT(IN)        :: zeta
@@ -1103,8 +1105,7 @@ CONTAINS
          INTENT(OUT), OPTIONAL                           :: hdabc, hadbc, habdc
       INTEGER, INTENT(INOUT), OPTIONAL                   :: GG_count, GR_count, RR_count
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_set_3c', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_set_3c'
 
       INTEGER :: ax, ay, az, bx, by, bz, cx, cy, cz, habc_a_end, habc_a_start, habc_b_end, &
                  habc_b_start, habc_c_end, habc_c_start, handle, i_xyz, ico, icoc, icox, icoy, icoz, ipgf, &
@@ -1144,7 +1145,7 @@ CONTAINS
          IF (do_force_a) la_max_d = la_max + 1
          IF (do_force_b) lb_max_d = lb_max + 1
          IF (do_force_c) lc_max_d = lc_max + 1
-      ENDIF
+      END IF
 
       ncoa = npgfa*ncoset(la_max)
       ncob = npgfb*ncoset(lb_max)
@@ -1159,13 +1160,13 @@ CONTAINS
       ALLOCATE (habc_uncontr(ncoa, ncob, ncoc)); habc_uncontr(:, :, :) = 0.0_dp
       IF (PRESENT(hdabc)) THEN
          ALLOCATE (hdabc_uncontr(3, ncoa, ncob, ncoc)); hdabc_uncontr(:, :, :, :) = 0.0_dp
-      ENDIF
+      END IF
       IF (PRESENT(hadbc)) THEN
          ALLOCATE (hadbc_uncontr(3, ncoa, ncob, ncoc)); hadbc_uncontr(:, :, :, :) = 0.0_dp
-      ENDIF
+      END IF
       IF (PRESENT(habdc)) THEN
          ALLOCATE (habdc_uncontr(3, ncoa, ncob, ncoc)); habdc_uncontr(:, :, :, :) = 0.0_dp
-      ENDIF
+      END IF
 
       habc_a_start = offset_habc_a + 1; habc_a_end = offset_habc_a + n_habc_a
       habc_b_start = offset_habc_b + 1; habc_b_end = offset_habc_b + n_habc_b
@@ -1175,7 +1176,7 @@ CONTAINS
       set_c_start = offset_set_c + 1; set_c_end = offset_set_c + n_habc_c
 
       IF (eri_method == do_eri_mme) THEN
-         CALL eri_mme_set_potential(param, convert_potential_type(potential_type), omega)
+         CALL eri_mme_set_potential(param, convert_potential_type(potential_parameter%potential_type), potential_parameter%omega)
 
          IF (calculate_forces .AND. PRESENT(pabc)) THEN
             ! uncontracted hermite-gaussian representation of density matrix
@@ -1192,17 +1193,17 @@ CONTAINS
             ALLOCATE (pab_hh(ncoa, ncob))
 
             CALL dgemm("N", "N", ncoa, n_habc_b*n_habc_c, n_habc_a, 1.0_dp, &
-                       sphi_a(1, sphi_a_start), SIZE(sphi_a, 1), pabc_sss, n_habc_a, 0.0_dp, pabc_hss, ncoa)
+                       sphi_a(:, sphi_a_start), SIZE(sphi_a, 1), pabc_sss, n_habc_a, 0.0_dp, pabc_hss, ncoa)
             CALL dgemm("N", "T", ncoa*n_habc_b, ncoc, n_habc_c, 1.0_dp, &
-                       pabc_hss, ncoa*n_habc_b, sphi_c(1, sphi_c_start), SIZE(sphi_c, 1), 0.0_dp, pabc_hsh, ncoa*n_habc_b)
+                       pabc_hss, ncoa*n_habc_b, sphi_c(:, sphi_c_start), SIZE(sphi_c, 1), 0.0_dp, pabc_hsh, ncoa*n_habc_b)
 
             DO icoc = 1, ncoc
                pab_hs(:, :) = pabc_hsh(:, :, icoc)
                CALL dgemm("N", "T", ncoa, ncob, n_habc_b, 1.0_dp, &
-                          pab_hs, ncoa, sphi_b(1, sphi_b_start), SIZE(sphi_b, 1), 0.0_dp, pab_hh, ncoa)
+                          pab_hs, ncoa, sphi_b(:, sphi_b_start), SIZE(sphi_b, 1), 0.0_dp, pab_hh, ncoa)
                pabc_hhh(:, :, icoc) = pab_hh(:, :)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
          DO ipgf = 1, npgfa
             na = (ipgf - 1)*ncoset(la_max)
@@ -1256,52 +1257,52 @@ CONTAINS
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(icoy, jco, kco), &
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(icoz, jco, kco)]
 
-                              ENDIF
+                              END IF
                               IF (PRESENT(force_b)) THEN
                                  force_b = force_b + 2.0_dp*w*zetb(jpgf)* &
                                            [pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jcox, kco), &
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jcoy, kco), &
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jcoz, kco)]
-                              ENDIF
+                              END IF
                               IF (PRESENT(force_c)) THEN
                                  force_c = force_c + 2.0_dp*w*zetc(kpgf)* &
                                            [pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jco, kcox), &
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jco, kcoy), &
                                             pabc_hhh(na + ico, nb + jco, nc + kco)*habc_uncontr_d(ico, jco, kcoz)]
-                              ENDIF
+                              END IF
 
                               IF (PRESENT(hdabc)) THEN
                                  hdabc_uncontr(1:3, na + ico, nb + jco, nc + kco) = 2.0_dp*zeta(ipgf)* &
                                                                                     [habc_uncontr_d(icox, jco, kco), &
                                                                                      habc_uncontr_d(icoy, jco, kco), &
                                                                                      habc_uncontr_d(icoz, jco, kco)]
-                              ENDIF
+                              END IF
                               IF (PRESENT(hadbc)) THEN
                                  hadbc_uncontr(1:3, na + ico, nb + jco, nc + kco) = 2.0_dp*zetb(jpgf)* &
                                                                                     [habc_uncontr_d(ico, jcox, kco), &
                                                                                      habc_uncontr_d(ico, jcoy, kco), &
                                                                                      habc_uncontr_d(ico, jcoz, kco)]
-                              ENDIF
+                              END IF
                               IF (PRESENT(habdc)) THEN
                                  habdc_uncontr(1:3, na + ico, nb + jco, nc + kco) = 2.0_dp*zetc(kpgf)* &
                                                                                     [habc_uncontr_d(ico, jco, kcox), &
                                                                                      habc_uncontr_d(ico, jco, kcoy), &
                                                                                      habc_uncontr_d(ico, jco, kcoz)]
-                              ENDIF
-                           ENDDO
-                           ENDDO
-                           ENDDO
-                        ENDDO
-                        ENDDO
-                        ENDDO
-                     ENDDO
-                     ENDDO
-                     ENDDO
-                  ENDIF
+                              END IF
+                           END DO
+                           END DO
+                           END DO
+                        END DO
+                        END DO
+                        END DO
+                     END DO
+                     END DO
+                     END DO
+                  END IF
 
-               ENDDO
-            ENDDO
-         ENDDO
+               END DO
+            END DO
+         END DO
 
       ELSE IF (eri_method == do_eri_os) THEN
 
@@ -1353,13 +1354,13 @@ CONTAINS
       ALLOCATE (habc_contr(nsgfa, nsgfb, nsgfc))
       IF (PRESENT(hdabc)) THEN
          ALLOCATE (hdabc_contr(3, nsgfa, nsgfb, nsgfc))
-      ENDIF
+      END IF
       IF (PRESENT(hadbc)) THEN
          ALLOCATE (hadbc_contr(3, nsgfa, nsgfb, nsgfc))
-      ENDIF
+      END IF
       IF (PRESENT(habdc)) THEN
          ALLOCATE (habdc_contr(3, nsgfa, nsgfb, nsgfc))
-      ENDIF
+      END IF
 
       CALL abc_contract(habc_contr, habc_uncontr, &
                         sphi_a(:, sgfa:), sphi_b(:, sgfb:), sphi_c(:, sgfc:), &
@@ -1371,19 +1372,19 @@ CONTAINS
                CALL abc_contract(hdabc_contr(i_xyz, :, :, :), hdabc_uncontr(i_xyz, :, :, :), &
                                  sphi_a(:, sgfa:), sphi_b(:, sgfb:), sphi_c(:, sgfc:), &
                                  ncoa, ncob, ncoc, nsgfa, nsgfb, nsgfc)
-            ENDIF
+            END IF
             IF (PRESENT(hadbc)) THEN
                CALL abc_contract(hadbc_contr(i_xyz, :, :, :), hadbc_uncontr(i_xyz, :, :, :), &
                                  sphi_a(:, sgfa:), sphi_b(:, sgfb:), sphi_c(:, sgfc:), &
                                  ncoa, ncob, ncoc, nsgfa, nsgfb, nsgfc)
-            ENDIF
+            END IF
             IF (PRESENT(habdc)) THEN
                CALL abc_contract(habdc_contr(i_xyz, :, :, :), habdc_uncontr(i_xyz, :, :, :), &
                                  sphi_a(:, sgfa:), sphi_b(:, sgfb:), sphi_c(:, sgfc:), &
                                  ncoa, ncob, ncoc, nsgfa, nsgfb, nsgfc)
-            ENDIF
-         ENDDO
-      ENDIF
+            END IF
+         END DO
+      END IF
 
       habc(habc_a_start:habc_a_end, habc_b_start:habc_b_end, habc_c_start:habc_c_end) = &
          habc_contr(set_a_start:set_a_end, set_b_start:set_b_end, set_c_start:set_c_end)
@@ -1395,7 +1396,7 @@ CONTAINS
             hadbc_contr(:, set_a_start:set_a_end, set_b_start:set_b_end, set_c_start:set_c_end)
          IF (PRESENT(habdc)) habdc(:, habc_a_start:habc_a_end, habc_b_start:habc_b_end, habc_c_start:habc_c_end) = &
             habdc_contr(:, set_a_start:set_a_end, set_b_start:set_b_end, set_c_start:set_c_end)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1452,10 +1453,10 @@ CONTAINS
             DO isgf = 1, nsgf_set(iset)
                set_offset = set_offset + 1
                eri_offsets(offset + set_offset, :) = [iatom, iset, set_offset]
-            ENDDO
+            END DO
             offset = offset + nsgf_set(iset)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
    END SUBROUTINE get_eri_offsets
 
 ! **************************************************************************************************
@@ -1478,7 +1479,7 @@ CONTAINS
          n = natom_of_kind(ikind)
          ALLOCATE (force(ikind)%forces(3, n))
          force(ikind)%forces(:, :) = 0.0_dp
-      ENDDO
+      END DO
    END SUBROUTINE mp2_eri_allocate_forces
 
 ! **************************************************************************************************
@@ -1495,10 +1496,10 @@ CONTAINS
          nkind = SIZE(force)
          DO ikind = 1, nkind
             IF (ALLOCATED(force(ikind)%forces)) DEALLOCATE (force(ikind)%forces)
-         ENDDO
+         END DO
 
          DEALLOCATE (force)
-      ENDIF
+      END IF
    END SUBROUTINE mp2_eri_deallocate_forces
 
    FUNCTION convert_potential_type(potential_type) RESULT(res)

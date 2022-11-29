@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -101,8 +103,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_gradient', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_gradient'
 
       INTEGER                                            :: handle, ihistory, ivar, n
       LOGICAL                                            :: is_constraint
@@ -133,7 +134,7 @@ CONTAINS
          CPASSERT(dft_control%qs_control%ddapc_restraint)
          DO n = 1, SIZE(dft_control%qs_control%ddapc_restraint_control)
             NULLIFY (ddapc_restraint_control)
-            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)%ddapc_restraint_control
+            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)
             is_constraint = (ddapc_restraint_control%functional_form == do_ddapc_constraint)
             IF (is_constraint) EXIT
          END DO
@@ -186,8 +187,7 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_optimize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_optimize'
 
       INTEGER                                            :: handle, i, ibuf, ihigh, ihistory, ilow, &
                                                             j, jbuf, nb, nvar, optimizer_type
@@ -228,14 +228,14 @@ CONTAINS
                            ilow = i
                            ihigh = j
                            interval = tmp
-                        ENDIF
-                     ENDIF
-                  ENDDO
-               ENDDO
+                        END IF
+                     END IF
+                  END DO
+               END DO
                IF (ilow == -1) THEN ! we didn't bracket a minimum yet, try something else
                   optimizer_type = outer_scf_optimizer_diis
                   CYCLE
-               ENDIF
+               END IF
                scf_env%outer_scf%count(ilow) = scf_env%outer_scf%count(ilow) + 1
                scf_env%outer_scf%count(ihigh) = scf_env%outer_scf%count(ihigh) + 1
                scf_env%outer_scf%variables(:, ihistory + 1) = 0.5_dp*(scf_env%outer_scf%variables(:, ilow) + &
@@ -264,8 +264,8 @@ CONTAINS
                         b(I, J) = DOT_PRODUCT(scf_env%outer_scf%gradient(:, ibuf), &
                                               scf_env%outer_scf%gradient(:, jbuf))
                         b(J, I) = b(I, J)
-                     ENDDO
-                  ENDDO
+                     END DO
+                  END DO
                   b(nb + 1, :) = -1.0_dp
                   b(:, nb + 1) = -1.0_dp
                   b(nb + 1, nb + 1) = 0.0_dp
@@ -277,7 +277,7 @@ CONTAINS
                         a(:, I) = 0.0_dp
                      ELSE
                         a(:, I) = a(:, I)/ev(I)
-                     ENDIF
+                     END IF
                   END DO
                   ev(:) = -MATMUL(a, b(nb + 1, :))
 
@@ -286,9 +286,9 @@ CONTAINS
                      ibuf = ihistory - nb + i
                      scf_env%outer_scf%variables(:, ihistory + 1) = scf_env%outer_scf%variables(:, ihistory + 1) + &
                                                                     ev(i)*scf_env%outer_scf%variables(:, ibuf)
-                  ENDDO
+                  END DO
                   DEALLOCATE (a, b, ev)
-               ENDIF
+               END IF
             CASE (outer_scf_optimizer_secant)
                CPASSERT(SIZE(scf_env%outer_scf%gradient, 2) >= 3)
                CPASSERT(SIZE(scf_env%outer_scf%gradient, 1) == 1)
@@ -368,7 +368,7 @@ CONTAINS
                CPABORT("")
             END SELECT
             EXIT
-         ENDDO
+         END DO
       END IF
 
       CALL timestop(handle)
@@ -387,8 +387,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_update_qs_env', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_update_qs_env'
 
       INTEGER                                            :: handle, ihistory, n
       LOGICAL                                            :: is_constraint
@@ -409,7 +408,7 @@ CONTAINS
       CASE (outer_scf_ddapc_constraint)
          DO n = 1, SIZE(dft_control%qs_control%ddapc_restraint_control)
             NULLIFY (ddapc_restraint_control)
-            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)%ddapc_restraint_control
+            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)
             is_constraint = (ddapc_restraint_control%functional_form == do_ddapc_constraint)
             IF (is_constraint) EXIT
          END DO
@@ -443,8 +442,7 @@ CONTAINS
    SUBROUTINE outer_loop_extrapolate(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_extrapolate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_extrapolate'
 
       INTEGER                                            :: handle, ihis, ivec, n, nhistory, &
                                                             nvariables, nvec, outer_scf_ihistory
@@ -476,7 +474,7 @@ CONTAINS
       CASE (outer_scf_ddapc_constraint)
          DO n = 1, SIZE(dft_control%qs_control%ddapc_restraint_control)
             NULLIFY (ddapc_restraint_control)
-            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)%ddapc_restraint_control
+            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(n)
             is_constraint = (ddapc_restraint_control%functional_form == do_ddapc_constraint)
             IF (is_constraint) EXIT
          END DO
@@ -503,7 +501,7 @@ CONTAINS
          alpha = -1.0_dp*alpha*REAL(nvec - ihis + 1, dp)/REAL(ihis, dp)
          ivec = 1 + MODULO(outer_scf_ihistory - ihis, nhistory)
          extrapolation(:) = extrapolation + alpha*outer_scf_history(:, ivec)
-      ENDDO
+      END DO
 
       ! update qs_env to use this extrapolation
       SELECT CASE (scf_control%outer_scf%type)
@@ -542,9 +540,6 @@ CONTAINS
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(cdft_control_type), POINTER                   :: cdft_control
       INTEGER, INTENT(IN)                                :: dir
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'outer_loop_switch', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nvariables
 
@@ -655,8 +650,7 @@ CONTAINS
    SUBROUTINE outer_loop_purge_history(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_purge_history', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_loop_purge_history'
 
       INTEGER                                            :: handle, outer_scf_ihistory
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: gradient_history, outer_scf_history, &

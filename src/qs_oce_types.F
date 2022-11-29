@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 MODULE qs_oce_types
@@ -57,9 +59,6 @@ CONTAINS
       TYPE(oce_matrix_type), POINTER                     :: oce_set
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_oce_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       ALLOCATE (oce_set%intac(nkind*nkind))
@@ -79,8 +78,6 @@ CONTAINS
 
       TYPE(oce_matrix_type), POINTER                     :: oce_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_oce_set', routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(oce_set)) CALL deallocate_oce_set(oce_set)
 
       ALLOCATE (oce_set)
@@ -98,9 +95,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_oce_set(oce_set)
       TYPE(oce_matrix_type), POINTER                     :: oce_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_oce_set', &
-         routineP = moduleN//':'//routineN
 
       IF (.NOT. ASSOCIATED(oce_set)) RETURN
 

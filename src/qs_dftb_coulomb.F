@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -106,8 +108,7 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb_coulomb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb_coulomb'
 
       INTEGER :: atom_i, atom_j, blk, ewald_type, handle, i, ia, iac, iatom, ic, icol, ikind, img, &
          irow, is, jatom, jkind, natom, natorb_a, natorb_b, nimg, nkind, nmat
@@ -404,7 +405,7 @@ CONTAINS
                      fij(i) = fi
                   END DO
                END IF
-            ENDDO
+            END DO
             CALL dbcsr_iterator_stop(iter)
             !
             IF (do_gamma_stress) THEN
@@ -613,8 +614,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dftb_dsint_list', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'dftb_dsint_list'
 
       INTEGER :: handle, i, iac, iatom, ikind, ilist, jatom, jkind, jneighbor, llm, lmaxi, lmaxj, &
          n1, n2, natorb_a, natorb_b, ngrd, ngrdcut, nkind, nlist, nneighbor
@@ -744,7 +744,7 @@ CONTAINS
                   dsblock = dsblock/(2.0_dp*ddr)
 
                   clist%acint(1:n1, 1:n2, i) = -dsblock(1:n1, 1:n2)
-               ENDDO
+               END DO
                DEALLOCATE (dsblock, dsblockm)
             END IF
          END IF

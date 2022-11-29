@@ -7,13 +7,13 @@
       CUTOFF 200
     &END MGRID
     &QS
-      EXTRAPOLATION PS 
+      EXTRAPOLATION PS
       EXTRAPOLATION_ORDER 1
     &END QS
     &SCF
       MAX_SCF 1
       SCF_GUESS ATOMIC
-      &OT 
+      &OT
       &END OT
     &END SCF
     &XC
@@ -33,12 +33,12 @@
     &KIND O
       BASIS_SET DZVP-GTH-PADE
       POTENTIAL GTH-PADE-q6
-      ELEC_CONF 2 6
+      ELEC_CONF 2 4
     &END KIND
     &KIND H
       BASIS_SET DZVP-GTH-PADE
       POTENTIAL GTH-PADE-q1
-      ELEC_CONF 0
+      ELEC_CONF 1
     &END KIND
   &END SUBSYS
 &END FORCE_EVAL

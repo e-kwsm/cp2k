@@ -69,7 +69,7 @@
     &END SUBSYS
 &END FORCE_EVAL
 &GLOBAL
-    PROJECT NE-hybrid-HSE06-lda
+    PROJECT Ne-hybrid-periodic-shortrange
     PRINT_LEVEL MEDIUM
     RUN_TYPE ENERGY
 &END GLOBAL

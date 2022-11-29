@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Types and set/get functions for auxiliary denisty matrix methods
+!> \brief Types and set/get functions for auxiliary density matrix methods
 !> \par History
 !>      11.2014 created [Ole Schuett]
 !> \author Ole Schuett
@@ -62,8 +64,6 @@ CONTAINS
       TYPE(admm_control_type), POINTER                   :: admm_control
       INTEGER, INTENT(IN)                                :: nspins, natoms
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'admm_dm_create', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iatom, iblock, j, jatom
 
       ALLOCATE (admm_dm)
@@ -87,7 +87,7 @@ CONTAINS
                END DO
             END DO
          END DO
-      ENDIF
+      END IF
    END SUBROUTINE admm_dm_create
 
 ! **************************************************************************************************
@@ -98,15 +98,12 @@ CONTAINS
    SUBROUTINE admm_dm_release(admm_dm)
       TYPE(admm_dm_type), POINTER                        :: admm_dm
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'admm_dm_release', &
-         routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(admm_dm)) RETURN
 
       IF (ASSOCIATED(admm_dm%matrix_a)) THEN
          CALL dbcsr_release(admm_dm%matrix_a)
          DEALLOCATE (admm_dm%matrix_a)
-      ENDIF
+      END IF
 
       IF (ASSOCIATED(admm_dm%block_map)) &
          DEALLOCATE (admm_dm%block_map)

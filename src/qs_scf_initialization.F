@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,7 +26,6 @@ MODULE qs_scf_initialization
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_to_fm_triangular,&
@@ -53,7 +54,7 @@ MODULE qs_scf_initialization
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE kpoint_types,                    ONLY: kpoint_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qmmm_image_charge,               ONLY: conditional_calc_image_matrix
    USE qs_block_davidson_types,         ONLY: block_davidson_allocate,&
                                               block_davidson_env_create
@@ -84,7 +85,7 @@ MODULE qs_scf_initialization
    USE qs_mo_occupation,                ONLY: set_mo_occupation
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               init_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_outer_scf,                    ONLY: outer_loop_extrapolate,&
                                               outer_loop_switch,&
                                               outer_loop_variables_count
@@ -134,9 +135,6 @@ CONTAINS
       TYPE(scf_control_type), OPTIONAL, POINTER          :: scf_control
       TYPE(section_vals_type), OPTIONAL, POINTER         :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_env_initialize', &
-         routineP = moduleN//':'//routineN
-
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(scf_control_type), POINTER                    :: my_scf_control
       TYPE(section_vals_type), POINTER                   :: dft_section, input, my_scf_section
@@ -147,7 +145,7 @@ CONTAINS
          my_scf_control => scf_control
       ELSE
          CALL get_qs_env(qs_env, scf_control=my_scf_control)
-      ENDIF
+      END IF
 
       dft_section => section_vals_get_subs_vals(input, "DFT")
       IF (PRESENT(scf_section)) THEN
@@ -160,7 +158,7 @@ CONTAINS
 
       CALL section_vals_val_get(my_scf_section, "CHOLESKY", i_val=scf_env%cholesky_method)
 
-      CALL qs_scf_ensure_mos(qs_env, scf_env)
+      CALL qs_scf_ensure_mos(qs_env)
 
       ! set flags for diagonalization
       CALL qs_scf_ensure_diagonalization(scf_env, my_scf_section, qs_env, &
@@ -193,9 +191,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_env_init_basic', &
-         routineP = moduleN//':'//routineN
-
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(section_vals_type), POINTER                   :: dft_section, input, scf_section
@@ -212,7 +207,7 @@ CONTAINS
       scf_control%use_diag = .TRUE.
       scf_control%diagonalization%method = diag_standard
 
-      CALL qs_scf_ensure_mos(qs_env, scf_env)
+      CALL qs_scf_ensure_mos(qs_env)
 
       ! set flags for diagonalization
       CALL qs_scf_ensure_diagonalization(scf_env, scf_section, qs_env, &
@@ -233,15 +228,13 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_ensure_scf_env', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g
       TYPE(qs_rho_type), POINTER                         :: rho
 
       NULLIFY (rho_g)
 
       IF (.NOT. ASSOCIATED(scf_env)) THEN ! i.e. for MD this is associated on the second step (it so seems)
+         ALLOCATE (scf_env)
          CALL scf_env_create(scf_env)
       ELSE
          ! Reallocate mixing store, if the g space grid (cell) has changed
@@ -254,8 +247,10 @@ CONTAINS
                CALL get_qs_env(qs_env, rho=rho)
                CALL qs_rho_get(rho, rho_g=rho_g)
                IF (ASSOCIATED(scf_env%mixing_store%rhoin)) THEN
-                  IF (SIZE(rho_g(1)%pw%pw_grid%gsq) /= SIZE(scf_env%mixing_store%rhoin(1)%cc)) &
+                  IF (SIZE(rho_g(1)%pw_grid%gsq) /= SIZE(scf_env%mixing_store%rhoin(1)%cc)) THEN
                      CALL mixing_storage_release(scf_env%mixing_store)
+                     DEALLOCATE (scf_env%mixing_store)
+                  END IF
                END IF
             END IF
          END SELECT
@@ -273,9 +268,6 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
       INTEGER, OPTIONAL                                  :: nvar
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_ensure_outer_loop_vars', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nhistory, nvariables
 
@@ -295,7 +287,7 @@ CONTAINS
          scf_env%outer_scf%count = 0
          ALLOCATE (scf_env%outer_scf%gradient(nvariables, nhistory))
          ALLOCATE (scf_env%outer_scf%energy(nhistory))
-      ENDIF
+      END IF
 
    END SUBROUTINE qs_scf_ensure_outer_loop_vars
 
@@ -311,9 +303,6 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(scf_control_type), POINTER                    :: scf_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_ensure_cdft_loop_vars', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nhistory, nvariables
       LOGICAL                                            :: do_kpoints
@@ -346,7 +335,7 @@ CONTAINS
          ALLOCATE (dft_control%qs_control%cdft_control%constraint%gradient(nvariables, nhistory))
          ALLOCATE (dft_control%qs_control%cdft_control%constraint%energy(nhistory))
          CALL qs_scf_ensure_outer_loop_vars(scf_env, scf_control, nvariables)
-      ENDIF
+      END IF
       ! Executed only on first call (OT settings active in scf_control)
       ! Save OT settings and constraint initial values in CDFT control
       ! Then switch to constraint outer_scf settings for proper initialization of history
@@ -394,9 +383,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_ensure_mixing_store', &
-         routineP = moduleN//':'//routineN
-
       TYPE(dft_control_type), POINTER                    :: dft_control
 
       NULLIFY (dft_control)
@@ -424,8 +410,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_scf_ensure_work_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_scf_ensure_work_matrices'
 
       INTEGER                                            :: handle, is, nao, nrow_block, nw
       LOGICAL                                            :: do_kpoints
@@ -434,7 +419,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s
       TYPE(dbcsr_type), POINTER                          :: ref_matrix
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(scf_control_type), POINTER                    :: scf_control
 
       CALL timeset(routineN, handle)
@@ -452,7 +437,7 @@ CONTAINS
       ! create an ao_ao parallel matrix structure
       ao_mo_fmstruct => fm_pool_get_el_struct(ao_mo_fm_pools(1)%pool)
       CALL cp_fm_struct_get(ao_mo_fmstruct, nrow_block=nrow_block)
-      CALL get_mo_set(mos(1)%mo_set, nao=nao)
+      CALL get_mo_set(mos(1), nao=nao)
       CALL cp_fm_struct_create(fmstruct=ao_ao_fmstruct, &
                                nrow_block=nrow_block, &
                                ncol_block=nrow_block, &
@@ -467,21 +452,20 @@ CONTAINS
             IF (do_kpoints) nw = 4
             ALLOCATE (scf_env%scf_work1(nw))
             DO is = 1, SIZE(scf_env%scf_work1)
-               NULLIFY (scf_env%scf_work1(is)%matrix)
+               ALLOCATE (scf_env%scf_work1(is)%matrix)
                CALL cp_fm_create(scf_env%scf_work1(is)%matrix, &
                                  matrix_struct=ao_ao_fmstruct, &
-                                 name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                                 "WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
+                                 name="SCF-WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
             END DO
          END IF
          IF ((.NOT. ASSOCIATED(scf_env%ortho)) .AND. &
              (scf_env%method /= ot_diag_method_nr) .AND. &
              (scf_env%method /= special_diag_method_nr)) THEN
             ! Initialize fm matrix to store the Cholesky decomposition
+            ALLOCATE (scf_env%ortho)
             CALL cp_fm_create(scf_env%ortho, &
                               matrix_struct=ao_ao_fmstruct, &
-                              name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                              "ORTHO_MATRIX")
+                              name="SCF-ORTHO_MATRIX")
             ! Initialize dbcsr matrix to store the Cholesky decomposition
             IF (scf_env%cholesky_method == cholesky_dbcsr) THEN
                ref_matrix => matrix_s(1, 1)%matrix
@@ -497,29 +481,30 @@ CONTAINS
             ELSE IF (scf_env%cholesky_method == cholesky_inverse .OR. &
                      (scf_control%level_shift /= 0.0_dp .AND. &
                       scf_env%cholesky_method == cholesky_off)) THEN
+               ALLOCATE (scf_env%ortho_m1)
                CALL cp_fm_create(scf_env%ortho_m1, &
                                  matrix_struct=ao_ao_fmstruct, &
-                                 name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                                 "ORTHO_MATRIX-1")
+                                 name="SCF-ORTHO_MATRIX-1")
             END IF
          END IF
          IF (.NOT. ASSOCIATED(scf_env%scf_work2)) THEN
+            ALLOCATE (scf_env%scf_work2)
             CALL cp_fm_create(scf_env%scf_work2, &
                               matrix_struct=ao_ao_fmstruct, &
-                              name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                              "WORK_MATRIX-2")
+                              name="SCF-WORK_MATRIX-2")
          END IF
       END IF
 
       IF (dft_control%dft_plus_u) THEN
          IF (dft_control%plus_u_method_id == plus_u_lowdin) THEN
             IF (.NOT. ASSOCIATED(scf_env%scf_work2)) THEN
+               ALLOCATE (scf_env%scf_work2)
                CALL cp_fm_create(scf_env%scf_work2, &
                                  matrix_struct=ao_ao_fmstruct, &
-                                 name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                                 "WORK_MATRIX-2")
+                                 name="SCF-WORK_MATRIX-2")
             END IF
             IF (.NOT. ASSOCIATED(scf_env%s_half)) THEN
+               ALLOCATE (scf_env%s_half)
                CALL cp_fm_create(scf_env%s_half, &
                                  matrix_struct=ao_ao_fmstruct, &
                                  name="S**(1/2) MATRIX")
@@ -532,11 +517,10 @@ CONTAINS
             nw = 4
             ALLOCATE (scf_env%scf_work1(nw))
             DO is = 1, SIZE(scf_env%scf_work1)
-               NULLIFY (scf_env%scf_work1(is)%matrix)
+               ALLOCATE (scf_env%scf_work1(is)%matrix)
                CALL cp_fm_create(scf_env%scf_work1(is)%matrix, &
                                  matrix_struct=ao_ao_fmstruct, &
-                                 name="SCF"//TRIM(ADJUSTL(cp_to_string(scf_env%id_nr)))// &
-                                 "WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
+                                 name="SCF-WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
             END DO
          END IF
       END IF
@@ -550,47 +534,37 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief performs allocation of the MO matrices
 !> \param qs_env ...
-!> \param scf_env ...
 ! **************************************************************************************************
-   SUBROUTINE qs_scf_ensure_mos(qs_env, scf_env)
+   SUBROUTINE qs_scf_ensure_mos(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_scf_env_type), POINTER                     :: scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_ensure_mos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'qs_scf_ensure_mos'
 
       INTEGER                                            :: handle, ic, ik, ikk, ispin, nmo, nmo_mat
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_derivs_aux_fit
-      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools, ao_mo_fm_pools_aux_fit
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff, mo_coeff_aux_fit, mo_coeff_last
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s_aux_fit, mo_derivs
+      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff, mo_coeff_last
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mo_derivs
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s
       TYPE(dbcsr_type), POINTER                          :: mo_coeff_b
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_aux_fit, mos_last_converged
-      TYPE(mo_set_p_type), DIMENSION(:, :), POINTER      :: mos_k
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_last_converged
+      TYPE(mo_set_type), DIMENSION(:, :), POINTER        :: mos_k
       TYPE(xas_environment_type), POINTER                :: xas_env
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (ao_mo_fm_pools, dft_control, mos, ao_mo_fm_pools_aux_fit)
-      NULLIFY (mo_derivs, mo_coeff, mo_coeff_aux_fit, mo_derivs_aux_fit, xas_env, matrix_s)
-      NULLIFY (mos_last_converged, mo_coeff_last)
-
-      CPASSERT(ASSOCIATED(scf_env))
-      CPASSERT(scf_env%ref_count > 0)
+      NULLIFY (ao_mo_fm_pools, dft_control, mos, xas_env, matrix_s, mos_last_converged, mo_coeff_last)
 
       CALL get_qs_env(qs_env=qs_env, &
                       dft_control=dft_control, &
                       mos=mos, &
                       matrix_s_kp=matrix_s, &
-                      mos_aux_fit=mos_aux_fit, &
                       xas_env=xas_env)
       CALL mpools_get(qs_env%mpools, ao_mo_fm_pools=ao_mo_fm_pools)
       IF (dft_control%switch_surf_dip) THEN
          CALL get_qs_env(qs_env, mos_last_converged=mos_last_converged)
-      ENDIF
+      END IF
 
       nmo_mat = dft_control%nspins
       IF (dft_control%restricted) nmo_mat = 1 ! right now, there might be more mos than needed derivs
@@ -598,19 +572,18 @@ CONTAINS
 !   *** finish initialization of the MOs ***
       CPASSERT(ASSOCIATED(mos))
       DO ispin = 1, SIZE(mos)
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
          IF (.NOT. ASSOCIATED(mo_coeff)) THEN
-            CALL init_mo_set(mos(ispin)%mo_set, &
+            CALL init_mo_set(mos(ispin), &
                              fm_pool=ao_mo_fm_pools(ispin)%pool, &
-                             name="qs_env"//TRIM(ADJUSTL(cp_to_string(qs_env%id_nr)))// &
-                             "%mo"//TRIM(ADJUSTL(cp_to_string(ispin))))
+                             name="qs_env%mo"//TRIM(ADJUSTL(cp_to_string(ispin))))
          END IF
          IF (.NOT. ASSOCIATED(mo_coeff_b)) THEN
-            CALL cp_fm_get_info(mos(ispin)%mo_set%mo_coeff, ncol_global=nmo)
-            CALL dbcsr_init_p(mos(ispin)%mo_set%mo_coeff_b)
-            CALL cp_dbcsr_m_by_n_from_row_template(mos(ispin)%mo_set%mo_coeff_b, template=matrix_s(1, 1)%matrix, n=nmo, &
+            CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=nmo)
+            CALL dbcsr_init_p(mos(ispin)%mo_coeff_b)
+            CALL cp_dbcsr_m_by_n_from_row_template(mos(ispin)%mo_coeff_b, template=matrix_s(1, 1)%matrix, n=nmo, &
                                                    sym=dbcsr_type_no_symmetry)
-         ENDIF
+         END IF
       END DO
 !   *** get the mo_derivs OK if needed ***
       IF (qs_env%requires_mo_derivs) THEN
@@ -618,68 +591,34 @@ CONTAINS
          IF (.NOT. ASSOCIATED(mo_derivs)) THEN
             ALLOCATE (mo_derivs(nmo_mat))
             DO ispin = 1, nmo_mat
-               CALL get_mo_set(mos(ispin)%mo_set, mo_coeff_b=mo_coeff_b)
+               CALL get_mo_set(mos(ispin), mo_coeff_b=mo_coeff_b)
                NULLIFY (mo_derivs(ispin)%matrix)
                CALL dbcsr_init_p(mo_derivs(ispin)%matrix)
                CALL dbcsr_create(mo_derivs(ispin)%matrix, template=mo_coeff_b, &
                                  name="mo_derivs", matrix_type=dbcsr_type_no_symmetry, &
                                  nze=0, data_type=dbcsr_type_real_default)
-            ENDDO
+            END DO
             CALL set_qs_env(qs_env, mo_derivs=mo_derivs)
-         ENDIF
+         END IF
 
       ELSE
          ! nothing should be done
-      ENDIF
+      END IF
 
 !   *** finish initialization of the MOs for ADMM and derivs if needed ***
       IF (dft_control%do_admm) THEN
-         IF (dft_control%restricted) &
-            CPABORT("ROKS with ADMM is not implemented")
-         CPASSERT(ASSOCIATED(mos_aux_fit))
-         CALL mpools_get(qs_env%mpools_aux_fit, ao_mo_fm_pools=ao_mo_fm_pools_aux_fit)
-         DO ispin = 1, SIZE(mos_aux_fit)
-            CALL get_mo_set(mos_aux_fit(ispin)%mo_set, mo_coeff=mo_coeff_aux_fit, mo_coeff_b=mo_coeff_b)
-            IF (.NOT. ASSOCIATED(mo_coeff_aux_fit)) THEN
-               CALL init_mo_set(mos_aux_fit(ispin)%mo_set, &
-                                fm_pool=ao_mo_fm_pools_aux_fit(ispin)%pool, &
-                                name="qs_env"//TRIM(ADJUSTL(cp_to_string(qs_env%id_nr)))// &
-                                "%mo_aux_fit"//TRIM(ADJUSTL(cp_to_string(ispin))))
-            END IF
-            IF (.NOT. ASSOCIATED(mo_coeff_b)) THEN
-               CALL cp_fm_get_info(mos_aux_fit(ispin)%mo_set%mo_coeff, ncol_global=nmo)
-               CALL dbcsr_init_p(mos_aux_fit(ispin)%mo_set%mo_coeff_b)
-               CALL get_qs_env(qs_env=qs_env, matrix_s_aux_fit=matrix_s_aux_fit)
-               CALL cp_dbcsr_m_by_n_from_row_template(mos_aux_fit(ispin)%mo_set%mo_coeff_b, &
-                                                      template=matrix_s_aux_fit(1)%matrix, n=nmo, &
-                                                      sym=dbcsr_type_no_symmetry)
-            ENDIF
-         END DO
-         IF (qs_env%requires_mo_derivs) THEN
-            CALL get_qs_env(qs_env, mo_derivs_aux_fit=mo_derivs_aux_fit)
-            IF (.NOT. ASSOCIATED(mo_derivs_aux_fit)) THEN
-               ALLOCATE (mo_derivs_aux_fit(nmo_mat))
-               DO ispin = 1, nmo_mat
-                  CALL get_mo_set(mos_aux_fit(ispin)%mo_set, mo_coeff=mo_coeff_aux_fit)
-                  CALL cp_fm_create(mo_derivs_aux_fit(ispin)%matrix, mo_coeff_aux_fit%matrix_struct)
-               ENDDO
-               CALL set_qs_env(qs_env, mo_derivs_aux_fit=mo_derivs_aux_fit)
-            ENDIF
-         ELSE
-            ! nothing should be done
-         ENDIF
+         IF (dft_control%restricted) CPABORT("ROKS with ADMM is not implemented")
       END IF
 
 ! *** finish initialization of mos_last_converged *** [SGh]
       IF (dft_control%switch_surf_dip) THEN
          CPASSERT(ASSOCIATED(mos_last_converged))
          DO ispin = 1, SIZE(mos_last_converged)
-            CALL get_mo_set(mos_last_converged(ispin)%mo_set, mo_coeff=mo_coeff_last)
+            CALL get_mo_set(mos_last_converged(ispin), mo_coeff=mo_coeff_last)
             IF (.NOT. ASSOCIATED(mo_coeff_last)) THEN
-               CALL init_mo_set(mos_last_converged(ispin)%mo_set, &
-                                fm_ref=mos(ispin)%mo_set%mo_coeff, &
-                                name="qs_env"//TRIM(ADJUSTL(cp_to_string(qs_env%id_nr)))// &
-                                "%mos_last_converged"//TRIM(ADJUSTL(cp_to_string(ispin))))
+               CALL init_mo_set(mos_last_converged(ispin), &
+                                fm_ref=mos(ispin)%mo_coeff, &
+                                name="qs_env%mos_last_converged"//TRIM(ADJUSTL(cp_to_string(ispin))))
             END IF
          END DO
       END IF
@@ -704,9 +643,9 @@ CONTAINS
             CPASSERT(ASSOCIATED(mos_k))
             DO ispin = 1, SIZE(mos_k, 2)
                DO ic = 1, SIZE(mos_k, 1)
-                  CALL get_mo_set(mos_k(ic, ispin)%mo_set, mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
+                  CALL get_mo_set(mos_k(ic, ispin), mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
                   IF (.NOT. ASSOCIATED(mo_coeff)) THEN
-                     CALL init_mo_set(mos_k(ic, ispin)%mo_set, &
+                     CALL init_mo_set(mos_k(ic, ispin), &
                                       fm_pool=ao_mo_fm_pools(ispin)%pool, &
                                       name="kpoints_"//TRIM(ADJUSTL(cp_to_string(ikk)))// &
                                       "%mo"//TRIM(ADJUSTL(cp_to_string(ispin))))
@@ -735,9 +674,6 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(dft_control_type), POINTER                    :: dft_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_scf_ensure_mixing', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_vals_type), POINTER                   :: mixing_section
 
       SELECT CASE (scf_control%mixing_method)
@@ -747,9 +683,11 @@ CONTAINS
       CASE (direct_p_mix, kerker_mix, pulay_mix, broy_mix, broy_mix_new, multisec_mix)
          scf_env%mixing_method = scf_control%mixing_method
          mixing_section => section_vals_get_subs_vals(scf_section, "MIXING")
-         IF (.NOT. ASSOCIATED(scf_env%mixing_store)) &
+         IF (.NOT. ASSOCIATED(scf_env%mixing_store)) THEN
+            ALLOCATE (scf_env%mixing_store)
             CALL mixing_storage_create(scf_env%mixing_store, mixing_section, scf_env%mixing_method, &
                                        dft_control%qs_control%cutoff)
+         END IF
       CASE DEFAULT
          CPABORT("Unknown mixing method")
       END SELECT
@@ -801,14 +739,11 @@ CONTAINS
       TYPE(scf_control_type), POINTER                    :: scf_control
       LOGICAL                                            :: has_unit_metric
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_scf_ensure_diagonalization', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ispin, nao, nmo
       LOGICAL                                            :: do_kpoints, need_coeff_b, not_se_or_tb
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL get_qs_env(qs_env=qs_env, do_kpoints=do_kpoints, dft_control=dft_control, mos=mos)
       not_se_or_tb = .NOT. (dft_control%qs_control%dftb .OR. dft_control%qs_control%xtb .OR. &
@@ -862,7 +797,7 @@ CONTAINS
                CALL block_davidson_env_create(scf_env%block_davidson_env, dft_control%nspins, &
                                               scf_section)
             DO ispin = 1, dft_control%nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
                CALL block_davidson_allocate(scf_env%block_davidson_env(ispin), mo_coeff, nao, nmo)
             END DO
             need_coeff_b = .TRUE.
@@ -894,7 +829,7 @@ CONTAINS
       ELSEIF (scf_control%use_ot) THEN
          scf_env%method = ot_method_nr
          need_coeff_b = .TRUE.
-         IF (scf_control%added_mos(1) + scf_control%added_mos(2) > 0) &
+         IF (SUM(ABS(scf_control%added_mos)) > 0) &
             CPABORT("OT with ADDED_MOS/=0 not implemented")
          IF (dft_control%restricted .AND. dft_control%nspins .NE. 2) &
             CPABORT("nspin must be 2 for restricted (ROKS)")
@@ -904,7 +839,7 @@ CONTAINS
          CPABORT("OT or DIAGONALIZATION have to be set")
       END IF
       DO ispin = 1, dft_control%nspins
-         mos(ispin)%mo_set%use_mo_coeff_b = need_coeff_b
+         mos(ispin)%use_mo_coeff_b = need_coeff_b
       END DO
 
    END SUBROUTINE qs_scf_ensure_diagonalization
@@ -927,7 +862,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: scf_section
       TYPE(scf_control_type), POINTER                    :: scf_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_scf_run', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'init_scf_run'
 
       INTEGER                                            :: after, handle, ikind, iw, nao, ndep, &
                                                             output_unit
@@ -939,7 +874,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
       TYPE(qs_rho_type), POINTER                         :: rho
@@ -952,9 +887,7 @@ CONTAINS
       logger => cp_get_default_logger()
 
       CPASSERT(ASSOCIATED(scf_env))
-      CPASSERT(scf_env%ref_count > 0)
       CPASSERT(ASSOCIATED(qs_env))
-      CPASSERT(qs_env%ref_count > 0)
       NULLIFY (para_env)
 
       s_minus_half_available = .FALSE.
@@ -1015,7 +948,7 @@ CONTAINS
          END IF
       END IF
 
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao)
+      CALL get_mo_set(mo_set=mos(1), nao=nao)
 
       ! DFT+U methods based on Lowdin charges need S^(1/2)
       IF (dft_control%dft_plus_u) THEN
@@ -1056,7 +989,7 @@ CONTAINS
       ! extrapolate outer loop variables
       IF (scf_control%outer_scf%have_scf) THEN
          CALL outer_loop_extrapolate(qs_env)
-      ENDIF
+      END IF
 
       ! initializes rho and the mos
       IF (ASSOCIATED(qs_env%xas_env)) THEN
@@ -1075,6 +1008,7 @@ CONTAINS
          IF (qs_env%wf_history%interpolation_method_nr == wfi_frozen_method_nr) THEN
             IF (.NOT. ASSOCIATED(qs_env%wf_history%past_states(1)%snapshot)) THEN
                CALL wfi_update(qs_env%wf_history, qs_env=qs_env, dt=1.0_dp)
+               ALLOCATE (qs_env%wf_history%past_states(1)%snapshot%rho_frozen)
                CALL qs_rho_create(qs_env%wf_history%past_states(1)%snapshot%rho_frozen)
                CALL duplicate_rho_type(rho_input=rho, &
                                        rho_output=qs_env%wf_history%past_states(1)%snapshot%rho_frozen, &
@@ -1088,8 +1022,8 @@ CONTAINS
          IF (qs_env%qmmm .AND. qs_env%qmmm_env_qm%image_charge) THEN
             CALL conditional_calc_image_matrix(qs_env=qs_env, &
                                                qmmm_env=qs_env%qmmm_env_qm)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL timestop(handle)
 
@@ -1111,8 +1045,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: scf_section
       TYPE(scf_control_type), POINTER                    :: scf_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'scf_env_initial_rho_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'scf_env_initial_rho_setup'
 
       INTEGER                                            :: extrapolation_method_nr, handle, ispin, &
                                                             nmo, output_unit
@@ -1121,7 +1054,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(rho_atom_type), DIMENSION(:), POINTER         :: rho_atom
 
@@ -1129,7 +1062,6 @@ CONTAINS
       NULLIFY (mo_coeff, rho, dft_control, para_env, mos)
       logger => cp_get_default_logger()
       CPASSERT(ASSOCIATED(scf_env))
-      CPASSERT(scf_env%ref_count > 0)
       CPASSERT(ASSOCIATED(qs_env))
 
       CALL get_qs_env(qs_env, &
@@ -1149,11 +1081,9 @@ CONTAINS
              (scf_env%method == ot_method_nr) .AND. &
              (.NOT. (extrapolation_method_nr == wfi_use_guess_method_nr))) THEN
             DO ispin = 1, SIZE(mos)
-               CALL get_mo_set(mos(ispin)%mo_set, &
-                               mo_coeff=mo_coeff, nmo=nmo)
-               CALL reorthogonalize_vectors(qs_env, &
-                                            v_matrix=mo_coeff, n_col=nmo)
-               CALL set_mo_occupation(mo_set=mos(ispin)%mo_set, &
+               CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nmo=nmo)
+               CALL reorthogonalize_vectors(qs_env, v_matrix=mo_coeff, n_col=nmo)
+               CALL set_mo_occupation(mo_set=mos(ispin), &
                                       smear=scf_control%smear)
             END DO
          END IF
@@ -1196,11 +1126,11 @@ CONTAINS
       END IF
 
       DO ispin = 1, SIZE(mos) !fm->dbcsr
-         IF (mos(ispin)%mo_set%use_mo_coeff_b) THEN
-            CALL copy_fm_to_dbcsr(mos(ispin)%mo_set%mo_coeff, &
-                                  mos(ispin)%mo_set%mo_coeff_b) !fm->dbcsr
-         ENDIF
-      ENDDO !fm->dbcsr
+         IF (mos(ispin)%use_mo_coeff_b) THEN
+            CALL copy_fm_to_dbcsr(mos(ispin)%mo_coeff, &
+                                  mos(ispin)%mo_coeff_b) !fm->dbcsr
+         END IF
+      END DO !fm->dbcsr
 
       CALL timestop(handle)
 

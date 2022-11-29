@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 MODULE optimize_basis_types
 
@@ -98,6 +100,8 @@ MODULE optimize_basis_types
       INTEGER :: ncombinations
       LOGICAL :: use_condition_number
       INTEGER, DIMENSION(:), POINTER   :: group_partition
+      INTEGER :: n_groups_created
+      INTEGER, DIMENSION(:), ALLOCATABLE :: sub_sources
       INTEGER, DIMENSION(:, :), ALLOCATABLE :: combination
       REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: fval_weight
       REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: condition_weight
@@ -128,12 +132,10 @@ CONTAINS
    SUBROUTINE deallocate_basis_optimization_type(opt_bas)
       TYPE(basis_optimization_type)                      :: opt_bas
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_basis_optimization_type', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: igroup, ikind
 
       IF (ASSOCIATED(opt_bas%group_partition)) DEALLOCATE (opt_bas%group_partition)
+      IF (ALLOCATED(opt_bas%sub_sources)) DEALLOCATE (opt_bas%sub_sources)
       IF (ALLOCATED(opt_bas%combination)) DEALLOCATE (opt_bas%combination)
       IF (ALLOCATED(opt_bas%x_opt)) DEALLOCATE (opt_bas%x_opt)
       IF (ALLOCATED(opt_bas%training_input)) DEALLOCATE (opt_bas%training_input)
@@ -165,9 +167,6 @@ CONTAINS
 
    SUBROUTINE deallocate_kind_basis(kind)
       TYPE(kind_basis_type)                              :: kind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_kind_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ibasis, icont, iinfo, iset
 

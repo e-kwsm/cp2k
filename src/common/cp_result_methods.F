@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -57,10 +59,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE put_result_r1(results, description, values)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
-      REAL(KIND=dp), DIMENSION(:)                        :: values
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'put_result_r1', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: values
 
       INTEGER                                            :: isize, jsize
       LOGICAL                                            :: check
@@ -93,10 +93,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE put_result_r2(results, description, values)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
-      REAL(KIND=dp), DIMENSION(:, :)                     :: values
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'put_result_r2', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: values
 
       INTEGER                                            :: isize, jsize
       LOGICAL                                            :: check
@@ -128,11 +126,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION test_for_result(results, description) RESULT(res_exist)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
       LOGICAL                                            :: res_exist
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'test_for_result', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, nlist
 
@@ -164,11 +159,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_result_r1(results, description, values, nval, n_rep, n_entries)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
-      REAL(KIND=dp), DIMENSION(:)                        :: values
-      INTEGER, OPTIONAL                                  :: nval, n_rep, n_entries
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_result_r1', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
+      REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: values
+      INTEGER, INTENT(IN), OPTIONAL                      :: nval
+      INTEGER, INTENT(OUT), OPTIONAL                     :: n_rep, n_entries
 
       INTEGER                                            :: i, k, nlist, nrep, size_res, size_values
 
@@ -238,11 +232,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_result_r2(results, description, values, nval, n_rep, n_entries)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
-      REAL(KIND=dp), DIMENSION(:, :)                     :: values
-      INTEGER, OPTIONAL                                  :: nval, n_rep, n_entries
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_result_r2', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: values
+      INTEGER, INTENT(IN), OPTIONAL                      :: nval
+      INTEGER, INTENT(OUT), OPTIONAL                     :: n_rep, n_entries
 
       INTEGER                                            :: i, k, nlist, nrep, size_res, size_values
 
@@ -311,10 +304,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_nreps(results, description, n_rep, n_entries, type_in_use)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length)               :: description
-      INTEGER, OPTIONAL                                  :: n_rep, n_entries, type_in_use
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_nreps', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN)   :: description
+      INTEGER, INTENT(OUT), OPTIONAL                     :: n_rep, n_entries, type_in_use
 
       INTEGER                                            :: I, nlist
 
@@ -370,11 +361,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_results_erase(results, description, nval)
       TYPE(cp_result_type), POINTER                      :: results
-      CHARACTER(LEN=default_string_length), OPTIONAL     :: description
-      INTEGER, OPTIONAL                                  :: nval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_results_erase', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=default_string_length), INTENT(IN), &
+         OPTIONAL                                        :: description
+      INTEGER, INTENT(IN), OPTIONAL                      :: nval
 
       INTEGER                                            :: entry_deleted, i, k, new_size, nlist, &
                                                             nrep
@@ -446,9 +435,6 @@ CONTAINS
       TYPE(cp_result_type), POINTER                      :: results
       INTEGER, INTENT(IN)                                :: source
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_results_mp_bcast', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, nlist
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: size_value, type_in_use

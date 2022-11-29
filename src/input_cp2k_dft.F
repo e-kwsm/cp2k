@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -11,17 +13,16 @@
 ! **************************************************************************************************
 MODULE input_cp2k_dft
    USE basis_set_types,                 ONLY: basis_sort_default,&
-                                              basis_sort_radius,&
                                               basis_sort_zet
    USE bibliography,                    ONLY: &
         Andermatt2016, Andreussi2012, Avezac2005, BaniHashemian2016, Becke1988b, Bengtsson1999, &
-        Blochl1995, Brelaz1979, Dewar1977, Dewar1985, Dudarev1997, Dudarev1998, Ehrhardt1985, &
-        Fattebert2002, Golze2017a, Golze2017b, Guidon2010, Heinzmann1976, Holmberg2017, &
-        Holmberg2018, Hunt2003, Iannuzzi2005, Iannuzzi2006, Iannuzzi2007, Kolafa2004, Krack2000, &
-        Krack2002, Kunert2003, Lippert1997, Lippert1999, Lu2004, Perdew1981, Repasky2002, &
-        Rocha2006, Schenter2008, Schiffmann2015, Stewart1982, Stewart1989, Stewart2007, Thiel1992, &
-        Tozer1996, VanVoorhis2015, VandeVondele2003, VandeVondele2005a, VandeVondele2005b, &
-        VandeVondele2006, Weber2008, Yin2017, Zhao1994
+        Blochl1995, Brehm2018, Brelaz1979, Dewar1977, Dewar1985, Dudarev1997, Dudarev1998, &
+        Ehrhardt1985, Fattebert2002, Golze2017a, Golze2017b, Guidon2010, Heinzmann1976, &
+        Holmberg2017, Holmberg2018, Iannuzzi2005, Iannuzzi2006, Iannuzzi2007, Kolafa2004, &
+        Krack2000, Krack2002, Kuhne2007, Kunert2003, Lippert1997, Lippert1999, Lu2004, Perdew1981, &
+        Repasky2002, Rocha2006, Schenter2008, Schiffmann2015, Shigeta2001, Stewart1982, &
+        Stewart1989, Stewart2007, Thiel1992, VanVoorhis2015, VandeVondele2003, VandeVondele2005a, &
+        VandeVondele2005b, VandeVondele2006, Weber2008, Yin2017
    USE cp_output_handling,              ONLY: add_last_numeric,&
                                               cp_print_key_section_create,&
                                               debug_print_level,&
@@ -34,23 +35,25 @@ MODULE input_cp2k_dft
                                               spline3_pbc_interp
    USE cp_units,                        ONLY: cp_unit_to_cp2k
    USE input_constants,                 ONLY: &
-        atomic_guess, becke_cutoff_element, becke_cutoff_global, broyden_type_1, &
+        atomic_guess, becke_cutoff_element, becke_cutoff_global, bqb_opt_exhaustive, &
+        bqb_opt_normal, bqb_opt_off, bqb_opt_patient, bqb_opt_quick, broyden_type_1, &
         broyden_type_1_explicit, broyden_type_1_explicit_ls, broyden_type_1_ls, broyden_type_2, &
         broyden_type_2_explicit, broyden_type_2_explicit_ls, broyden_type_2_ls, casci_canonical, &
         cdft_alpha_constraint, cdft_beta_constraint, cdft_charge_constraint, &
         cdft_magnetization_constraint, cholesky_dbcsr, cholesky_inverse, cholesky_off, &
         cholesky_reduce, cholesky_restore, core_guess, diag_block_davidson, diag_block_krylov, &
         diag_filter_matrix, diag_ot, diag_standard, dmft_model, do_admm_aux_exch_func_bee, &
-        do_admm_aux_exch_func_default, do_admm_aux_exch_func_none, do_admm_aux_exch_func_opt, &
-        do_admm_aux_exch_func_pbex, do_admm_basis_projection, do_admm_blocked_projection, &
-        do_admm_blocking_purify_full, do_admm_charge_constrained_projection, &
-        do_admm_exch_scaling_merlot, do_admm_exch_scaling_none, do_admm_purify_cauchy, &
-        do_admm_purify_cauchy_subspace, do_admm_purify_mcweeny, do_admm_purify_mo_diag, &
-        do_admm_purify_mo_no_diag, do_admm_purify_none, do_admm_purify_none_dm, do_arnoldi, &
-        do_bch, do_cn, do_ddapc_constraint, do_ddapc_restraint, do_em, do_etrs, do_full_density, &
-        do_gapw_gcs, do_gapw_gct, do_gapw_log, do_loc_both, do_loc_crazy, do_loc_direct, &
-        do_loc_homo, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_lumo, do_loc_max, do_loc_min, &
-        do_loc_none, do_loc_scdm, do_lri_inv, do_lri_inv_auto, do_lri_opt_all, do_lri_opt_coeff, &
+        do_admm_aux_exch_func_bee_libxc, do_admm_aux_exch_func_default, &
+        do_admm_aux_exch_func_default_libxc, do_admm_aux_exch_func_none, &
+        do_admm_aux_exch_func_opt, do_admm_aux_exch_func_opt_libxc, do_admm_aux_exch_func_pbex, &
+        do_admm_aux_exch_func_pbex_libxc, do_admm_aux_exch_func_sx_libxc, &
+        do_admm_basis_projection, do_admm_blocked_projection, do_admm_blocking_purify_full, &
+        do_admm_charge_constrained_projection, do_admm_exch_scaling_merlot, &
+        do_admm_exch_scaling_none, do_admm_purify_cauchy, do_admm_purify_cauchy_subspace, &
+        do_admm_purify_mcweeny, do_admm_purify_mo_diag, do_admm_purify_mo_no_diag, &
+        do_admm_purify_none, do_admm_purify_none_dm, do_arnoldi, do_bch, do_cn, &
+        do_ddapc_constraint, do_ddapc_restraint, do_em, do_etrs, do_full_density, do_gapw_gcs, &
+        do_gapw_gct, do_gapw_log, do_lri_inv, do_lri_inv_auto, do_lri_opt_all, do_lri_opt_coeff, &
         do_lri_opt_exps, do_lri_pseudoinv_diag, do_lri_pseudoinv_svd, do_method_am1, &
         do_method_dftb, do_method_gapw, do_method_gapw_xc, do_method_gpw, do_method_lrigpw, &
         do_method_mndo, do_method_mndod, do_method_ofgpw, do_method_pdg, do_method_pm3, &
@@ -67,11 +70,11 @@ MODULE input_cp2k_dft
         high_spin_roks, history_guess, jacobian_fd1, jacobian_fd1_backward, jacobian_fd1_central, &
         jacobian_fd2, jacobian_fd2_backward, kg_color_dsatur, kg_color_greedy, kg_tnadd_atomic, &
         kg_tnadd_embed, kg_tnadd_embed_ri, kg_tnadd_none, ls_2pnt, ls_3pnt, ls_gold, ls_none, &
-        mao_basis_ext, mao_basis_orb, mao_basis_prim, mao_projection, mopac_guess, no_excitations, &
-        no_guess, numerical, oe_gllb, oe_lb, oe_none, oe_saop, oe_sic, op_loc_berry, op_loc_boys, &
-        op_loc_pipek, orb_dx2, orb_dxy, orb_dy2, orb_dyz, orb_dz2, orb_dzx, orb_px, orb_py, &
-        orb_pz, orb_s, ot_algo_irac, ot_algo_taylor_or_diag, ot_chol_irac, ot_lwdn_irac, &
-        ot_mini_broyden, ot_mini_cg, ot_mini_diis, ot_mini_sd, ot_poly_irac, ot_precond_full_all, &
+        manual_selection, mao_basis_ext, mao_basis_orb, mao_basis_prim, mao_projection, &
+        mopac_guess, no_excitations, no_guess, numerical, oe_gllb, oe_lb, oe_none, oe_saop, &
+        oe_sic, orb_dx2, orb_dxy, orb_dy2, orb_dyz, orb_dz2, orb_dzx, orb_px, orb_py, orb_pz, &
+        orb_s, ot_algo_irac, ot_algo_taylor_or_diag, ot_chol_irac, ot_lwdn_irac, ot_mini_broyden, &
+        ot_mini_cg, ot_mini_diis, ot_mini_sd, ot_poly_irac, ot_precond_full_all, &
         ot_precond_full_kinetic, ot_precond_full_single, ot_precond_full_single_inverse, &
         ot_precond_none, ot_precond_s_inverse, ot_precond_solver_default, &
         ot_precond_solver_direct, ot_precond_solver_inv_chol, ot_precond_solver_update, &
@@ -90,32 +93,38 @@ MODULE input_cp2k_dft
         sic_list_all, sic_list_unpaired, sic_mauri_spz, sic_mauri_us, sic_none, slater, &
         smear_energy_window, smear_fermi_dirac, smear_list, sparse_guess, tddfpt_davidson, &
         tddfpt_excitations, tddfpt_lanczos, tddfpt_singlet, tddfpt_spin_cons, tddfpt_spin_flip, &
-        tddfpt_triplet, use_coulomb, use_diff, use_mom_ref_coac, use_mom_ref_com, &
-        use_mom_ref_user, use_mom_ref_zero, use_no, use_restart_wfn, use_rt_restart, use_scf_wfn, &
-        wannier_projection, weight_type_mass, weight_type_unit, wfi_aspc_nr, wfi_frozen_method_nr, &
-        wfi_linear_p_method_nr, wfi_linear_ps_method_nr, wfi_linear_wf_method_nr, &
-        wfi_ps_method_nr, wfi_use_guess_method_nr, wfi_use_prev_p_method_nr, &
-        wfi_use_prev_rho_r_method_nr, wfi_use_prev_wf_method_nr, xas_1s_type, xas_2p_type, &
-        xas_2s_type, xas_3d_type, xas_3p_type, xas_3s_type, xas_4d_type, xas_4f_type, xas_4p_type, &
-        xas_4s_type, xas_dip_len, xas_dip_vel, xas_dscf, xas_none, xas_not_excited, &
-        xas_tdp_by_index, xas_tdp_by_kind, xas_tp_fh, xas_tp_flex, xas_tp_hh, xas_tp_xfh, &
-        xas_tp_xhh, xes_tp_val
+        tddfpt_triplet, use_mom_ref_coac, use_mom_ref_com, use_mom_ref_user, use_mom_ref_zero, &
+        use_restart_wfn, use_rt_restart, use_scf_wfn, wannier_projection, weight_type_mass, &
+        weight_type_unit, wfi_aspc_nr, wfi_frozen_method_nr, wfi_linear_p_method_nr, &
+        wfi_linear_ps_method_nr, wfi_linear_wf_method_nr, wfi_ps_method_nr, &
+        wfi_use_guess_method_nr, wfi_use_prev_p_method_nr, wfi_use_prev_rho_r_method_nr, &
+        wfi_use_prev_wf_method_nr, xas_1s_type, xas_2p_type, xas_2s_type, xas_3d_type, &
+        xas_3p_type, xas_3s_type, xas_4d_type, xas_4f_type, xas_4p_type, xas_4s_type, xas_dip_len, &
+        xas_dip_vel, xas_dscf, xas_none, xas_not_excited, xas_tdp_by_index, xas_tdp_by_kind, &
+        xas_tp_fh, xas_tp_flex, xas_tp_hh, xas_tp_xfh, xas_tp_xhh, xes_tp_val
    USE input_cp2k_almo,                 ONLY: create_almo_scf_section
    USE input_cp2k_distribution,         ONLY: create_distribution_section
    USE input_cp2k_ec,                   ONLY: create_ec_section
+   USE input_cp2k_exstate,              ONLY: create_exstate_section
+   USE input_cp2k_external,             ONLY: create_ext_den_section,&
+                                              create_ext_pot_section,&
+                                              create_ext_vxc_section
    USE input_cp2k_field,                ONLY: create_efield_section,&
                                               create_per_efield_section
-   USE input_cp2k_kpoints,              ONLY: create_kpoints_section
+   USE input_cp2k_kpoints,              ONLY: create_kpoint_set_section,&
+                                              create_kpoints_section
+   USE input_cp2k_loc,                  ONLY: create_localize_section,&
+                                              print_wanniers
    USE input_cp2k_ls,                   ONLY: create_ls_scf_section
    USE input_cp2k_mm,                   ONLY: create_dipoles_section,&
                                               create_neighbor_lists_section
-   USE input_cp2k_motion_print,         ONLY: add_format_keyword
    USE input_cp2k_poisson,              ONLY: create_poisson_section
    USE input_cp2k_rsgrid,               ONLY: create_rsgrid_section
    USE input_cp2k_tb,                   ONLY: create_dftb_control_section,&
                                               create_xtb_control_section
    USE input_cp2k_transport,            ONLY: create_transport_section
-   USE input_cp2k_xc,                   ONLY: create_libxc_section,&
+   USE input_cp2k_voronoi,              ONLY: create_print_voronoi_section
+   USE input_cp2k_xc,                   ONLY: create_xc_fun_section,&
                                               create_xc_section
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
@@ -155,9 +164,10 @@ MODULE input_cp2k_dft
    PUBLIC :: create_dft_section
    PUBLIC :: create_bsse_section, create_qs_section
    PUBLIC :: create_scf_section
-   PUBLIC :: create_interp_section, create_localize_section
+   PUBLIC :: create_interp_section
    PUBLIC :: create_ddapc_restraint_section
    PUBLIC :: create_mgrid_section
+   PUBLIC :: create_lrigpw_section
 
 CONTAINS
 
@@ -168,9 +178,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_dft_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dft_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -368,11 +375,10 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, &
                           name="SORT_BASIS", &
-                          description="Sort basis sets according to a certain criterion. "// &
-                          "This is experimental and does currently not work with GAPW.", &
-                          enum_c_vals=s2a("DEFAULT", "RADIUS", "EXP"), &
-                          enum_i_vals=(/basis_sort_default, basis_sort_radius, basis_sort_zet/), &
-                          enum_desc=s2a("don't sort", "sort w.r.t. set radius", "sort w.r.t. exponent"), &
+                          description="Sort basis sets according to a certain criterion. ", &
+                          enum_c_vals=s2a("DEFAULT", "EXP"), &
+                          enum_i_vals=(/basis_sort_default, basis_sort_zet/), &
+                          enum_desc=s2a("don't sort", "sort w.r.t. exponent"), &
                           default_i_val=basis_sort_default, &
                           usage="SORT_BASIS EXP")
       CALL section_add_keyword(section, keyword)
@@ -396,6 +402,10 @@ CONTAINS
       CALL section_release(subsection)
 
       CALL create_ec_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_exstate_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -506,9 +516,6 @@ CONTAINS
    SUBROUTINE create_implicit_solv_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_implicit_solv_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -553,9 +560,6 @@ CONTAINS
    SUBROUTINE create_sphere_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_sphere_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -586,9 +590,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_center_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_center_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -632,349 +633,12 @@ CONTAINS
    END SUBROUTINE create_center_section
 
 ! **************************************************************************************************
-!> \brief parameters fo the localization of wavefunctions
-!> \param section ...
-!> \par History
-!>      03.2005 created [MI]
-! **************************************************************************************************
-   SUBROUTINE create_localize_section(section)
-
-      TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_localize_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: print_key, print_section, subsection
-
-      CPASSERT(.NOT. ASSOCIATED(section))
-
-      NULLIFY (keyword, print_key)
-      CALL section_create(section, __LOCATION__, name="LOCALIZE", &
-                          description="Use one of the available methods to define the localization "// &
-                          " and possibly to optimize it to a minimum or a maximum.", &
-                          n_keywords=8, n_subsections=0, repeats=.FALSE.)
-
-      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="controls the activation of the MOS localization procedure", &
-                          usage="&LOCALIZE T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="MAX_ITER", &
-                          description="Maximum number of iterations used for localization methods", &
-                          usage="MAX_ITER 2000", default_i_val=10000)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="MAX_CRAZY_ANGLE", &
-         description="Largest allowed angle for the crazy rotations algorithm (smaller is slower but more stable).", &
-         usage="MAX_CRAZY_ANGLE 0.1", unit_str="rad", default_r_val=0.2_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="CRAZY_SCALE", &
-                          description="scale angles", &
-                          usage="CRAZY_SCALE 0.9", default_r_val=1.0_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="CRAZY_USE_DIAG", &
-                          description="Use diagonalization (slow) or pade based calculation of matrix exponentials.", &
-                          usage="CRAZY_USE_DIAG ", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="USE_HISTORY", &
-         description="Generate an improved initial guess based on a history of results, which is useful during MD."// &
-         "Will only work if the number of states to be localized remains constant.", &
-         usage="USE_HISTORY ", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="EPS_OCCUPATION", &
-         description="Tolerance in the occupation number to select only fully occupied orbitals for the rotation", &
-         usage="EPS_OCCUPATION 1.E-5", default_r_val=1.0E-8_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="OUT_ITER_EACH", &
-                          description="Every how many iterations of the localization algorithm"// &
-                          "(Jacobi) the tolerance value is printed out", &
-                          usage="OUT_ITER_EACH 100", default_i_val=100)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="EPS_LOCALIZATION", &
-                          description="Tolerance used in the convergence criterion of the localization methods.", &
-                          usage="EPS_LOCALIZATION 1.0E-2", default_r_val=1.0E-4_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="MIN_OR_MAX", &
-                          description="Requires the maximization of the spread of the wfn", &
-                          usage="MIN_OR_MAX (SPREADMIN|SPREADMAX)", &
-                          enum_c_vals=(/"SPREADMIN", "SPREADMAX"/), &
-                          enum_i_vals=(/do_loc_min, do_loc_max/), &
-                          default_i_val=do_loc_min)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="METHOD", &
-         description="Method of optimization if any", &
-         usage="METHOD (JACOBI|CRAZY|DIRECT|L1SD|SCDM|NONE)", &
-         enum_c_vals=s2a("NONE", "JACOBI", "CRAZY", "L1SD", "DIRECT", "SCDM"), &
-         enum_i_vals=(/do_loc_none, &
-                       do_loc_jacobi, &
-                       do_loc_crazy, &
-                       do_loc_l1_norm_sd, &
-                       do_loc_direct, do_loc_scdm/), &
-         enum_desc=s2a("No localization is applied", &
-                       "Using 2 x 2 rotations of the orbitals, slow but robust", &
-                       "A new fast method is applied, might be slightly less robust than jacobi, but usually much faster", &
-                       "Steepest descent minimization of an approximate l1 norm", &
-                       "Using a direct minimisation approacha", "Use QR factorization"), &
-         default_i_val=do_loc_jacobi)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="JACOBI_FALLBACK", &
-                          description="Use Jacobi method in case no convergence was achieved"// &
-                          " by using the crazy rotations method.", &
-                          usage="JACOBI_FALLBACK", default_l_val=.TRUE., &
-                          lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="JACOBI_REFINEMENT", &
-                          description="Use Jacobi method to refine the localisation obtained by SCDM", &
-                          usage="JACOBI_REFINEMENT", default_l_val=.FALSE., &
-                          lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="RESTART", &
-                          description="Restart the localization from a set of orbitals"// &
-                          " read from a localization restart file.", &
-                          usage="RESTART", default_l_val=.FALSE., &
-                          lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="LOCHOMO_RESTART_FILE_NAME", &
-                          description="File name where to read the MOS from"// &
-                          "which to restart the localization procedure for occupied states", &
-                          usage="LOCHOMO_RESTART_FILE_NAME <FILENAME>", &
-                          type_of_var=lchar_t)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="LOCLUMO_RESTART_FILE_NAME", &
-                          description="File name where to read the MOS from"// &
-                          "which to restart the localization procedure for unoccupied states", &
-                          usage="LOCLUMO_RESTART_FILE_NAME <FILENAME>", &
-                          type_of_var=lchar_t)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="OPERATOR", &
-                          description="Type of opertator which defines the spread functional", &
-                          usage="OPERATOR (BERRY|BOYS|PIPEK)", &
-                          enum_c_vals=s2a("BERRY", "BOYS", "PIPEK"), &
-                          enum_i_vals=(/op_loc_berry, op_loc_boys, op_loc_pipek/), &
-                          default_i_val=op_loc_berry)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="LIST", &
-                          description="Indexes of the occupied wfn to be localized"// &
-                          "This keyword can be repeated several times"// &
-                          "(useful if you have to specify many indexes).", &
-                          usage="LIST 1 2", &
-                          n_var=-1, type_of_var=integer_t, repeats=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="LIST_UNOCCUPIED", &
-                          description="Indexes of the unoccupied states to be localized, "// &
-                          "up to now only valid in combination with GPW. "// &
-                          "This keyword has to be present if unoccupied states should be localized. "// &
-                          "This keyword can be repeated several times"// &
-                          "(useful if you have to specify many indexes).", &
-                          usage="LIST 1 2", &
-                          n_var=-1, type_of_var=integer_t, repeats=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="STATES", &
-                          description="Which states to localize, LUMO up to now only available in GPW", &
-                          usage="STATES (HOMO|LUMO|ALL)", &
-                          enum_c_vals=s2a("OCCUPIED", "UNOCCUPIED", "ALL"), &
-                          enum_i_vals=(/do_loc_homo, do_loc_lumo, do_loc_both/), &
-                          default_i_val=do_loc_homo)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, &
-         name="ENERGY_RANGE", &
-         description="Select the orbitals to be localized within the given energy range."// &
-         "This type of selection cannot be added on top of the selection through a LIST. It reads to reals that are"// &
-         " lower and higher boundaries of the energy range.", &
-         usage=" ENERGY_RANGE lower_bound {real}, higher_bound {real}", &
-         repeats=.FALSE., &
-         n_var=2, default_r_vals=(/0._dp, 0._dp/), unit_str='eV', &
-         type_of_var=real_t)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      NULLIFY (print_section)
-      CALL section_create(print_section, __LOCATION__, name="PRINT", &
-                          description="Collects all printing options related to the Wannier centers and "// &
-                          "properties computed with Wannier centers.", &
-                          n_keywords=0, n_subsections=1, repeats=.FALSE.)
-      NULLIFY (print_key)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "program_run_info", &
-                                       description="Controls the printing basic info about the method", &
-                                       print_level=low_print_level, add_last=add_last_numeric, filename="__STD_OUT__")
-      CALL section_add_subsection(print_section, print_key)
-      CALL section_release(print_key)
-      ! Add printing of wannier infos
-      CALL print_wanniers(print_section)
-      NULLIFY (subsection)
-      ! Total Dipoles with wannier
-      CALL create_dipoles_section(subsection, "TOTAL_DIPOLE", debug_print_level + 1)
-      CALL section_add_subsection(print_section, subsection)
-      CALL section_release(subsection)
-      ! Molecular Dipoles with wannier
-      CALL create_dipoles_section(subsection, "MOLECULAR_DIPOLES", debug_print_level + 1)
-      CALL section_add_subsection(print_section, subsection)
-      CALL section_release(subsection)
-      ! Molecular Mulipole Moments with wannier
-      CALL cp_print_key_section_create(subsection, __LOCATION__, name="MOLECULAR_MOMENTS", &
-                                       description="Section controlling the calculation of molecular multipole moments.", &
-                                       print_level=debug_print_level + 1, filename="__STD_OUT__")
-      CALL keyword_create(keyword, __LOCATION__, name="ORDER", &
-                          description="Maximum order of mulitpoles to be calculated.", &
-                          usage=" ORDER {integer}", default_i_val=2, type_of_var=integer_t)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      !
-      CALL section_add_subsection(print_section, subsection)
-      CALL section_release(subsection)
-      ! Molecular States with wannier
-      CALL create_molecular_states_section(subsection)
-      CALL section_add_subsection(print_section, subsection)
-      CALL section_release(subsection)
-      ! Wannier States with wannier
-      CALL create_wannier_states_section(subsection)
-      CALL section_add_subsection(print_section, subsection)
-      CALL section_release(subsection)
-      CALL section_add_subsection(section, print_section)
-      CALL section_release(print_section)
-
-   END SUBROUTINE create_localize_section
-
-! **************************************************************************************************
-!> \brief Controls the printing of the basic info coming from the LOCALIZE
-!>        section
-!> \param section ...
-!> \author teo
-! **************************************************************************************************
-   SUBROUTINE print_wanniers(section)
-      TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_wanniers', routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: print_key
-
-      CPASSERT(ASSOCIATED(section))
-      NULLIFY (print_key, keyword)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "WANNIER_CUBES", &
-                                       description="Controls the printing of the wannier functions ", &
-                                       print_level=high_print_level, add_last=add_last_numeric, filename="")
-      CALL keyword_create(keyword, __LOCATION__, name="stride", &
-                          description="The stride (X,Y,Z) used to write the cube file "// &
-                          "(larger values result in smaller cube files). You can provide 3 numbers (for X,Y,Z) or"// &
-                          " 1 number valid for all components.", &
-                          usage="STRIDE 2 2 2", n_var=-1, default_i_vals=(/2, 2, 2/), type_of_var=integer_t)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="CUBES_LU_BOUNDS", &
-                          variants=(/"CUBES_LU"/), &
-                          description="The lower and upper index of the states to be printed as cube", &
-                          usage="CUBES_LU_BOUNDS integer integer", &
-                          n_var=2, default_i_vals=(/0, -2/), type_of_var=integer_t)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="CUBES_LIST", &
-                          description="Indexes of the states to be printed as cube files"// &
-                          "This keyword can be repeated several times"// &
-                          "(useful if you have to specify many indexes).", &
-                          usage="CUBES_LIST 1 2", &
-                          n_var=-1, type_of_var=integer_t, repeats=.TRUE.)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="APPEND", &
-                          description="append the cube files when they already exist", &
-                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL section_add_subsection(section, print_key)
-      CALL section_release(print_key)
-
-      NULLIFY (print_key)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "WANNIER_CENTERS", &
-                                       description="Controls the printing of the wannier functions", &
-                                       print_level=high_print_level, add_last=add_last_numeric, filename="", &
-                                       unit_str="angstrom")
-
-      CALL keyword_create(keyword, __LOCATION__, name="IONS+CENTERS", &
-                          description="prints out the wannier centers together with the particles", &
-                          usage="IONS+CENTERS", default_l_val=.FALSE., &
-                          lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL add_format_keyword(keyword, print_key, pos=.TRUE., &
-                              description="Specifies the format of the output file when IONS+CENTERS is enabled.")
-      CALL section_add_subsection(section, print_key)
-      CALL section_release(print_key)
-
-      NULLIFY (print_key)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "WANNIER_SPREADS", &
-                                       description="Controls the printing of the wannier functions", &
-                                       print_level=high_print_level, add_last=add_last_numeric, filename="")
-      CALL section_add_subsection(section, print_key)
-      CALL section_release(print_key)
-
-      NULLIFY (print_key)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "LOC_RESTART", &
-                                       description="Controls the printing of restart file for localized MOS", &
-                                       print_level=high_print_level, add_last=add_last_numeric, filename="")
-      CALL section_add_subsection(section, print_key)
-      CALL section_release(print_key)
-
-   END SUBROUTINE print_wanniers
-
-! **************************************************************************************************
 !> \brief Create the print dft section
 !> \param section the section to create
 !> \author teo
 ! **************************************************************************************************
    SUBROUTINE create_print_dft_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_dft_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, sub_print_key, subsection
@@ -1143,6 +807,15 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, &
+                          name="sab_xtbe", &
+                          description="Activates the printing of the xTB sr-Coulomb "// &
+                          "neighbor lists ", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
                           name="sab_core", &
                           description="Activates the printing of core interaction "// &
                           "neighbor lists ", &
@@ -1154,6 +827,15 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, &
                           name="sab_xb", &
                           description="Activates the printing of XB interaction from (xTB) "// &
+                          "neighbor lists ", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="sab_xtb_nonbond", &
+                          description="Activates the printing of nonbonded interaction from (xTB) "// &
                           "neighbor lists ", &
                           default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
@@ -1298,39 +980,56 @@ CONTAINS
 
       CALL cp_print_key_section_create( &
          print_key, __LOCATION__, "MO", &
-         description="Controls the printing of the molecular orbitals. "// &
-         "Note that this is only functional with diagonalization based methods, in particular not with OT (see MO_CUBES)", &
+         description="Controls the printing of the molecular orbital (MO) information. The requested MO information "// &
+         "is printed for all occupied MOs by default. Use the MO_INDEX_RANGE keyword to restrict the number "// &
+         "of the MOs or to print the MO information for unoccupied MOs. With diagonalization, additional MOs "// &
+         "have to be made available for printout using the ADDED_MOS keyword in the SCF section. With OT, "// &
+         "it is sufficient to specify the desired MO_INDEX_RANGE. The OT eigensolver can be controlled with "// &
+         "the EPS_LUMO and MAX_ITER_LUMO keywords in the SCF section.", &
          print_level=high_print_level, filename="__STD_OUT__")
-      CALL keyword_create(keyword, __LOCATION__, name="Cartesian", &
-                          description="If the printkey is activated controls the printing of the mo in the cartesian basis", &
+      CALL keyword_create(keyword, __LOCATION__, name="CARTESIAN", &
+                          description="Print the MOs in the Cartesian basis instead of the default spherical basis.", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="EIGENVALUES", variants=s2a("EIGVALS"), &
-                          description="If the printkey is activated controls the printing of the eigenvalues of the mos", &
+      CALL keyword_create(keyword, __LOCATION__, name="ENERGIES", &
+                          variants=s2a("EIGENVALUES", "EIGVALS"), &
+                          description="Print the MO energies (eigenvalues).", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="EIGENVECTORS", variants=s2a("EIGVECS"), &
-                          description="If the printkey is activated controls the printing of the eigenvectors of the mos", &
+      CALL keyword_create(keyword, __LOCATION__, name="COEFFICIENTS", &
+                          variants=s2a("EIGENVECTORS", "EIGVECS"), &
+                          description="Print the MO coefficients (eigenvectors).", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="OCCUPATION_NUMBERS", variants=s2a("OCCNUMS"), &
-                          description="If the printkey is activated controls the printing of the occupation numbers of the mos", &
+      CALL keyword_create(keyword, __LOCATION__, name="OCCUPATION_NUMBERS", &
+                          variants=s2a("OCCNUMS"), &
+                          description="Print the MO occupation numbers.", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="OCCUPATION_NUMBERS_STATS", &
+                          variants=s2a("OCCNUMSTATS"), &
+                          description="Print some stats (max number of occupied MOs, etc.) of the MO occupation numbers."// &
+                          " First logical toggles stats printing, first real is the occupied threshold.", &
+                          type_of_var=char_t, n_var=-1, &
+                          default_c_vals=[".FALSE.", "1.0E-6 "], &
+                          lone_keyword_c_vals=[".TRUE."], &
+                          usage="OCCUPATION_NUMBERS_STATS {Logical} [{Real}]")
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, name="NDIGITS", &
-                          description="Specify the number of digits used to print the MO eigenvalues and occupation numbers", &
+                          description="Specify the number of digits used to print the MO information.", &
                           default_i_val=6)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, &
                           name="MO_INDEX_RANGE", &
                           variants=s2a("MO_RANGE", "RANGE"), &
-                          description="Allows to print only a subset of the MO eigenvectors or eigenvalues. "// &
-                          "The indices of the first and the last MO have to be specified", &
+                          description="Print only the requested subset of MOs. The indices of the first and "// &
+                          " the last MO have to be specified to define the range.", &
                           repeats=.FALSE., &
                           n_var=2, &
                           type_of_var=integer_t, &
@@ -1555,12 +1254,84 @@ CONTAINS
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
-! cube files for data generated by the implicit (generalized) Poisson solver
+      ! Output of BQB volumetric files
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="E_DENSITY_BQB", &
+                                       description="Controls the output of the electron density to the losslessly"// &
+                                       " compressed BQB file format, see [Brehm2018] (via LibBQB"// &
+                                       " see <a href=""https://brehm-research.de/bqb"" target=""_blank"">"// &
+                                       " https://brehm-research.de/bqb</a> ). Currently does not work"// &
+                                       "  with changing cell vector (NpT ensemble).", &
+                                       print_level=debug_print_level + 1, filename="", &
+                                       citations=(/Brehm2018/))
+
+      CALL keyword_create(keyword, __LOCATION__, name="SKIP_FIRST", &
+                          description="Skips the first step of a MD run (avoids duplicate step if restarted).", &
+                          usage="SKIP_FIRST T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="STORE_STEP_NUMBER", &
+                          description="Stores the step number and simulation time in the comment line of each BQB"// &
+                          " frame. Switch it off for binary compatibility with original CP2k CUBE files.", &
+                          usage="STORE_STEP_NUMBER F", default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="CHECK", &
+                          description="Performs an on-the-fly decompression of each compressed BQB frame to check"// &
+                          " whether the volumetric data exactly matches, and aborts the run if not so.", &
+                          usage="CHECK T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="OVERWRITE", &
+                          description="Specify this keyword to overwrite the output BQB file if"// &
+                          " it already exists. By default, the data is appended to an existing file.", &
+                          usage="OVERWRITE T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="HISTORY", &
+                          description="Controls how many previous steps are taken into account for extrapolation in"// &
+                          " compression. Use a value of 1 to compress the frames independently.", &
+                          usage="HISTORY 10", n_var=1, default_i_val=10, type_of_var=integer_t)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="PARAMETER_KEY", &
+                          description="Allows to supply previously optimized compression parameters via a"// &
+                          " parameter key (alphanumeric character sequence starting with 'at')."// &
+                          " Just leave away the 'at' sign here, because CP2k will otherwise"// &
+                          " assume it is a variable name in the input", &
+                          usage="PARAMETER_KEY <KEY>", n_var=1, default_c_val="", type_of_var=char_t)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="OPTIMIZE", &
+                          description="Controls the time spent to optimize the parameters for compression efficiency.", &
+                          usage="OPTIMIZE {OFF,QUICK,NORMAL,PATIENT,EXHAUSTIVE}", repeats=.FALSE., n_var=1, &
+                          default_i_val=bqb_opt_quick, &
+                          enum_c_vals=s2a("OFF", "QUICK", "NORMAL", "PATIENT", "EXHAUSTIVE"), &
+                          enum_desc=s2a("No optimization (use defaults)", "Quick optimization", &
+                                        "Standard optimization", "Precise optimization", "Exhaustive optimization"), &
+                          enum_i_vals=(/bqb_opt_off, bqb_opt_quick, bqb_opt_normal, bqb_opt_patient, bqb_opt_exhaustive/))
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+
+      ! Voronoi Integration via LibVori
+      CALL create_print_voronoi_section(print_key)
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+
+      ! cube files for data generated by the implicit (generalized) Poisson solver
       CALL create_implicit_psolver_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
-! ZMP adding the print section for  the v_xc cube
+      ! ZMP adding the print section for  the v_xc cube
       CALL cp_print_key_section_create(print_key, __LOCATION__, "v_xc_cube", &
                                        description="Controls the printing of a cube file with xc "// &
                                        " potential generated by the ZMP method (for the moment). It is "// &
@@ -2110,6 +1881,14 @@ CONTAINS
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="Real_space", &
+                          description="Print the KS matrix in real-space instead of k-space.. ", &
+                          usage="REAL_SPACE {logical}", &
+                          repeats=.FALSE., &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
@@ -2137,6 +1916,14 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="Binary", &
                           description="Whether or not to generate the file in a binary format. ", &
                           usage="BINARY {logical}", &
+                          repeats=.FALSE., &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="Real_space", &
+                          description="Print the overlap matrix in real-space instead of k-space.. ", &
+                          usage="REAL_SPACE {logical}", &
                           repeats=.FALSE., &
                           default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
@@ -2266,6 +2053,27 @@ CONTAINS
          each_iter_names=s2a("QS_SCF"), &
          each_iter_values=(/0/), &
          citations=(/Dudarev1997, Dudarev1998/))
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+
+      CALL cp_print_key_section_create( &
+         print_key, __LOCATION__, name="CHARGEMOL", &
+         description="Write .wfx input file for Chargemol", &
+         print_level=debug_print_level + 1, &
+         filename="CHARGEMOL", &
+         add_last=add_last_numeric)
+      CALL keyword_create(keyword, __LOCATION__, name="BACKUP_COPIES", &
+                          description="Maximum index of backup copies.", &
+                          usage="BACKUP_COPIES {int}", &
+                          default_i_val=3)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="PERIODIC", &
+                          description="Write information about cell periodicity.", &
+                          usage="PERIODIC {LOGICAL}", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
@@ -2442,9 +2250,6 @@ CONTAINS
    SUBROUTINE create_bandstructure_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_bandstructure_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -2469,33 +2274,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       NULLIFY (subsection)
-      CALL section_create(subsection, __LOCATION__, name="KPOINT_SET", &
-                          description="Specifies a k-point line to be calculated.", &
-                          n_keywords=0, n_subsections=0, repeats=.TRUE.)
-      ! keywords
-      NULLIFY (keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="SPECIAL_POINT", &
-                          description="Name and coordinates of a special k-point", &
-                          usage="SPECIAL_POINT GAMMA 0.0 0.0 0.0", n_var=-1, type_of_var=char_t, repeats=.TRUE.)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      !
-      CALL keyword_create(keyword, __LOCATION__, name="NPOINTS", &
-                          description="Number of k-points along the line.", &
-                          default_i_val=0)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      !
-      CALL keyword_create(keyword, __LOCATION__, name="UNITS", &
-                          description="Special k-points are defined either in units"// &
-                          " of reciprocal lattice vectors or in Cartesian coordinates in uints of 2Pi/len."// &
-                          " B_VECTOR: in multiples of the reciprocal lattice vectors (b)."// &
-                          " CART_ANGSTROM: In units of 2*Pi/Angstrom."// &
-                          " CART_BOHR: In units of 2*Pi/Bohr.", &
-                          usage="UNITS <value>", type_of_var=char_t, default_c_val="B_VECTOR")
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      !
+      CALL create_kpoint_set_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -2508,15 +2287,12 @@ CONTAINS
    SUBROUTINE create_mo_cubes_section(print_key)
       TYPE(section_type), POINTER                        :: print_key
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mo_cubes_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
 
       CALL cp_print_key_section_create(print_key, __LOCATION__, "MO_CUBES", &
-                                       description="Controls the printing of cubes of the molecular orbitals.", &
+                                       description="Controls the printing of the molecular orbitals (MOs) as cube files.", &
                                        print_level=high_print_level, filename="")
       CALL keyword_create(keyword, __LOCATION__, name="stride", &
                           description="The stride (X,Y,Z) used to write the cube file "// &
@@ -2572,9 +2348,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: print_key
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dos_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -2585,7 +2358,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="APPEND", &
                           description="Append the DOS obtained at different iterations to the output file."// &
-                          "By defaut the file is overwritten", &
+                          "By default the file is overwritten", &
                           usage="APPEND", default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
@@ -2594,6 +2367,12 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="DELTA_E", &
                           description="Histogramm energy spacing.", &
                           usage="DELTA_E 0.0005", type_of_var=real_t, default_r_val=0.001_dp)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="NDIGITS", &
+                          description="Specify the number of digits used to print density and occupation", &
+                          default_i_val=4)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
 
@@ -2606,9 +2385,6 @@ CONTAINS
    SUBROUTINE create_pdos_section(print_key)
 
       TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_pdos_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -2627,7 +2403,7 @@ CONTAINS
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, name="APPEND", &
                           description="Append the pdos obtained at different iterations to the pdos  output file."// &
-                          "By defaut the file is overwritten", &
+                          "By default the file is overwritten", &
                           usage="APPEND", default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
@@ -2717,9 +2493,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: print_key
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_wannier_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -2771,9 +2544,6 @@ CONTAINS
    SUBROUTINE create_stm_section(print_key)
       TYPE(section_type), POINTER                        :: print_key
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_stm_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -2802,7 +2572,7 @@ CONTAINS
                           "Orbital densities are summed according to the bias energy."// &
                           "For negative values, states in the range ]EF+bias,EF] are summed,"// &
                           "While positive values sum states in the range [EF,EF+bias[."// &
-                          "If postive biases are used, sufficiently many unoccupied stated"// &
+                          "If positive biases are used, sufficiently many unoccupied stated"// &
                           " (see ADDED_MOS and NLUMO ) should be computed.", &
                           n_var=-1, type_of_var=real_t, default_r_vals=(/0.0_dp/), unit_str='eV')
       CALL section_add_keyword(print_key, keyword)
@@ -2844,9 +2614,6 @@ CONTAINS
    SUBROUTINE create_wfn_mix_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_wfn_mix_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -2946,122 +2713,12 @@ CONTAINS
    END SUBROUTINE create_wfn_mix_section
 
 ! **************************************************************************************************
-!> \brief creates the input section for the molecular states
-!> \param print_key ...
-!> \author teo
-! **************************************************************************************************
-   SUBROUTINE create_molecular_states_section(print_key)
-      TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_molecular_states_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: print_key2
-
-      CPASSERT(.NOT. ASSOCIATED(print_key))
-      NULLIFY (print_key2, keyword)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "MOLECULAR_STATES", &
-                                       description="Controls printing of molecular states ", &
-                                       print_level=high_print_level, filename=" ", citations=(/Hunt2003/))
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="CUBE_EVAL_RANGE", &
-         description="only write cubes if the eigenvalues of the corresponding molecular states lie in the given interval. "// &
-         "Default is all states.", &
-         usage="CUBE_EVAL_RANGE -1.0 1.0", unit_str="hartree", n_var=2, type_of_var=real_t)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="MARK_STATES", &
-                          description="Can be used to mark given molecular states."// &
-                          " Sets a mark to both, occupied and unoccupied states. "// &
-                          "Occupied states are counted beginning with HOMO=1, "// &
-                          "unoccupied states are counted beginning with LUMO=1, "// &
-                          "This is only meaningful in combination with WFN_MIX. "// &
-                          "First integer specifies the molecule, second integer specifies the state.", &
-                          usage="MARK_STATES integer integer", &
-                          n_var=2, default_i_vals=(/-1, -1/), type_of_var=integer_t, repeats=.TRUE.)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL cp_print_key_section_create(print_key2, __LOCATION__, "cubes", &
-                                       description="Controls the printing of cube files", &
-                                       print_level=high_print_level, filename="")
-      CALL keyword_create(keyword, __LOCATION__, name="stride", &
-                          description="The stride (X,Y,Z) used to write the cube file "// &
-                          "(larger values result in smaller cube files). You can provide 3 numbers (for X,Y,Z) or"// &
-                          " 1 number valid for all components.", &
-                          usage="STRIDE 2 2 2", n_var=-1, default_i_vals=(/2, 2, 2/), type_of_var=integer_t)
-      CALL section_add_keyword(print_key2, keyword)
-      CALL keyword_release(keyword)
-      CALL section_add_subsection(print_key, print_key2)
-      CALL section_release(print_key2)
-   END SUBROUTINE create_molecular_states_section
-
-! **************************************************************************************************
-!> \brief ...
-!> \param print_key ...
-! **************************************************************************************************
-   SUBROUTINE create_wannier_states_section(print_key)
-      TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_wannier_states_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: print_key2
-
-      CPASSERT(.NOT. ASSOCIATED(print_key))
-      NULLIFY (print_key2, keyword)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "WANNIER_STATES", &
-                                       description="Controls printing of molecular states ", &
-                                       print_level=high_print_level, filename=" ")
-
-      CALL keyword_create( &
-         keyword, __LOCATION__, name="CUBE_EVAL_RANGE", &
-         description="only write cubes if the eigenvalues of the corresponding molecular states lie in the given interval. "// &
-         "Default is all states.", &
-         usage="CUBE_EVAL_RANGE -1.0 1.0", unit_str="hartree", n_var=2, type_of_var=real_t)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="MARK_STATES", &
-                          description="Can be used to mark given molecular states."// &
-                          " Sets a mark to both, occupied and unoccupied states. "// &
-                          "Occupied states are counted beginning with HOMO=1, "// &
-                          "unoccupied states are counted beginning with LUMO=1, "// &
-                          "This is only meaningful in combination with WFN_MIX. "// &
-                          "First integer specifies the molecule, second integer specifies the state.", &
-                          usage="MARK_STATES integer integer", &
-                          n_var=2, default_i_vals=(/-1, -1/), type_of_var=integer_t, repeats=.TRUE.)
-      CALL section_add_keyword(print_key, keyword)
-      CALL keyword_release(keyword)
-
-      CALL cp_print_key_section_create(print_key2, __LOCATION__, "cubes", &
-                                       description="Controls the printing of cube files", &
-                                       print_level=high_print_level, filename="")
-      CALL keyword_create(keyword, __LOCATION__, name="stride", &
-                          description="The stride (X,Y,Z) used to write the cube file "// &
-                          "(larger values result in smaller cube files). You can provide 3 numbers (for X,Y,Z) or"// &
-                          " 1 number valid for all components.", &
-                          usage="STRIDE 2 2 2", n_var=-1, default_i_vals=(/2, 2, 2/), type_of_var=integer_t)
-      CALL section_add_keyword(print_key2, keyword)
-      CALL keyword_release(keyword)
-      CALL section_add_subsection(print_key, print_key2)
-      CALL section_release(print_key2)
-   END SUBROUTINE create_wannier_states_section
-
-! **************************************************************************************************
 !> \brief creates the input section for the qs part
 !> \param section the section to create
 !> \author teo
 ! **************************************************************************************************
    SUBROUTINE create_qs_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qs_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -3155,7 +2812,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="EPSFIT", &
                           variants=(/"EPS_FIT"/), &
-                          description="GAPW: precision to give the extention of a hard gaussian ", &
+                          description="GAPW: precision to give the extension of a hard gaussian ", &
                           usage="EPSFIT real", default_r_val=1.0E-4_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -3352,7 +3009,7 @@ CONTAINS
          description="Extrapolation strategy for the wavefunction during e.g. MD. "// &
          "Not all options are available for all simulation methods. "// &
          "PS and ASPC are recommended, see also EXTRAPOLATION_ORDER.", &
-         citations=(/Kolafa2004, VandeVondele2005a/), &
+         citations=(/Kolafa2004, VandeVondele2005a, Kuhne2007/), &
          usage="EXTRAPOLATION PS", &
          enum_c_vals=s2a("USE_GUESS", "USE_PREV_P", "USE_PREV_RHO_R", "LINEAR_WF", &
                          "LINEAR_P", "LINEAR_PS", "USE_PREV_WF", "PS", "FROZEN", "ASPC"), &
@@ -3514,9 +3171,6 @@ CONTAINS
    SUBROUTINE create_admm_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_admm_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -3577,16 +3231,25 @@ CONTAINS
       CALL keyword_create( &
          keyword, __LOCATION__, &
          name="EXCH_CORRECTION_FUNC", &
-         description="Exchange functional which is used for the ADMM correction.", &
-         enum_c_vals=s2a("DEFAULT", "PBEX", "NONE", "OPTX", "BECKE88X"), &
+         description="Exchange functional which is used for the ADMM correction. "// &
+         "LibXC implementations require linking with LibXC", &
+         enum_c_vals=s2a("DEFAULT", "PBEX", "NONE", "OPTX", "BECKE88X", &
+                         "PBEX_LIBXC", "BECKE88X_LIBXC", "OPTX_LIBXC", "DEFAULT_LIBXC", "LDA_X_LIBXC"), &
          enum_i_vals=(/do_admm_aux_exch_func_default, do_admm_aux_exch_func_pbex, &
-                       do_admm_aux_exch_func_none, do_admm_aux_exch_func_opt, do_admm_aux_exch_func_bee/), &
-         enum_desc=s2a("Use PBEX functional for exchange correction, also for truncated and"// &
-                       " short Coulomb interaction.", &
-                       "Use PBEX functional for exchange correction but always normal form.", &
+                       do_admm_aux_exch_func_none, do_admm_aux_exch_func_opt, do_admm_aux_exch_func_bee, &
+                       do_admm_aux_exch_func_pbex_libxc, do_admm_aux_exch_func_bee_libxc, &
+                       do_admm_aux_exch_func_opt_libxc, do_admm_aux_exch_func_default_libxc, &
+                       do_admm_aux_exch_func_sx_libxc/), &
+         enum_desc=s2a("Use PBE-based corrections according to the chosen interaction operator.", &
+                       "Use PBEX functional for exchange correction.", &
                        "No correction: X(D)-x(d)-> 0.", &
                        "Use OPTX functional for exchange correction.", &
-                       "Use Becke88X functional for exchange correction."), &
+                       "Use Becke88X functional for exchange correction.", &
+                       "Use PBEX functional (LibXC implementation) for exchange correction.", &
+                       "Use Becke88X functional (LibXC implementation) for exchange correction.", &
+                       "Use OPTX functional (LibXC implementation) for exchange correction.", &
+                       "Use PBE-based corrections (LibXC where possible) to the chosen interaction operator.", &
+                       "Use Slater X functional (LibXC where possible) for exchange correction."), &
          default_i_val=do_admm_aux_exch_func_default)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -3628,9 +3291,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_se_control_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_se_control_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -3781,9 +3441,6 @@ CONTAINS
    SUBROUTINE create_lr_corr_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_lr_corr_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -3823,9 +3480,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_coulomb_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_coulomb_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -3869,9 +3523,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_exchange_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_exchange_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -3918,9 +3569,6 @@ CONTAINS
    SUBROUTINE create_screening_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_screening_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -3952,9 +3600,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_se_print_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_se_print_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(section_type), POINTER                        :: print_key
 
@@ -3995,9 +3640,6 @@ CONTAINS
    SUBROUTINE create_se_ga_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_se_ga_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -4024,9 +3666,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_se_memory_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_se_memory_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -4070,9 +3709,6 @@ CONTAINS
    SUBROUTINE create_mulliken_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mulliken_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -4108,9 +3744,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_density_fitting_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_density_fitting_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -4185,9 +3818,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       CHARACTER(len=*), INTENT(in)                       :: section_name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ddapc_restraint_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -4257,9 +3887,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_becke_constraint_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_becke_constraint_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -4401,9 +4028,6 @@ CONTAINS
    SUBROUTINE create_cdft_control_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_cdft_control_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: group_section, print_key, subsection
 
@@ -4438,7 +4062,7 @@ CONTAINS
                           enum_i_vals=(/outer_scf_none, outer_scf_hirshfeld_constraint, &
                                         outer_scf_becke_constraint/), &
                           enum_desc=s2a("No constraint (disables section).", &
-                                        "Guassian Hirshfeld constraint. Partial implementation: no forces. "// &
+                                        "Gaussian Hirshfeld constraint. Partial implementation: no forces. "// &
                                         "Requires corresponding section. Not as extensively tested.", &
                                         "Becke constraint. Requires corresponding section."), &
                           citations=(/Becke1988b/), &
@@ -4679,6 +4303,15 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="IN_MEMORY", &
+                          description="Precompute gradients due to constraint during"// &
+                          " initial formation of constraint and store them in memory. Does"// &
+                          " nothing if forces are not calculated.", &
+                          usage="IN_MEMORY", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
    END SUBROUTINE create_cdft_control_section
 
 ! **************************************************************************************************
@@ -4687,9 +4320,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_hirshfeld_constraint_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hirshfeld_constraint_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -4753,6 +4383,40 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="PRINT_DENSITY", &
+                          description="Logical to control printing of Hirshfeld densities to .cube file.", &
+                          usage="PRINT_DENSITY TRUE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ATOMS_MEMORY", &
+                          description="Number of atomic gradients to store in memory.", &
+                          usage="ATOMS_MEMORY", &
+                          n_var=1, type_of_var=integer_t, &
+                          default_i_val=80)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="USE_ATOMIC_CUTOFF", &
+                          description="Logical to control use of ATOMIC_CUTOFF.", &
+                          usage="USE_ATOMIC_CUTOFF TRUE", &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EPS_CUTOFF", &
+                          description="Numerical cutoff for calculation of weight function.", &
+                          usage="EPS_CUTOFF {real} ", default_r_val=1.0e-12_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ATOMIC_CUTOFF", &
+                          description="Numerical cutoff for calculation of Hirshfeld densities.", &
+                          usage="ATOMIC_CUTOFF {real} ", default_r_val=1.0e-12_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
    END SUBROUTINE create_hirshfeld_constraint_section
 
 ! **************************************************************************************************
@@ -4761,9 +4425,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_s2_restraint_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_s2_restraint_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -4806,15 +4467,12 @@ CONTAINS
    SUBROUTINE create_tddfpt_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_tddfpt_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="tddfpt", &
-                          description="parameters needed to set up the Time Dependent Density Functional PT", &
+                          description="Old TDDFPT code. Use new version in CP2K_INPUT / FORCE_EVAL / PROPERTIES / TDDFPT", &
                           n_keywords=5, n_subsections=1, repeats=.FALSE., &
                           citations=(/Iannuzzi2005/))
 
@@ -4958,9 +4616,6 @@ CONTAINS
    SUBROUTINE create_relativistic_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_relativistic_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -5033,9 +4688,6 @@ CONTAINS
    SUBROUTINE create_scf_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_scf_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -5076,15 +4728,16 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="MAX_ITER_LUMO", &
                           variants=(/"MAX_ITER_LUMOS"/), &
-                          description="The maximum number of iteration for the lumo computation", &
+                          description="Maximum number of iterations for the calculation of the LUMO energies "// &
+                          "with the OT eigensolver.", &
                           usage="MAX_ITER_LUMO 100", default_i_val=299)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="EPS_LUMO", &
                           variants=(/"EPS_LUMOS"/), &
-                          description="target accuracy of the computation of the lumo energy", &
-                          usage="EPS_LUMO 1.e-6", default_r_val=1.0e-5_dp)
+                          description="Target accuracy for the calculation of the LUMO energies with the OT eigensolver.", &
+                          usage="EPS_LUMO 1.0E-6", default_r_val=1.0E-5_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -5110,7 +4763,9 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="LEVEL_SHIFT", &
                           variants=(/"LSHIFT"/), &
                           description="Use level shifting to improve convergence", &
-                          usage="LEVEL_SHIFT 0.1", default_r_val=0._dp)
+                          unit_str="au_e", &
+                          usage="LEVEL_SHIFT 0.1", &
+                          default_r_val=0.0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -5183,7 +4838,8 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="ADDED_MOS", &
-                          description="Number of additional MOS added for each spin", &
+                          description="Number of additional MOS added for each spin. Use -1 to add all available. "// &
+                          "alpha/beta spin can be specified independently (if spin-polarized calculation requested).", &
                           usage="ADDED_MOS", default_i_val=0, n_var=-1)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -5361,9 +5017,6 @@ CONTAINS
    SUBROUTINE create_kg_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_kg_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -5468,9 +5121,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_outer_scf_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_outer_scf_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -5593,9 +5243,6 @@ CONTAINS
    SUBROUTINE create_bsse_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_bsse_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -5624,18 +5271,22 @@ CONTAINS
 
       ! CONFIGURATION SECTION
       CALL section_create(subsection, __LOCATION__, name="CONFIGURATION", &
-                          description="Specify additional parameters for the combinatorial configurations.", &
+                          description="Specify additional parameters for the combinatorial configurations. "// &
+                          "Use this section to manually specify charge and multiplicity of the fragments "// &
+                          "and their combinations.", &
                           n_keywords=2, n_subsections=0, repeats=.TRUE.)
 
       CALL keyword_create(keyword, __LOCATION__, name="GLB_CONF", &
-                          description="Specifies the global configuration using 1 or 0.", &
+                          description="Specifies the global configuration using 1 or 0 for each fragment. "// &
+                          "1 specifies the respective fragment as used, 0 as unused.", &
                           usage="GLB_CONF {integer} {integer} .. {integer}", &
                           n_var=-1, type_of_var=integer_t)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="SUB_CONF", &
-                          description="Specifies the subconfiguration using 1 or 0 belonging to the global configuration.", &
+                          description="Specifies the subconfiguration using 1 or 0 belonging to the global configuration. "// &
+                          "1 specifies the respective fragment as real, 0 as ghost.", &
                           usage="SUB_CONF {integer} {integer} .. {integer}", &
                           n_var=-1, type_of_var=integer_t)
       CALL section_add_keyword(subsection, keyword)
@@ -5687,9 +5338,6 @@ CONTAINS
    SUBROUTINE create_print_bsse_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_bsse_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_type), POINTER                        :: print_key
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -5722,9 +5370,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_gspace_interp_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_gspace_interp_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -5799,9 +5444,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_lrigpw_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_lrigpw_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -5936,9 +5578,6 @@ CONTAINS
    SUBROUTINE create_optimize_lri_basis_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_lri_basis_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -5984,7 +5623,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="GEOMETRIC_SEQUENCE", &
-                          description="Exponents are assumed to be a geometric squence. "// &
+                          description="Exponents are assumed to be a geometric sequence. "// &
                           "Only the minimal and maximal exponents of one set are optimized and "// &
                           "the other exponents are obtained by geometric progression.", &
                           usage="GEOMETRIC_SEQUENCE", &
@@ -6018,9 +5657,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_optimize_embed(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_embed', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -6205,9 +5841,6 @@ CONTAINS
    SUBROUTINE create_optimize_dmfet(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_dmfet', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -6284,9 +5917,6 @@ CONTAINS
    SUBROUTINE create_print_embed_diff(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_diff', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -6314,9 +5944,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_embed_pot_cube(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_pot_cube', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -6346,9 +5973,6 @@ CONTAINS
    SUBROUTINE create_print_embed_restart_vec(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_embed_restart_vec', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_type), POINTER                        :: print_key
 
       NULLIFY (print_key)
@@ -6367,9 +5991,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_simple_grid(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_simple_grid', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -6419,9 +6040,6 @@ CONTAINS
    SUBROUTINE create_rigpw_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_rigpw_section', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="RIGPW", &
                           description="This section specifies optional parameters for RIGPW.", &
@@ -6462,9 +6080,6 @@ CONTAINS
    SUBROUTINE create_constrain_exponents_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_constrain_exponents_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CALL section_create(section, __LOCATION__, name="CONSTRAIN_EXPONENTS", &
@@ -6500,9 +6115,6 @@ CONTAINS
    SUBROUTINE create_mgrid_section(section, create_subsections)
       TYPE(section_type), POINTER                        :: section
       LOGICAL, INTENT(in)                                :: create_subsections
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mgrid_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -6613,9 +6225,6 @@ CONTAINS
    SUBROUTINE create_interp_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_interp_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -6707,9 +6316,6 @@ CONTAINS
    SUBROUTINE create_sic_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_sic_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -6774,9 +6380,6 @@ CONTAINS
    SUBROUTINE create_low_spin_roks_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_low_spin_roks_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -6806,197 +6409,6 @@ CONTAINS
    END SUBROUTINE create_low_spin_roks_section
 
 ! **************************************************************************************************
-!> \brief Creates the section for applying an electrostatic external potential
-!> \param section ...
-!> \date 12.2009
-!> \author teo
-! **************************************************************************************************
-   SUBROUTINE create_ext_pot_section(section)
-      TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ext_pot_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-
-      CPASSERT(.NOT. ASSOCIATED(section))
-      CALL section_create(section, __LOCATION__, name="EXTERNAL_POTENTIAL", &
-                          description="Section controlling the presence of an electrostatic "// &
-                          "external potential dependent on the atomic positions (X,Y,Z). "// &
-                          "As the external potential is currently applied via a grid, "// &
-                          "it only works with DFT based methods (GPW/GAPW) that already use "// &
-                          "a grid based approach to solve the Poisson equation.", &
-                          n_keywords=7, n_subsections=0, repeats=.FALSE.)
-      NULLIFY (keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="FUNCTION", &
-                          description="Specifies the functional form in mathematical notation. Variables must be the atomic "// &
-                          "coordinates (X,Y,Z) of the grid.", usage="FUNCTION  X^2+Y^2+Z^2+LOG(ABS(X+Y))", &
-                          type_of_var=lchar_t, n_var=1)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="PARAMETERS", &
-                          description="Defines the parameters of the functional form", &
-                          usage="PARAMETERS a b D", type_of_var=char_t, &
-                          n_var=-1, repeats=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="VALUES", &
-                          description="Defines the values of parameter of the functional form", &
-                          usage="VALUES ", type_of_var=real_t, &
-                          n_var=-1, repeats=.TRUE., unit_str="internal_cp2k")
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="UNITS", &
-                          description="Optionally, allows to define valid CP2K unit strings for each parameter value. "// &
-                          "It is assumed that the corresponding parameter value is specified in this unit.", &
-                          usage="UNITS angstrom eV*angstrom^-1 angstrom^1 K", type_of_var=char_t, &
-                          n_var=-1, repeats=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="STATIC", &
-                          description="Specifies the external potential as STATIC or time dependent. At the moment "// &
-                          "only static potentials are implemented.", &
-                          usage="STATIC T", default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="DX", &
-                          description="Parameter used for computing the derivative with the Ridders' method.", &
-                          usage="DX <REAL>", default_r_val=0.1_dp, unit_str="bohr")
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="ERROR_LIMIT", &
-                          description="Checks that the error in computing the derivative is not larger than "// &
-                          "the value set; in case error is larger a warning message is printed.", &
-                          usage="ERROR_LIMIT <REAL>", default_r_val=1.0E-12_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      !keyword for reading the external potential from cube file
-      CALL keyword_create(keyword, __LOCATION__, name="READ_FROM_CUBE", &
-                          description="Switch for reading the external potential from file pot.cube. The values "// &
-                          "of the potential must be on the grid points of the realspace grid.", &
-                          usage="READ_FROM_CUBE T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      !keyword for scaling the external potential that is read from file by a constant factor
-      CALL keyword_create(keyword, __LOCATION__, name="SCALING_FACTOR", &
-                          description="A factor for scaling the the external potential that is read from file."// &
-                          "The value of the potential at each grid point is multiplied by this factor.", &
-                          usage="SCALING_FACTOR <REAL>", default_r_val=1.0_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-   END SUBROUTINE create_ext_pot_section
-
-! **************************************************************************************************
-!> \brief ZMP Creates the section for reading user supplied external density
-!> \param section ...
-!> \date 03.2011
-!> \author D. Varsano [daniele.varsano@nano.cnr.it]
-! **************************************************************************************************
-   SUBROUTINE create_ext_den_section(section)
-      TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ext_den_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-
-      CPASSERT(.NOT. ASSOCIATED(section))
-      CALL section_create(section, __LOCATION__, name="EXTERNAL_DENSITY", &
-                          description="Section for the use of the ZMP technique on external densities.", &
-                          n_keywords=4, n_subsections=0, repeats=.FALSE., &
-                          citations=(/Zhao1994, Tozer1996/))
-      NULLIFY (keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="FILE_DENSITY", &
-                          description="Specifies the filename containing the target density in *.cube format."// &
-                          "In the MGRID section it must be imposed NGRID 1, as it works with only"// &
-                          "one grid. The number of points in each direction, and the spacing must"// &
-                          "be previously defined choosing the plane waves cut-off in section MGRID"// &
-                          "keyword CUTOFF, and the cube dimention in section SUBSYS / CELL / keyword ABC", &
-                          usage="DENSITY_FILE_NAME <FILENAME>", &
-                          type_of_var=char_t, default_c_val="RHO_O.dat", n_var=-1)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="LAMBDA", &
-                          description="Lagrange multiplier defined in the constraint ZMP method. When starting, use"// &
-                          "small values when starting from scratch (around 5,10). Then gradually increase"// &
-                          "the values depending, restarting from the previous calculation with the smaller"// &
-                          "value. To choose the progressive values of LAMBDA look at the convergence of the"// &
-                          " eigenvalues.", &
-                          usage="DX <REAL>", default_r_val=10.0_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="ZMP_CONSTRAINT", &
-                          description="Specify which kind of constraint to solve the ZMP equation. The COULOMB default"// &
-                          "option is more stable.", &
-                          usage="ZMP_CONSTRAINT <CHAR>", &
-                          enum_c_vals=s2a("COULOMB", "DIFF", "NONE"), &
-                          enum_i_vals=(/use_coulomb, use_diff, use_no/), &
-                          enum_desc=s2a("Coulomb constraint, integral of [rho_0(r)-rho(r)]/|r-r'|", &
-                                        "Simple constraint, [rho_0(r)-rho(r)]", &
-                                        "No constrain imposed"), &
-                          default_i_val=use_coulomb)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="FERMI_AMALDI", &
-                          description="Add the Fermi-Amaldi contribution to the Hartree potential."// &
-                          "It leads to a more stable convergence.", &
-                          usage="FERMI_AMALDI <LOGICAL>", &
-                          repeats=.FALSE., &
-                          n_var=1, &
-                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-   END SUBROUTINE create_ext_den_section
-
-! **************************************************************************************************
-!> \brief ZMP Creates the section for creating the external v_xc
-!> \param section ...
-!> \date 03.2011
-!> \author D. Varsano [daniele.varsano@nano.cnr.it]
-! **************************************************************************************************
-   SUBROUTINE create_ext_vxc_section(section)
-      TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ext_vxc_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-
-      CPASSERT(.NOT. ASSOCIATED(section))
-      CALL section_create(section, __LOCATION__, name="EXTERNAL_VXC", &
-                          description="SCF convergence with external v_xc calculated through previous ZMP"// &
-                          "calculation", &
-                          n_keywords=1, n_subsections=0, repeats=.FALSE.)
-      NULLIFY (keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="FILE_VXC", &
-                          description="The *.cube filename containing the v_xc potential. This works only"// &
-                          "with NGRID 1 imposed in the MGRID section. The number of points in each"// &
-                          "direction, and the spacing must equal to those previously used in the ZMP"// &
-                          "calculation and defined through the plane wave cut-off and the cube dimension"// &
-                          "respectively set in section MGRID / keyword CUTOFF, and in section SUBSYS /"// &
-                          "CELL / keyword ABC", &
-                          usage="FILE_VXC <FILENAME>", &
-                          type_of_var=char_t, default_c_val="VXC_O.dat", n_var=-1)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-   END SUBROUTINE create_ext_vxc_section
-
-! **************************************************************************************************
 !> \brief makes the orbital transformation section
 !> \param section ...
 !> \par History
@@ -7004,9 +6416,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_ot_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ot_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -7022,7 +6431,7 @@ CONTAINS
                           "If preconditioned correctly, method guaranteed to find minimum. "// &
                           "<u>Disadvantages:</u> "// &
                           "Sensitive to preconditioning. A good preconditioner can be expensive. "// &
-                          "No smearing, or advanced SCF mixing possible: POOR convergence for metalic systems.", &
+                          "No smearing, or advanced SCF mixing possible: POOR convergence for metallic systems.", &
                           n_keywords=27, n_subsections=0, repeats=.FALSE., &
                           citations=(/VandeVondele2003, Weber2008/))
 
@@ -7221,7 +6630,7 @@ CONTAINS
                           usage="LINESEARCH GOLD", &
                           default_i_val=ls_2pnt, &
                           enum_c_vals=s2a("NONE", "2PNT", "3PNT", "GOLD"), &
-                          enum_desc=s2a("take fixed lenght steps", "extrapolate based on 2 points", &
+                          enum_desc=s2a("take fixed length steps", "extrapolate based on 2 points", &
                                         "... or on 3 points", "perform 1D golden section search of the minimum (very expensive)"), &
                           enum_i_vals=(/ls_none, ls_2pnt, ls_3pnt, ls_gold/))
       CALL section_add_keyword(section, keyword)
@@ -7229,7 +6638,7 @@ CONTAINS
 
       CALL keyword_create( &
          keyword, __LOCATION__, name="STEPSIZE", &
-         description="Initial stepsize used for the line search, sometimes this parameter can be reduced to stablize DIIS"// &
+         description="Initial stepsize used for the line search, sometimes this parameter can be reduced to stabilize DIIS"// &
          " or to improve the CG behavior in the first few steps."// &
          " The optimal value depends on the quality of the preconditioner."// &
          " A negative values leaves the choice to CP2K depending on the preconditioner.", &
@@ -7310,7 +6719,7 @@ CONTAINS
          "especially effective with the FULL_ALL preconditioner, in which case it should be an underestimate "// &
          "of the gap (can be a small number, e.g. 0.002)."// &
          " FULL_SINGLE_INVERSE takes it as lower bound (values below 0.05 can cause stability issues)."// &
-         " In general, heigher values will tame the preconditioner in case of poor initial guesses."// &
+         " In general, higher values will tame the preconditioner in case of poor initial guesses."// &
          " A negative value will leave the choice to CP2K depending on type of preconditioner.", &
          usage="ENERGY_GAP 0.001", &
          default_r_val=-1.0_dp)
@@ -7383,9 +6792,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_diagonalization_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_diagonalization_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -7497,9 +6903,6 @@ CONTAINS
    SUBROUTINE create_davidson_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_davidson_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -7585,9 +6988,6 @@ CONTAINS
    SUBROUTINE create_krylov_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_krylov_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -7644,9 +7044,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_diag_subspace_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_diag_subspace_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -7711,9 +7108,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_xas_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xas_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -7961,6 +7355,15 @@ CONTAINS
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "FULL_RESTART", &
+                                       description="Controls the dumping of a standard MO restart file "// &
+                                       "where coefficients and occupation numbers are those of the TP scheme,"// &
+                                       "i.e. with emptied core state.", &
+                                       print_level=high_print_level, common_iter_levels=3, each_iter_names=s2a("XAS_SCF"), &
+                                       add_last=add_last_numeric, each_iter_values=(/3/), filename="")
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
       CALL cp_print_key_section_create(print_key, __LOCATION__, "CLS_FUNCTION_CUBES", &
                                        description="Controls the printing of the relaxed orbitals ", &
                                        print_level=high_print_level, common_iter_levels=3, add_last=add_last_numeric, filename="")
@@ -8012,9 +7415,6 @@ CONTAINS
    SUBROUTINE create_xas_tdp_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xas_tdp_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection, subsubsection, &
                                                             subsubsubsection
@@ -8026,7 +7426,7 @@ CONTAINS
                           description="XAS simulations using linear-response TDDFT. Excitation from "// &
                           "specified core orbitals are considered one at a time. In case of high "// &
                           "symmetry structures, donor core orbitals should be localized.", &
-                          n_keywords=15, n_subsections=3, repeats=.FALSE.)
+                          n_keywords=19, n_subsections=4, repeats=.FALSE.)
 
       NULLIFY (keyword, subsection, print_key)
 
@@ -8129,6 +7529,78 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+!  the GW2X correction subsection
+      CALL section_create(subsection, __LOCATION__, name="GW2X", &
+                          description="Specifications for the GW2X calculation of core "// &
+                          "ionization potentials. Note that donor states need to be actively "// &
+                          "localized using the LOCALIZE keyword in DONOR_STATES. N_SEARCH"// &
+                          "should be kept to the minimum, such that only core states are localized.", &
+                          citations=(/Shigeta2001/), &
+                          n_keywords=8, &
+                          n_subsections=0, &
+                          repeats=.FALSE.)
+
+      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
+                          description="Enables the GW2X correction of the core ionization potentials", &
+                          usage="&GW2X {logical}", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="XPS_ONLY", &
+                          description="If set to .TRUE., only run GW2X calculations for XPS "// &
+                          "spectroscopy and ignore all XAS calculations. It is still "// &
+                          "required to define the DONOR_STATES and KERNEL%EXACT_EXCHANGE "// &
+                          "subsections.", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="BATCH_SIZE", &
+                          description="MOs batch size for batched tensor contraction. Larger "// &
+                          "size is faster, but uses more memory. Default should be safe "// &
+                          "in most cases.", &
+                          default_i_val=64)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EPS_GW2X", &
+                          description="Convergence threshold for GW2X iterations (in eV)", &
+                          default_r_val=1.E-2_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="C_OS", &
+                          description="Opposite-spin scling factor. SCS => 6/5, SOS => 1.3", &
+                          default_r_val=1.0_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="C_SS", &
+                          description="Same-spin scling factor. SCS => 1/3, SOS => 0.0", &
+                          default_r_val=1.0_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MAX_GW2X_ITER", &
+                          description="Maximum number of iterations for GW2X", &
+                          default_i_val=10)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="PSEUDO_CANONICAL", &
+                          variants=(/"PSEUDO_CANO"/), &
+                          description="Whether the pseudo-canonical version of GW2X should be used "// &
+                          "(versus only using the diagonal of the generalized Fock matrix)", &
+                          default_l_val=.TRUE.)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
 !  The donor state subsection
 
       CALL section_create(subsection, __LOCATION__, name="DONOR_STATES", &
@@ -8175,7 +7647,7 @@ CONTAINS
                           "This keyword MUST have the same number of entries as the relevant "// &
                           "KIND_LIST or ATOM_LIST. The order of the specified state types must "// &
                           "correspond to the order of the relevant kinds/indices. "// &
-                          "This keyword can be repeated, usefull when  multiple orbital types "// &
+                          "This keyword can be repeated, useful when multiple orbital types "// &
                           "should be excited for specific kinds/atoms.", &
                           n_var=-1, default_i_val=xas_not_excited, repeats=.TRUE., &
                           usage="STATE_TYPES {string}  {string} .. {string}", &
@@ -8197,9 +7669,9 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="LOCALIZE", &
                           variants=s2a("LOC", "DO_LOC"), &
-                          description="Whether the N_SEARCH potential donor states are should be "// &
+                          description="Whether the N_SEARCH potential donor states should be "// &
                           "actively localized. Necessary in case of excited atoms "// &
-                          "equivalent under symmetry", &
+                          "equivalent under symmetry or GW2X correction.", &
                           usage="LOCALIZE {logical}", &
                           default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
@@ -8209,6 +7681,52 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 ! End of the donor states subsection
+
+! The OT solver subsection
+      CALL section_create(subsection, __LOCATION__, name="OT_SOLVER", &
+                          description="Specifications for the iterative OT solver. Note: only "// &
+                          "available within the Tamm-Dancoff approximation. Recommanded if excitations "// &
+                          "from multiple donor states take place.", &
+                          n_keywords=4, &
+                          n_subsections=0, &
+                          repeats=.FALSE.)
+
+      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
+                          description="Enables the usage of the OT iterator solver", &
+                          usage="&OT_SOLVER {logical}", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MAX_ITER", &
+                          description="Maximum number of iterations allowed for the OT solver", &
+                          usage="MAX_ITER {integer}", &
+                          default_i_val=50)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EPS_ITER", &
+                          description="Convergence threshold for the OT solver", &
+                          usage="EPS_ITER {double}", &
+                          default_r_val=1.0E-4_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MINIMIZER", &
+                          description="Minimizer to be used with the OT solver", &
+                          usage="MINIMIZER DIIS", &
+                          default_i_val=ot_mini_diis, &
+                          enum_c_vals=s2a("CG", "DIIS"), &
+                          enum_desc=s2a("Conjugated gradient: safer", &
+                                        "Direct inversion of the iterative subspace: faster"), &
+                          enum_i_vals=(/ot_mini_cg, ot_mini_diis/))
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+! End of the OT solver subsection
 
       CALL keyword_create(keyword, __LOCATION__, name="SPIN_ORBIT_COUPLING", &
                           variants=(/"SOC"/), &
@@ -8237,8 +7755,7 @@ CONTAINS
                           "a given atomic kind. This keyword can/should be repeated "// &
                           "for each excited kind. The default grid dimensions are "// &
                           "those set for the GAPW ground state calculation. These "// &
-                          "grids are used for the xc-kernel calculations and/or for "// &
-                          "spin-orbit coupling. "// &
+                          "grids are used for the xc-kernel integration. "// &
                           "Usage: GRID < KIND > < LEBEDEV_GRID > < RADIAL_GRID >", &
                           usage="GRID {string} {integer} {integer}", &
                           n_var=3, type_of_var=char_t, repeats=.TRUE.)
@@ -8271,20 +7788,9 @@ CONTAINS
 !  The KERNEL subsection
       CALL section_create(subsection, __LOCATION__, name="KERNEL", &
                           description="Defines how the kernel is built in terms of functionals.", &
-                          n_keywords=2, &
+                          n_keywords=1, &
                           n_subsections=1, &
                           repeats=.FALSE.)
-
-      CALL keyword_create(keyword, __LOCATION__, name="NPROCS_GRID", &
-                          variants=s2a("BATCH_SIZE", "NPROCS_PER_GRID"), &
-                          description="The MPI processes are split into batches of size NPROCS_GRID "// &
-                          "for the parallel treatment of the XC kernel. The excited "// &
-                          "atoms are distributed over the batches and their integration "// &
-                          "grids are split over the procs of the corresponding batch.", &
-                          usage="NPROCS_GRID {integer}", &
-                          default_i_val=1)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="RI_REGION", &
                           variants=(/"RI_RADIUS"/), &
@@ -8307,34 +7813,13 @@ CONTAINS
       CALL keyword_release(keyword)
 
 !  The XC_FUNCTIONAL subsubsection
-      CALL section_create(subsubsection, __LOCATION__, name="XC_FUNCTIONAL", &
-                          description="The exchange correlation functional(s) to use for the xc "// &
-                          "part of the kernel. Built from any combination of LDA, GGA "// &
-                          "and HYB functional from LIBXC.", &
-                          n_keywords=0, &
-                          n_subsections=1, &
-                          repeats=.FALSE.)
-
-      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="Enables the addition of xc functionals to the kernel.", &
-                          usage="&XC_FUNCTIONAL {logical}", &
-                          default_l_val=.FALSE., &
-                          lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(subsubsection, keyword)
-      CALL keyword_release(keyword)
-
-      ! LIBXC functional
-      CALL create_libxc_section(subsubsubsection, "LIBXC", "Uses functionals from LIBXC", &
-                                "FUNCTIONAL {name}")
-      CALL section_add_subsection(subsubsection, subsubsubsection)
-      CALL section_release(subsubsubsection)
-
+      CALL create_xc_fun_section(subsubsection)
       CALL section_add_subsection(subsection, subsubsection)
       CALL section_release(subsubsection)
 
-!  The EXACT_EXCHANGE subsubsection
+! The EXACT_EXCHANGE subsubsection
       CALL section_create(subsubsection, __LOCATION__, name="EXACT_EXCHANGE", &
-                          description="Whther exact-exchange should be added to the kernel and "// &
+                          description="Whether exact-exchange should be added to the kernel and "// &
                           "if so, with which fraction and operator.", &
                           n_keywords=7, &
                           n_subsections=1, &
@@ -8495,8 +7980,22 @@ CONTAINS
                           "XAS TDP calculations", repeats=.FALSE.)
 
       CALL cp_print_key_section_create(print_key, __LOCATION__, name="SPECTRUM", &
-                                       description="Controles the dumping of the XAS TDP spectrum in ouput files", &
+                                       description="Controles the dumping of the XAS TDP spectrum in output files", &
                                        print_level=low_print_level, filename="", common_iter_levels=3)
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="RESTART_WFN", &
+                                       description="Controles the dumping of a MO restart file for a given "// &
+                                       "excited state index. Only for K-edge RKS calculations. "// &
+                                       "Can be repeated to get multiple *.wfn files at once.", &
+                                       print_level=debug_print_level, filename="", common_iter_levels=1)
+      CALL keyword_create(keyword, __LOCATION__, name="EXCITED_STATE_INDEX", variants=(/"INDEX"/), &
+                          description="The index of the excited state that should be dumped", &
+                          usage="INDEX {int}", default_i_val=1, repeats=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
@@ -8549,7 +8048,7 @@ CONTAINS
                                        "and corresponding excitation energies such that "// &
                                        "the program can be restarted for PDOS or CUBE "// &
                                        "printing without the heavy computing.", &
-                                       print_level=medium_print_level, filename="", common_iter_levels=3)
+                                       print_level=high_print_level, filename="", common_iter_levels=3)
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
@@ -8568,9 +8067,6 @@ CONTAINS
    SUBROUTINE create_smear_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_smear_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -8675,9 +8171,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_rtp_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_rtp_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, print_section
@@ -8787,9 +8280,68 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="APPLY_DELTA_PULSE_MAG", &
+                          description="Applies a magnetic delta kick to the initial wfn (only RTP for now - the EMD "// &
+                          " case is not yet implemented).", &
+                          usage="APPLY_DELTA_PULSE_MAG", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="VELOCITY_GAUGE", &
+                          description="Perform propagation in the velocity gauge; only impulse at the moment (delta-pulse) "// &
+                          "only works for all-electron up to now."// &
+                          "uses DELTA_PULSE_SCALE and DELTA_PULSE_DIRECTION", &
+                          usage="VELOCITY_GAUGE T", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="GAUGE_ORIG", &
+                          description="Define gauge origin for magnetic perturbation", &
+                          usage="GAUGE_ORIG COM", &
+                          enum_c_vals=s2a("COM", "COAC", "USER_DEFINED", "ZERO"), &
+                          enum_desc=s2a("Use Center of Mass", &
+                                        "Use Center of Atomic Charges", &
+                                        "Use User Defined Point (Keyword:REF_POINT)", &
+                                        "Use Origin of Coordinate System"), &
+                          enum_i_vals=(/use_mom_ref_com, &
+                                        use_mom_ref_coac, &
+                                        use_mom_ref_user, &
+                                        use_mom_ref_zero/), &
+                          default_i_val=use_mom_ref_com)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="GAUGE_ORIG_MANUAL", &
+                          description="Manually defined gauge origin for magnetic perturbation [in Bohr!]", &
+                          usage="SPATIAL_REF_POINT x y z", &
+                          repeats=.FALSE., &
+                          n_var=3, default_r_vals=(/0._dp, 0._dp, 0._dp/), &
+                          type_of_var=real_t, &
+                          unit_str='bohr')
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="VG_COM_NL", &
+                          description="apply gauge transformed non-local potential term", &
+                          usage="VG_COM_NL T", &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="COM_NL", &
-                          description="Include non local commutator for periodic delta pulse.", &
+                          description="Include non-local commutator for periodic delta pulse.", &
                           usage="COM_NL", &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="LEN_REP", &
+                          description="Use length representation delta pulse (in conjunction with PERIODIC T). "// &
+                          "Note that this is NOT compatible with PBC!!!"// &
+                          " Uses the reference point defined in DFT%PRINT%MOMENTS ", &
+                          usage="LEN_REP T", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -8937,9 +8489,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_sccs_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -9021,14 +8570,14 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, &
-                          name="DIELECTRIC_CONSTANT", &
-                          variants=(/"EPSILON_SOLVENT"/), &
-                          description="Dielectric constant of the solvent", &
+                          name="RELATIVE_PERMITTIVITY", &
+                          variants=s2a("DIELECTRIC_CONSTANT", "EPSILON_RELATIVE", "EPSILON_SOLVENT"), &
+                          description="Relative permittivity (dielectric constant) of the solvent (medium)", &
                           repeats=.FALSE., &
                           n_var=1, &
                           type_of_var=real_t, &
                           default_r_val=80.0_dp, &
-                          usage="DIELECTRIC_CONSTANT 78.36")
+                          usage="RELATIVE_PERMITTIVITY 78.36")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -9192,9 +8741,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_active_space_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -9254,6 +8800,13 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="ACTIVE_ORBITAL_INDICES", &
+                          description="The indices of the active orbitals. Requires ORBITAL_SELECTION MANUAL!", &
+                          usage="ACTIVE_ORBITAL_INDICES 2 3 {...}", n_var=-1, default_i_vals=(/-1/), &
+                          type_of_var=integer_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="ISOLATED_SYSTEM", &
                           description="System is treated without any periodic boundary conditions.", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
@@ -9270,11 +8823,13 @@ CONTAINS
                           description="Method used to select active space orbitals.", &
                           usage="ORBITAL_SELECTION CANONICAL", &
                           default_i_val=casci_canonical, &
-                          enum_c_vals=s2a("CANONICAL", "WANNIER_PROJECTION", "MAO"), &
-                          enum_i_vals=(/casci_canonical, wannier_projection, mao_projection/), &
+                          enum_c_vals=s2a("CANONICAL", "WANNIER_PROJECTION", "MAO", "MANUAL"), &
+                          enum_i_vals=(/casci_canonical, wannier_projection, mao_projection, manual_selection/), &
                           enum_desc=s2a("Select orbitals using energy ordering of canoncial orbitals", &
                                         "Select orbitals from projected Wannier functions", &
-                                        "Select orbitals from modified atomic orbitals"))
+                                        "Select orbitals from modified atomic orbitals", &
+                                        "Select orbitals manually via ACTIVE_ORBITAL_INDICES"))
+
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -9289,6 +8844,19 @@ CONTAINS
                           description="Shell definition for subsapce.", &
                           usage="SUBSPACE_SHELL 3d4s", default_c_val="X", &
                           type_of_var=char_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="READ_P_ACTIVE", &
+                          description="Active density matrix must be read", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="P_ACTIVE_FILE_NAME", &
+                          description="Name of the active DM file, may include a path", &
+                          usage="P_ACTIVE_FILE_NAME <FILENAME>", &
+                          type_of_var=lchar_t, repeats=.FALSE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -9316,9 +8884,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_orb_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_orb_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -9358,6 +8923,12 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="STOP_AFTER_CUBES", &
+                          description="Whether to stop the computation after printing the cubes.", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
    END SUBROUTINE create_print_orb_section
 
 ! **************************************************************************************************
@@ -9366,9 +8937,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_eri_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_eri_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -9443,8 +9011,6 @@ CONTAINS
    SUBROUTINE create_eri_gpw(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_eri_gpw', routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -9508,9 +9074,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_implicit_psolver_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_implicit_psolver_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -9613,9 +9176,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_cdft_opt_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_cdft_opt_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

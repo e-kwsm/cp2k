@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,8 +15,6 @@ MODULE constraint_util
    USE colvar_methods,                  ONLY: colvar_eval_mol_f
    USE distribution_1d_types,           ONLY: distribution_1d_type
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matmul_3x3,&
-                                              transpose_3d
    USE message_passing,                 ONLY: mp_sum
    USE molecule_kind_types,             ONLY: colvar_constraint_type,&
                                               fixd_constraint_type,&
@@ -67,8 +67,6 @@ CONTAINS
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind_set(:)
       TYPE(particle_type), POINTER                       :: particle_set(:)
       TYPE(cell_type), POINTER                           :: cell
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'getold', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, i, ikind, imol, n3x3con, &
                                                             n4x6con, nkind, nmol_per_kind
@@ -151,8 +149,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'getold_low', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iconst, index
 
       IF (ASSOCIATED(colv_list)) THEN
@@ -160,7 +156,7 @@ CONTAINS
          DO iconst = 1, SIZE(colv_list)
             CALL colvar_eval_mol_f(lcolv(iconst)%colvar_old, cell, &
                                    particles=particle_set, fixd_list=fixd_list)
-         ENDDO
+         END DO
       END IF
       ! 3x3 constraints
       DO iconst = 1, n3x3con
@@ -170,7 +166,7 @@ CONTAINS
          lg3x3(iconst)%rb_old = particle_set(index)%r
          index = g3x3_list(iconst)%c + first_atom - 1
          lg3x3(iconst)%rc_old = particle_set(index)%r
-      ENDDO
+      END DO
       ! 4x6 constraints
       DO iconst = 1, n4x6con
          index = g4x6_list(iconst)%a + first_atom - 1
@@ -181,7 +177,7 @@ CONTAINS
          lg4x6(iconst)%rc_old = particle_set(index)%r
          index = g4x6_list(iconst)%d + first_atom - 1
          lg4x6(iconst)%rd_old = particle_set(index)%r
-      ENDDO
+      END DO
 
    END SUBROUTINE getold_low
 
@@ -207,8 +203,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       TYPE(virial_type), INTENT(INOUT)                   :: virial
       INTEGER, INTENT(IN)                                :: group
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pv_constraint', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, i, ikind, imol, ng3x3, &
                                                             ng4x6, nkind, nmol_per_kind
@@ -298,9 +292,6 @@ CONTAINS
       TYPE(local_colvar_constraint_type), POINTER        :: lcolv(:)
       TYPE(particle_type), POINTER                       :: particle_set(:)
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(INOUT)      :: pv
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pv_constraint_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iconst, index_a, index_b, index_c, &
                                                             index_d
@@ -487,8 +478,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
          OPTIONAL                                        :: matrix, veps
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_tol', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: local_tol
       REAL(KIND=dp), DIMENSION(3, 3)                     :: diff_rattle, diff_shake
       REAL(KIND=dp), DIMENSION(3, 3), SAVE               :: matrix_old, veps_old
@@ -543,9 +532,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
          OPTIONAL                                        :: u
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_roll_matrix', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(KIND=dp), DIMENSION(3, 3)                     :: diag
 
@@ -560,12 +546,12 @@ CONTAINS
             diag(1, 1) = vector_r(1)
             diag(2, 2) = vector_r(2)
             diag(3, 3) = vector_r(3)
-            r_shake = MATMUL_3X3(MATMUL_3X3(u, diag), TRANSPOSE_3D(u))
+            r_shake = MATMUL(MATMUL(u, diag), TRANSPOSE(u))
             diag(1, 1) = vector_v(1)
             diag(2, 2) = vector_v(2)
             diag(3, 3) = vector_v(3)
-            v_shake = MATMUL_3X3(MATMUL_3X3(u, diag), TRANSPOSE_3D(u))
-            diag = MATMUL_3x3(r_shake, v_shake)
+            v_shake = MATMUL(MATMUL(u, diag), TRANSPOSE(u))
+            diag = MATMUL(r_shake, v_shake)
             r_shake = diag
          ELSEIF (.NOT. PRESENT(u) .AND. PRESENT(vector_v) .AND. &
                  PRESENT(vector_r)) THEN
@@ -581,7 +567,7 @@ CONTAINS
             diag(1, 1) = vector_v(1)
             diag(2, 2) = vector_v(2)
             diag(3, 3) = vector_v(3)
-            v_shake = MATMUL_3x3(MATMUL_3X3(u, diag), TRANSPOSE_3D(u))
+            v_shake = MATMUL(MATMUL(u, diag), TRANSPOSE(u))
          ELSEIF (.NOT. PRESENT(u) .AND. PRESENT(vector_v)) THEN
             DO i = 1, 3
                v_shake(i, i) = vector_v(i)
@@ -607,9 +593,6 @@ CONTAINS
       TYPE(distribution_1d_type), POINTER                :: local_particles
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: pos, vel
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restore_temporary_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_local

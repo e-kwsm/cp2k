@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -59,9 +61,6 @@ CONTAINS
    SUBROUTINE apply_qmmm_walls(qmmm_env)
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_walls', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iwall_type
       LOGICAL                                            :: do_qmmm_force_mixing, explicit
       TYPE(section_vals_type), POINTER                   :: qmmmx_section, walls_section
@@ -80,11 +79,11 @@ CONTAINS
                             "force mixing is active.  Skipping!")
             ELSE
                CALL apply_qmmm_walls_quadratic(qmmm_env, walls_section)
-            ENDIF
+            END IF
          CASE (do_qmmm_wall_reflective)
             ! Do nothing.. reflective walls are applied directly in the integrator
          END SELECT
-      ENDIF
+      END IF
 
    END SUBROUTINE apply_qmmm_walls
 
@@ -98,9 +97,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE apply_qmmm_walls_reflective(force_env)
       TYPE(force_env_type), POINTER                      :: force_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_walls_reflective', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip, iwall_type, qm_index
       INTEGER, DIMENSION(:), POINTER                     :: qm_atom_index
@@ -140,7 +136,6 @@ CONTAINS
 
       ! from here on we can be sure that it's conventional QM/MM
       CPASSERT(ASSOCIATED(force_env%qmmm_env))
-      CPASSERT(force_env%qmmm_env%ref_count > 0)
 
       CALL fist_env_get(force_env%qmmm_env%fist_env, cell=mm_cell, subsys=subsys_mm)
       CALL get_qs_env(force_env%qmmm_env%qs_env, cell=qm_cell, cp_subsys=subsys_qm)
@@ -188,7 +183,7 @@ CONTAINS
                         particles_mm(qm_index)%v(3) = -ABS(particles_mm(qm_index)%v(3))
                      END IF
                   END IF
-               ENDIF
+               END IF
             ELSE
                ! Otherwise print a warning and continue crossing cp2k's finger..
                CALL cp_warn(__LOCATION__, &
@@ -215,9 +210,6 @@ CONTAINS
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
       TYPE(section_vals_type), POINTER                   :: walls_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_walls_quadratic', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip, qm_index
       INTEGER, DIMENSION(:), POINTER                     :: qm_atom_index
       LOGICAL                                            :: is_x(2), is_y(2), is_z(2)
@@ -233,7 +225,6 @@ CONTAINS
       CALL section_vals_val_get(walls_section, "WALL_SKIN", r_vals=list)
       CALL section_vals_val_get(walls_section, "K", r_val=k)
       CPASSERT(ASSOCIATED(qmmm_env))
-      CPASSERT(qmmm_env%ref_count > 0)
 
       CALL fist_env_get(qmmm_env%fist_env, cell=mm_cell, subsys=subsys_mm)
       CALL get_qs_env(qmmm_env%qs_env, cell=qm_cell, cp_subsys=subsys_qm)
@@ -263,42 +254,42 @@ CONTAINS
                particles_mm(qm_index)%f(1) = particles_mm(qm_index)%f(1) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*(skin(1) - coord(1))*0.5_dp
-            ENDIF
+            END IF
             IF (is_x(2)) THEN
                wallforce = 2.0_dp*k*((qm_cell_diag(1) - skin(1)) - coord(1))
                particles_mm(qm_index)%f(1) = particles_mm(qm_index)%f(1) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*((qm_cell_diag(1) - skin(1)) - &
                                                     coord(1))*0.5_dp
-            ENDIF
+            END IF
             IF (is_y(1)) THEN
                wallforce = 2.0_dp*k*(skin(2) - coord(2))
                particles_mm(qm_index)%f(2) = particles_mm(qm_index)%f(2) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*(skin(2) - coord(2))*0.5_dp
-            ENDIF
+            END IF
             IF (is_y(2)) THEN
                wallforce = 2.0_dp*k*((qm_cell_diag(2) - skin(2)) - coord(2))
                particles_mm(qm_index)%f(2) = particles_mm(qm_index)%f(2) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*((qm_cell_diag(2) - skin(2)) - &
                                                     coord(2))*0.5_dp
-            ENDIF
+            END IF
             IF (is_z(1)) THEN
                wallforce = 2.0_dp*k*(skin(3) - coord(3))
                particles_mm(qm_index)%f(3) = particles_mm(qm_index)%f(3) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*(skin(3) - coord(3))*0.5_dp
-            ENDIF
+            END IF
             IF (is_z(2)) THEN
                wallforce = 2.0_dp*k*((qm_cell_diag(3) - skin(3)) - coord(3))
                particles_mm(qm_index)%f(3) = particles_mm(qm_index)%f(3) + &
                                              wallforce
                wallenergy = wallenergy + wallforce*((qm_cell_diag(3) - skin(3)) - &
                                                     coord(3))*0.5_dp
-            ENDIF
-         ENDIF
-      ENDDO
+            END IF
+         END IF
+      END DO
 
       CALL get_qs_env(qs_env=qmmm_env%qs_env, energy=energy)
       energy%total = energy%total + wallenergy
@@ -319,9 +310,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys_qm
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: qm_atom_index
       REAL(dp), ALLOCATABLE                              :: saved_pos(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_wrap', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_dim, ip
       REAL(dp)                                           :: r_lat(3)
@@ -358,9 +346,6 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: qm_atom_index
       REAL(dp), ALLOCATABLE                              :: saved_pos(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_unwrap', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
 
       DO ip = 1, subsys_mm%particles%n_els
@@ -387,9 +372,6 @@ CONTAINS
    SUBROUTINE apply_qmmm_translate(qmmm_env)
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmm_translate', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: bigger_ip, i_dim, ip, max_ip, min_ip, &
                                                             smaller_ip, tmp_ip, unit_nr
       INTEGER, DIMENSION(:), POINTER                     :: qm_atom_index
@@ -408,7 +390,6 @@ CONTAINS
                subsys_section, qm_cell, mm_cell, qs_kind_set)
 
       CPASSERT(ASSOCIATED(qmmm_env))
-      CPASSERT(qmmm_env%ref_count > 0)
 
       CALL fist_env_get(qmmm_env%fist_env, cell=mm_cell, subsys=subsys_mm)
       CALL get_qs_env(qmmm_env%qs_env, cell=qm_cell, cp_subsys=subsys_qm)
@@ -455,7 +436,7 @@ CONTAINS
                      tmp_ip = min_ip
                      min_ip = max_ip
                      max_ip = tmp_ip
-                  ENDIF
+                  END IF
                   ! loop over all other atoms
                   DO WHILE (.NOT. ALL(avoid))
                      ! find smaller below min, bigger after max
@@ -611,13 +592,13 @@ CONTAINS
             IF (ABS(lat_dv_shifted) < ABS(my_closest_dv) .AND. (dir*lat_dv_shifted >= 0.0)) THEN
                my_closest_dv = lat_dv_shifted
                closest_ip = ip
-            ENDIF
+            END IF
          END DO
       END DO
 
       IF (PRESENT(closest_dv)) THEN
          closest_dv = my_closest_dv
-      ENDIF
+      END IF
 
    END FUNCTION qmmm_find_closest
 
@@ -634,9 +615,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: spherical_cutoff
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rij
       REAL(KIND=dp), INTENT(OUT)                         :: factor
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'spherical_cutoff_factor', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: r, r0
 

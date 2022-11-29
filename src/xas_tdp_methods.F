@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,24 +20,28 @@ MODULE xas_tdp_methods
         allocate_sto_basis_set, create_gto_from_sto_basis, deallocate_gto_basis_set, &
         deallocate_sto_basis_set, get_gto_basis_set, gto_basis_set_type, init_orb_basis_set, &
         set_sto_basis_set, srules, sto_basis_set_type
+   USE bibliography,                    ONLY: Bussy2021a,&
+                                              cite_reference
    USE cell_types,                      ONLY: cell_type,&
                                               pbc
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
+                                              copy_fm_to_dbcsr,&
                                               cp_dbcsr_sm_fm_multiply
    USE cp_files,                        ONLY: close_file,&
                                               open_file
-   USE cp_fm_diag,                      ONLY: cp_fm_power,&
+   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale
+   USE cp_fm_diag,                      ONLY: cp_fm_geeig,&
+                                              cp_fm_power,&
                                               cp_fm_syevd
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: &
-        cp_fm_create, cp_fm_get_diag, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_p_type, &
-        cp_fm_read_unformatted, cp_fm_release, cp_fm_set_all, cp_fm_to_fm, cp_fm_to_fm_submat, &
-        cp_fm_type, cp_fm_write_unformatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
+        cp_fm_copy_general, cp_fm_create, cp_fm_get_diag, cp_fm_get_info, cp_fm_get_submatrix, &
+        cp_fm_p_type, cp_fm_read_unformatted, cp_fm_release, cp_fm_set_all, cp_fm_to_fm, &
+        cp_fm_to_fm_submat, cp_fm_type, cp_fm_write_unformatted
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type,&
@@ -47,24 +53,23 @@ MODULE xas_tdp_methods
                                               cp_print_key_unit_nr,&
                                               debug_print_level
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: dbcsr_add_on_diag,&
-                                              dbcsr_copy,&
-                                              dbcsr_create,&
-                                              dbcsr_finalize,&
-                                              dbcsr_get_info,&
-                                              dbcsr_multiply,&
-                                              dbcsr_p_type,&
-                                              dbcsr_set
+   USE dbcsr_api,                       ONLY: &
+        dbcsr_add_on_diag, dbcsr_copy, dbcsr_create, dbcsr_filter, dbcsr_finalize, dbcsr_get_info, &
+        dbcsr_get_occupation, dbcsr_multiply, dbcsr_p_type, dbcsr_set, dbcsr_type_no_symmetry
    USE input_constants,                 ONLY: &
-        do_loc_none, do_potential_coulomb, do_potential_id, do_potential_short, &
-        do_potential_truncated, op_loc_berry, state_loc_list, tddfpt_singlet, tddfpt_spin_cons, &
-        tddfpt_spin_flip, tddfpt_triplet, xas_1s_type, xas_2p_type, xas_2s_type, xas_dip_len, &
-        xas_dip_vel, xas_not_excited, xas_tdp_by_index, xas_tdp_by_kind
-   USE input_cp2k_dft,                  ONLY: create_localize_section
-   USE input_section_types,             ONLY: &
-        section_release, section_type, section_vals_create, section_vals_duplicate, &
-        section_vals_get, section_vals_get_subs_vals, section_vals_get_subs_vals2, &
-        section_vals_release, section_vals_type, section_vals_val_get, section_vals_val_set
+        do_admm_purify_cauchy_subspace, do_admm_purify_mo_diag, do_admm_purify_none, do_loc_none, &
+        do_potential_coulomb, do_potential_id, do_potential_short, do_potential_truncated, &
+        op_loc_berry, state_loc_list, tddfpt_singlet, tddfpt_spin_cons, tddfpt_spin_flip, &
+        tddfpt_triplet, xas_1s_type, xas_2p_type, xas_2s_type, xas_dip_len, xas_dip_vel, &
+        xas_not_excited, xas_tdp_by_index, xas_tdp_by_kind
+   USE input_cp2k_loc,                  ONLY: create_localize_section
+   USE input_section_types,             ONLY: section_release,&
+                                              section_type,&
+                                              section_vals_create,&
+                                              section_vals_get_subs_vals,&
+                                              section_vals_type,&
+                                              section_vals_val_get,&
+                                              section_vals_val_set
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp
@@ -73,6 +78,9 @@ MODULE xas_tdp_methods
    USE mathlib,                         ONLY: get_diag
    USE memory_utilities,                ONLY: reallocate
    USE message_passing,                 ONLY: mp_bcast
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE parallel_rng_types,              ONLY: UNIFORM,&
+                                              rng_stream_type
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE periodic_table,                  ONLY: ptable
@@ -91,17 +99,18 @@ MODULE xas_tdp_methods
                                               localized_wfn_control_create,&
                                               localized_wfn_control_type,&
                                               qs_loc_env_create,&
-                                              qs_loc_env_new_type,&
-                                              qs_loc_env_release
+                                              qs_loc_env_release,&
+                                              qs_loc_env_type
    USE qs_loc_utils,                    ONLY: qs_loc_control_init,&
                                               qs_loc_env_init,&
                                               set_loc_centers
+   USE qs_mo_io,                        ONLY: write_mo_set_low
    USE qs_mo_methods,                   ONLY: calculate_subspace_eigenvalues
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               deallocate_mo_set,&
+                                              duplicate_mo_set,&
                                               get_mo_set,&
                                               init_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
    USE qs_operators_ao,                 ONLY: p_xyz_ao,&
                                               rRc_xyz_ao
@@ -109,27 +118,29 @@ MODULE xas_tdp_methods
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_scf_types,                    ONLY: ot_method_nr
-   USE util,                            ONLY: locate,&
+   USE util,                            ONLY: get_limit,&
+                                              locate,&
                                               sort_unique
    USE xas_methods,                     ONLY: calc_stogto_overlap
    USE xas_tdp_atom,                    ONLY: init_xas_atom_env,&
                                               integrate_fxc_atoms,&
                                               integrate_soc_atoms
+   USE xas_tdp_correction,              ONLY: GW2X_shift,&
+                                              get_soc_splitting
+   USE xas_tdp_integrals,               ONLY: compute_ri_3c_coulomb,&
+                                              compute_ri_3c_exchange,&
+                                              compute_ri_coulomb2_int,&
+                                              compute_ri_exchange2_int
    USE xas_tdp_types,                   ONLY: &
         donor_state_create, donor_state_type, free_ds_memory, free_exat_memory, &
         read_xas_tdp_control, set_donor_state, set_xas_tdp_env, xas_atom_env_create, &
         xas_atom_env_release, xas_atom_env_type, xas_tdp_control_create, xas_tdp_control_release, &
         xas_tdp_control_type, xas_tdp_env_create, xas_tdp_env_release, xas_tdp_env_type
-   USE xas_tdp_utils,                   ONLY: compute_ri_coulomb2_int,&
-                                              compute_ri_exchange2_int,&
-                                              compute_ri_o3c_coulomb,&
-                                              compute_ri_o3c_exchange,&
-                                              include_os_soc,&
+   USE xas_tdp_utils,                   ONLY: include_os_soc,&
                                               include_rcs_soc,&
                                               setup_xas_tdp_prob,&
                                               solve_xas_tdp_prob
-   USE xc_derivatives,                  ONLY: xc_functional_get_info
-   USE xc_libxc,                        ONLY: libxc_version_info
+   USE xc_write_output,                 ONLY: xc_write
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -151,7 +162,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xas_tdp', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'xas_tdp'
 
       CHARACTER(default_string_length)                   :: rst_filename
       INTEGER                                            :: handle, n_rep, output_unit
@@ -172,6 +183,8 @@ CONTAINS
             "!    Starting TDDFPT driven X-rays absorption spectroscopy calculations     !", &
             "!===========================================================================!"
       END IF
+
+      CALL cite_reference(Bussy2021a)
 
 !  Check whether this is a restart calculation, i.e. is a restart file is provided
       CALL section_vals_val_get(xas_tdp_section, "RESTART_FROM_FILE", n_rep_val=n_rep)
@@ -219,13 +232,12 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: xas_tdp_section
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xas_tdp_core', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: kind_name
-      INTEGER                                            :: current_state_index, iat, iatom, ikind, &
-                                                            ispin, istate, output_unit, tmp_index
+      INTEGER :: batch_size, bo(2), current_state_index, iat, iatom, ibatch, ikind, ispin, istate, &
+         nbatch, nex_atom, output_unit, tmp_index
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: batch_atoms, ex_atoms_of_kind
       INTEGER, DIMENSION(:), POINTER                     :: atoms_of_kind
-      LOGICAL                                            :: do_os
+      LOGICAL                                            :: do_os, end_of_batch, unique
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks
@@ -301,8 +313,9 @@ CONTAINS
       IF (xas_tdp_control%check_only) CALL print_checks(xas_tdp_env, xas_tdp_control, qs_env)
 
 !  If not simply exact exchange, setup a xas_atom_env and compute the xc integrals on the atomic grids
-!  Also needed if SOC is included. Done before looping on atoms as it's all done at once
-      IF ((xas_tdp_control%do_xc .OR. xas_tdp_control%do_soc) .AND. .NOT. xas_tdp_control%check_only) THEN
+!  Also needed if SOC is included or XPS GW2X(). Done before looping on atoms as it's all done at once
+      IF ((xas_tdp_control%do_xc .OR. xas_tdp_control%do_soc .OR. xas_tdp_control%do_gw2x) &
+          .AND. .NOT. xas_tdp_control%check_only) THEN
 
          IF (output_unit > 0 .AND. xas_tdp_control%do_xc) THEN
             WRITE (UNIT=output_unit, FMT="(/,T3,A,I4,A)") &
@@ -314,11 +327,11 @@ CONTAINS
          CALL init_xas_atom_env(xas_atom_env, xas_tdp_env, xas_tdp_control, qs_env)
          do_os = xas_tdp_control%do_uks .OR. xas_tdp_control%do_roks
 
-         IF (xas_tdp_control%do_xc) THEN
+         IF (xas_tdp_control%do_xc .AND. (.NOT. xas_tdp_control%xps_only)) THEN
             CALL integrate_fxc_atoms(xas_tdp_env%ri_fxc, xas_atom_env, xas_tdp_control, qs_env)
          END IF
 
-         IF (xas_tdp_control%do_soc) THEN
+         IF (xas_tdp_control%do_soc .OR. xas_tdp_control%do_gw2x) THEN
             CALL integrate_soc_atoms(xas_tdp_env%orb_soc, xas_atom_env, qs_env)
          END IF
 
@@ -326,14 +339,14 @@ CONTAINS
       END IF
 
 !  Compute the 3-center Coulomb integrals for the whole system
-      IF ((.NOT. xas_tdp_control%check_only) .AND. &
+      IF ((.NOT. (xas_tdp_control%check_only .OR. xas_tdp_control%xps_only)) .AND. &
           (xas_tdp_control%do_xc .OR. xas_tdp_control%do_coulomb)) THEN
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, FMT="(/,T3,A,I4,A)") &
                "# Computing the RI 3-center Coulomb integrals ..."
             CALL m_flush(output_unit)
          END IF
-         CALL compute_ri_o3c_coulomb(xas_tdp_env, qs_env)
+         CALL compute_ri_3c_coulomb(xas_tdp_env, qs_env)
 
       END IF
 
@@ -345,132 +358,164 @@ CONTAINS
       DO ikind = 1, SIZE(atomic_kind_set)
 
          IF (xas_tdp_control%check_only) EXIT
+         IF (.NOT. ANY(xas_tdp_env%ex_kind_indices == ikind)) CYCLE
 
          CALL get_atomic_kind(atomic_kind=atomic_kind_set(ikind), name=kind_name, &
                               atom_list=atoms_of_kind)
 
-         IF (.NOT. ANY(xas_tdp_env%ex_kind_indices == ikind)) CYCLE
          ! compute the RI coulomb2 inverse for this kind, and RI exchange2 if needed
          CALL compute_ri_coulomb2_int(ikind, xas_tdp_env, xas_tdp_control, qs_env)
          IF (xas_tdp_control%do_hfx) THEN
             CALL compute_ri_exchange2_int(ikind, xas_tdp_env, xas_tdp_control, qs_env)
          END IF
 
-!        Loop over atoms of kind
-         DO iat = 1, SIZE(atoms_of_kind)
-            iatom = atoms_of_kind(iat)
+         !Randomly distribute excited atoms of current kinds into batches for optimal load balance
+         !of RI 3c exchange integrals. Take batch sizes of 2 to avoid taxing memory too much, while
+         !greatly improving load balance
+         batch_size = 2
+         CALL get_ri_3c_batches(ex_atoms_of_kind, nbatch, batch_size, atoms_of_kind, xas_tdp_env)
+         nex_atom = SIZE(ex_atoms_of_kind)
 
-            IF (.NOT. ANY(xas_tdp_env%ex_atom_indices == iatom)) CYCLE
-            tmp_index = locate(xas_tdp_env%ex_atom_indices, iatom)
+         !Loop over batches
+         DO ibatch = 1, nbatch
 
-            !if dipole in length rep, compute the dipole in the AO basis for this atom
-            !if quadrupole is required, compute it there too (in length rep)
-            IF (xas_tdp_control%dipole_form == xas_dip_len .OR. xas_tdp_control%do_quad) THEN
-               CALL compute_lenrep_multipole(iatom, xas_tdp_env, xas_tdp_control, qs_env)
-            END IF
+            bo = get_limit(nex_atom, nbatch, ibatch - 1)
+            batch_size = bo(2) - bo(1) + 1
+            ALLOCATE (batch_atoms(batch_size))
+            iatom = 0
+            DO iat = bo(1), bo(2)
+               iatom = iatom + 1
+               batch_atoms(iatom) = ex_atoms_of_kind(iat)
+            END DO
+            CALL sort_unique(batch_atoms, unique)
 
-            !compute the three center RI exchange integrals if so required
+            !compute RI 3c exchange integrals on batch, if so required
             IF (xas_tdp_control%do_hfx) THEN
                IF (output_unit > 0) THEN
-                  WRITE (UNIT=output_unit, FMT="(/,T3,A,I4,A1,A)") &
-                     "# Computing the RI 3-center Exchange integrals for excited atom (idx/kind): ", &
-                     iatom, "/", TRIM(kind_name)
+                  WRITE (UNIT=output_unit, FMT="(/,T3,A,I4,A,I4,A,I1,A,A)") &
+                     "# Computing the RI 3-center Exchange integrals for batch ", ibatch, "(/", nbatch, ") of ", &
+                     batch_size, " atoms of kind: ", TRIM(kind_name)
                   CALL m_flush(output_unit)
                END IF
-               CALL compute_ri_o3c_exchange(iatom, xas_tdp_env, xas_tdp_control, qs_env)
+               CALL compute_ri_3c_exchange(batch_atoms, xas_tdp_env, xas_tdp_control, qs_env)
             END IF
 
-!           Loop over states of excited atom of kind
-            DO istate = 1, SIZE(xas_tdp_env%state_types, 1)
+!           Loop over atoms of batch
+            DO iat = 1, batch_size
+               iatom = batch_atoms(iat)
 
-               IF (xas_tdp_env%state_types(istate, tmp_index) == xas_not_excited) CYCLE
+               tmp_index = locate(xas_tdp_env%ex_atom_indices, iatom)
 
-               current_state => xas_tdp_env%donor_states(current_state_index)
-               CALL set_donor_state(current_state, at_index=iatom, &
-                                    at_symbol=kind_name, kind_index=ikind, &
-                                    state_type=xas_tdp_env%state_types(istate, tmp_index))
-
-!              Initial write for the donor state of interest
-               IF (output_unit > 0) THEN
-                  WRITE (UNIT=output_unit, FMT="(/,T3,A,A2,A,I4,A,A,/)") &
-                     "# Start of calculations for donor state of type ", &
-                     xas_tdp_env%state_type_char(current_state%state_type), " for atom", &
-                     current_state%at_index, " of kind ", TRIM(current_state%at_symbol)
-                  CALL m_flush(output_unit)
+               !if dipole in length rep, compute the dipole in the AO basis for this atom
+               !if quadrupole is required, compute it there too (in length rep)
+               IF (xas_tdp_control%dipole_form == xas_dip_len .OR. xas_tdp_control%do_quad) THEN
+                  CALL compute_lenrep_multipole(iatom, xas_tdp_env, xas_tdp_control, qs_env)
                END IF
 
-!              Assign best fitting MO(s) to current core donnor state
-               CALL assign_mos_to_donor_state(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+!              Loop over states of excited atom of kind
+               DO istate = 1, SIZE(xas_tdp_env%state_types, 1)
 
-!              Perform MO restricted Mulliken pop analysis for verification
-               CALL perform_mulliken_on_donor_state(current_state, qs_env)
+                  IF (xas_tdp_env%state_types(istate, tmp_index) == xas_not_excited) CYCLE
 
-!              Do main calculations here
-               CALL setup_xas_tdp_prob(current_state, qs_env, xas_tdp_env, xas_tdp_control)
+                  current_state => xas_tdp_env%donor_states(current_state_index)
+                  CALL set_donor_state(current_state, at_index=iatom, &
+                                       at_symbol=kind_name, kind_index=ikind, &
+                                       state_type=xas_tdp_env%state_types(istate, tmp_index))
 
-               IF (xas_tdp_control%do_spin_cons) THEN
-                  CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
-                                          ex_type=tddfpt_spin_cons)
-                  CALL compute_dipole_fosc(current_state, xas_tdp_control, xas_tdp_env)
-                  IF (xas_tdp_control%do_quad) CALL compute_quadrupole_fosc(current_state, &
-                                                                            xas_tdp_control, xas_tdp_env)
-                  CALL xas_tdp_post(tddfpt_spin_cons, current_state, xas_tdp_env, &
-                                    xas_tdp_section, qs_env)
-                  CALL write_donor_state_restart(tddfpt_spin_cons, current_state, xas_tdp_section)
-               END IF
-
-               IF (xas_tdp_control%do_spin_flip) THEN
-                  CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
-                                          ex_type=tddfpt_spin_flip)
-                  !no dipole in spin-flip (spin-forbidden)
-                  CALL xas_tdp_post(tddfpt_spin_flip, current_state, xas_tdp_env, &
-                                    xas_tdp_section, qs_env)
-                  CALL write_donor_state_restart(tddfpt_spin_flip, current_state, xas_tdp_section)
-               END IF
-
-               IF (xas_tdp_control%do_singlet) THEN
-                  CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
-                                          ex_type=tddfpt_singlet)
-                  CALL compute_dipole_fosc(current_state, xas_tdp_control, xas_tdp_env)
-                  IF (xas_tdp_control%do_quad) CALL compute_quadrupole_fosc(current_state, &
-                                                                            xas_tdp_control, xas_tdp_env)
-                  CALL xas_tdp_post(tddfpt_singlet, current_state, xas_tdp_env, &
-                                    xas_tdp_section, qs_env)
-                  CALL write_donor_state_restart(tddfpt_singlet, current_state, xas_tdp_section)
-               END IF
-
-               IF (xas_tdp_control%do_triplet) THEN
-                  CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
-                                          ex_type=tddfpt_triplet)
-                  !no dipole for triplets by construction
-                  CALL xas_tdp_post(tddfpt_triplet, current_state, xas_tdp_env, &
-                                    xas_tdp_section, qs_env)
-                  CALL write_donor_state_restart(tddfpt_triplet, current_state, xas_tdp_section)
-               END IF
-
-!              Include the SOC if required
-               IF (xas_tdp_control%do_soc) THEN
-                  IF (xas_tdp_control%do_singlet .AND. xas_tdp_control%do_triplet) THEN
-                     CALL include_rcs_soc(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+!                 Initial write for the donor state of interest
+                  IF (output_unit > 0) THEN
+                     WRITE (UNIT=output_unit, FMT="(/,T3,A,A2,A,I4,A,A,/)") &
+                        "# Start of calculations for donor state of type ", &
+                        xas_tdp_env%state_type_char(current_state%state_type), " for atom", &
+                        current_state%at_index, " of kind ", TRIM(current_state%at_symbol)
+                     CALL m_flush(output_unit)
                   END IF
-                  IF (xas_tdp_control%do_spin_cons .AND. xas_tdp_control%do_spin_flip) THEN
-                     CALL include_os_soc(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+
+!                 Assign best fitting MO(s) to current core donnor state
+                  CALL assign_mos_to_donor_state(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+
+!                 Perform MO restricted Mulliken pop analysis for verification
+                  CALL perform_mulliken_on_donor_state(current_state, qs_env)
+
+!                 GW2X correction
+                  IF (xas_tdp_control%do_gw2x) THEN
+                     CALL GW2X_shift(current_state, xas_tdp_env, xas_tdp_control, qs_env)
                   END IF
-               END IF
 
-!              Print the requested properties
-               CALL print_xas_tdp_to_file(current_state, xas_tdp_env, xas_tdp_control, xas_tdp_section)
+!                 Do main XAS calculations here
+                  IF (.NOT. xas_tdp_control%xps_only) THEN
+                     CALL setup_xas_tdp_prob(current_state, qs_env, xas_tdp_env, xas_tdp_control)
 
-!              Free some unneeded attributes of current_state
-               CALL free_ds_memory(current_state)
+                     IF (xas_tdp_control%do_spin_cons) THEN
+                        CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
+                                                ex_type=tddfpt_spin_cons)
+                        CALL compute_dipole_fosc(current_state, xas_tdp_control, xas_tdp_env)
+                        IF (xas_tdp_control%do_quad) CALL compute_quadrupole_fosc(current_state, &
+                                                                                  xas_tdp_control, xas_tdp_env)
+                        CALL xas_tdp_post(tddfpt_spin_cons, current_state, xas_tdp_env, &
+                                          xas_tdp_section, qs_env)
+                        CALL write_donor_state_restart(tddfpt_spin_cons, current_state, xas_tdp_section, qs_env)
+                     END IF
 
-               current_state_index = current_state_index + 1
-               NULLIFY (current_state)
+                     IF (xas_tdp_control%do_spin_flip) THEN
+                        CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
+                                                ex_type=tddfpt_spin_flip)
+                        !no dipole in spin-flip (spin-forbidden)
+                        CALL xas_tdp_post(tddfpt_spin_flip, current_state, xas_tdp_env, &
+                                          xas_tdp_section, qs_env)
+                        CALL write_donor_state_restart(tddfpt_spin_flip, current_state, xas_tdp_section, qs_env)
+                     END IF
 
-            END DO ! state type
+                     IF (xas_tdp_control%do_singlet) THEN
+                        CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
+                                                ex_type=tddfpt_singlet)
+                        CALL compute_dipole_fosc(current_state, xas_tdp_control, xas_tdp_env)
+                        IF (xas_tdp_control%do_quad) CALL compute_quadrupole_fosc(current_state, &
+                                                                                  xas_tdp_control, xas_tdp_env)
+                        CALL xas_tdp_post(tddfpt_singlet, current_state, xas_tdp_env, &
+                                          xas_tdp_section, qs_env)
+                        CALL write_donor_state_restart(tddfpt_singlet, current_state, xas_tdp_section, qs_env)
+                     END IF
 
-            CALL free_exat_memory(xas_tdp_env, iatom)
-         END DO ! atom of kind
+                     IF (xas_tdp_control%do_triplet) THEN
+                        CALL solve_xas_tdp_prob(current_state, xas_tdp_control, xas_tdp_env, qs_env, &
+                                                ex_type=tddfpt_triplet)
+                        !no dipole for triplets by construction
+                        CALL xas_tdp_post(tddfpt_triplet, current_state, xas_tdp_env, &
+                                          xas_tdp_section, qs_env)
+                        CALL write_donor_state_restart(tddfpt_triplet, current_state, xas_tdp_section, qs_env)
+                     END IF
+
+!                    Include the SOC if required, only for 2p donor stataes
+                     IF (xas_tdp_control%do_soc .AND. current_state%state_type == xas_2p_type) THEN
+                        IF (xas_tdp_control%do_singlet .AND. xas_tdp_control%do_triplet) THEN
+                           CALL include_rcs_soc(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+                        END IF
+                        IF (xas_tdp_control%do_spin_cons .AND. xas_tdp_control%do_spin_flip) THEN
+                           CALL include_os_soc(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+                        END IF
+                     END IF
+
+!                    Print the requested properties
+                     CALL print_xas_tdp_to_file(current_state, xas_tdp_env, xas_tdp_control, xas_tdp_section)
+                  END IF !xps_only
+                  IF (xas_tdp_control%do_gw2x) CALL print_xps(current_state, xas_tdp_env, xas_tdp_control, qs_env)
+
+!                 Free some unneeded attributes of current_state
+                  CALL free_ds_memory(current_state)
+
+                  current_state_index = current_state_index + 1
+                  NULLIFY (current_state)
+
+               END DO ! state type
+
+               end_of_batch = .FALSE.
+               IF (iat == batch_size) end_of_batch = .TRUE.
+               CALL free_exat_memory(xas_tdp_env, iatom, end_of_batch)
+            END DO ! atom of batch
+            DEALLOCATE (batch_atoms)
+         END DO !ibatch
+         DEALLOCATE (ex_atoms_of_kind)
       END DO ! kind
 
 !  Return to ususal KS matrix
@@ -508,8 +553,6 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xas_tdp_init', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: kind_name
       INTEGER                                            :: at_ind, i, ispin, j, k, kind_ind, &
                                                             n_donor_states, n_kinds, nao, &
@@ -527,10 +570,10 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(gto_basis_set_type), POINTER                  :: tmp_basis
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(section_type), POINTER                        :: dummy_section
       TYPE(section_vals_type), POINTER                   :: loc_section, xas_tdp_section
@@ -691,7 +734,7 @@ CONTAINS
          nspins = 1; IF (do_uks) nspins = 2
 
          DO ispin = 1, nspins
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, eigenvalues=mo_evals)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, eigenvalues=mo_evals)
             CALL calculate_subspace_eigenvalues(mo_coeff, matrix_ks(ispin)%matrix, evals_arg=mo_evals)
          END DO
       END IF
@@ -706,16 +749,17 @@ CONTAINS
       xas_tdp_control%print_loc_subsection => section_vals_get_subs_vals( &
                                               xas_tdp_control%loc_subsection, "PRINT")
 
+      ALLOCATE (xas_tdp_env%qs_loc_env)
       CALL qs_loc_env_create(xas_tdp_env%qs_loc_env)
       qs_loc_env => xas_tdp_env%qs_loc_env
       loc_section => xas_tdp_control%loc_subsection
 !     getting the number of MOs
       CALL get_qs_env(qs_env, mos=mos)
-      CALL get_mo_set(mos(1)%mo_set, nmo=n_mo(1), homo=homo(1), nao=nao)
+      CALL get_mo_set(mos(1), nmo=n_mo(1), homo=homo(1), nao=nao)
       n_mo(2) = n_mo(1)
       homo(2) = homo(1)
       nspins = 1
-      IF (do_os) CALL get_mo_set(mos(2)%mo_set, nmo=n_mo(2), homo=homo(2))
+      IF (do_os) CALL get_mo_set(mos(2), nmo=n_mo(2), homo=homo(2))
       IF (do_uks) nspins = 2 !in roks, same MOs for both spins
 
       ! by default, all (doubly occupied) homo are localized
@@ -733,6 +777,7 @@ CONTAINS
 
 !     final qs_loc_env initialization. Impose Berry operator
       qs_loc_env%localized_wfn_control%operator_type = op_loc_berry
+      qs_loc_env%localized_wfn_control%max_iter = 25000
       IF (.NOT. xas_tdp_control%do_loc) THEN
          qs_loc_env%localized_wfn_control%localization_method = do_loc_none
       ELSE
@@ -759,11 +804,11 @@ CONTAINS
       ALLOCATE (xas_tdp_env%q_projector(nspins))
       ALLOCATE (xas_tdp_env%q_projector(1)%matrix)
       CALL dbcsr_create(xas_tdp_env%q_projector(1)%matrix, name="Q PROJECTOR ALPHA", &
-                        template=matrix_s(1)%matrix, matrix_type="N")
+                        template=matrix_s(1)%matrix, matrix_type=dbcsr_type_no_symmetry)
       IF (do_os) THEN
          ALLOCATE (xas_tdp_env%q_projector(2)%matrix)
          CALL dbcsr_create(xas_tdp_env%q_projector(2)%matrix, name="Q PROJECTOR BETA", &
-                           template=matrix_s(1)%matrix, matrix_type="N")
+                           template=matrix_s(1)%matrix, matrix_type=dbcsr_type_no_symmetry)
       END IF
 
 !     In the case of spin-restricted calculations, rho_ao includes double occupency => 0.5 prefactor
@@ -805,7 +850,7 @@ CONTAINS
       END IF
 
 !  Allocate SOC in AO basis matrices
-      IF (xas_tdp_control%do_soc) THEN
+      IF (xas_tdp_control%do_soc .OR. xas_tdp_control%do_gw2x) THEN
          ALLOCATE (xas_tdp_env%orb_soc(3))
          DO i = 1, 3
             ALLOCATE (xas_tdp_env%orb_soc(i)%matrix)
@@ -813,22 +858,74 @@ CONTAINS
       END IF
 
 !  Check that everything is allowed
-      CALL safety_check(xas_tdp_control)
+      CALL safety_check(xas_tdp_control, qs_env)
 
 !  Initialize libint for the 3-center integrals
       CALL cp_libint_static_init()
 
+!  Compute LUMOs as guess for OT solver and/or for GW2X correction
+      IF (xas_tdp_control%do_ot .OR. xas_tdp_control%do_gw2x) THEN
+         CALL make_lumo_guess(xas_tdp_env, xas_tdp_control, qs_env)
+      END IF
+
    END SUBROUTINE xas_tdp_init
+
+! **************************************************************************************************
+!> \brief splits the excited atoms of a kind into batches for RI 3c integrals load balance
+!> \param ex_atoms_of_kind the excited atoms for the current kind, randomly shuffled
+!> \param nbatch number of batches to loop over
+!> \param batch_size standard size of a batch
+!> \param atoms_of_kind number of atoms for the current kind (excited or not)
+!> \param xas_tdp_env ...
+! **************************************************************************************************
+   SUBROUTINE get_ri_3c_batches(ex_atoms_of_kind, nbatch, batch_size, atoms_of_kind, xas_tdp_env)
+
+      INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(INOUT)  :: ex_atoms_of_kind
+      INTEGER, INTENT(OUT)                               :: nbatch
+      INTEGER, INTENT(IN)                                :: batch_size
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: atoms_of_kind
+      TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
+
+      INTEGER                                            :: iat, iatom, nex_atom
+      TYPE(rng_stream_type), ALLOCATABLE                 :: rng_stream
+
+      !Get the atoms from atoms_of_kind that are excited
+      nex_atom = 0
+      DO iat = 1, SIZE(atoms_of_kind)
+         iatom = atoms_of_kind(iat)
+         IF (.NOT. ANY(xas_tdp_env%ex_atom_indices == iatom)) CYCLE
+         nex_atom = nex_atom + 1
+      END DO
+
+      ALLOCATE (ex_atoms_of_kind(nex_atom))
+      nex_atom = 0
+      DO iat = 1, SIZE(atoms_of_kind)
+         iatom = atoms_of_kind(iat)
+         IF (.NOT. ANY(xas_tdp_env%ex_atom_indices == iatom)) CYCLE
+         nex_atom = nex_atom + 1
+         ex_atoms_of_kind(nex_atom) = iatom
+      END DO
+
+      !We shuffle those atoms to spread them
+      rng_stream = rng_stream_type(name="uniform_rng", distribution_type=UNIFORM)
+      CALL rng_stream%shuffle(ex_atoms_of_kind(1:nex_atom))
+
+      nbatch = nex_atom/batch_size
+      IF (nbatch*batch_size .NE. nex_atom) nbatch = nbatch + 1
+
+   END SUBROUTINE get_ri_3c_batches
 
 ! **************************************************************************************************
 !> \brief Checks for forbidden keywords combinations
 !> \param xas_tdp_control ...
+!> \param qs_env ...
 ! **************************************************************************************************
-   SUBROUTINE safety_check(xas_tdp_control)
+   SUBROUTINE safety_check(xas_tdp_control, qs_env)
 
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'safety_check', routineP = moduleN//':'//routineN
+      TYPE(dft_control_type), POINTER                    :: dft_control
 
       !PB only available without exact exchange
       IF (xas_tdp_control%is_periodic .AND. xas_tdp_control%do_hfx &
@@ -869,9 +966,9 @@ CONTAINS
          END IF
       END IF
 
-      !Look for eigenvalues within energy range and SOC not compatible
-      IF (xas_tdp_control%e_range .GT. 0.0_dp .AND. xas_tdp_control%do_soc) THEN
-         CPABORT("Use N_EXCITED instead of ENERGY_RANGE for SOC calculations")
+      !Warn against using E_RANGE with SOC
+      IF (xas_tdp_control%do_soc .AND. xas_tdp_control%e_range > 0.0_dp) THEN
+         CPWARN("Using E_RANGE and SOC together may lead to crashes, use N_EXCITED for safety.")
       END IF
 
       !TDA, full-TDDFT and diagonalization
@@ -881,6 +978,31 @@ CONTAINS
             CPABORT("Spin-flip kernel only implemented for Tamm-Dancoff approximation")
          END IF
 
+         IF (xas_tdp_control%do_ot) THEN
+            CPABORT("OT diagonalization only available within the Tamm-Dancoff approximation")
+         END IF
+      END IF
+
+      !GW2X, need hfx kernel and LOCALIZE
+      IF (xas_tdp_control%do_gw2x) THEN
+         IF (.NOT. xas_tdp_control%do_hfx) THEN
+            CPABORT("GW2x requires the definition of the EXACT_EXCHANGE kernel")
+         END IF
+         IF (.NOT. xas_tdp_control%do_loc) THEN
+            CPABORT("GW2X requires the LOCALIZE keyword in DONOR_STATES")
+         END IF
+      END IF
+
+      !Only allow ADMM schemes that correct for eigenvalues
+      CALL get_qs_env(qs_env, dft_control=dft_control)
+      IF (dft_control%do_admm) THEN
+         IF ((.NOT. qs_env%admm_env%purification_method == do_admm_purify_none) .AND. &
+             (.NOT. qs_env%admm_env%purification_method == do_admm_purify_cauchy_subspace) .AND. &
+             (.NOT. qs_env%admm_env%purification_method == do_admm_purify_mo_diag)) THEN
+
+            CPABORT("XAS_TDP only compatible with ADMM purification NONE, CAUCHY_SUBSPACE and MO_DIAG")
+
+         END IF
       END IF
 
    END SUBROUTINE safety_check
@@ -897,20 +1019,20 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_info', routineP = moduleN//':'//routineN
-
-      CHARACTER(LEN=2*default_string_length)             :: shortform
-      CHARACTER(LEN=20)                                  :: tmpStr
-      CHARACTER(LEN=20*default_string_length)            :: reference
-      INTEGER                                            :: i, il, irep, nrep
+      INTEGER                                            :: i
+      REAL(dp)                                           :: occ
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(section_vals_type), POINTER                   :: input, libxc_fun, xc_fun, xc_functionals
+      TYPE(section_vals_type), POINTER                   :: input, kernel_section
 
-      NULLIFY (input, xc_functionals, libxc_fun, xc_fun, dft_control)
+      NULLIFY (input, kernel_section, dft_control, matrix_s)
+
+      CALL get_qs_env(qs_env, input=input, dft_control=dft_control, matrix_s=matrix_s)
+
+      !Overlap matrix sparsity
+      occ = dbcsr_get_occupation(matrix_s(1)%matrix)
 
       IF (ou .LE. 0) RETURN
-
-      CALL get_qs_env(qs_env, input=input, dft_control=dft_control)
 
       !Reference calculation
       IF (xas_tdp_control%do_uks) THEN
@@ -962,7 +1084,7 @@ CONTAINS
          "XAS_TDP| EPS_FILTER: ", xas_tdp_control%eps_filter
 
       !Grid info
-      IF (xas_tdp_control%do_soc .OR. xas_tdp_control%do_xc) THEN
+      IF (xas_tdp_control%do_xc) THEN
          WRITE (UNIT=ou, FMT="(T3,A)") &
             "XAS_TDP| Radial Grid(s) Info: Kind,  na,  nr"
          DO i = 1, SIZE(xas_tdp_control%grid_info, 1)
@@ -984,28 +1106,11 @@ CONTAINS
          WRITE (UNIT=ou, FMT="(/,T3,A,F5.2,A)") &
             "XAS_TDP| RI Region's Radius: ", xas_tdp_control%ri_radius*angstrom, " Ang"
 
-         !parallelization scheme
-         WRITE (UNIT=ou, FMT="(T3,A,I4,A)") &
-            "XAS_TDP| Excited atoms distributed on batches of ", xas_tdp_control%batch_size, " procs"
+         WRITE (UNIT=ou, FMT="(T3,A,/)") &
+            "XAS_TDP| XC Kernel Functional(s) used for the kernel:"
 
-         CALL libxc_version_info(tmpStr)
-         WRITE (UNIT=ou, FMT="(T3,A,A,/,T3,A,/)") &
-            "XAS_TDP| XC Kernel Functional(s) from LIBXC Vers. ", TRIM(tmpStr(1:5)), &
-            "         (Marques, Oliveira, Burnus, CPC 183, 2272 (2012)):"
-         xc_functionals => section_vals_get_subs_vals(input, "DFT%XAS_TDP%KERNEL%XC_FUNCTIONAL")
-         xc_fun => section_vals_get_subs_vals2(xc_functionals, i_section=1)
-         CALL section_vals_get(xc_fun, n_repetition=nrep)
-         DO irep = 1, nrep
-            NULLIFY (libxc_fun)
-            CALL section_vals_duplicate(xc_fun, libxc_fun, i_rep_start=irep, i_rep_end=irep)
-            IF (.NOT. ASSOCIATED(libxc_fun)) EXIT
-            CALL xc_functional_get_info(libxc_fun, lsd=.TRUE., reference=reference, shortform=shortform)
-            CALL section_vals_release(libxc_fun)
-            WRITE (ou, FMT="('  FUNCTIONAL| ',A,':')") TRIM(shortform)
-            DO il = 1, LEN_TRIM(reference), 67
-               WRITE (ou, FMT="('  FUNCTIONAL| ',a67)") reference(il:)
-            END DO
-         END DO
+         kernel_section => section_vals_get_subs_vals(input, "DFT%XAS_TDP%KERNEL")
+         CALL xc_write(ou, kernel_section, lsd=.TRUE.)
       END IF
 
       !HFX kernel
@@ -1061,6 +1166,42 @@ CONTAINS
             "XAS_TDP| Exact Exchange Kernel: No "
       END IF
 
+      !overlap mtrix occupation
+      WRITE (UNIT=ou, FMT="(/,T3,A,F5.2)") &
+         "XAS_TDP| Overlap matrix occupation: ", occ
+
+      !GW2X parameter
+      IF (xas_tdp_control%do_gw2x) THEN
+         WRITE (UNIT=ou, FMT="(T3,A,/)") &
+            "XAS_TDP| GW2X correction enabled"
+
+         IF (xas_tdp_control%xps_only) THEN
+            WRITE (UNIT=ou, FMT="(T3,A)") &
+               "GW2X| Only computing ionizations potentials for XPS"
+         END IF
+
+         IF (xas_tdp_control%pseudo_canonical) THEN
+            WRITE (UNIT=ou, FMT="(T3,A)") &
+               "GW2X| Using the pseudo-canonical scheme"
+         ELSE
+            WRITE (UNIT=ou, FMT="(T3,A)") &
+               "GW2X| Using the GW2X* scheme"
+         END IF
+
+         WRITE (UNIT=ou, FMT="(T3,A,ES7.1)") &
+            "GW2X| EPS_GW2X: ", xas_tdp_control%gw2x_eps
+
+         WRITE (UNIT=ou, FMT="(T3,A,I5)") &
+            "GW2X| contraction batch size: ", xas_tdp_control%batch_size
+
+         IF ((INT(xas_tdp_control%c_os) .NE. 1) .OR. (INT(xas_tdp_control%c_ss) .NE. 1)) THEN
+            WRITE (UNIT=ou, FMT="(T3,A,F7.4,/,T3,A,F7.4)") &
+               "GW2X| Same-spin scaling factor: ", xas_tdp_control%c_ss, &
+               "GW2X| Opposite-spin scaling factor: ", xas_tdp_control%c_os
+         END IF
+
+      END IF
+
    END SUBROUTINE print_info
 
 ! **************************************************************************************************
@@ -1081,9 +1222,6 @@ CONTAINS
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'assign_mos_to_ex_atoms', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: at_index, iat, iat_memo, imo, ispin, &
                                                             n_atoms, n_search, nex_atoms, nspins
@@ -1157,13 +1295,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE reinit_qs_loc_env(qs_loc_env, n_loc_states, do_uks, qs_env)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       INTEGER, INTENT(IN)                                :: n_loc_states
       LOGICAL, INTENT(IN)                                :: do_uks
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'reinit_qs_loc_env', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, nspins
       TYPE(localized_wfn_control_type), POINTER          :: loc_wfn_control
@@ -1215,20 +1350,17 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'diagonalize_assigned_mo_subset', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iat, ilmo, ispin, nao, nlmo, nspins
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: evals
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: ks_struct, lmo_struct
-      TYPE(cp_fm_type), POINTER                          :: evecs, ks_fm, lmo_fm, mo_coeff, work
+      TYPE(cp_fm_type)                                   :: evecs, ks_fm, lmo_fm, work
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
-      NULLIFY (mos, mo_coeff, matrix_ks, para_env, blacs_env, lmo_struct, lmo_fm, ks_struct, ks_fm)
-      NULLIFY (evecs, work)
+      NULLIFY (mos, mo_coeff, matrix_ks, para_env, blacs_env, lmo_struct, ks_struct)
 
       ! Get what we need from qs_env
       CALL get_qs_env(qs_env, mos=mos, matrix_ks=matrix_ks, para_env=para_env, blacs_env=blacs_env)
@@ -1240,7 +1372,7 @@ CONTAINS
          DO iat = 1, xas_tdp_env%nex_atoms
 
             ! get the MOs
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nao=nao)
 
             ! count how many MOs are associated to this atom and create a fm/struct
             nlmo = COUNT(xas_tdp_env%mos_of_ex_atoms(:, iat, ispin) == 1)
@@ -1268,7 +1400,7 @@ CONTAINS
 
             ! Computing the KS matrix in the subset of MOs
             CALL cp_dbcsr_sm_fm_multiply(matrix_ks(ispin)%matrix, lmo_fm, work, ncol=nlmo)
-            CALL cp_gemm('T', 'N', nlmo, nlmo, nao, 1.0_dp, lmo_fm, work, 0.0_dp, ks_fm)
+            CALL parallel_gemm('T', 'N', nlmo, nlmo, nao, 1.0_dp, lmo_fm, work, 0.0_dp, ks_fm)
 
             ! Diagonalizing the KS matrix in the subset of MOs
             ALLOCATE (evals(nlmo))
@@ -1276,7 +1408,7 @@ CONTAINS
             DEALLOCATE (evals)
 
             ! Express the MOs in the basis that diagonalizes KS
-            CALL cp_gemm('N', 'N', nao, nlmo, nlmo, 1.0_dp, lmo_fm, evecs, 0.0_dp, work)
+            CALL parallel_gemm('N', 'N', nao, nlmo, nlmo, 1.0_dp, lmo_fm, evecs, 0.0_dp, work)
 
             ! Replacing the new MOs back in the MO coeffs
             i = 0
@@ -1317,9 +1449,6 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'assign_mos_to_donor_state', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: at_index, i, iat, imo, ispin, l, my_mo, &
                                                             n_search, n_states, nao, ndo_so, nj, &
                                                             nsgf_kind, nsgf_sto, nspins, &
@@ -1329,6 +1458,7 @@ CONTAINS
       INTEGER, DIMENSION(4, 7)                           :: ne
       INTEGER, DIMENSION(:), POINTER                     :: first_sgf, lq, nq
       INTEGER, DIMENSION(:, :, :), POINTER               :: mos_of_ex_atoms
+      LOGICAL                                            :: unique
       REAL(dp)                                           :: zeff
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: diag, overlap, sto_overlap
       REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: max_overlap
@@ -1337,19 +1467,20 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: overlap_matrix, tmp_coeff
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: eval_mat_struct, gs_struct
-      TYPE(cp_fm_type), POINTER                          :: eval_mat, gs_coeffs, mo_coeff, work_mat
+      TYPE(cp_fm_type)                                   :: eval_mat, work_mat
+      TYPE(cp_fm_type), POINTER                          :: gs_coeffs, mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks
       TYPE(gto_basis_set_type), POINTER                  :: kind_basis_set, sto_to_gto_basis_set
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(sto_basis_set_type), POINTER                  :: sto_basis_set
 
       NULLIFY (sto_basis_set, sto_to_gto_basis_set, qs_kind_set, kind_basis_set, lq, nq, zeta)
       NULLIFY (overlap_matrix, mos, mo_coeff, mos_of_ex_atoms, tmp_coeff, first_sgf, particle_set)
-      NULLIFY (mo_evals, matrix_ks, para_env, blacs_env, work_mat)
-      NULLIFY (eval_mat_struct, eval_mat, gs_struct, gs_coeffs)
+      NULLIFY (mo_evals, matrix_ks, para_env, blacs_env)
+      NULLIFY (eval_mat_struct, gs_struct, gs_coeffs)
 
       output_unit = cp_logger_get_default_io_unit()
 
@@ -1358,7 +1489,7 @@ CONTAINS
 
       nspins = 1; IF (xas_tdp_control%do_uks) nspins = 2
 
-!  Contruction of a STO that fits the type of orbital we look for
+!  Construction of a STO that fits the type of orbital we look for
       ALLOCATE (zeta(1))
       ALLOCATE (lq(1))
       ALLOCATE (nq(1))
@@ -1444,7 +1575,7 @@ CONTAINS
 
       DO ispin = 1, nspins
 
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nao=nao)
          overlap = 0.0_dp
 
          my_mo = 0
@@ -1481,6 +1612,9 @@ CONTAINS
          next_best_overlap(ispin) = MAXVAL(overlap, 1)
          next_best_overlap_ind(ispin) = MAXLOC(overlap, 1)
 
+!        Sort MO indices
+         CALL sort_unique(my_mos(:, ispin), unique)
+
       END DO !ispin
 
 !     Some clean-up
@@ -1496,10 +1630,11 @@ CONTAINS
 !        Storing the MOs in the donor_state, as vectors column: first columns alpha spin, then beta
          CALL cp_fm_struct_create(gs_struct, nrow_global=nao, ncol_global=n_states*nspins, &
                                   para_env=para_env, context=blacs_env)
+         ALLOCATE (donor_state%gs_coeffs)
          CALL cp_fm_create(donor_state%gs_coeffs, gs_struct)
 
          DO ispin = 1, nspins
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
             DO i = 1, n_states
                CALL cp_fm_to_fm_submat(msource=mo_coeff, mtarget=donor_state%gs_coeffs, nrow=nao, &
                                        ncol=1, s_firstrow=1, s_firstcol=my_mos(i, ispin), &
@@ -1529,7 +1664,7 @@ CONTAINS
 
 !           Canonical MO, no change in eigenvalues, only diagonal elements
             DO ispin = 1, nspins
-               CALL get_mo_set(mos(ispin)%mo_set, eigenvalues=mo_evals)
+               CALL get_mo_set(mos(ispin), eigenvalues=mo_evals)
                DO i = 1, n_states
                   donor_state%energy_evals(i, ispin) = mo_evals(my_mos(i, ispin))
 
@@ -1580,7 +1715,7 @@ CONTAINS
 !              Compute gs_coeff^T * matrix_ks * gs_coeff to get the epsilon_ij matrix
                DO ispin = 1, nspins
                   CALL cp_dbcsr_sm_fm_multiply(matrix_ks(ispin)%matrix, gs_coeffs, work_mat, ncol=ndo_so)
-                  CALL cp_gemm('T', 'N', ndo_so, ndo_so, nao, 1.0_dp, gs_coeffs, work_mat, 0.0_dp, eval_mat)
+                  CALL parallel_gemm('T', 'N', ndo_so, ndo_so, nao, 1.0_dp, gs_coeffs, work_mat, 0.0_dp, eval_mat)
 
 !                 Put the epsilon_ii into the donor_state. No off-diagonal element because of subset diag
                   CALL cp_fm_get_diag(eval_mat, diag)
@@ -1596,7 +1731,7 @@ CONTAINS
 !              Compute gs_coeff^T * matrix_ks * gs_coeff to get the epsilon_ij matrix
                DO ispin = 1, 2
                   CALL cp_dbcsr_sm_fm_multiply(matrix_ks(ispin)%matrix, gs_coeffs, work_mat, ncol=ndo_so)
-                  CALL cp_gemm('T', 'N', ndo_so, ndo_so, nao, 1.0_dp, gs_coeffs, work_mat, 0.0_dp, eval_mat)
+                  CALL parallel_gemm('T', 'N', ndo_so, ndo_so, nao, 1.0_dp, gs_coeffs, work_mat, 0.0_dp, eval_mat)
 
                   CALL cp_fm_get_diag(eval_mat, diag)
                   donor_state%energy_evals(:, ispin) = diag(:)
@@ -1612,6 +1747,10 @@ CONTAINS
             CALL cp_fm_struct_release(eval_mat_struct)
 
          END IF ! do_localize and/or ROKS
+
+!        Allocate and initialize GW2X corrected IPs as energy_evals
+         ALLOCATE (donor_state%gw2x_evals(SIZE(donor_state%energy_evals, 1), SIZE(donor_state%energy_evals, 2)))
+         donor_state%gw2x_evals(:, :) = donor_state%energy_evals(:, :)
 
 !        Clean-up
          CALL cp_fm_struct_release(gs_struct)
@@ -1648,9 +1787,6 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'find_mo_centers', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: dim_op, i, ispin, j, n_centers, nao, &
                                                             nspins
       REAL(dp), DIMENSION(6)                             :: weights
@@ -1659,14 +1795,15 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: moloc_coeff
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: opvec, vectors
+      TYPE(cp_fm_type)                                   :: opvec
+      TYPE(cp_fm_type), POINTER                          :: vectors
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: op_sm_set
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_loc_section, prog_run_info
 
       NULLIFY (qs_loc_env, zij_fm_set, cell, print_loc_section, op_sm_set, moloc_coeff, vectors)
-      NULLIFY (opvec, tmp_fm_struct, para_env, blacs_env, prog_run_info)
+      NULLIFY (tmp_fm_struct, para_env, blacs_env, prog_run_info)
 
 !  Initialization
       print_loc_section => xas_tdp_control%print_loc_subsection
@@ -1702,6 +1839,7 @@ CONTAINS
       ALLOCATE (zij_fm_set(2, dim_op))
       DO i = 1, dim_op
          DO j = 1, 2
+            ALLOCATE (zij_fm_set(j, i)%matrix)
             CALL cp_fm_create(zij_fm_set(j, i)%matrix, tmp_fm_struct)
          END DO
       END DO
@@ -1716,8 +1854,8 @@ CONTAINS
             DO j = 1, 2
                CALL cp_fm_set_all(zij_fm_set(j, i)%matrix, 0.0_dp)
                CALL cp_dbcsr_sm_fm_multiply(op_sm_set(j, i)%matrix, vectors, opvec, ncol=n_centers)
-               CALL cp_gemm("T", "N", n_centers, n_centers, nao, 1.0_dp, vectors, opvec, 0.0_dp, &
-                            zij_fm_set(j, i)%matrix)
+               CALL parallel_gemm("T", "N", n_centers, n_centers, nao, 1.0_dp, vectors, opvec, 0.0_dp, &
+                                  zij_fm_set(j, i)%matrix)
             END DO
          END DO
 
@@ -1733,6 +1871,7 @@ CONTAINS
       DO i = 1, dim_op
          DO j = 1, 2
             CALL cp_fm_release(zij_fm_set(j, i)%matrix)
+            DEALLOCATE (zij_fm_set(j, i)%matrix)
          END DO
       END DO
       DEALLOCATE (zij_fm_set)
@@ -1754,8 +1893,6 @@ CONTAINS
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_checks', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: kind_name
       INTEGER                                            :: current_state_index, iat, iatom, ikind, &
@@ -1829,7 +1966,7 @@ CONTAINS
    END SUBROUTINE print_checks
 
 ! **************************************************************************************************
-!> \brief Computes the required multipole moment in the lenght representation for a given atom
+!> \brief Computes the required multipole moment in the length representation for a given atom
 !> \param iatom index of the given atom
 !> \param xas_tdp_env ...
 !> \param xas_tdp_control ...
@@ -1842,9 +1979,6 @@ CONTAINS
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_lenrep_multipole', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, order
       REAL(dp), DIMENSION(3)                             :: rc
@@ -1897,8 +2031,7 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_dipole_fosc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_dipole_fosc'
 
       INTEGER                                            :: handle, iosc, j, nao, ndo_mo, ndo_so, &
                                                             ngs, nosc, nspins
@@ -1909,11 +2042,12 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: lr_evals, osc_str
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: col_struct, mat_struct
-      TYPE(cp_fm_type), POINTER                          :: col_work, lr_coeffs, mat_work
+      TYPE(cp_fm_type)                                   :: col_work, mat_work
+      TYPE(cp_fm_type), POINTER                          :: lr_coeffs
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dipmat
 
-      NULLIFY (dipmat, col_work, mat_work, col_struct, mat_struct, para_env, blacs_env, lr_coeffs)
+      NULLIFY (dipmat, col_struct, mat_struct, para_env, blacs_env, lr_coeffs)
       NULLIFY (lr_evals, osc_str)
 
       CALL timeset(routineN, handle)
@@ -1958,7 +2092,7 @@ CONTAINS
          !Compute dip*gs_coeffs
          CALL cp_dbcsr_sm_fm_multiply(dipmat(j)%matrix, donor_state%gs_coeffs, col_work, ncol=ngs)
          !compute lr_coeffs*dip*gs_coeffs
-         CALL cp_gemm('T', 'N', ndo_so*nosc, ngs, nao, 1.0_dp, lr_coeffs, col_work, 0.0_dp, mat_work)
+         CALL parallel_gemm('T', 'N', ndo_so*nosc, ngs, nao, 1.0_dp, lr_coeffs, col_work, 0.0_dp, mat_work)
 
          !Loop over the excited states
          DO iosc = 1, nosc
@@ -2012,8 +2146,7 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_quadrupole_fosc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_quadrupole_fosc'
 
       INTEGER                                            :: handle, iosc, j, nao, ndo_mo, ndo_so, &
                                                             ngs, nosc, nspins
@@ -2024,11 +2157,12 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: lr_evals, osc_str
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: col_struct, mat_struct
-      TYPE(cp_fm_type), POINTER                          :: col_work, lr_coeffs, mat_work
+      TYPE(cp_fm_type)                                   :: col_work, mat_work
+      TYPE(cp_fm_type), POINTER                          :: lr_coeffs
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: quadmat
 
-      NULLIFY (lr_evals, osc_str, mat_work, lr_coeffs, col_work, col_struct, mat_struct, para_env)
+      NULLIFY (lr_evals, osc_str, lr_coeffs, col_struct, mat_struct, para_env)
       NULLIFY (blacs_env)
 
       CALL timeset(routineN, handle)
@@ -2075,7 +2209,7 @@ CONTAINS
          !Compute quad*gs_coeffs
          CALL cp_dbcsr_sm_fm_multiply(quadmat(j)%matrix, donor_state%gs_coeffs, col_work, ncol=ngs)
          !compute lr_coeffs*quadmat*gs_coeffs
-         CALL cp_gemm('T', 'N', ndo_so*nosc, ngs, nao, 1.0_dp, lr_coeffs, col_work, 0.0_dp, mat_work)
+         CALL parallel_gemm('T', 'N', ndo_so*nosc, ngs, nao, 1.0_dp, lr_coeffs, col_work, 0.0_dp, mat_work)
 
          !Loop over the excited states
          DO iosc = 1, nosc
@@ -2132,9 +2266,6 @@ CONTAINS
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mos_to_ex_atoms_association', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: kind_name
       INTEGER                                            :: at_index, imo, ispin, nmo, nspins, &
@@ -2221,9 +2352,6 @@ CONTAINS
       TYPE(donor_state_type), POINTER                    :: donor_state
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perform_mulliken_on_donor_state', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: at_index, i, ispin, nao, natom, ndo_mo, &
                                                             ndo_so, nsgf, nspins, output_unit
       INTEGER, DIMENSION(:), POINTER                     :: first_sgf, last_sgf
@@ -2232,14 +2360,15 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: work_array
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: col_vect_struct
-      TYPE(cp_fm_type), POINTER                          :: gs_coeffs, work_vect
+      TYPE(cp_fm_type)                                   :: work_vect
+      TYPE(cp_fm_type), POINTER                          :: gs_coeffs
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
       NULLIFY (mo_indices, qs_kind_set, particle_set, first_sgf, work_array)
-      NULLIFY (matrix_s, para_env, blacs_env, col_vect_struct, work_vect, last_sgf)
+      NULLIFY (matrix_s, para_env, blacs_env, col_vect_struct, last_sgf)
 
 !  Initialization
       at_index = donor_state%at_index
@@ -2320,36 +2449,37 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: xas_tdp_section
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xas_tdp_post', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'xas_tdp_post'
 
       CHARACTER(len=default_string_length)               :: domo, domon, excite, pos, xas_mittle
-      INTEGER                                            :: handle, ic, ido_mo, imo, irep, ispin, &
-                                                            n_dependent, n_rep, nao, ncubes, &
-                                                            ndo_mo, ndo_so, nlumo, nmo, nspins, &
-                                                            output_unit
+      INTEGER :: ex_state_idx, handle, ic, ido_mo, imo, irep, ispin, n_dependent, n_rep, nao, &
+         ncubes, ndo_mo, ndo_so, nlumo, nmo, nspins, output_unit
       INTEGER, DIMENSION(:), POINTER                     :: bounds, list, state_list
-      LOGICAL                                            :: append_cube, do_cubes, do_pdos
+      LOGICAL                                            :: append_cube, do_cubes, do_pdos, &
+                                                            do_wfn_restart
       REAL(dp), DIMENSION(:), POINTER                    :: lr_evals
       REAL(dp), DIMENSION(:, :), POINTER                 :: centers
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct, mo_struct
-      TYPE(cp_fm_type), POINTER                          :: lr_coeffs, mo_coeff, work_fm
+      TYPE(cp_fm_type)                                   :: mo_coeff, work_fm
+      TYPE(cp_fm_type), POINTER                          :: lr_coeffs
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(mo_set_type), POINTER                         :: mo_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: print_key
 
-      NULLIFY (atomic_kind_set, particle_set, qs_kind_set, mo_set, lr_evals, lr_coeffs, mo_coeff)
-      NULLIFY (mo_struct, para_env, blacs_env, fm_struct, matrix_s, work_fm, print_key, logger)
-      NULLIFY (bounds, state_list, list)
+      NULLIFY (atomic_kind_set, particle_set, qs_kind_set, mo_set, lr_evals, lr_coeffs)
+      NULLIFY (mo_struct, para_env, blacs_env, fm_struct, matrix_s, print_key, logger)
+      NULLIFY (bounds, state_list, list, mos)
 
       !Tests on what to do
       logger => cp_get_default_logger()
-      do_pdos = .FALSE.; do_cubes = .FALSE.
+      do_pdos = .FALSE.; do_cubes = .FALSE.; do_wfn_restart = .FALSE.
 
       IF (BTEST(cp_print_key_should_output(logger%iter_info, xas_tdp_section, &
                                            "PRINT%PDOS"), cp_p_file)) do_pdos = .TRUE.
@@ -2357,14 +2487,17 @@ CONTAINS
       IF (BTEST(cp_print_key_should_output(logger%iter_info, xas_tdp_section, &
                                            "PRINT%CUBES"), cp_p_file)) do_cubes = .TRUE.
 
-      IF (.NOT. (do_pdos .OR. do_cubes)) RETURN
+      IF (BTEST(cp_print_key_should_output(logger%iter_info, xas_tdp_section, &
+                                           "PRINT%RESTART_WFN"), cp_p_file)) do_wfn_restart = .TRUE.
+
+      IF (.NOT. (do_pdos .OR. do_cubes .OR. do_wfn_restart)) RETURN
 
       CALL timeset(routineN, handle)
 
       !Initialization
       CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set, particle_set=particle_set, &
                       qs_kind_set=qs_kind_set, para_env=para_env, blacs_env=blacs_env, &
-                      matrix_s=matrix_s)
+                      matrix_s=matrix_s, mos=mos)
 
       SELECT CASE (ex_type)
       CASE (tddfpt_spin_cons)
@@ -2407,6 +2540,48 @@ CONTAINS
                                nrow_global=nao, ncol_global=nmo)
       CALL cp_fm_create(mo_coeff, mo_struct)
 
+      !Dump the TDDFT excited state AMEW wavefunction into a file for restart in RTP
+      IF (do_wfn_restart) THEN
+         BLOCK
+            TYPE(mo_set_type), DIMENSION(2) :: restart_mos
+            IF (.NOT. (nspins == 1 .AND. donor_state%state_type == xas_1s_type)) THEN
+               CPABORT("RESTART.wfn file only available for RKS K-edge XAS spectroscopy")
+            END IF
+
+            CALL section_vals_val_get(xas_tdp_section, "PRINT%RESTART_WFN%EXCITED_STATE_INDEX", n_rep_val=n_rep)
+
+            DO irep = 1, n_rep
+               CALL section_vals_val_get(xas_tdp_section, "PRINT%RESTART_WFN%EXCITED_STATE_INDEX", &
+                                         i_rep_val=irep, i_val=ex_state_idx)
+               CPASSERT(ex_state_idx <= SIZE(lr_evals))
+
+               DO ispin = 1, 2
+                  CALL duplicate_mo_set(restart_mos(ispin), mos(1))
+               END DO
+
+               CALL cp_fm_to_fm_submat(msource=lr_coeffs, mtarget=restart_mos(1)%mo_coeff, nrow=nao, &
+                                       ncol=1, s_firstrow=1, s_firstcol=ex_state_idx, t_firstrow=1, &
+                                       t_firstcol=donor_state%mo_indices(1, 1))
+
+               xas_mittle = 'xasat'//TRIM(ADJUSTL(cp_to_string(donor_state%at_index)))//'_'//TRIM(domo)// &
+                            '_'//TRIM(excite)//'_idx'//TRIM(ADJUSTL(cp_to_string(ex_state_idx)))
+               output_unit = cp_print_key_unit_nr(logger, xas_tdp_section, "PRINT%RESTART_WFN", &
+                                                  extension=".wfn", file_status="REPLACE", &
+                                                  file_action="WRITE", file_form="UNFORMATTED", &
+                                                  middle_name=xas_mittle)
+
+               CALL write_mo_set_low(restart_mos, particle_set=particle_set, &
+                                     qs_kind_set=qs_kind_set, ires=output_unit)
+
+               CALL cp_print_key_finished_output(output_unit, logger, xas_tdp_section, "PRINT%RESTART_WFN")
+
+               DO ispin = 1, 2
+                  CALL deallocate_mo_set(restart_mos(ispin))
+               END DO
+            END DO
+         END BLOCK
+      END IF
+
       !PDOS related stuff
       IF (do_pdos) THEN
 
@@ -2414,6 +2589,7 @@ CONTAINS
          IF (.NOT. ASSOCIATED(xas_tdp_env%matrix_shalf) .AND. do_pdos) THEN
             CALL cp_fm_struct_create(fm_struct, context=blacs_env, para_env=para_env, &
                                      nrow_global=nao, ncol_global=nao)
+            ALLOCATE (xas_tdp_env%matrix_shalf)
             CALL cp_fm_create(xas_tdp_env%matrix_shalf, fm_struct)
             CALL cp_fm_create(work_fm, fm_struct)
 
@@ -2492,6 +2668,7 @@ CONTAINS
          DO ispin = 1, nspins
 
             !need to create a mo set for the LR-orbitals
+            ALLOCATE (mo_set)
             CALL allocate_mo_set(mo_set, nao=nao, nmo=nmo, nelectron=nmo, n_el_f=REAL(nmo, dp), &
                                  maxocc=1.0_dp, flexible_electron_count=0.0_dp)
             CALL init_mo_set(mo_set, fm_ref=mo_coeff, name="PDOS XAS_TDP MOs")
@@ -2529,6 +2706,7 @@ CONTAINS
 
             !clean-up
             CALL deallocate_mo_set(mo_set)
+            DEALLOCATE (mo_set)
 
          END DO
       END DO
@@ -2541,6 +2719,252 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE xas_tdp_post
+
+! **************************************************************************************************
+!> \brief Computed the LUMOs for the OT eigensolver guesses
+!> \param xas_tdp_env ...
+!> \param xas_tdp_control ...
+!> \param qs_env ...
+!> \note Uses stendard diagonalization. Do not use the stendard make_lumo subroutine as it uses
+!>       the OT eigensolver and there is no guarantee that it will converge fast
+! **************************************************************************************************
+   SUBROUTINE make_lumo_guess(xas_tdp_env, xas_tdp_control, qs_env)
+
+      TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
+      TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_lumo_guess'
+
+      INTEGER                                            :: handle, ispin, nao, nelec_spin(2), &
+                                                            nlumo(2), nocc(2), nspins
+      LOGICAL                                            :: do_os
+      REAL(dp), ALLOCATABLE, DIMENSION(:)                :: evals
+      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
+      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct, lumo_struct
+      TYPE(cp_fm_type)                                   :: amatrix, bmatrix, evecs, work_fm
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
+
+      NULLIFY (matrix_ks, matrix_s, para_env, blacs_env)
+      NULLIFY (lumo_struct, fm_struct)
+
+      CALL timeset(routineN, handle)
+
+      do_os = xas_tdp_control%do_uks .OR. xas_tdp_control%do_roks
+      nspins = 1; IF (do_os) nspins = 2
+      ALLOCATE (xas_tdp_env%lumo_evecs(nspins))
+      ALLOCATE (xas_tdp_env%lumo_evals(nspins))
+      CALL get_qs_env(qs_env, matrix_ks=matrix_ks, matrix_s=matrix_s, nelectron_spin=nelec_spin, &
+                      para_env=para_env, blacs_env=blacs_env)
+      CALL dbcsr_get_info(matrix_s(1)%matrix, nfullrows_total=nao)
+
+      IF (do_os) THEN
+         nlumo = nao - nelec_spin
+         nocc = nelec_spin
+      ELSE
+         nlumo = nao - nelec_spin(1)/2
+         nocc = nelec_spin(1)/2
+      END IF
+
+      ALLOCATE (xas_tdp_env%ot_prec(nspins))
+
+      DO ispin = 1, nspins
+
+         !Going through fm to diagonalize
+         CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
+                                  nrow_global=nao, ncol_global=nao)
+         CALL cp_fm_create(amatrix, fm_struct)
+         CALL cp_fm_create(bmatrix, fm_struct)
+         CALL cp_fm_create(evecs, fm_struct)
+         CALL cp_fm_create(work_fm, fm_struct)
+         ALLOCATE (evals(nao))
+         ALLOCATE (xas_tdp_env%lumo_evals(ispin)%array(nlumo(ispin)))
+
+         CALL copy_dbcsr_to_fm(matrix_ks(ispin)%matrix, amatrix)
+         CALL copy_dbcsr_to_fm(matrix_s(1)%matrix, bmatrix)
+
+         !The actual diagonalization through Cholesky decomposition
+         CALL cp_fm_geeig(amatrix, bmatrix, evecs, evals, work_fm)
+
+         !Storing results
+         CALL cp_fm_struct_create(lumo_struct, para_env=para_env, context=blacs_env, &
+                                  nrow_global=nao, ncol_global=nlumo(ispin))
+         ALLOCATE (xas_tdp_env%lumo_evecs(ispin)%matrix)
+         CALL cp_fm_create(xas_tdp_env%lumo_evecs(ispin)%matrix, lumo_struct)
+
+         CALL cp_fm_to_fm_submat(evecs, xas_tdp_env%lumo_evecs(ispin)%matrix, nrow=nao, &
+                                 ncol=nlumo(ispin), s_firstrow=1, s_firstcol=nocc(ispin) + 1, &
+                                 t_firstrow=1, t_firstcol=1)
+
+         xas_tdp_env%lumo_evals(ispin)%array(1:nlumo(ispin)) = evals(nocc(ispin) + 1:nao)
+
+         CALL build_ot_spin_prec(evecs, evals, ispin, xas_tdp_env, xas_tdp_control, qs_env)
+
+         !clean-up
+         CALL cp_fm_release(amatrix)
+         CALL cp_fm_release(bmatrix)
+         CALL cp_fm_release(evecs)
+         CALL cp_fm_release(work_fm)
+         CALL cp_fm_struct_release(fm_struct)
+         CALL cp_fm_struct_release(lumo_struct)
+         DEALLOCATE (evals)
+      END DO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE make_lumo_guess
+
+! **************************************************************************************************
+!> \brief Builds a preconditioner for the OT eigensolver, based on some heurstics that prioritize
+!>        LUMOs with lower eigenvalues
+!> \param evecs all the ground state eigenvectors
+!> \param evals all the ground state eigenvalues
+!> \param ispin ...
+!> \param xas_tdp_env ...
+!> \param xas_tdp_control ...
+!> \param qs_env ...
+!> \note assumes that the preconditioner matrix array is allocated
+! **************************************************************************************************
+   SUBROUTINE build_ot_spin_prec(evecs, evals, ispin, xas_tdp_env, xas_tdp_control, qs_env)
+
+      TYPE(cp_fm_type), INTENT(IN)                       :: evecs
+      REAL(dp), DIMENSION(:)                             :: evals
+      INTEGER                                            :: ispin
+      TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
+      TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_ot_spin_prec'
+
+      INTEGER                                            :: handle, nao, nelec_spin(2), nguess, &
+                                                            nocc, nspins
+      LOGICAL                                            :: do_os
+      REAL(dp)                                           :: shift
+      REAL(dp), ALLOCATABLE, DIMENSION(:)                :: scaling
+      TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
+      TYPE(cp_fm_type)                                   :: fm_prec, work_fm
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
+
+      NULLIFY (fm_struct, para_env, matrix_s)
+
+      CALL timeset(routineN, handle)
+
+      do_os = xas_tdp_control%do_uks .OR. xas_tdp_control%do_roks
+      CALL get_qs_env(qs_env, para_env=para_env, nelectron_spin=nelec_spin, matrix_s=matrix_s)
+      CALL cp_fm_get_info(evecs, nrow_global=nao, matrix_struct=fm_struct)
+      CALL cp_fm_create(fm_prec, fm_struct)
+      ALLOCATE (scaling(nao))
+      nocc = nelec_spin(1)/2
+      nspins = 1
+      IF (do_os) THEN
+         nocc = nelec_spin(ispin)
+         nspins = 2
+      END IF
+
+      !rough estimate of the number of required evals
+      nguess = nao - nocc
+      IF (xas_tdp_control%n_excited > 0 .AND. xas_tdp_control%n_excited < nguess) THEN
+         nguess = xas_tdp_control%n_excited/nspins
+      ELSE IF (xas_tdp_control%e_range > 0.0_dp) THEN
+         nguess = COUNT(evals(nocc + 1:nao) - evals(nocc + 1) .LE. xas_tdp_control%e_range)
+      END IF
+
+      !Give max weight to the first LUMOs
+      scaling(nocc + 1:nocc + nguess) = 100.0_dp
+      !Then gradually decrease weight
+      shift = evals(nocc + 1) - 0.01_dp
+      scaling(nocc + nguess:nao) = 1.0_dp/(evals(nocc + nguess:nao) - shift)
+      !HOMOs do not matter, but need well behaved matrix
+      scaling(1:nocc) = 1.0_dp
+
+      !Building the precond as an fm
+      CALL cp_fm_create(work_fm, fm_struct)
+
+      CALL cp_fm_copy_general(evecs, work_fm, para_env)
+      CALL cp_fm_column_scale(work_fm, scaling)
+
+      CALL parallel_gemm('N', 'T', nao, nao, nao, 1.0_dp, work_fm, evecs, 0.0_dp, fm_prec)
+
+      !Copy into dbcsr format
+      ALLOCATE (xas_tdp_env%ot_prec(ispin)%matrix)
+      CALL dbcsr_create(xas_tdp_env%ot_prec(ispin)%matrix, template=matrix_s(1)%matrix, name="OT_PREC")
+      CALL copy_fm_to_dbcsr(fm_prec, xas_tdp_env%ot_prec(ispin)%matrix)
+      CALL dbcsr_filter(xas_tdp_env%ot_prec(ispin)%matrix, xas_tdp_control%eps_filter)
+
+      CALL cp_fm_release(work_fm)
+      CALL cp_fm_release(fm_prec)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE build_ot_spin_prec
+
+! **************************************************************************************************
+!> \brief Prints GW2X corrected ionization potentials to main output file, including SOC splitting
+!> \param donor_state ...
+!> \param xas_tdp_env ...
+!> \param xas_tdp_control ...
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE print_xps(donor_state, xas_tdp_env, xas_tdp_control, qs_env)
+
+      TYPE(donor_state_type), POINTER                    :: donor_state
+      TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
+      TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      INTEGER                                            :: ido_mo, ispin, nspins, output_unit
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: IPs, soc_shifts
+
+      output_unit = cp_logger_get_default_io_unit()
+
+      nspins = 1; IF (xas_tdp_control%do_uks .OR. xas_tdp_control%do_roks) nspins = 2
+
+      ALLOCATE (IPs(SIZE(donor_state%gw2x_evals, 1), SIZE(donor_state%gw2x_evals, 2)))
+      IPs(:, :) = donor_state%gw2x_evals(:, :)
+
+      !IPs in PBCs cannot be trusted because of a lack of a potential reference
+      IF (.NOT. xas_tdp_control%is_periodic) THEN
+
+         !Apply SOC splitting
+         IF (donor_state%ndo_mo > 1) THEN
+            CALL get_soc_splitting(soc_shifts, donor_state, xas_tdp_env, xas_tdp_control, qs_env)
+            IPs(:, :) = IPs(:, :) + soc_shifts
+
+            IF (output_unit > 0) THEN
+               WRITE (output_unit, FMT="(/,T5,A,F23.6)") &
+                  "Ionization potentials for XPS (GW2X + SOC): ", -IPs(1, 1)*evolt
+
+               DO ispin = 1, nspins
+                  DO ido_mo = 1, donor_state%ndo_mo
+
+                     IF (ispin == 1 .AND. ido_mo == 1) CYCLE
+
+                     WRITE (output_unit, FMT="(T5,A,F23.6)") &
+                        "                                            ", -IPs(ido_mo, ispin)*evolt
+
+                  END DO
+               END DO
+            END IF
+
+         ELSE
+
+            ! No SOC, only 1 donor MO per spin
+            IF (output_unit > 0) THEN
+               WRITE (output_unit, FMT="(/,T5,A,F29.6)") &
+                  "Ionization potentials for XPS (GW2X): ", -IPs(1, 1)*evolt
+
+               IF (nspins == 2) THEN
+                  WRITE (output_unit, FMT="(T5,A,F29.6)") &
+                     "                                      ", -IPs(1, 2)*evolt
+               END IF
+            END IF
+
+         END IF
+      END IF
+
+   END SUBROUTINE print_xps
 
 ! **************************************************************************************************
 !> \brief Prints the excitation energies and the oscillator strengths for a given donor_state in a file
@@ -2556,9 +2980,6 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(section_vals_type), POINTER                   :: xas_tdp_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_xas_tdp_to_file', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, output_unit, xas_tdp_unit
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -2572,7 +2993,7 @@ CONTAINS
       output_unit = cp_logger_get_default_io_unit()
 
       IF (output_unit > 0) THEN
-         WRITE (output_unit, FMT="(/,T5,A)") &
+         WRITE (output_unit, FMT="(/,T5,A,/)") &
             "Calculations done: "
       END IF
 
@@ -2611,7 +3032,7 @@ CONTAINS
          END IF !xas_tdp_unit > 0
 
          IF (output_unit > 0) THEN
-            WRITE (output_unit, FMT="(T5,A,F25.6)") &
+            WRITE (output_unit, FMT="(T5,A,F17.6)") &
                "First spin-conserving XAS excitation energy (eV): ", donor_state%sc_evals(1)*evolt
          END IF
 
@@ -2651,7 +3072,7 @@ CONTAINS
          END IF !xas_tdp_unit
 
          IF (output_unit > 0) THEN
-            WRITE (output_unit, FMT="(T5,A,F25.6)") &
+            WRITE (output_unit, FMT="(T5,A,F23.6)") &
                "First spin-flip XAS excitation energy (eV): ", donor_state%sf_evals(1)*evolt
          END IF
       END IF ! do_spin_flip
@@ -2735,7 +3156,7 @@ CONTAINS
          END IF
       END IF ! do_triplet
 
-      IF (xas_tdp_control%do_soc) THEN
+      IF (xas_tdp_control%do_soc .AND. donor_state%state_type == xas_2p_type) THEN
          IF (xas_tdp_unit > 0) THEN
 
 !           Printing the general donor state information
@@ -2769,7 +3190,7 @@ CONTAINS
          END IF !xas_tdp_unit
 
          IF (output_unit > 0) THEN
-            WRITE (output_unit, FMT="(T5,A,F25.6)") &
+            WRITE (output_unit, FMT="(T5,A,F29.6)") &
                "First SOC XAS excitation energy (eV): ", donor_state%soc_evals(1)*evolt
          END IF
       END IF !do_soc
@@ -2784,28 +3205,31 @@ CONTAINS
 !> \param ex_type singlet, triplet, etc.
 !> \param donor_state ...
 !> \param xas_tdp_section ...
+!> \param qs_env ...
 ! **************************************************************************************************
-   SUBROUTINE write_donor_state_restart(ex_type, donor_state, xas_tdp_section)
+   SUBROUTINE write_donor_state_restart(ex_type, donor_state, xas_tdp_section, qs_env)
 
       INTEGER, INTENT(IN)                                :: ex_type
       TYPE(donor_state_type), POINTER                    :: donor_state
       TYPE(section_vals_type), POINTER                   :: xas_tdp_section
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_donor_state_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_donor_state_restart'
 
       CHARACTER(len=default_path_length)                 :: filename
       CHARACTER(len=default_string_length)               :: domo, excite, my_middle
-      INTEGER                                            :: ex_atom, handle, nao, ndo_mo, nex, &
-                                                            nspins, output_unit, rst_unit, &
+      INTEGER                                            :: ex_atom, handle, ispin, nao, ndo_mo, &
+                                                            nex, nspins, output_unit, rst_unit, &
                                                             state_type
+      INTEGER, DIMENSION(:, :), POINTER                  :: mo_indices
       LOGICAL                                            :: do_print
       REAL(dp), DIMENSION(:), POINTER                    :: lr_evals
       TYPE(cp_fm_type), POINTER                          :: lr_coeffs
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: print_key
 
-      NULLIFY (logger, lr_coeffs, lr_evals, print_key)
+      NULLIFY (logger, lr_coeffs, lr_evals, print_key, mos)
 
       !Initialization
       logger => cp_get_default_logger()
@@ -2857,6 +3281,7 @@ CONTAINS
       CALL cp_fm_get_info(lr_coeffs, nrow_global=nao)
       state_type = donor_state%state_type
       ex_atom = donor_state%at_index
+      mo_indices => donor_state%mo_indices
 
       !Opening restart file
       rst_unit = -1
@@ -2878,9 +3303,16 @@ CONTAINS
       IF (rst_unit > 0) THEN
          WRITE (rst_unit) ex_atom, state_type, ndo_mo, ex_type
          WRITE (rst_unit) nao, nex, nspins
+         WRITE (rst_unit) mo_indices(:, :)
          WRITE (rst_unit) lr_evals(:)
       END IF
       CALL cp_fm_write_unformatted(lr_coeffs, rst_unit)
+
+      !The MOs as well (because the may have been localized)
+      CALL get_qs_env(qs_env, mos=mos)
+      DO ispin = 1, nspins
+         CALL cp_fm_write_unformatted(mos(ispin)%mo_coeff, rst_unit)
+      END DO
 
       !closing
       CALL cp_print_key_finished_output(rst_unit, logger, xas_tdp_section, "PRINT%RESTART")
@@ -2903,20 +3335,21 @@ CONTAINS
       CHARACTER(len=*), INTENT(IN)                       :: filename
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_donor_state_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_donor_state_restart'
 
-      INTEGER                                            :: group, handle, nao, nex, nspins, &
+      INTEGER                                            :: group, handle, ispin, nao, nex, nspins, &
                                                             output_unit, read_params(7), rst_unit, &
                                                             source
+      INTEGER, DIMENSION(:, :), POINTER                  :: mo_indices
       LOGICAL                                            :: file_exists
       REAL(dp), DIMENSION(:), POINTER                    :: lr_evals
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       TYPE(cp_fm_type), POINTER                          :: lr_coeffs
       TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
-      NULLIFY (lr_evals, lr_coeffs, para_env, fm_struct, blacs_env)
+      NULLIFY (lr_evals, lr_coeffs, para_env, fm_struct, blacs_env, mos)
 
       CALL timeset(routineN, handle)
 
@@ -2958,6 +3391,13 @@ CONTAINS
       nex = read_params(6)
       nspins = read_params(7)
 
+      ALLOCATE (mo_indices(donor_state%ndo_mo, nspins))
+      IF (rst_unit > 0) THEN
+         READ (rst_unit) mo_indices(1:donor_state%ndo_mo, 1:nspins)
+      END IF
+      CALL mp_bcast(mo_indices, source, group)
+      donor_state%mo_indices => mo_indices
+
       !read evals
       ALLOCATE (lr_evals(nex))
       IF (rst_unit > 0) READ (rst_unit) lr_evals(1:nex)
@@ -2966,9 +3406,16 @@ CONTAINS
       !read evecs
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, para_env=para_env, &
                                nrow_global=nao, ncol_global=nex*donor_state%ndo_mo*nspins)
+      ALLOCATE (lr_coeffs)
       CALL cp_fm_create(lr_coeffs, fm_struct)
       CALL cp_fm_read_unformatted(lr_coeffs, rst_unit)
       CALL cp_fm_struct_release(fm_struct)
+
+      !read MO coeffs and replace in qs_env
+      CALL get_qs_env(qs_env, mos=mos)
+      DO ispin = 1, nspins
+         CALL cp_fm_read_unformatted(mos(ispin)%mo_coeff, rst_unit)
+      END DO
 
       !closing file
       IF (para_env%ionode) THEN
@@ -3007,9 +3454,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: xas_tdp_section
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'restart_calculation', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ex_type
       TYPE(donor_state_type), POINTER                    :: donor_state
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
@@ -3028,6 +3472,7 @@ CONTAINS
       !clean-up
       CALL xas_tdp_env_release(xas_tdp_env)
       CALL free_ds_memory(donor_state)
+      DEALLOCATE (donor_state%mo_indices)
       DEALLOCATE (donor_state)
 
    END SUBROUTINE restart_calculation

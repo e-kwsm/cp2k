@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -111,9 +113,6 @@ CONTAINS
       INTEGER                                            :: memory_usage
       LOGICAL                                            :: use_disk_storage
       INTEGER(int_8), OPTIONAL                           :: max_val_memory
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_compress_cache', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: end_idx, increment_counter, start_idx, &
                                                             tmp_elements, tmp_nints

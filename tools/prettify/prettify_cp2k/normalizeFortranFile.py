@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 import re
 import logging
@@ -46,7 +48,7 @@ VAR_RE = re.compile(
     rf"""
 \s*(?P<var>{VALID_NAME})
 \s*(?P<rest>(:?\((?P<param>{NESTED_PAREN_1TO3_CONTENTS})\))?
-\s*(?:=\s*(?P<value>(?:
+\s*(?:(?P<assignment>=>?)\s*(?P<value>(?:
 {NOT_PUNC_COMMA}+|
 {BRAC_OPEN}(?:{NOT_PUNC}|{BRAC_OPEN}{NOT_PUNC}*{BRAC_CLOSE}|{QUOTED})*{BRAC_CLOSE}|
 {QUOTED})+))?)?
@@ -65,7 +67,7 @@ use(\s+|(?P<intrinsic>\s*,\s*Intrinsic\s+::\s*))
     flags=re.IGNORECASE | re.VERBOSE,
 )
 
-COMMON_USES_RE = re.compile('^#include\s*"([^"]*(cp_common_uses.f90|base_uses.f90))"')
+COMMON_USES_RE = re.compile(r'^#include\s*"([^"]*(cp_common_uses.f90|base_uses.f90))"')
 LOCAL_NAME_RE = re.compile(
     rf"\s*(?P<localName>{VALID_NAME})(?:\s*=>\s*{VALID_NAME})?\s*$", re.VERBOSE
 )
@@ -120,11 +122,6 @@ NON_WORD_RE = re.compile(r"(\(/|/\)|[^-+a-zA-Z0-9_.])")
 
 STR_RE = re.compile(r"('[^'\n]*'|\"[^\"\n]*\")")
 
-COMMENT_TO_REMOVE_RE = re.compile(
-    r" *! *(?:interface|arguments|parameters|locals?|\** *local +variables *\**|\** *local +parameters *\**) *$",
-    re.IGNORECASE,
-)
-
 MODULE_N_RE = re.compile(
     r".*:: *moduleN *= *(['\"])[a-zA-Z_0-9]+\1", flags=re.IGNORECASE
 )
@@ -153,7 +150,7 @@ class CharFilter(object):
         return self
 
     def __next__(self):
-        """ python 3 version"""
+        """python 3 version"""
         pos, char = next(self._it)
         if not self._instring and char == "!":
             raise StopIteration
@@ -171,7 +168,7 @@ class CharFilter(object):
         return (pos, char)
 
     def next(self):
-        """ python 2 version"""
+        """python 2 version"""
         pos, char = self._it.next()
         if not self._instring and char == "!":
             raise StopIteration
@@ -317,7 +314,7 @@ def parseRoutine(inFile, logger):
         m = INCLUDE_RE.match(lines[0])
         if m:
             try:
-                subF = open(m.group("file"), "r")
+                subF = open(m.group("file"), "r", encoding="utf8")
                 subStream = InputStream(subF)
                 while True:
                     (subjline, _, sublines) = subStream.nextFortranLine()
@@ -325,7 +322,7 @@ def parseRoutine(inFile, logger):
                         break
                     routine["strippedCore"].append(subjline)
                 subF.close()
-            except:
+            except Exception:
                 import traceback
 
                 logger.debug(
@@ -407,7 +404,7 @@ def parseRoutine(inFile, logger):
                     if m2.group("param"):
                         var += "(" + m2.group("param") + ")"
                     if m2.group("value"):
-                        var += " = "
+                        var += " {} ".format(m2["assignment"])
                         var += m2.group("value")
                     decl["vars"].append(var)
                     str = str[m2.span()[1] :]
@@ -481,7 +478,7 @@ def parseRoutine(inFile, logger):
         m = INCLUDE_RE.match(lines[0])
         if m:
             try:
-                subF = open(m.group("file"), "r")
+                subF = open(m.group("file"), "r", encoding="utf8")
                 subStream = InputStream(subF)
                 while True:
                     (subjline, _, sublines) = subStream.nextFortranLine()
@@ -489,7 +486,7 @@ def parseRoutine(inFile, logger):
                         break
                     routine["strippedCore"].append(subjline)
                 subF.close()
-            except:
+            except Exception:
                 import traceback
 
                 logger.debug(
@@ -906,8 +903,7 @@ def cleanDeclarations(routine, logger):
 
         newDecl = StringIO()
         for comment in routine["preDeclComments"]:
-            if not COMMENT_TO_REMOVE_RE.match(comment):
-                newDecl.write(comment)
+            newDecl.write(comment)
         newDecl.writelines(routine["use"])
         writeDeclarations(argDecl, newDecl)
         if argDecl and paramDecl:
@@ -920,14 +916,14 @@ def cleanDeclarations(routine, logger):
             newDecl.write("\n")
         wrote = 0
         for comment in routine["declComments"]:
-            if comment.strip() and not COMMENT_TO_REMOVE_RE.match(comment):
+            if comment.strip():
                 newDecl.write(comment.strip())
                 newDecl.write("\n")
                 wrote = 1
         if wrote:
             newDecl.write("\n")
         routine["declarations"] = [newDecl.getvalue()]
-    except:
+    except Exception:
         if "name" in routine.keys():
             logger.critical("exception cleaning routine " + routine["name"])
         logger.critical("parsedDeclartions={}".format(routine["parsedDeclarations"]))
@@ -943,9 +939,8 @@ def cleanDeclarations(routine, logger):
                 comment_start += 1
 
         for comment in routine["postDeclComments"][comment_start:]:
-            if not COMMENT_TO_REMOVE_RE.match(comment):
-                newDecl.write(comment)
-                newDecl.write("\n")
+            newDecl.write(comment)
+            newDecl.write("\n")
         routine["declarations"][0] += newDecl.getvalue()
 
 
@@ -1160,7 +1155,7 @@ def writeUseShort(m, file):
 def prepareImplicitUses(modules):
     """Transforms a modulesDict into an implictUses (dictionary of module names
     each containing a dictionary with the only, and the special key '_WHOLE_'
-    wich is true if the whole mosule is implicitly present"""
+    which is true if the whole module is implicitly present"""
     mods = {}
     for m in modules:
         m_name = m["module"].lower()
@@ -1180,7 +1175,7 @@ def prepareImplicitUses(modules):
 
 
 def cleanUse(modulesDict, rest, implicitUses, logger):
-    """Removes the unneded modules (the ones that are not used in rest)"""
+    """Removes the unneeded modules (the ones that are not used in rest)"""
 
     exceptions = {}
     modules = modulesDict["modules"]
@@ -1298,10 +1293,10 @@ def rewriteFortranFile(
             inc_fn = COMMON_USES_RE.match(modulesDict["commonUses"]).group(1)
             inc_absfn = os.path.join(os.path.dirname(orig_filename), inc_fn)
             try:
-                with open(inc_absfn, "r") as fhandle:
+                with open(inc_absfn, "r", encoding="utf8") as fhandle:
                     implicitUsesRaw = parseUse(fhandle)
                 implicitUses = prepareImplicitUses(implicitUsesRaw["modules"])
-            except:
+            except Exception:
                 logger.critical(
                     "failed to parse use statements contained in common uses precompiler file {}".format(
                         inc_absfn

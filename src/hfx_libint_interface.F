@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -193,7 +195,7 @@ CONTAINS
          DO i = 1, m_max + 1
             F(i) = F(i)*(potential_parameter%scale_coulomb + potential_parameter%scale_longrange) - &
                    Fm(i)*potential_parameter%scale_longrange
-         ENDDO
+         END DO
 
          ! longrange
          omega2 = potential_parameter%omega**2
@@ -258,7 +260,7 @@ CONTAINS
 
       DO i = 1, m_max + 1
          F(i) = F(i)*factor
-      ENDDO
+      END DO
 
       CALL cp_libint_set_params_eri_screen(libint, A, B, C, D, P, Q, W, ZetaInv, EtaInv, ZetapEtaInv, Rho, m_max, F)
 
@@ -572,7 +574,7 @@ CONTAINS
                   work_forces(j, k) = -1.0_dp*(work_forces(j, k - 3) + &
                                                work_forces(j, k + 3) + &
                                                work_forces(j, k + 6))
-               ENDDO
+               END DO
             END DO
             DO k = 1, 12
                DO j = 1, mysize

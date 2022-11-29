@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! *****************************************************************************
@@ -24,12 +26,11 @@ MODULE qs_energy_matrix_w
    USE kpoint_methods,                  ONLY: kpoint_density_matrices,&
                                               kpoint_density_transform
    USE kpoint_types,                    ONLY: kpoint_type
+   USE qs_density_matrices,             ONLY: calculate_w_matrix,&
+                                              calculate_w_matrix_ot
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
-   USE qs_ks_methods,                   ONLY: calculate_w_matrix,&
-                                              calculate_w_matrix_ot
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
@@ -62,8 +63,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: calc_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_compute_w', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_compute_w'
 
       INTEGER                                            :: handle, is, ispin, nao, nspin
       LOGICAL                                            :: do_kpoints, has_unit_metric
@@ -71,11 +71,11 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER                   :: ao_ao_fmstruct
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, matrix_w, &
-                                                            matrix_w_mp2, mo_derivs, rho_ao
+                                                            mo_derivs, rho_ao
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s_kp, matrix_w_kp
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(mo_set_type), POINTER                         :: mo_set
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
@@ -99,13 +99,13 @@ CONTAINS
                             mos=mos, &
                             kpoints=kpoints)
 
-            CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff, nao=nao)
+            CALL get_mo_set(mos(1), mo_coeff=mo_coeff, nao=nao)
             CALL cp_fm_struct_create(fmstruct=ao_ao_fmstruct, nrow_global=nao, ncol_global=nao, &
                                      template_fmstruct=mo_coeff%matrix_struct)
 
             ALLOCATE (fmwork(2))
             DO is = 1, SIZE(fmwork)
-               NULLIFY (fmwork(is)%matrix)
+               ALLOCATE (fmwork(is)%matrix)
                CALL cp_fm_create(fmwork(is)%matrix, matrix_struct=ao_ao_fmstruct)
             END DO
             CALL cp_fm_struct_release(ao_ao_fmstruct)
@@ -118,6 +118,7 @@ CONTAINS
 
             DO is = 1, SIZE(fmwork)
                CALL cp_fm_release(fmwork(is)%matrix)
+               DEALLOCATE (fmwork(is)%matrix)
             END DO
             DEALLOCATE (fmwork)
 
@@ -128,7 +129,6 @@ CONTAINS
                             matrix_w=matrix_w, &
                             matrix_ks=matrix_ks, &
                             matrix_s=matrix_s, &
-                            matrix_w_mp2=matrix_w_mp2, &
                             mo_derivs=mo_derivs, &
                             scf_control=scf_control, &
                             mos=mos, &
@@ -139,7 +139,7 @@ CONTAINS
 
             nspin = SIZE(mos)
             DO ispin = 1, nspin
-               mo_set => mos(ispin)%mo_set
+               mo_set => mos(ispin)
                IF (dft_control%roks) THEN
                   IF (scf_control%use_ot) THEN
                      IF (ispin > 1) THEN

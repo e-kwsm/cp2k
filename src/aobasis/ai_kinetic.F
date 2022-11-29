@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,8 +69,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT), &
          OPTIONAL                                        :: dab
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'kinetic', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, ia, &
                                                             ib, idx, idy, idz, ipgf, jpgf, la, lb, &
                                                             ldrr, lma, lmb, ma, mb, na, nb, ofa, &
@@ -126,7 +126,7 @@ CONTAINS
                IF (PRESENT(dab)) dab(ma + 1:ma + na, mb + 1:mb + nb, 1:3) = 0.0_dp
                mb = mb + nb
                CYCLE
-            ENDIF
+            END IF
 
             ! Calculate some prefactors
             a = zeta(ipgf)
@@ -211,12 +211,12 @@ CONTAINS
                      dab(ia, ib, 1:3) = f0*dab(ia, ib, 1:3)
                   END IF
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
-            ENDDO
-            ENDDO
-            ENDDO !lb
+               END DO
+               END DO
+               END DO !la
+            END DO
+            END DO
+            END DO !lb
 
             mb = mb + nb
          END DO

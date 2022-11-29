@@ -1,9 +1,7 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # author: Ole Schuett
 
-from __future__ import print_function
 
 import argparse
 
@@ -13,7 +11,7 @@ def summarize(issue_files, suppressions):
     suppress = []
 
     if suppressions:
-        with open(suppressions) as fhandle:
+        with open(suppressions, encoding="utf8") as fhandle:
             suppress = (line.rstrip() for line in fhandle)
             # ignore empty and commented out lines
             suppress = [line for line in suppress if line and not line.startswith("#")]
@@ -21,7 +19,7 @@ def summarize(issue_files, suppressions):
     issues = []
 
     for fn in issue_files:
-        with open(fn) as fhandle:
+        with open(fn, encoding="utf8") as fhandle:
             lines = (line.strip() for line in fhandle)
             # only add non-empty lines
             issues += [line for line in lines if line]

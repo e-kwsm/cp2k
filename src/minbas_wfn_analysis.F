@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -32,7 +34,6 @@ MODULE minbas_wfn_analysis
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
@@ -58,6 +59,7 @@ MODULE minbas_wfn_analysis
    USE molden_utils,                    ONLY: write_mos_molden
    USE mulliken,                        ONLY: compute_bond_order,&
                                               mulliken_charges
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
@@ -70,7 +72,7 @@ MODULE minbas_wfn_analysis
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_wavefunction
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -81,7 +83,6 @@ MODULE minbas_wfn_analysis
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               deallocate_mo_set,&
                                               get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type,&
                                               set_mo_set
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
@@ -110,8 +111,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input_section
       INTEGER, INTENT(IN)                                :: unit_nr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'minbas_analysis', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'minbas_analysis'
 
       INTEGER                                            :: handle, homo, i, ispin, nao, natom, &
                                                             nimages, nmao, nmo, nspin
@@ -124,7 +124,8 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: occupation_numbers
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_a, fm_struct_b, fm_struct_c
-      TYPE(cp_fm_type), POINTER                          :: fm1, fm2, fm3, fm4, fm_mos
+      TYPE(cp_fm_type)                                   :: fm1, fm2, fm3, fm4
+      TYPE(cp_fm_type), POINTER                          :: fm_mos
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_distribution_type), POINTER             :: dbcsr_dist
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mao_coef, pqmat, quambo, sqmat
@@ -132,8 +133,8 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: psmat, sinv, smao, smaox, spmat
       TYPE(dbcsr_type), POINTER                          :: smat
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mbas, mos
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: mbas
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
@@ -176,7 +177,7 @@ CONTAINS
       CALL minbas_calculation(qs_env, mos, quambo, mao=mao_coef, iounit=unit_nr, &
                               full_ortho=full_ortho, eps_filter=eps_filter)
       IF (ASSOCIATED(quambo)) THEN
-         CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(1), nao=nao, nmo=nmo)
          CALL get_qs_env(qs_env=qs_env, ks_env=ks_env)
          CALL get_qs_env(qs_env=qs_env, qs_kind_set=qs_kind_set, natom=natom)
          CALL get_ks_env(ks_env=ks_env, particle_set=particle_set, dbcsr_dist=dbcsr_dist)
@@ -244,15 +245,15 @@ CONTAINS
             CALL dbcsr_create(smaox, name="S*QM*SINV", template=smao)
             CALL dbcsr_multiply("N", "N", 1.0_dp, smao, sinv, 0.0_dp, smaox)
             CALL copy_dbcsr_to_fm(smaox, fm1)
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=fm_mos, homo=homo)
-            CALL cp_gemm("T", "N", nmao, nmo, nao, 1.0_dp, fm1, fm_mos, 0.0_dp, fm2)
+            CALL get_mo_set(mos(ispin), mo_coeff=fm_mos, homo=homo)
+            CALL parallel_gemm("T", "N", nmao, nmo, nao, 1.0_dp, fm1, fm_mos, 0.0_dp, fm2)
             CALL cp_dbcsr_sm_fm_multiply(sqmat(ispin)%matrix, fm2, fm3, nmo)
-            CALL cp_gemm("T", "N", nmo, nmo, nmao, 1.0_dp, fm2, fm3, 0.0_dp, fm4)
+            CALL parallel_gemm("T", "N", nmo, nmo, nmao, 1.0_dp, fm2, fm3, 0.0_dp, fm4)
             CALL cp_fm_get_diag(fm4, fnorm(1:nmo, ispin))
             ! fm2 are the projected MOs (in MAO basis); orthogonalize the occupied subspace
             CALL make_basis_lowdin(vmatrix=fm2, ncol=homo, matrix_s=sqmat(ispin)%matrix)
             ! pmat
-            CALL get_mo_set(mos(ispin)%mo_set, occupation_numbers=occupation_numbers, maxocc=alpha)
+            CALL get_mo_set(mos(ispin), occupation_numbers=occupation_numbers, maxocc=alpha)
             occeq = ALL(occupation_numbers(1:homo) == alpha)
             CALL dbcsr_copy(pqmat(ispin)%matrix, sqmat(ispin)%matrix)
             CALL dbcsr_set(pqmat(ispin)%matrix, 0.0_dp)
@@ -304,7 +305,7 @@ CONTAINS
          END IF
          ! MO expansion completness
          DO ispin = 1, nspin
-            CALL get_mo_set(mos(ispin)%mo_set, homo=homo, nmo=nmo)
+            CALL get_mo_set(mos(ispin), homo=homo, nmo=nmo)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, '(/,T2,A,I2)') 'MO expansion in Localized Minimal Basis: Spin ', ispin
                WRITE (unit_nr, '(T64,A)') 'Occupied Orbitals'
@@ -352,29 +353,26 @@ CONTAINS
          ! for printing purposes we now copy the QUAMBOs into MO format
          ALLOCATE (mbas(nspin))
          DO ispin = 1, nspin
-            NULLIFY (mbas(ispin)%mo_set)
-            CALL allocate_mo_set(mbas(ispin)%mo_set, nao, nmao, nmao, 0.0_dp, 1.0_dp, 0.0_dp)
-            mo_set => mbas(ispin)%mo_set
-            CALL set_mo_set(mo_set, homo=nmao)
-            ALLOCATE (mo_set%eigenvalues(nmao))
-            mo_set%eigenvalues = 0.0_dp
-            ALLOCATE (mo_set%occupation_numbers(nmao))
-            mo_set%occupation_numbers = 1.0_dp
-            CALL cp_fm_create(mo_set%mo_coeff, fm_struct_a)
-            CALL copy_dbcsr_to_fm(quambo(ispin)%matrix, mo_set%mo_coeff)
+            CALL allocate_mo_set(mbas(ispin), nao, nmao, nmao, 0.0_dp, 1.0_dp, 0.0_dp)
+            CALL set_mo_set(mbas(ispin), homo=nmao)
+            ALLOCATE (mbas(ispin)%eigenvalues(nmao))
+            mbas(ispin)%eigenvalues = 0.0_dp
+            ALLOCATE (mbas(ispin)%occupation_numbers(nmao))
+            mbas(ispin)%occupation_numbers = 1.0_dp
+            CALL cp_fm_create(mbas(ispin)%mo_coeff, fm_struct_a)
+            CALL copy_dbcsr_to_fm(quambo(ispin)%matrix, mbas(ispin)%mo_coeff)
          END DO
 
          ! Print basis functions: cube files
          DO ispin = 1, nspin
-            mo_set => mbas(ispin)%mo_set
-            CALL get_mo_set(mo_set, mo_coeff=fm_mos)
+            CALL get_mo_set(mbas(ispin), mo_coeff=fm_mos)
             CALL post_minbas_cubes(qs_env, input_section, fm_mos, ispin)
          END DO
          ! Print basis functions: molden format
          molden_section => section_vals_get_subs_vals(input_section, "MINBAS_MOLDEN")
          CALL write_mos_molden(mbas, qs_kind_set, particle_set, molden_section)
          DO ispin = 1, nspin
-            CALL deallocate_mo_set(mbas(ispin)%mo_set)
+            CALL deallocate_mo_set(mbas(ispin))
          END DO
          DEALLOCATE (mbas)
 
@@ -414,8 +412,6 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: quambo, smao
       INTEGER, DIMENSION(:, :), INTENT(INOUT)            :: ecount
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pm_extend', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatom, jatom, n
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: wij
@@ -453,8 +449,6 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: mao, smao, sovl
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: prmao
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'project_mao', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iatom, jatom, n
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: wi
@@ -489,11 +483,8 @@ CONTAINS
    SUBROUTINE post_minbas_cubes(qs_env, print_section, minbas_coeff, ispin)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: print_section
-      TYPE(cp_fm_type), POINTER                          :: minbas_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: minbas_coeff
       INTEGER, INTENT(IN)                                :: ispin
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_minbas_cubes', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_path_length)                 :: filename, title
       INTEGER                                            :: i, i_rep, ivec, iw, j, n_rep, natom
@@ -506,8 +497,8 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: minbas_section
@@ -515,8 +506,6 @@ CONTAINS
       minbas_section => section_vals_get_subs_vals(print_section, "MINBAS_CUBE")
       CALL section_vals_get(minbas_section, explicit=explicit)
       IF (.NOT. explicit) RETURN
-
-      CPASSERT(ASSOCIATED(minbas_coeff))
 
       logger => cp_get_default_logger()
       stride => section_get_ivals(print_section, "MINBAS_CUBE%STRIDE")
@@ -534,8 +523,8 @@ CONTAINS
       END DO
 
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
       ! loop over list of atoms
       CALL section_vals_val_get(minbas_section, "ATOM_LIST", n_rep_val=n_rep)
@@ -550,7 +539,7 @@ CONTAINS
                                          mpi_io=mpi_io)
                CALL calculate_wavefunction(minbas_coeff, ivec, wf_r, wf_g, atomic_kind_set, qs_kind_set, &
                                            cell, dft_control, particle_set, pw_env)
-               CALL cp_pw_to_cube(wf_r%pw, iw, title, particles=particles, stride=stride, mpi_io=mpi_io)
+               CALL cp_pw_to_cube(wf_r, iw, title, particles=particles, stride=stride, mpi_io=mpi_io)
                CALL cp_print_key_finished_output(iw, logger, print_section, "MINBAS_CUBE", mpi_io=mpi_io)
             END DO
          END DO
@@ -568,15 +557,15 @@ CONTAINS
                                             mpi_io=mpi_io)
                   CALL calculate_wavefunction(minbas_coeff, ivec, wf_r, wf_g, atomic_kind_set, qs_kind_set, &
                                               cell, dft_control, particle_set, pw_env)
-                  CALL cp_pw_to_cube(wf_r%pw, iw, title, particles=particles, stride=stride, mpi_io=mpi_io)
+                  CALL cp_pw_to_cube(wf_r, iw, title, particles=particles, stride=stride, mpi_io=mpi_io)
                   CALL cp_print_key_finished_output(iw, logger, print_section, "MINBAS_CUBE", mpi_io=mpi_io)
                END DO
             END DO
          END DO
       END IF
       DEALLOCATE (blk_sizes, first_bas)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
 
    END SUBROUTINE post_minbas_cubes
 

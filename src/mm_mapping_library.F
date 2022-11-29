@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,7 +49,6 @@ CONTAINS
    SUBROUTINE create_ff_map(ff_type)
       CHARACTER(LEN=*), INTENT(IN)                       :: ff_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ff_map', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: amb_imax = 66, chm_imax = 108, &
                                                             grm_imax = 22
 
@@ -136,8 +137,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE destroy_ff_map(ff_type)
       CHARACTER(LEN=*), INTENT(IN)                       :: ff_type
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'destroy_ff_map', routineP = moduleN//':'//routineN
 
       SELECT CASE (ff_type)
       CASE ("AMBER")

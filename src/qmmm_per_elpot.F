@@ -1,16 +1,17 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
-
-! **************************************************************************************************
-MODULE qmmm_per_elpot
 
 ! **************************************************************************************************
 !> \brief Setting up the potential for QM/MM periodic boundary conditions calculations
 !> \par History
 !>      07.2005 created [tlaino]
 !> \author Teodoro Laino
+! **************************************************************************************************
+MODULE qmmm_per_elpot
    USE ao_util,                         ONLY: exp_radius
    USE cell_types,                      ONLY: cell_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -90,9 +91,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: qmmm_periodic, print_section
       REAL(KIND=dp), INTENT(IN)                          :: eps_mm_rspace, maxchrg
       INTEGER, INTENT(IN)                                :: ncp(3), ncpl(3)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_per_potential_init', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: I, idim, ig, ig_start, iw, ix, iy, iz, &
                                                             K, Kmax(3), n_rep_real(3), &
@@ -184,7 +182,7 @@ CONTAINS
                            Ak = pgf%Ak(Ig)*Pi**(3.0_dp/2.0_dp)*Gk**3.0_dp
                            LG(idim) = LG(idim) - Ak*EXP(-(g*Gk)**2.0_dp/4.0_dp)
                         END DO
-                     ENDIF
+                     END IF
                      LG(idim) = fs*LG(idim)*1.0_dp/Vol
                      gx(idim) = fac(1)*REAL(ix, KIND=dp)
                      gy(idim) = fac(2)*REAL(iy, KIND=dp)
@@ -200,7 +198,7 @@ CONTAINS
                      alpha = 1.0_dp/pgf%Gk(I)
                      alpha = alpha*alpha
                      Prefactor = pgf%Ak(I)*maxchrg
-                     mymaxradius = MAX(mymaxradius, exp_radius(0, alpha, eps_mm_rspace, Prefactor))
+                     mymaxradius = MAX(mymaxradius, exp_radius(0, alpha, eps_mm_rspace, Prefactor, rlow=mymaxradius))
                   END IF
                END DO
                box(1) = (qm_cell_small%hmat(1, 1) - mm_cell%hmat(1, 1))/2.0_dp
@@ -288,9 +286,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: qmmm_per_section, print_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_per_pot_type_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: npts(3)
       INTEGER, DIMENSION(:), POINTER                     :: ngrids
       REAL(KIND=dp)                                      :: hmat(3, 3)
@@ -345,9 +340,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: qmmm_periodic, print_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_ewald_potential_init', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ewald_type, gmax(3), iw, o_spline, ounit
       LOGICAL                                            :: do_multipoles
       REAL(KIND=dp)                                      :: alpha, rcut
@@ -362,11 +354,13 @@ CONTAINS
 
       ! Create Ewald environments
       poisson_section => section_vals_get_subs_vals(qmmm_periodic, "POISSON")
+      ALLOCATE (ewald_env)
       CALL ewald_env_create(ewald_env, para_env)
       CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
       ewald_section => section_vals_get_subs_vals(poisson_section, "EWALD")
       CALL read_ewald_section(ewald_env, ewald_section)
       ewald_print_section => section_vals_get_subs_vals(print_section, "GRID_INFORMATION")
+      ALLOCATE (ewald_pw)
       CALL ewald_pw_create(ewald_pw, ewald_env, mm_cell, mm_cell, print_section=ewald_print_section)
 
       CALL ewald_env_get(ewald_env, ewald_type=ewald_type, do_multipoles=do_multipoles, &
@@ -412,7 +406,4 @@ CONTAINS
 
    END SUBROUTINE qmmm_ewald_potential_init
 
-! **************************************************************************************************
-
 END MODULE qmmm_per_elpot
-

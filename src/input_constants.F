@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -17,6 +19,7 @@ MODULE input_constants
    USE kinds,                           ONLY: dp
 
    IMPLICIT NONE
+
    PRIVATE
 
    ! Tags for development/release versions
@@ -49,7 +52,8 @@ MODULE input_constants
                                                do_eip = 5, &
                                                do_mixed = 6, &
                                                do_embed = 7, &
-                                               do_sirius = 8
+                                               do_sirius = 8, &
+                                               do_nnp = 9
 
    ! QMMM
    REAL(KIND=dp), PARAMETER, PUBLIC         :: RADIUS_QMMM_DEFAULT = 0.80_dp, & ! Angstrom
@@ -65,7 +69,7 @@ MODULE input_constants
    INTEGER, PARAMETER, PUBLIC               :: weight_type_unit = 0, &
                                                weight_type_mass = 1
 
-   ! diag methods
+   ! Diagonalization routines of the ScaLAPACK library
    INTEGER, PARAMETER, PUBLIC               :: do_diag_syevd = 1, &
                                                do_diag_syevx = 2
    ! initial matrix methods methods
@@ -100,7 +104,8 @@ MODULE input_constants
                                                langevin_ensemble = 10, &
                                                npe_f_ensemble = 11, &
                                                npe_i_ensemble = 12, &
-                                               nvt_adiabatic_ensemble = 13
+                                               nvt_adiabatic_ensemble = 13, &
+                                               npt_ia_ensemble = 14
 
    INTEGER, PARAMETER, PUBLIC               :: do_thermo_same_as_part = 100, &
                                                do_thermo_nose = 101, &
@@ -292,7 +297,8 @@ MODULE input_constants
 
    ! pint propagator mode
    INTEGER, PARAMETER, PUBLIC               :: propagator_pimd = 1, &
-                                               propagator_rpmd = 2
+                                               propagator_rpmd = 2, &
+                                               propagator_cmd = 3
    ! pint propagator mode
    INTEGER, PARAMETER, PUBLIC               :: integrate_numeric = 1, &
                                                integrate_exact = 2
@@ -308,7 +314,11 @@ MODULE input_constants
 
    ! helium-solute interaction potentials
    INTEGER, PARAMETER, PUBLIC               :: helium_solute_intpot_none = 0, &
-                                               helium_solute_intpot_mwater = 1
+                                               helium_solute_intpot_mwater = 1, &
+                                               helium_solute_intpot_ch5 = 2, &
+                                               helium_solute_intpot_runner_io = 3, &
+                                               helium_solute_intpot_nnp = 4, &
+                                               helium_solute_intpot_cubetable = 5
 
    ! helium force selection
    INTEGER, PARAMETER, PUBLIC               :: helium_forces_average = 0, &
@@ -438,7 +448,15 @@ MODULE input_constants
                                                do_loc_crazy = 2, &
                                                do_loc_direct = 3, &
                                                do_loc_l1_norm_sd = 4, &
-                                               do_loc_scdm = 5
+                                               do_loc_scdm = 5, &
+                                               do_loc_gapo = 6
+
+   INTEGER, PARAMETER, PUBLIC               :: do_loc_cpo_atomic = 0, &
+                                               do_loc_cpo_restart = 1, &
+                                               do_loc_cpo_random = 2
+
+   INTEGER, PARAMETER, PUBLIC               :: do_loc_cpo_space_wan = 0, &
+                                               do_loc_cpo_space_nmo = 1
 
    INTEGER, PARAMETER, PUBLIC               :: do_loc_min = 0, &
                                                do_loc_max = 1, &
@@ -450,11 +468,13 @@ MODULE input_constants
                                                state_loc_range = 1, &
                                                state_loc_list = 2, &
                                                energy_loc_range = 3, &
-                                               state_loc_none = 4
+                                               state_loc_none = 4, &
+                                               state_loc_mixed = 5
 
    INTEGER, PARAMETER, PUBLIC               :: do_loc_homo = 0, &
                                                do_loc_lumo = 1, &
-                                               do_loc_both = 2
+                                               do_loc_both = 2, &
+                                               do_loc_mixed = 3
 
    INTEGER, PARAMETER, PUBLIC               :: orb_s = 0, &
                                                orb_px = 1, &
@@ -489,7 +509,8 @@ MODULE input_constants
                                                ot_precond_full_kinetic = 2, &
                                                ot_precond_s_inverse = 3, &
                                                ot_precond_full_all = 5, &
-                                               ot_precond_full_single_inverse = 6
+                                               ot_precond_full_single_inverse = 6, &
+                                               precond_mlp = 7
    INTEGER, PARAMETER, PUBLIC               :: ot_precond_solver_default = 1, &
                                                ot_precond_solver_inv_chol = 2, &
                                                ot_precond_solver_direct = 3, &
@@ -501,23 +522,23 @@ MODULE input_constants
                                                diag_block_davidson = 4, &
                                                diag_filter_matrix = 5
 
-   INTEGER, PUBLIC, PARAMETER               :: default_lbfgs_method_id = 1, &
+   INTEGER, PARAMETER, PUBLIC               :: default_lbfgs_method_id = 1, &
                                                default_bfgs_method_id = 2, &
                                                default_cg_method_id = 3
 
-   INTEGER, PUBLIC, PARAMETER               :: default_minimization_method_id = 1, &
+   INTEGER, PARAMETER, PUBLIC               :: default_minimization_method_id = 1, &
                                                default_ts_method_id = 2, &
                                                default_cell_method_id = 3, &
                                                default_shellcore_method_id = 4
 
-   INTEGER, PUBLIC, PARAMETER               :: none_ts_method_id = 0, &
+   INTEGER, PARAMETER, PUBLIC               :: none_ts_method_id = 0, &
                                                default_dimer_method_id = 1
 
-   INTEGER, PUBLIC, PARAMETER               :: do_first_rotation_step = 0, &
+   INTEGER, PARAMETER, PUBLIC               :: do_first_rotation_step = 0, &
                                                do_second_rotation_step = 1, &
                                                do_third_rotation_step = 2
 
-   INTEGER, PUBLIC, PARAMETER               :: default_cell_geo_opt_id = 0, &
+   INTEGER, PARAMETER, PUBLIC               :: default_cell_geo_opt_id = 0, &
                                                default_cell_md_id = 1, &
                                                default_cell_direct_id = 2
 
@@ -547,7 +568,8 @@ MODULE input_constants
                                                tddfpt_spin_flip = 3
    INTEGER, PARAMETER, PUBLIC               :: tddfpt_lanczos = 0, &
                                                tddfpt_davidson = 1
-   INTEGER, PARAMETER, PUBLIC               :: tddfpt_kernel_full = 1, &
+   INTEGER, PARAMETER, PUBLIC               :: tddfpt_kernel_none = 2, &
+                                               tddfpt_kernel_full = 1, &
                                                tddfpt_kernel_stda = 0
    INTEGER, PARAMETER, PUBLIC               :: oe_none = 0, &
                                                oe_lb = 1, &
@@ -601,6 +623,19 @@ MODULE input_constants
                                                radius_vdw = 13, &
                                                radius_default = 14
 
+   ! Voronoi integration
+   INTEGER, PARAMETER, PUBLIC               :: voro_radii_unity = 100, &
+                                               voro_radii_vdw = 101, &
+                                               voro_radii_cov = 102, &
+                                               voro_radii_user = 103
+
+   ! BQB Format
+   INTEGER, PARAMETER, PUBLIC               :: bqb_opt_off = 100, &
+                                               bqb_opt_quick = 101, &
+                                               bqb_opt_normal = 102, &
+                                               bqb_opt_patient = 103, &
+                                               bqb_opt_exhaustive = 104
+
    ! MAO
    INTEGER, PARAMETER, PUBLIC               :: mao_basis_orb = 2000, &
                                                mao_basis_prim = 2001, &
@@ -641,6 +676,11 @@ MODULE input_constants
    INTEGER, PARAMETER, PUBLIC               :: tddfpt_dipole_berry = 1, &
                                                tddfpt_dipole_length = 2, &
                                                tddfpt_dipole_velocity = 3
+
+   ! XC Kernel derivative methods for forces
+   INTEGER, PARAMETER, PUBLIC               :: xc_kernel_method_best = 100, &
+                                               xc_kernel_method_analytic = 101, &
+                                               xc_kernel_method_numeric = 102
 
    ! Linear Response for properties
    INTEGER, PARAMETER, PUBLIC               :: lr_none = 0, &
@@ -783,7 +823,8 @@ MODULE input_constants
                                                use_aux_fit_basis_set = 2, &
                                                use_aux_basis_set = 3, &
                                                use_ri_aux_basis_set = 4, &
-                                               use_lri_basis_set = 5
+                                               use_lri_basis_set = 5, &
+                                               use_p_lri_basis_set = 6
    ! ADMM PARAMETER
    ! This parameter defines the method to use for the purification
    INTEGER, PARAMETER, PUBLIC               :: do_admm_purify_none = 1, &
@@ -805,7 +846,12 @@ MODULE input_constants
                                                do_admm_aux_exch_func_pbex = 1, &
                                                do_admm_aux_exch_func_none = 2, &
                                                do_admm_aux_exch_func_opt = 3, &
-                                               do_admm_aux_exch_func_bee = 4
+                                               do_admm_aux_exch_func_bee = 4, &
+                                               do_admm_aux_exch_func_default_libxc = 5, &
+                                               do_admm_aux_exch_func_pbex_libxc = 6, &
+                                               do_admm_aux_exch_func_opt_libxc = 7, &
+                                               do_admm_aux_exch_func_bee_libxc = 8, &
+                                               do_admm_aux_exch_func_sx_libxc = 9
 
    ! Define scaling of the exchange correction
    INTEGER, PARAMETER, PUBLIC               :: do_admm_exch_scaling_none = 0, &
@@ -831,9 +877,9 @@ MODULE input_constants
                                                broy_mix_new = 5, &
                                                multisec_mix = 6
 
-   ! DIAGONALIZATION library
-   INTEGER, PARAMETER, PUBLIC               :: do_diag_sl = 1, &
-                                               do_diag_elpa = 2
+   ! Diagonalization library
+   INTEGER, PARAMETER, PUBLIC               :: do_diag_elpa = 1, &
+                                               do_diag_scalapack = 2
    ! FFT library
    ! these might need sync with fft_lib.F
    INTEGER, PARAMETER, PUBLIC               :: do_fft_sg = 1, &
@@ -842,6 +888,9 @@ MODULE input_constants
                                                fftw_plan_measure = 2, &
                                                fftw_plan_patient = 3, &
                                                fftw_plan_exhaustive = 4
+   ! Local DGEMM library
+   INTEGER, PARAMETER, PUBLIC               :: do_dgemm_spla = 1, &
+                                               do_dgemm_blas = 2
 
    !real time propagation
    INTEGER, PARAMETER, PUBLIC               :: do_taylor = 1, &
@@ -887,7 +936,8 @@ MODULE input_constants
 
    INTEGER, PARAMETER, PUBLIC               :: ls_scf_sign_ns = 1, ls_scf_sign_proot = 2, ls_scf_sign_submatrix = 3
 
-   INTEGER, PARAMETER, PUBLIC               :: ls_scf_submatrix_sign_ns = 1, ls_scf_submatrix_sign_direct = 2
+   INTEGER, PARAMETER, PUBLIC               :: ls_scf_submatrix_sign_ns = 1, ls_scf_submatrix_sign_direct = 2, &
+                                               ls_scf_submatrix_sign_direct_muadj = 3, ls_scf_submatrix_sign_direct_muadj_lowmem = 4
 
    INTEGER, PARAMETER, PUBLIC               :: ls_scf_line_search_3point = 3, &
                                                ls_scf_line_search_3point_2d = 6
@@ -977,17 +1027,27 @@ MODULE input_constants
                                                wfc_mm_style_gemm = 11, &
                                                wfc_mm_style_syrk = 12
 
-   ! G0W0 parameter
+   ! solvers of the z-vector equations
+   INTEGER, PARAMETER, PUBLIC               :: z_solver_pople = 1, &
+                                               z_solver_cg = 2, &
+                                               z_solver_richardson = 3, &
+                                               z_solver_sd = 4
+
+   ! GW parameter
    INTEGER, PARAMETER, PUBLIC               :: ri_rpa_g0w0_crossing_z_shot = 1, &
                                                ri_rpa_g0w0_crossing_newton = 2, &
                                                ri_rpa_g0w0_crossing_bisection = 3, &
                                                gw_no_print_exx = 5, &
                                                gw_print_exx = 6, &
                                                gw_read_exx = 7, &
-                                               gw_skip_for_regtest = 8
-
-   INTEGER, PARAMETER, PUBLIC               :: gw_pade_approx = 0, &
-                                               gw_two_pole_model = 1
+                                               gw_skip_for_regtest = 8, &
+                                               gw_pade_approx = 9, &
+                                               gw_two_pole_model = 10, &
+                                               kp_weights_W_auto = 11, &
+                                               kp_weights_W_uniform = 12, &
+                                               kp_weights_W_tailored = 13, &
+                                               gw_gf_mic = 14, &
+                                               gw_gf_gamma = 15
 
    ! periodic RESP parameters
    INTEGER, PARAMETER, PUBLIC               :: do_resp_x_dir = 0, &
@@ -1005,7 +1065,7 @@ MODULE input_constants
                                                do_opt_coeff = 2, &
                                                do_opt_exps = 3
 
-   ! LRI paramters for inverse of overlap
+   ! LRI parameters for inverse of overlap
    INTEGER, PARAMETER, PUBLIC               :: do_lri_inv = 0, &
                                                do_lri_pseudoinv_svd = 1, &
                                                do_lri_pseudoinv_diag = 2, &
@@ -1038,12 +1098,24 @@ MODULE input_constants
    INTEGER, PARAMETER, PUBLIC               :: kg_cholesky = 3001
 
    ! non-scf energy corrections
+   INTEGER, PARAMETER, PUBLIC               :: ec_functional_harris = 2001, &
+                                               ec_functional_dc = 2002
+
+   ! Energy correction solver
    INTEGER, PARAMETER, PUBLIC               :: ec_diagonalization = 1001, &
                                                ec_curvy_steps = 1002, &
                                                ec_matrix_sign = 1003, &
                                                ec_matrix_trs4 = 1004, &
-                                               ec_matrix_tc2 = 1005
-   INTEGER, PARAMETER, PUBLIC               :: ec_functional_harris = 2001
+                                               ec_matrix_tc2 = 1005, &
+                                               ec_ot_diag = 1006
+
+   ! response solver for energy correction
+   INTEGER, PARAMETER, PUBLIC               :: ec_ot_atomic = 1, &
+                                               ec_ot_gs = 2
+
+   ! response solver for energy correction
+   INTEGER, PARAMETER, PUBLIC               :: ec_mo_solver = 1, &
+                                               ec_ls_solver = 2
 
    ! swarm parameters
    INTEGER, PARAMETER, PUBLIC               :: swarm_do_glbopt = 1
@@ -1063,8 +1135,8 @@ MODULE input_constants
                                                sccs_derivative_cd7 = 3
 
    ! fm matrix multiplication
-   INTEGER, PARAMETER, PUBLIC               :: do_pdgemm = 1, &
-                                               do_dbcsr = 2
+   INTEGER, PARAMETER, PUBLIC               :: do_scalapack = 1, &
+                                               do_cosma = 2
 
    ! Dispersion DFTB
    INTEGER, PARAMETER, PUBLIC               :: dispersion_uff = 100, &
@@ -1100,7 +1172,8 @@ MODULE input_constants
    ! Active Space Section: orbital selection methods
    INTEGER, PARAMETER, PUBLIC               :: casci_canonical = 100, &
                                                wannier_projection = 101, &
-                                               mao_projection = 102
+                                               mao_projection = 102, &
+                                               manual_selection = 103
    INTEGER, PARAMETER, PUBLIC               :: eri_method_full_gpw = 1, &
                                                eri_method_gpw_ht = 2
    INTEGER, PARAMETER, PUBLIC               :: eri_operator_coulomb = 1, &
@@ -1146,5 +1219,14 @@ MODULE input_constants
    ! MOLDEN format
    INTEGER, PARAMETER, PUBLIC               :: gto_cartesian = 1, &
                                                gto_spherical = 2
+
+   ! Tip scan directions
+   INTEGER, PARAMETER, PUBLIC               :: scan_x = 1, &
+                                               scan_y = 2, &
+                                               scan_z = 3, &
+                                               scan_xy = 12, &
+                                               scan_xz = 13, &
+                                               scan_yz = 23, &
+                                               scan_xyz = 123
 
 END MODULE input_constants

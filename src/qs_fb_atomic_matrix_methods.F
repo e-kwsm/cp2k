@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_fb_atomic_matrix_methods
@@ -72,9 +74,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: nrows, ncols
       INTEGER, DIMENSION(:), INTENT(OUT)                 :: blk_row_start, blk_col_start
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_calc_size', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ii, natoms_in_halo
       INTEGER, DIMENSION(:), POINTER                     :: col_block_size_data, halo_atoms, &
                                                             row_block_size_data
@@ -136,8 +135,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: atomic_matrix
       INTEGER, DIMENSION(:), INTENT(IN)                  :: blk_row_start, blk_col_start
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_construct', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_construct'
 
       INTEGER :: handle, iatom, iatom_in_halo, ii, ind, ipair, ipe, jatom, jatom_in_halo, jj, &
          ncols_blk, npairs_recv, npairs_send, nrows_blk, numprocs, pe, recv_encode, send_encode
@@ -162,7 +160,7 @@ CONTAINS
          atomic_matrix = 0.0_dp
       END IF
 
-      ! generate send and receiv atomic pairs
+      ! generate send and receive atomic pairs
       CALL fb_com_atom_pairs_create(atom_pairs_send)
       CALL fb_com_atom_pairs_create(atom_pairs_recv)
       CALL fb_atmatrix_generate_com_pairs(dbcsr_mat, &
@@ -347,8 +345,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: atomic_matrix
       INTEGER, DIMENSION(:), INTENT(IN)                  :: blk_row_start, blk_col_start
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_construct_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_construct_2'
 
       INTEGER                                            :: handle, iatom, iatom_global, icol, ii, &
                                                             irow, jatom, jatom_global, jj, &
@@ -416,7 +413,7 @@ CONTAINS
 
 ! ****************************************************************************
 !> \brief generate list of blocks (atom pairs) of a DBCSR matrix to be
-!>        sent and recived in order to construct an atomic matrix
+!>        sent and received in order to construct an atomic matrix
 !>        corresponding to a given atomic halo. This version is for the case
 !>        when we do MPI communications at each step, for each atomic matrix.
 !> \param dbcsr_mat : The DBCSR matrix the atom blocks come from
@@ -439,8 +436,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(fb_com_atom_pairs_obj), INTENT(INOUT)         :: atom_pairs_send, atom_pairs_recv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_generate_com_pairs', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_generate_com_pairs'
 
       INTEGER :: counter, dest, handle, iatom, iatom_global, itask, jatom, jatom_global, &
          natoms_in_halo, nblkrows_total, nencode, ntasks_recv, ntasks_send, src
@@ -484,11 +480,11 @@ CONTAINS
 
       ! generate recv task list (tasks_recv)
 
-      ! a recv task corresponds to the copying or transfering of a
+      ! a recv task corresponds to the copying or transferring of a
       ! matrix block in the part of the DBCSR matrix owned by the src
       ! proc to this proc in order to construct the atomic matrix
       ! corresponding to the given atomic halo. As an upper-bound, the
-      ! number of matrix blocks requred do not exceed natoms_in_halo**2
+      ! number of matrix blocks required do not exceed natoms_in_halo**2
       ntasks_recv = natoms_in_halo*natoms_in_halo
 
       ALLOCATE (tasks_recv(TASK_N_RECORDS, ntasks_recv))
@@ -611,7 +607,7 @@ CONTAINS
 
 ! ****************************************************************************
 !> \brief generate list of blocks (atom pairs) of a DBCSR matrix to be
-!>        sent and recived in order to construct all local atomic matrices
+!>        sent and received in order to construct all local atomic matrices
 !>        corresponding to the atomic halos. This version is for the case
 !>        when we do MPI communications collectively in one go at the
 !>        beginning.
@@ -634,8 +630,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(fb_com_atom_pairs_obj), INTENT(INOUT)         :: atom_pairs_send, atom_pairs_recv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_generate_com_pairs_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_atmatrix_generate_com_pairs_2'
 
       INTEGER :: counter, dest, handle, iatom, iatom_global, ihalo, itask, jatom, jatom_global, &
          natoms_in_halo, nblkrows_total, nencode, nhalos, ntasks_recv, ntasks_send, src

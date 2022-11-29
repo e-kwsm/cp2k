@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,14 +50,11 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(section_vals_type), POINTER                   :: root_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmmx_update_force_env', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: force_mixing_active, labels_changed
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds, new_atomic_kinds
       TYPE(cp_subsys_type), POINTER                      :: subsys, subsys_new
       TYPE(distribution_1d_type), POINTER                :: local_particles, new_local_particles
-      TYPE(qmmmx_env_type), POINTER                      :: new_qmmmx_env
+      TYPE(qmmmx_env_type)                               :: new_qmmmx_env
       TYPE(section_vals_type), POINTER                   :: qmmm_core_section, &
                                                             qmmm_extended_Section, &
                                                             qmmm_force_mixing, qmmm_section, &
@@ -81,17 +80,17 @@ CONTAINS
 
       CALL update_force_eval(force_env, root_section, .FALSE.)
 
-      ALLOCATE (new_qmmmx_env)
-
       ! using CUR_INDICES and CUR_LABELS, create appropriate QM_KIND sections for two QM/MM calculations
       CALL setup_force_mixing_qmmm_sections(subsys, qmmm_section, qmmm_core_section, qmmm_extended_section)
 
       subsys_section => section_vals_get_subs_vals(force_env%force_env_section, "SUBSYS")
       ![ADAPT] no sure about use_motion_section
+      ALLOCATE (new_qmmmx_env%core)
       CALL qmmm_env_create(new_qmmmx_env%core, &
                            force_env%root_section, force_env%para_env, force_env%globenv, &
                            force_env%force_env_section, qmmm_core_section, subsys_section, use_motion_section=.TRUE., &
                            prev_subsys=subsys, ignore_outside_box=.TRUE.)
+      ALLOCATE (new_qmmmx_env%ext)
       CALL qmmm_env_create(new_qmmmx_env%ext, &
                            force_env%root_section, force_env%para_env, force_env%globenv, &
                            force_env%force_env_section, qmmm_extended_section, subsys_section, use_motion_section=.TRUE., &
@@ -105,7 +104,7 @@ CONTAINS
       CALL cp_subsys_get(subsys_new, atomic_kinds=new_atomic_kinds, local_particles=new_local_particles)
       IF (ASSOCIATED(local_particles%local_particle_set)) THEN
          CALL copy_wiener_process(atomic_kinds, local_particles, new_atomic_kinds, new_local_particles)
-      ENDIF
+      END IF
 
       CALL qmmm_env_get(force_env%qmmmx_env%ext, subsys=subsys)
       CALL cp_subsys_get(subsys, atomic_kinds=atomic_kinds, local_particles=local_particles)
@@ -113,14 +112,14 @@ CONTAINS
       CALL cp_subsys_get(subsys_new, atomic_kinds=new_atomic_kinds, local_particles=new_local_particles)
       IF (ASSOCIATED(local_particles%local_particle_set)) THEN
          CALL copy_wiener_process(atomic_kinds, local_particles, new_atomic_kinds, new_local_particles)
-      ENDIF
+      END IF
 
       CALL section_vals_release(qmmm_core_section)
       CALL section_vals_release(qmmm_extended_section)
 
       ! release old qmmmx_env and point to new one
       CALL qmmmx_env_release(force_env%qmmmx_env)
-      force_env%qmmmx_env => new_qmmmx_env
+      force_env%qmmmx_env = new_qmmmx_env
 
    END SUBROUTINE qmmmx_update_force_env
 
@@ -138,8 +137,7 @@ CONTAINS
       TYPE(atomic_kind_list_type), POINTER               :: to_local_particle_kinds
       TYPE(distribution_1d_type), POINTER                :: to_local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'copy_wiener_process', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'copy_wiener_process'
 
       INTEGER :: from_iparticle_kind, from_iparticle_local(1), from_nparticle_kind, &
          from_nparticle_local, handle, to_iparticle_global, to_iparticle_kind, to_iparticle_local, &
@@ -190,7 +188,7 @@ CONTAINS
                      from_local_particles%local_particle_set(from_iparticle_kind)%rng(from_iparticle_local(1))%stream
                   found_it = .TRUE.
                   EXIT
-               ENDIF
+               END IF
             END DO
             CPASSERT(found_it)
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -37,7 +39,7 @@ MODULE ri_environment_methods
                                               lri_environment_type,&
                                               lri_kind_type
    USE message_passing,                 ONLY: mp_sum
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_collocate_density,            ONLY: calculate_lri_rho_elec
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
@@ -87,9 +89,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_ri_matrices', &
-         routineP = moduleN//':'//routineN
-
       CALL calculate_ri_integrals(lri_env, qs_env, calculate_forces)
 
    END SUBROUTINE build_ri_matrices
@@ -107,8 +106,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_ri_integrals', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_ri_integrals'
       REAL(KIND=dp), DIMENSION(2), PARAMETER             :: fx = (/0.0_dp, 1.0_dp/)
 
       INTEGER                                            :: handle, i, i1, i2, iatom, ispin, izero, &
@@ -235,7 +233,7 @@ CONTAINS
                izero = izero + 1
             ELSE
                eval(i) = SQRT(1.0_dp/eval(i))
-            ENDIF
+            END IF
          END DO
          CALL dbcsr_scale_by_vector(emat, eval, side='right')
          CALL dbcsr_create(lri_env%ri_sinv(1)%matrix, template=lri_env%ri_smat(1)%matrix)
@@ -295,8 +293,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: solver
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: ptr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ri_metric_solver', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'ri_metric_solver'
 
       INTEGER                                            :: handle, max_iter, n
       LOGICAL                                            :: converged
@@ -361,12 +358,11 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: pmatrix
-      TYPE(qs_rho_type), POINTER                         :: lri_rho_struct
+      TYPE(qs_rho_type), INTENT(IN)                      :: lri_rho_struct
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_ri_densities', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_ri_densities'
 
       INTEGER                                            :: atom_a, handle, i1, i2, iatom, ikind, &
                                                             ispin, n, natom, nspin
@@ -376,7 +372,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: avec
       TYPE(lri_density_type), POINTER                    :: lri_density
       TYPE(lri_kind_type), DIMENSION(:), POINTER         :: lri_coef
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g, rho_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, rho_r
 
       CALL timeset(routineN, handle)
 
@@ -386,7 +382,11 @@ CONTAINS
       CALL calculate_avec_ri(lri_env, pmatrix)
       !
       CALL get_qs_env(qs_env, lri_density=lri_density, natom=natom)
-      CALL lri_density_release(lri_density)
+      IF (ASSOCIATED(lri_density)) THEN
+         CALL lri_density_release(lri_density)
+      ELSE
+         ALLOCATE (lri_density)
+      END IF
       CALL lri_density_create(lri_density)
       lri_density%nspin = nspin
       ! allocate the arrays to hold RI expansion coefficients lri_coefs
@@ -415,7 +415,7 @@ CONTAINS
          lri_coef => lri_density%lri_coefs(ispin)%lri_kinds
          CALL calculate_lri_rho_elec(rho_g(ispin), rho_r(ispin), qs_env, &
                                      lri_coef, tot_rho_r(ispin), "RI_HXC", .FALSE.)
-      ENDDO
+      END DO
 
       CALL timestop(handle)
 
@@ -433,8 +433,7 @@ CONTAINS
       TYPE(o3c_container_type), POINTER                  :: o3c
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_tvec_ri', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'calculate_tvec_ri'
       INTEGER, PARAMETER                                 :: msweep = 32
 
       INTEGER                                            :: handle, i1, i2, ibl, ibu, il, ispin, &
@@ -536,8 +535,7 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: pmatrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_avec_ri', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'calculate_avec_ri'
 
       INTEGER                                            :: handle, ispin, nspin
       REAL(KIND=dp)                                      :: etr, nelec, nrm1t
@@ -592,7 +590,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: vo
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: ptr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ri_matvec', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'ri_matvec'
 
       CHARACTER                                          :: matrix_type
       INTEGER                                            :: group, handle, iatom, jatom, m1, m2, mb, &

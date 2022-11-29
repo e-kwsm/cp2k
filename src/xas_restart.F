@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -29,7 +31,6 @@ MODULE xas_restart
                                               cp_fm_set_submatrix,&
                                               cp_fm_type,&
                                               cp_fm_write_unformatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -45,15 +46,19 @@ MODULE xas_restart
                                               default_string_length,&
                                               dp
    USE message_passing,                 ONLY: mp_bcast
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE particle_types,                  ONLY: particle_type
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
+   USE qs_kind_types,                   ONLY: qs_kind_type
    USE qs_ks_types,                     ONLY: qs_ks_did_change
    USE qs_mixing_utils,                 ONLY: mixing_init
-   USE qs_mo_io,                        ONLY: wfn_restart_file_name
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix
+   USE qs_mo_io,                        ONLY: wfn_restart_file_name,&
+                                              write_mo_set_low
    USE qs_mo_occupation,                ONLY: set_mo_occupation
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
+                                              mo_set_type,&
                                               set_mo_set
    USE qs_rho_atom_types,               ONLY: rho_atom_type
    USE qs_rho_methods,                  ONLY: qs_rho_update_rho
@@ -80,7 +85,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Set up for reading the restart
-!>      corresponing to the excitation of iatom
+!>      corresponding to the excitation of iatom
 !>      If the corresponding restart file does not exist
 !>      the GS orbitals are used as initial guess
 !> \param xas_env ...
@@ -105,8 +110,7 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: estate
       INTEGER, INTENT(IN)                                :: istate
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xas_read_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xas_read_restart'
 
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER :: group, handle, i, ia, ie, ispin, my_spin, nao, nao_read, nelectron, nexc_atoms, &
@@ -122,7 +126,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
@@ -188,17 +192,17 @@ CONTAINS
                CALL cp_abort(__LOCATION__, &
                              " READ XAS RESTART: restart with different excited atoms "// &
                              " is not possible. Start instead a new XAS run with the new set of atoms. ")
-         ENDIF
+         END IF
 
          CALL mp_bcast(xas_estate_read, source, group)
          CALL set_xas_env(xas_env=xas_env, xas_estate=xas_estate_read)
          estate = xas_estate_read
 
-         CALL get_mo_set(mo_set=mos(my_spin)%mo_set, nao=nao)
+         CALL get_mo_set(mo_set=mos(my_spin), nao=nao)
          ALLOCATE (vecbuffer(1, nao))
 
          DO ispin = 1, SIZE(mos)
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo, eigenvalues=eigenvalues, &
+            CALL get_mo_set(mo_set=mos(ispin), nmo=nmo, eigenvalues=eigenvalues, &
                             occupation_numbers=occupation_numbers, mo_coeff=mo_coeff, nelectron=nelectron)
             eigenvalues = 0.0_dp
             occupation_numbers = 0.0_dp
@@ -222,7 +226,7 @@ CONTAINS
 
                END IF
                DEALLOCATE (eig_read, occ_read)
-            ENDIF
+            END IF
             CALL mp_bcast(eigenvalues, source, group)
             CALL mp_bcast(occupation_numbers, source, group)
 
@@ -251,7 +255,7 @@ CONTAINS
 !      DO ispin = 1,nspin
 !      ! ortho so that one can restart for different positions (basis sets?)
 !         NULLIFY(mo_coeff)
-!         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff,homo=homo)
+!         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff,homo=homo)
 !         CALL make_basis_sm(mo_coeff,homo,matrix_s(1)%matrix)
 !      END DO
       END IF !file_exist
@@ -280,8 +284,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN)                                :: xas_method, iatom, istate
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xas_write_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xas_write_restart'
 
       CHARACTER(LEN=default_path_length)                 :: filename
       CHARACTER(LEN=default_string_length)               :: my_middle
@@ -292,11 +295,13 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: eigenvalues, occupation_numbers
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: print_key
 
       CALL timeset(routineN, handle)
-      NULLIFY (mos, logger, print_key)
+      NULLIFY (mos, logger, print_key, particle_set, qs_kind_set)
       logger => cp_get_default_logger()
 
       CALL get_xas_env(xas_env=xas_env, occ_estate=occ_estate, xas_estate=xas_estate, &
@@ -334,9 +339,9 @@ CONTAINS
             WRITE (rst_unit) xas_method
             WRITE (rst_unit) nexc_search, nexc_atoms, occ_estate, xas_nelectron
             WRITE (rst_unit) xas_estate
-         ENDIF
+         END IF
          DO ispin = 1, SIZE(mos)
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo, &
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo, &
                             eigenvalues=eigenvalues, occupation_numbers=occupation_numbers)
             IF ((rst_unit > 0)) THEN
                WRITE (rst_unit) nao, nmo
@@ -350,6 +355,21 @@ CONTAINS
          CALL cp_print_key_finished_output(rst_unit, logger, xas_section, &
                                            "PRINT%RESTART")
       END IF
+
+      IF (BTEST(cp_print_key_should_output(logger%iter_info, &
+                                           xas_section, "PRINT%FULL_RESTART", used_print_key=print_key), &
+                cp_p_file)) THEN
+         rst_unit = cp_print_key_unit_nr(logger, xas_section, "PRINT%FULL_RESTART", &
+                                         extension="_full.rst", file_status="REPLACE", file_action="WRITE", &
+                                         file_form="UNFORMATTED", middle_name=TRIM(my_middle))
+
+         CALL get_qs_env(qs_env=qs_env, particle_set=particle_set, qs_kind_set=qs_kind_set)
+         CALL write_mo_set_low(mos, particle_set=particle_set, &
+                               qs_kind_set=qs_kind_set, ires=rst_unit)
+         CALL cp_print_key_finished_output(rst_unit, logger, xas_section, "PRINT%FULL_RESTART")
+
+      END IF
+
       CALL timestop(handle)
 
    END SUBROUTINE xas_write_restart
@@ -372,14 +392,13 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xas_initialize_rho', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'xas_initialize_rho'
 
       INTEGER                                            :: handle, ispin, my_spin, nelectron
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(rho_atom_type), DIMENSION(:), POINTER         :: rho_atom
       TYPE(xas_environment_type), POINTER                :: xas_env
@@ -399,16 +418,16 @@ CONTAINS
       DO ispin = 1, SIZE(mos)
          IF (ispin == my_spin) THEN
             IF (xas_env%homo_occ == 0) THEN
-               CALL get_mo_set(mos(ispin)%mo_set, nelectron=nelectron)
+               CALL get_mo_set(mos(ispin), nelectron=nelectron)
                nelectron = nelectron - 1
-               CALL set_mo_set(mos(ispin)%mo_set, nelectron=nelectron)
+               CALL set_mo_set(mos(ispin), nelectron=nelectron)
             END IF
-            CALL set_mo_occupation(mo_set=qs_env%mos(ispin)%mo_set, smear=scf_control%smear, &
+            CALL set_mo_occupation(mo_set=qs_env%mos(ispin), smear=scf_control%smear, &
                                    xas_env=xas_env)
          ELSE
-            CALL set_mo_occupation(mo_set=qs_env%mos(ispin)%mo_set, smear=scf_control%smear)
+            CALL set_mo_occupation(mo_set=qs_env%mos(ispin), smear=scf_control%smear)
          END IF
-         CALL calculate_density_matrix(mo_set=mos(ispin)%mo_set, &
+         CALL calculate_density_matrix(mo_set=mos(ispin), &
                                        density_matrix=rho_ao(ispin)%matrix)
       END DO
 
@@ -445,11 +464,8 @@ CONTAINS
    SUBROUTINE find_excited_core_orbital(xas_env, mos, matrix_s)
 
       TYPE(xas_environment_type), POINTER                :: xas_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'find_excited_core_orbital', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ic_max, ir_max, m, my_spin, n, nao, &
                                                             nexc_search, nmo, xas_estate
@@ -457,17 +473,17 @@ CONTAINS
       REAL(dp)                                           :: a_max, b_max, ip_energy, occ_estate
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, occupation_numbers
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: vecbuffer, vecbuffer2
-      TYPE(cp_fm_type), POINTER                          :: excvec_coeff, excvec_overlap, fm_work, &
-                                                            mo_coeff
+      TYPE(cp_fm_type)                                   :: fm_work
+      TYPE(cp_fm_type), POINTER                          :: excvec_coeff, excvec_overlap, mo_coeff
 
-      NULLIFY (excvec_coeff, excvec_overlap, fm_work, mo_coeff)
+      NULLIFY (excvec_coeff, excvec_overlap, mo_coeff)
       ! Some elements from the xas_env
       CALL get_xas_env(xas_env=xas_env, excvec_coeff=excvec_coeff, &
                        excvec_overlap=excvec_overlap, nexc_search=nexc_search, &
                        xas_estate=xas_estate, occ_estate=occ_estate, spin_channel=my_spin)
       CPASSERT(ASSOCIATED(excvec_overlap))
 
-      CALL get_mo_set(mos(my_spin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo, &
+      CALL get_mo_set(mos(my_spin), mo_coeff=mo_coeff, nao=nao, nmo=nmo, &
                       eigenvalues=eigenvalues, occupation_numbers=occupation_numbers)
       ALLOCATE (vecbuffer(1, nao))
       vecbuffer = 0.0_dp
@@ -477,8 +493,8 @@ CONTAINS
       ! ** use the maximum overlap criterion to find the index of the excited orbital
       CALL cp_fm_create(fm_work, mo_coeff%matrix_struct)
       CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, mo_coeff, fm_work, ncol=nmo)
-      CALL cp_gemm("T", "N", 1, xas_env%nexc_search, nao, 1.0_dp, excvec_coeff, &
-                   fm_work, 0.0_dp, excvec_overlap, b_first_col=1)
+      CALL parallel_gemm("T", "N", 1, xas_env%nexc_search, nao, 1.0_dp, excvec_coeff, &
+                         fm_work, 0.0_dp, excvec_overlap, b_first_col=1)
       CALL cp_fm_get_info(matrix=excvec_overlap, col_indices=col_indices, &
                           nrow_global=m, ncol_global=n)
       CALL cp_fm_get_submatrix(excvec_overlap, vecbuffer2, 1, 1, &
@@ -493,7 +509,7 @@ CONTAINS
             ic_max = i
 
             b_max = a_max
-         ENDIF
+         END IF
       END DO
 
       IF (ic_max /= xas_estate) THEN

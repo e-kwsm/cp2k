@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,17 +52,23 @@ CONTAINS
    SUBROUTINE create_motion_print_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_motion_print_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
       NULLIFY (keyword, section, print_key)
 
       CALL section_create(section, __LOCATION__, name="print", &
-                          description="Controls the printing properties during an MD run", &
-                          n_keywords=0, n_subsections=1, repeats=.TRUE.)
+                          description="Controls the printing properties during an MD/Optimization run", &
+                          n_keywords=1, n_subsections=1, repeats=.TRUE.)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MEMORY_INFO", &
+                          variants=(/"MEMORY"/), &
+                          description="Whether overall memory usage should be sampled and printed "// &
+                          "at each MD/Optimization step.", &
+                          usage="MEMORY_INFO LOGICAL", &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
 
       CALL cp_print_key_section_create(print_key, __LOCATION__, "TRAJECTORY", &
                                        description="Controls the output of the trajectory", &
@@ -259,9 +267,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: pos
       CHARACTER(LEN=*), INTENT(IN)                       :: description
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_format_keyword', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(section))
       CPASSERT(.NOT. ASSOCIATED(keyword))
 
@@ -322,6 +327,14 @@ CONTAINS
          CALL keyword_release(keyword)
 
       END IF
+
+      CALL keyword_create(keyword, __LOCATION__, name="PRINT_ATOM_KIND", &
+                          description="Write the atom kind given in the subsys section instead of the element symbol. "// &
+                          "Only valid for the XMOL format.", &
+                          usage="PRINT_ELEMENT_NAME logical", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
 
    END SUBROUTINE add_format_keyword
 

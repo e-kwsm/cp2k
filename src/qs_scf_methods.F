@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -35,7 +37,6 @@ MODULE qs_scf_methods
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
         dbcsr_add, dbcsr_desymmetrize, dbcsr_get_block_p, dbcsr_iterator_blocks_left, &
@@ -47,6 +48,7 @@ MODULE qs_scf_methods
                                               cholesky_restore
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_max
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_density_mixing_types,         ONLY: mixing_storage_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               mo_set_type
@@ -101,8 +103,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iter_count
       LOGICAL, INTENT(in), OPTIONAL                      :: diis, invert
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'scf_env_density_mixing', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'scf_env_density_mixing'
 
       INTEGER                                            :: handle, ic, ispin
       LOGICAL                                            :: my_diis, my_invert
@@ -165,16 +166,16 @@ CONTAINS
    SUBROUTINE eigensolver(matrix_ks_fm, mo_set, ortho, work, &
                           cholesky_method, do_level_shift, &
                           level_shift, matrix_u_fm, use_jacobi)
-      TYPE(cp_fm_type), POINTER                          :: matrix_ks_fm
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_type), POINTER                          :: ortho, work
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks_fm
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: ortho, work
       INTEGER, INTENT(inout)                             :: cholesky_method
       LOGICAL, INTENT(in)                                :: do_level_shift
       REAL(KIND=dp), INTENT(in)                          :: level_shift
-      TYPE(cp_fm_type), POINTER                          :: matrix_u_fm
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_u_fm
       LOGICAL, INTENT(in)                                :: use_jacobi
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eigensolver'
 
       INTEGER                                            :: handle, homo, nao, nmo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
@@ -266,20 +267,20 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE eigensolver_dbcsr(matrix_ks, matrix_ks_fm, mo_set, ortho_dbcsr, ksbuf1, ksbuf2)
       TYPE(dbcsr_type), POINTER                          :: matrix_ks
-      TYPE(cp_fm_type), POINTER                          :: matrix_ks_fm
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks_fm
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(dbcsr_type), POINTER                          :: ortho_dbcsr, ksbuf1, ksbuf2
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eigensolver_dbcsr'
 
       INTEGER                                            :: handle, nao, nmo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
-      TYPE(cp_fm_type), POINTER                          :: all_evecs, mo_coeff, nmo_evecs
+      TYPE(cp_fm_type)                                   :: all_evecs, nmo_evecs
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (mo_coeff, all_evecs, nmo_evecs)
+      NULLIFY (mo_coeff)
       NULLIFY (mo_eigenvalues)
 
       CALL get_mo_set(mo_set=mo_set, &
@@ -325,17 +326,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE eigensolver_symm(matrix_ks_fm, mo_set, ortho, work, do_level_shift, &
                                level_shift, matrix_u_fm, use_jacobi, jacobi_threshold)
-      TYPE(cp_fm_type), POINTER                          :: matrix_ks_fm
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_type), POINTER                          :: ortho, work
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks_fm
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: ortho, work
       LOGICAL, INTENT(IN)                                :: do_level_shift
       REAL(KIND=dp), INTENT(IN)                          :: level_shift
-      TYPE(cp_fm_type), POINTER                          :: matrix_u_fm
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_u_fm
       LOGICAL, INTENT(IN)                                :: use_jacobi
       REAL(KIND=dp), INTENT(IN)                          :: jacobi_threshold
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver_symm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eigensolver_symm'
 
       INTEGER                                            :: handle, homo, nao, nelectron, nmo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
@@ -359,8 +359,8 @@ CONTAINS
       IF (use_jacobi) THEN
 
          CALL cp_fm_symm("L", "U", nao, homo, 1.0_dp, matrix_ks_fm, mo_coeff, 0.0_dp, work)
-         CALL cp_gemm("T", "N", homo, nao - homo, nao, 1.0_dp, work, mo_coeff, &
-                      0.0_dp, matrix_ks_fm, b_first_col=homo + 1, c_first_col=homo + 1)
+         CALL parallel_gemm("T", "N", homo, nao - homo, nao, 1.0_dp, work, mo_coeff, &
+                            0.0_dp, matrix_ks_fm, b_first_col=homo + 1, c_first_col=homo + 1)
 
          ! Block Jacobi (pseudo-diagonalization, only one sweep)
          CALL cp_fm_block_jacobi(matrix_ks_fm, mo_coeff, mo_eigenvalues, &
@@ -369,7 +369,7 @@ CONTAINS
       ELSE ! full S^(-1/2) has been computed
 
          CALL cp_fm_symm("L", "U", nao, nao, 1.0_dp, matrix_ks_fm, ortho, 0.0_dp, work)
-         CALL cp_gemm("T", "N", nao, nao, nao, 1.0_dp, ortho, work, 0.0_dp, matrix_ks_fm)
+         CALL parallel_gemm("T", "N", nao, nao, nao, 1.0_dp, ortho, work, 0.0_dp, matrix_ks_fm)
 
          IF (do_level_shift) &
             CALL shift_unocc_mos(matrix_ks_fm=matrix_ks_fm, mo_coeff=mo_coeff, homo=homo, nmo=nmo, nao=nao, &
@@ -377,8 +377,8 @@ CONTAINS
 
          CALL choose_eigv_solver(matrix_ks_fm, work, mo_eigenvalues)
 
-         CALL cp_gemm("N", "N", nao, nmo, nao, 1.0_dp, ortho, work, 0.0_dp, &
-                      mo_coeff)
+         CALL parallel_gemm("N", "N", nao, nmo, nao, 1.0_dp, ortho, work, 0.0_dp, &
+                            mo_coeff)
 
          IF (do_level_shift) &
             CALL correct_mo_eigenvalues(mo_eigenvalues, homo, nmo, level_shift)
@@ -404,16 +404,15 @@ CONTAINS
    SUBROUTINE eigensolver_simple(matrix_ks, mo_set, work, do_level_shift, &
                                  level_shift, use_jacobi, jacobi_threshold)
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_ks
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_type), POINTER                          :: work
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: work
       LOGICAL, INTENT(IN)                                :: do_level_shift
       REAL(KIND=dp), INTENT(IN)                          :: level_shift
       LOGICAL, INTENT(IN)                                :: use_jacobi
       REAL(KIND=dp), INTENT(IN)                          :: jacobi_threshold
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver_simple', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver_simple'
 
       INTEGER                                            :: handle, homo, nao, nelectron, nmo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
@@ -440,8 +439,8 @@ CONTAINS
 
       IF (use_jacobi) THEN
          CALL cp_fm_symm("L", "U", nao, homo, 1.0_dp, matrix_ks, mo_coeff, 0.0_dp, work)
-         CALL cp_gemm("T", "N", homo, nao - homo, nao, 1.0_dp, work, mo_coeff, &
-                      0.0_dp, matrix_ks, b_first_col=homo + 1, c_first_col=homo + 1)
+         CALL parallel_gemm("T", "N", homo, nao - homo, nao, 1.0_dp, work, mo_coeff, &
+                            0.0_dp, matrix_ks, b_first_col=homo + 1, c_first_col=homo + 1)
          ! Block Jacobi (pseudo-diagonalization, only one sweep)
          CALL cp_fm_block_jacobi(matrix_ks, mo_coeff, mo_eigenvalues, jacobi_threshold, homo + 1)
       ELSE
@@ -484,7 +483,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: m3
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_sm_mix', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_sm_mix'
 
       INTEGER                                            :: blk, handle, i, iblock_col, iblock_row, j
       LOGICAL                                            :: found
@@ -519,8 +518,8 @@ CONTAINS
                   p_new_block(i, j) = p_old_block(i, j) + p_mix*p_new_block(i, j)
                END DO
             END DO
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       CALL dbcsr_iterator_stop(iter)
 
       CALL mp_max(delta, para_env%group)
@@ -548,28 +547,25 @@ CONTAINS
       ! Literature: - C. C. J. Roothaan, Rev. Mod. Phys. 32, 179 (1960)
       !             - M. F. Guest and V. R. Saunders, Mol. Phys. 28(3), 819 (1974)
 
-      TYPE(cp_fm_type), POINTER                          :: ksa, ksb
+      TYPE(cp_fm_type), INTENT(IN)                       :: ksa, ksb
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: occa, occb
       REAL(KIND=dp), DIMENSION(0:2, 0:2, 1:2), &
          INTENT(IN)                                      :: roks_parameter
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'combine_ks_matrices_1', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'combine_ks_matrices_1'
 
       INTEGER                                            :: handle, i, icol_global, icol_local, &
                                                             irow_global, irow_local, j, &
                                                             ncol_local, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       LOGICAL                                            :: compatible_matrices
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fa, fb
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: fa, fb
       TYPE(cp_fm_struct_type), POINTER                   :: ksa_struct, ksb_struct
 
 ! -------------------------------------------------------------------------
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(ksa))
-      CPASSERT(ASSOCIATED(ksb))
 
       CALL cp_fm_get_info(matrix=ksa, &
                           matrix_struct=ksa_struct, &
@@ -625,13 +621,12 @@ CONTAINS
       ! Literature: - C. C. J. Roothaan, Rev. Mod. Phys. 32, 179 (1960)
       !             - M. Filatov and S. Shaik, Chem. Phys. Lett. 288, 689 (1998)
 
-      TYPE(cp_fm_type), POINTER                          :: ksa, ksb
+      TYPE(cp_fm_type), INTENT(IN)                       :: ksa, ksb
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: occa, occb
       REAL(KIND=dp), INTENT(IN)                          :: f
       INTEGER, INTENT(IN)                                :: nalpha, nbeta
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'combine_ks_matrices_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'combine_ks_matrices_2'
 
       INTEGER                                            :: handle, icol_global, icol_local, &
                                                             irow_global, irow_local, ncol_local, &
@@ -639,15 +634,13 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       LOGICAL                                            :: compatible_matrices
       REAL(KIND=dp)                                      :: beta, t1, t2, ta, tb
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fa, fb
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: fa, fb
       TYPE(cp_fm_struct_type), POINTER                   :: ksa_struct, ksb_struct
 
 ! -------------------------------------------------------------------------
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(ksa))
-      CPASSERT(ASSOCIATED(ksb))
 
       CALL cp_fm_get_info(matrix=ksa, &
                           matrix_struct=ksa_struct, &
@@ -750,14 +743,11 @@ CONTAINS
 !> \author  MK
 !> \version 1.0
 ! **************************************************************************************************
-   SUBROUTINE correct_mo_eigenvalues(mo_eigenvalues, homo, nmo, level_shift)
+   PURE SUBROUTINE correct_mo_eigenvalues(mo_eigenvalues, homo, nmo, level_shift)
 
       REAL(kind=dp), DIMENSION(:), INTENT(inout)         :: mo_eigenvalues
       INTEGER, INTENT(in)                                :: homo, nmo
       REAL(kind=dp), INTENT(in)                          :: level_shift
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'correct_mo_eigenvalues', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: imo
 
@@ -785,23 +775,22 @@ CONTAINS
    SUBROUTINE shift_unocc_mos(matrix_ks_fm, mo_coeff, homo, nmo, nao, &
                               level_shift, is_triangular, matrix_u_fm)
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_ks_fm, mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ks_fm, mo_coeff
       INTEGER, INTENT(in)                                :: homo, nmo, nao
       REAL(kind=dp), INTENT(in)                          :: level_shift
       LOGICAL, INTENT(in)                                :: is_triangular
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: matrix_u_fm
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_u_fm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'shift_unocc_mos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'shift_unocc_mos'
 
       INTEGER                                            :: handle
       REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: weights
       TYPE(cp_fm_struct_type), POINTER                   :: ao_mo_fmstruct
-      TYPE(cp_fm_type), POINTER                          :: u_mo, u_mo_scaled
+      TYPE(cp_fm_type)                                   :: u_mo, u_mo_scaled
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (ao_mo_fmstruct, u_mo, u_mo_scaled)
+      NULLIFY (ao_mo_fmstruct)
       CALL cp_fm_struct_create(ao_mo_fmstruct, nrow_global=nao, ncol_global=nmo, &
                                para_env=mo_coeff%matrix_struct%para_env, context=mo_coeff%matrix_struct%context)
 
@@ -817,7 +806,7 @@ CONTAINS
             CALL cp_fm_triangular_multiply(matrix_u_fm, u_mo, side="L", transpose_tr=.FALSE., &
                                            invert_tr=.FALSE., uplo_tr="U", n_rows=nao, n_cols=nmo, alpha=1.0_dp)
          ELSE
-            CALL cp_gemm("N", "N", nao, nmo, nao, 1.0_dp, matrix_u_fm, mo_coeff, 0.0_dp, u_mo)
+            CALL parallel_gemm("N", "N", nao, nmo, nao, 1.0_dp, matrix_u_fm, mo_coeff, 0.0_dp, u_mo)
          END IF
       ELSE
          ! assume U is an identity matrix
@@ -838,7 +827,7 @@ CONTAINS
       DEALLOCATE (weights)
 
       ! NewKS = U^{-1,T} * KS * U^{-1} + (U * C) * DELTA * (U * C)^T
-      CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, u_mo, u_mo_scaled, 1.0_dp, matrix_ks_fm)
+      CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, u_mo, u_mo_scaled, 1.0_dp, matrix_ks_fm)
 
       CALL cp_fm_release(u_mo_scaled)
       CALL cp_fm_release(u_mo)

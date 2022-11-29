@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,6 +24,7 @@ MODULE input_cp2k_ls
         ls_s_preconditioner_none, ls_s_sqrt_ns, ls_s_sqrt_proot, ls_scf_line_search_3point, &
         ls_scf_line_search_3point_2d, ls_scf_pexsi, ls_scf_sign, ls_scf_sign_ns, &
         ls_scf_sign_proot, ls_scf_sign_submatrix, ls_scf_submatrix_sign_direct, &
+        ls_scf_submatrix_sign_direct_muadj, ls_scf_submatrix_sign_direct_muadj_lowmem, &
         ls_scf_submatrix_sign_ns, ls_scf_tc2, ls_scf_trs4
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
@@ -54,9 +57,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_ls_scf_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ls_scf_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -221,10 +221,13 @@ CONTAINS
                           description="Method used for the computation of the sign matrix of all submatrices.", &
                           usage="SUBMATRIX_SIGN_METHOD NEWTONSCHULZ", &
                           default_i_val=ls_scf_submatrix_sign_ns, &
-                          enum_c_vals=s2a("NEWTONSCHULZ", "DIRECT"), &
+                          enum_c_vals=s2a("NEWTONSCHULZ", "DIRECT", "DIRECT_MUADJ", "DIRECT_MUADJ_LOWMEM"), &
                           enum_desc=s2a("Newton-Schulz iteration.", &
-                                        "Directly calculate all eigenvalues."), &
-                          enum_i_vals=(/ls_scf_submatrix_sign_ns, ls_scf_submatrix_sign_direct/))
+                                        "Direct method calculating all eigenvalues.", &
+                                        "Direct method with internal adjustment of mu", &
+                                        "Direct method with internal adjustment of mu, using two passes to save memory"), &
+                          enum_i_vals=(/ls_scf_submatrix_sign_ns, ls_scf_submatrix_sign_direct, &
+                                        ls_scf_submatrix_sign_direct_muadj, ls_scf_submatrix_sign_direct_muadj_lowmem/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -347,9 +350,6 @@ CONTAINS
    SUBROUTINE create_chebyshev_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_chebyshev_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -426,9 +426,6 @@ CONTAINS
    SUBROUTINE create_ls_curvy_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ls_curvy_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -497,9 +494,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_pexsi_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_pexsi_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

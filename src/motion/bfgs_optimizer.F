@@ -1,80 +1,90 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief Routines for Geometry optimization using BFGS algorithm
+!> \par History
+!>      Module modified by Pierre-André Cazade [pcazade] 01.2020 - University of Limerick.
+!>      Modifications enable Space Group Symmetry.
 ! **************************************************************************************************
 MODULE bfgs_optimizer
 
-   USE atomic_kind_list_types,          ONLY: atomic_kind_list_type
-   USE atomic_kind_types,               ONLY: get_atomic_kind,&
-                                              get_atomic_kind_set
-   USE cell_types,                      ONLY: cell_type,&
-                                              pbc
-   USE constraint_fxd,                  ONLY: fix_atom_control
-   USE cp_blacs_env,                    ONLY: cp_blacs_env_create,&
-                                              cp_blacs_env_release,&
-                                              cp_blacs_env_type
-   USE cp_external_control,             ONLY: external_control
-   USE cp_files,                        ONLY: close_file,&
-                                              open_file
-   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale,&
-                                              cp_fm_transpose
-   USE cp_fm_diag,                      ONLY: choose_eigv_solver
-   USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
-                                              cp_fm_struct_release,&
-                                              cp_fm_struct_type
-   USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_get_info,&
-                                              cp_fm_read_unformatted,&
-                                              cp_fm_release,&
-                                              cp_fm_set_all,&
-                                              cp_fm_to_fm,&
-                                              cp_fm_type,&
-                                              cp_fm_write_unformatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
-   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
-                                              cp_logger_type,&
-                                              cp_to_string
-   USE cp_output_handling,              ONLY: cp_iterate,&
-                                              cp_p_file,&
-                                              cp_print_key_finished_output,&
-                                              cp_print_key_should_output,&
-                                              cp_print_key_unit_nr
-   USE cp_para_types,                   ONLY: cp_para_env_type
-   USE cp_subsys_types,                 ONLY: cp_subsys_get,&
-                                              cp_subsys_type
-   USE force_env_types,                 ONLY: force_env_get,&
-                                              force_env_type
-   USE global_types,                    ONLY: global_environment_type
-   USE gopt_f_methods,                  ONLY: gopt_f_ii,&
-                                              gopt_f_io,&
-                                              gopt_f_io_finalize,&
-                                              gopt_f_io_init,&
-                                              print_geo_opt_header,&
-                                              print_geo_opt_nc
-   USE gopt_f_types,                    ONLY: gopt_f_type
-   USE gopt_param_types,                ONLY: gopt_param_type
-   USE input_constants,                 ONLY: default_cell_method_id,&
-                                              default_ts_method_id
-   USE input_section_types,             ONLY: section_vals_get_subs_vals,&
-                                              section_vals_type,&
-                                              section_vals_val_get,&
-                                              section_vals_val_set
-   USE kinds,                           ONLY: default_path_length,&
-                                              dp
-   USE machine,                         ONLY: m_flush,&
-                                              m_walltime
-   USE message_passing,                 ONLY: mp_min,&
-                                              mp_sum
-   USE particle_list_types,             ONLY: particle_list_type
+   USE atomic_kind_list_types, ONLY: atomic_kind_list_type
+   USE atomic_kind_types, ONLY: get_atomic_kind, &
+                                get_atomic_kind_set
+   USE cell_types, ONLY: cell_type, &
+                         pbc
+   USE constraint_fxd, ONLY: fix_atom_control
+   USE cp_blacs_env, ONLY: cp_blacs_env_create, &
+                           cp_blacs_env_release, &
+                           cp_blacs_env_type
+   USE cp_external_control, ONLY: external_control
+   USE cp_files, ONLY: close_file, &
+                       open_file
+   USE cp_fm_basic_linalg, ONLY: cp_fm_column_scale, &
+                                 cp_fm_transpose
+   USE cp_fm_diag, ONLY: choose_eigv_solver
+   USE cp_fm_struct, ONLY: cp_fm_struct_create, &
+                           cp_fm_struct_release, &
+                           cp_fm_struct_type
+   USE cp_fm_types, ONLY: &
+      cp_fm_get_info, &
+      cp_fm_read_unformatted, &
+      cp_fm_set_all, &
+      cp_fm_to_fm, &
+      cp_fm_type, &
+      cp_fm_write_unformatted, cp_fm_create, cp_fm_release
+   USE parallel_gemm_api, ONLY: parallel_gemm
+   USE cp_log_handling, ONLY: cp_get_default_logger, &
+                              cp_logger_type, &
+                              cp_to_string
+   USE cp_output_handling, ONLY: cp_iterate, &
+                                 cp_p_file, &
+                                 cp_print_key_finished_output, &
+                                 cp_print_key_should_output, &
+                                 cp_print_key_unit_nr
+   USE cp_para_types, ONLY: cp_para_env_type
+   USE cp_subsys_types, ONLY: cp_subsys_get, &
+                              cp_subsys_type
+   USE force_env_types, ONLY: force_env_get, &
+                              force_env_type
+   USE global_types, ONLY: global_environment_type
+   USE gopt_f_methods, ONLY: gopt_f_ii, &
+                             gopt_f_io, &
+                             gopt_f_io_finalize, &
+                             gopt_f_io_init, &
+                             print_geo_opt_header, &
+                             print_geo_opt_nc
+   USE gopt_f_types, ONLY: gopt_f_type
+   USE gopt_param_types, ONLY: gopt_param_type
+   USE input_constants, ONLY: default_cell_method_id, &
+                              default_ts_method_id
+   USE input_section_types, ONLY: section_vals_get_subs_vals, &
+                                  section_vals_type, &
+                                  section_vals_val_get, &
+                                  section_vals_val_set
+   USE kinds, ONLY: default_path_length, &
+                    dp
+   USE machine, ONLY: m_flush, &
+                      m_walltime
+   USE message_passing, ONLY: mp_min, &
+                              mp_sum
+   USE particle_list_types, ONLY: particle_list_type
+   USE space_groups, ONLY: identify_space_group, &
+                           print_spgr, &
+                           spgr_apply_rotations_coord, &
+                           spgr_apply_rotations_force
+   USE space_groups_types, ONLY: spgr_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
-#include "gopt_f77_methods.h"
+
+   #:include "gopt_f77_methods.fypp"
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'bfgs_optimizer'
    LOGICAL, PARAMETER                   :: debug_this_module = .TRUE.
@@ -91,6 +101,8 @@ CONTAINS
 !> \param geo_section ...
 !> \param gopt_env ...
 !> \param x0 ...
+!> \par History
+!>      01.2020 modified to perform Space Group Symmetry [pcazade]
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE geoopt_bfgs(force_env, gopt_param, globenv, geo_section, gopt_env, x0)
 
@@ -101,7 +113,7 @@ CONTAINS
       TYPE(gopt_f_type), POINTER                         :: gopt_env
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x0
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'geoopt_bfgs', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'geoopt_bfgs'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       CHARACTER(LEN=5)                                   :: wildcard
@@ -118,16 +130,18 @@ CONTAINS
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_hes
-      TYPE(cp_fm_type), POINTER                          :: eigvec_mat, hess_mat, hess_tmp
+      TYPE(cp_fm_type)                          :: eigvec_mat, hess_mat, hess_tmp
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: print_key, root_section
+      TYPE(spgr_type), POINTER                           :: spgr
 
-      NULLIFY (logger, g, blacs_env)
+      NULLIFY (logger, g, blacs_env, spgr)
       logger => cp_get_default_logger()
       para_env => force_env%para_env
       root_section => force_env%root_section
+      spgr => gopt_env%spgr
       t_old = m_walltime()
 
       CALL timeset(routineN, handle)
@@ -231,8 +245,8 @@ CONTAINS
             END DO
             CALL cp_fm_to_fm(eigvec_mat, hess_tmp)
             CALL cp_fm_column_scale(eigvec_mat, eigval)
-            CALL cp_gemm("N", "T", ndf, ndf, ndf, one, hess_tmp, eigvec_mat, zero, hess_mat)
-         ENDIF
+            CALL parallel_gemm("N", "T", ndf, ndf, ndf, one, hess_tmp, eigvec_mat, zero, hess_mat)
+         END IF
       ELSE
          CALL cp_fm_set_all(hess_mat, alpha=zero, beta=one)
       END IF
@@ -258,6 +272,14 @@ CONTAINS
       ALLOCATE (dr(ndf))
       dr(:) = 0.0_dp
 
+      ! find space_group
+      CALL section_vals_val_get(geo_section, "KEEP_SPACE_GROUP", l_val=spgr%keep_space_group)
+      IF (spgr%keep_space_group) THEN
+         CALL identify_space_group(subsys, geo_section, gopt_env, output_unit)
+         CALL spgr_apply_rotations_coord(spgr, x0)
+         CALL print_spgr(spgr)
+      END IF
+
       ! Geometry optimization starts now
       CALL cp_iterate(logger%iter_info, increment=0, iter_nr_out=iter_nr)
       CALL print_geo_opt_header(gopt_env, output_unit, wildcard)
@@ -265,6 +287,12 @@ CONTAINS
       ! Calculate Energy & Gradients
       CALL cp_eval_at(gopt_env, x0, etot, g, gopt_env%force_env%para_env%mepos, &
                       .FALSE., gopt_env%force_env%para_env)
+
+      ! Symmetrize coordinates and forces
+      IF (spgr%keep_space_group) THEN
+         CALL spgr_apply_rotations_coord(spgr, x0)
+         CALL spgr_apply_rotations_force(spgr, g)
+      END IF
 
       ! Print info at time 0
       emin = etot
@@ -288,6 +316,12 @@ CONTAINS
             IF (ionode) CALL close_file(unit_number=hesunit_read)
          ELSE
             IF ((its - iter_nr) > 1) THEN
+               ! Symmetrize old coordinates and old forces
+               IF (spgr%keep_space_group) THEN
+                  CALL spgr_apply_rotations_coord(spgr, xold)
+                  CALL spgr_apply_rotations_force(spgr, gold)
+               END IF
+
                DO indf = 1, ndf
                   dx(indf) = x0(indf) - xold(indf)
                   dg(indf) = g(indf) - gold(indf)
@@ -295,11 +329,23 @@ CONTAINS
 
                CALL bfgs(ndf, dx, dg, hess_mat, work, para_env)
 
+               ! Symmetrize coordinates and forces change
+               IF (spgr%keep_space_group) THEN
+                  CALL spgr_apply_rotations_force(spgr, dx)
+                  CALL spgr_apply_rotations_force(spgr, dg)
+               END IF
+
                !Possibly dump the Hessian file
                IF (BTEST(cp_print_key_should_output(logger%iter_info, print_key), cp_p_file)) THEN
                   CALL write_bfgs_hessian(geo_section, hess_mat, logger)
-               ENDIF
-            ENDIF
+               END IF
+            END IF
+         END IF
+
+         ! Symmetrize coordinates and forces
+         IF (spgr%keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x0)
+            CALL spgr_apply_rotations_force(spgr, g)
          END IF
 
          ! Setting the present positions & gradients as old
@@ -326,10 +372,21 @@ CONTAINS
             CALL rat_fun_opt(ndf, dg, eigval, work, eigvec_mat, g, para_env)
          END IF
          CALL geoopt_get_step(ndf, eigval, eigvec_mat, hess_tmp, dr, g, para_env, use_rfo)
+
+         ! Symmetrize dr
+         IF (spgr%keep_space_group) THEN
+            CALL spgr_apply_rotations_force(spgr, dr)
+         END IF
+
          CALL trust_radius(ndf, step, rad, rat, dr, output_unit)
 
          ! Update the atomic positions
          x0 = x0 + dr
+
+         ! Symmetrize coordinates
+         IF (spgr%keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x0)
+         END IF
 
          CALL energy_predict(ndf, work, hess_mat, dr, g, conv, pred, para_env)
          eold = etot
@@ -337,7 +394,13 @@ CONTAINS
          ! Energy & Gradients at new step
          CALL cp_eval_at(gopt_env, x0, etot, g, gopt_env%force_env%para_env%mepos, &
                          .FALSE., gopt_env%force_env%para_env)
+
          ediff = etot - eold
+
+         ! Symmetrize forces
+         IF (spgr%keep_space_group) THEN
+            CALL spgr_apply_rotations_force(spgr, g)
+         END IF
 
          ! check for an external exit command
          CALL external_control(should_stop, "GEO", globenv=globenv)
@@ -401,11 +464,11 @@ CONTAINS
 
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(INOUT)                       :: dg(ndf), eigval(ndf), work(ndf)
-      TYPE(cp_fm_type), POINTER                          :: eigvec_mat
+      TYPE(cp_fm_type), INTENT(IN)                       :: eigvec_mat
       REAL(KIND=dp), INTENT(INOUT)                       :: g(ndf)
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rat_fun_opt', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rat_fun_opt'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp
 
       INTEGER                                            :: handle, i, indf, iref, iter, j, k, l, &
@@ -414,7 +477,7 @@ CONTAINS
       LOGICAL                                            :: bisec, fail, set
       REAL(KIND=dp)                                      :: fun, fun1, fun2, fun3, fung, lam1, lam2, &
                                                             ln, lp, ssize, step, stol
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), POINTER            :: local_data
 
       CALL timeset(routineN, handle)
 
@@ -442,7 +505,7 @@ CONTAINS
 
       DO
 
-!   calculating Lamda
+!   calculating Lambda
 
          lp = 0.0_dp
          iref = 1
@@ -545,7 +608,7 @@ CONTAINS
 
          IF (.NOT. set) THEN
             work(1:ndf) = one
-         ENDIF
+         END IF
 
          DO indf = 1, ndf
             eigval(indf) = eigval(indf) - ln
@@ -569,18 +632,18 @@ CONTAINS
    SUBROUTINE bfgs(ndf, dx, dg, hess_mat, work, para_env)
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(INOUT)                       :: dx(ndf), dg(ndf)
-      TYPE(cp_fm_type), POINTER                          :: hess_mat
+      TYPE(cp_fm_type), INTENT(IN)                       :: hess_mat
       REAL(KIND=dp), INTENT(INOUT)                       :: work(ndf)
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'bfgs', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'bfgs'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, j, k, l, ncol_local, &
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: DDOT, dxw, gdx
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_hes
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), POINTER            :: local_hes
 
       CALL timeset(routineN, handle)
 
@@ -626,7 +689,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(INOUT)                       :: eigval(ndf), work(ndf)
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_hes_eig', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'set_hes_eig'
       REAL(KIND=dp), PARAMETER                           :: max_neg = -0.5_dp, max_pos = 5.0_dp, &
                                                             min_eig = 0.005_dp, one = 1.0_dp
 
@@ -682,7 +745,7 @@ CONTAINS
 
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(INOUT)                       :: eigval(ndf)
-      TYPE(cp_fm_type), POINTER                          :: eigvec_mat, hess_tmp
+      TYPE(cp_fm_type), INTENT(IN)                       :: eigvec_mat, hess_tmp
       REAL(KIND=dp), INTENT(INOUT)                       :: dr(ndf), g(ndf)
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
       LOGICAL                                            :: use_rfo
@@ -691,9 +754,9 @@ CONTAINS
 
       INTEGER                                            :: i, indf, j, k, l, ncol_local, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), POINTER            :: local_data
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: tmp
+      TYPE(cp_fm_type)                          :: tmp
 
       CALL cp_fm_to_fm(eigvec_mat, hess_tmp)
       IF (use_rfo) THEN
@@ -710,7 +773,7 @@ CONTAINS
       CALL cp_fm_get_info(eigvec_mat, matrix_struct=matrix_struct)
       CALL cp_fm_create(tmp, matrix_struct, name="tmp")
 
-      CALL cp_gemm("N", "T", ndf, ndf, ndf, one, hess_tmp, eigvec_mat, zero, tmp)
+      CALL parallel_gemm("N", "T", ndf, ndf, ndf, one, hess_tmp, eigvec_mat, zero, tmp)
 
       CALL cp_fm_transpose(tmp, hess_tmp)
       CALL cp_fm_release(tmp)
@@ -747,7 +810,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: step, rad, rat, dr(ndf)
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'trust_radius', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'trust_radius'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp
 
       INTEGER                                            :: handle
@@ -766,7 +829,7 @@ CONTAINS
             WRITE (unit=output_unit, FMT="(/,T2,A,F8.5)") &
                " Step is scaled; Scaling factor = ", rat
             CALL m_flush(output_unit)
-         ENDIF
+         END IF
       END IF
       CALL timestop(handle)
 
@@ -787,20 +850,20 @@ CONTAINS
 
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(INOUT)                       :: work(ndf)
-      TYPE(cp_fm_type), POINTER                          :: hess_mat
+      TYPE(cp_fm_type), INTENT(IN)                           :: hess_mat
       REAL(KIND=dp), INTENT(INOUT)                       :: dr(ndf), g(ndf)
       LOGICAL, INTENT(INOUT)                             :: conv
       REAL(KIND=dp), INTENT(INOUT)                       :: pred
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'energy_predict', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'energy_predict'
       REAL(KIND=dp), PARAMETER                           :: zero = 0.0_dp
 
       INTEGER                                            :: handle, i, j, k, l, ncol_local, &
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: DDOT, ener1, ener2
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), POINTER            :: local_data
 
       CALL timeset(routineN, handle)
 
@@ -837,8 +900,7 @@ CONTAINS
 
       REAL(KIND=dp), INTENT(INOUT)                       :: rat, rad, step, ediff
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_trust_rad', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'update_trust_rad'
       REAL(KIND=dp), PARAMETER                           :: max_trust = 1.0_dp, min_trust = 0.1_dp
 
       INTEGER                                            :: handle
@@ -916,11 +978,10 @@ CONTAINS
    SUBROUTINE write_bfgs_hessian(geo_section, hess_mat, logger)
 
       TYPE(section_vals_type), POINTER                   :: geo_section
-      TYPE(cp_fm_type), POINTER                          :: hess_mat
+      TYPE(cp_fm_type), INTENT(IN)                          :: hess_mat
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_bfgs_hessian', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_bfgs_hessian'
 
       INTEGER                                            :: handle, hesunit
 
@@ -947,10 +1008,7 @@ CONTAINS
    SUBROUTINE construct_initial_hess(force_env, hess_mat)
 
       TYPE(force_env_type), POINTER                      :: force_env
-      TYPE(cp_fm_type), POINTER                          :: hess_mat
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'construct_initial_hess', &
-         routineP = moduleN//':'//routineN
+      TYPE(cp_fm_type), INTENT(IN)                          :: hess_mat
 
       INTEGER                                            :: i, iat_col, iat_row, iglobal, iind, j, &
                                                             jat_row, jglobal, jind, k, natom, &
@@ -960,7 +1018,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: d_ij, rho_ij
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: r_ij
       REAL(KIND=dp), DIMENSION(3, 3)                     :: alpha, r0
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fixed, local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), POINTER            :: fixed, local_data
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(particle_list_type), POINTER                  :: particles

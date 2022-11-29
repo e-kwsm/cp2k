@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,16 +68,14 @@ MODULE qs_mo_io
    USE orbital_transformation_matrices, ONLY: orbtramat
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: evolt
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_dftb_types,                   ONLY: qs_dftb_atom_type
    USE qs_dftb_utils,                   ONLY: get_dftb_atom_param
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               get_qs_kind_set,&
                                               qs_kind_type
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix
    USE qs_mo_occupation,                ONLY: set_mo_occupation
-   USE qs_mo_types,                     ONLY: mo_set_p_type,&
-                                              mo_set_type
-   USE string_utilities,                ONLY: compress
+   USE qs_mo_types,                     ONLY: mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -85,19 +85,13 @@ MODULE qs_mo_io
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_mo_io'
 
    PUBLIC :: wfn_restart_file_name, &
-             read_mo_set, &
-             write_mo_set, &
              write_rt_mos_to_restart, &
              read_rt_mos_from_restart, &
-             write_dm_binary_restart
-
-   INTERFACE read_mo_set
-      MODULE PROCEDURE read_mo_set_from_restart
-   END INTERFACE
-
-   INTERFACE write_mo_set
-      MODULE PROCEDURE write_mo_set_to_output_unit, write_mo_set_to_restart
-   END INTERFACE
+             write_dm_binary_restart, &
+             write_mo_set_to_output_unit, &
+             write_mo_set_to_restart, &
+             read_mo_set_from_restart, &
+             write_mo_set_low
 
 CONTAINS
 
@@ -110,13 +104,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE write_mo_set_to_restart(mo_array, particle_set, dft_section, qs_kind_set)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: dft_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mo_set_to_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mo_set_to_restart'
       CHARACTER(LEN=30), DIMENSION(2), PARAMETER :: &
          keys = (/"SCF%PRINT%RESTART_HISTORY", "SCF%PRINT%RESTART        "/)
 
@@ -131,17 +124,17 @@ CONTAINS
           BTEST(cp_print_key_should_output(logger%iter_info, &
                                            dft_section, keys(2)), cp_p_file)) THEN
 
-         IF (mo_array(1)%mo_set%use_mo_coeff_b) THEN
+         IF (mo_array(1)%use_mo_coeff_b) THEN
             ! we are using the dbcsr mo_coeff
             ! we copy it to the fm for anycase
             DO ispin = 1, SIZE(mo_array)
-               IF (.NOT. ASSOCIATED(mo_array(ispin)%mo_set%mo_coeff_b)) THEN
+               IF (.NOT. ASSOCIATED(mo_array(ispin)%mo_coeff_b)) THEN
                   CPASSERT(.FALSE.)
-               ENDIF
-               CALL copy_dbcsr_to_fm(mo_array(ispin)%mo_set%mo_coeff_b, &
-                                     mo_array(ispin)%mo_set%mo_coeff) !fm->dbcsr
-            ENDDO
-         ENDIF
+               END IF
+               CALL copy_dbcsr_to_fm(mo_array(ispin)%mo_coeff_b, &
+                                     mo_array(ispin)%mo_coeff) !fm->dbcsr
+            END DO
+         END IF
 
          DO ikey = 1, SIZE(keys)
 
@@ -174,12 +167,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE write_dm_binary_restart(mo_array, dft_section, tmpl_matrix)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(section_vals_type), POINTER                   :: dft_section
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: tmpl_matrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_dm_binary_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_dm_binary_restart'
 
       CHARACTER(LEN=default_path_length)                 :: file_name, project_name
       INTEGER                                            :: handle, ispin, unit_nr
@@ -194,7 +186,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       project_name = logger%iter_info%project_name
       CALL section_vals_val_get(dft_section, "SCF%PRINT%DM_RESTART_WRITE", l_val=do_dm_restart)
@@ -205,21 +197,21 @@ CONTAINS
          DO ispin = 1, SIZE(mo_array)
             CALL dbcsr_create(matrix_p_tmp, template=tmpl_matrix(ispin)%matrix, name="DM RESTART")
 
-            IF (.NOT. ASSOCIATED(mo_array(ispin)%mo_set%mo_coeff_b)) CPABORT("mo_coeff_b NOT ASSOCIATED")
+            IF (.NOT. ASSOCIATED(mo_array(ispin)%mo_coeff_b)) CPABORT("mo_coeff_b NOT ASSOCIATED")
 
-            CALL copy_fm_to_dbcsr(mo_array(ispin)%mo_set%mo_coeff, mo_array(ispin)%mo_set%mo_coeff_b)
-            CALL calculate_density_matrix(mo_array(ispin)%mo_set, matrix_p_tmp, &
+            CALL copy_fm_to_dbcsr(mo_array(ispin)%mo_coeff, mo_array(ispin)%mo_coeff_b)
+            CALL calculate_density_matrix(mo_array(ispin), matrix_p_tmp, &
                                           use_dbcsr=.TRUE., retain_sparsity=.FALSE.)
 
             WRITE (file_name, '(A,I0,A)') TRIM(project_name)//"_SCF_DM_SPIN_", ispin, "_RESTART.dm"
             cs_pos = dbcsr_checksum(matrix_p_tmp, pos=.TRUE.)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, '(T2,A,E20.8)') "Writing restart DM "//TRIM(file_name)//" with checksum: ", cs_pos
-            ENDIF
+            END IF
             CALL dbcsr_binary_write(matrix_p_tmp, file_name)
 
             CALL dbcsr_release(matrix_p_tmp)
-         ENDDO
+         END DO
          DEALLOCATE (matrix_p_tmp)
       END IF
 
@@ -238,14 +230,13 @@ CONTAINS
    SUBROUTINE write_rt_mos_to_restart(mo_array, rt_mos, particle_set, dft_section, &
                                       qs_kind_set)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: rt_mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: dft_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_rt_mos_to_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_rt_mos_to_restart'
       CHARACTER(LEN=43), DIMENSION(2), PARAMETER :: keys = (/ &
          "REAL_TIME_PROPAGATION%PRINT%RESTART_HISTORY", &
          "REAL_TIME_PROPAGATION%PRINT%RESTART        "/)
@@ -291,15 +282,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE write_mo_set_low(mo_array, qs_kind_set, particle_set, ires, rt_mos)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER                                            :: ires
       TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rt_mos
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mo_set_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'write_mo_set_low'
 
       INTEGER                                            :: handle, iatom, ikind, imat, iset, &
                                                             ishell, ispin, lmax, lshell, &
@@ -313,7 +303,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
       nspin = SIZE(mo_array)
-      nao = mo_array(1)%mo_set%nao
+      nao = mo_array(1)%nao
 
       IF (ires > 0) THEN
          !     *** create some info about the basis set first ***
@@ -340,7 +330,8 @@ CONTAINS
                nset_max = MAX(nset_max, 1)
                nshell_max = MAX(nshell_max, lmax + 1)
             ELSE
-               CPABORT("Unknown basis type. ")
+               ! We assume here an atom without a basis set
+               ! CPABORT("Unknown basis type. ")
             END IF
          END DO
 
@@ -380,7 +371,8 @@ CONTAINS
                   nso_info(ishell, 1, iatom) = nso(lshell)
                END DO
             ELSE
-               CPABORT("Unknown basis set type. ")
+               ! We assume here an atom without a basis set
+               ! CPABORT("Unknown basis type. ")
             END IF
          END DO
 
@@ -397,24 +389,24 @@ CONTAINS
       END IF
 
       ! use the scalapack block size as a default for buffering columns
-      CALL cp_fm_get_info(mo_array(1)%mo_set%mo_coeff, ncol_block=max_block)
+      CALL cp_fm_get_info(mo_array(1)%mo_coeff, ncol_block=max_block)
 
       DO ispin = 1, nspin
-         nmo = mo_array(ispin)%mo_set%nmo
+         nmo = mo_array(ispin)%nmo
          IF ((ires > 0) .AND. (nmo > 0)) THEN
             WRITE (ires) nmo, &
-               mo_array(ispin)%mo_set%homo, &
-               mo_array(ispin)%mo_set%lfomo, &
-               mo_array(ispin)%mo_set%nelectron
-            WRITE (ires) mo_array(ispin)%mo_set%eigenvalues(1:nmo), &
-               mo_array(ispin)%mo_set%occupation_numbers(1:nmo)
+               mo_array(ispin)%homo, &
+               mo_array(ispin)%lfomo, &
+               mo_array(ispin)%nelectron
+            WRITE (ires) mo_array(ispin)%eigenvalues(1:nmo), &
+               mo_array(ispin)%occupation_numbers(1:nmo)
          END IF
          IF (PRESENT(rt_mos)) THEN
             DO imat = 2*ispin - 1, 2*ispin
                CALL cp_fm_write_unformatted(rt_mos(imat)%matrix, ires)
             END DO
          ELSE
-            CALL cp_fm_write_unformatted(mo_array(ispin)%mo_set%mo_coeff, ires)
+            CALL cp_fm_write_unformatted(mo_array(ispin)%mo_coeff, ires)
          END IF
       END DO
 
@@ -476,7 +468,7 @@ CONTAINS
             filename = cp_print_key_generate_filename(logger, print_key, &
                                                       extension=".wfn", my_local=.FALSE.)
          END IF
-      ENDIF
+      END IF
       IF (.NOT. my_xas) THEN
          INQUIRE (FILE=filename, exist=exist)
       END IF
@@ -500,7 +492,7 @@ CONTAINS
                                        para_env, id_nr, multiplicity, dft_section, natom_mismatch, &
                                        cdft)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mo_array
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -510,8 +502,7 @@ CONTAINS
       LOGICAL, INTENT(OUT), OPTIONAL                     :: natom_mismatch
       LOGICAL, INTENT(IN), OPTIONAL                      :: cdft
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_mo_set_from_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_mo_set_from_restart'
 
       CHARACTER(LEN=default_path_length)                 :: file_name
       INTEGER                                            :: group, handle, ispin, natom, nspin, &
@@ -550,6 +541,7 @@ CONTAINS
       CALL read_mos_restart_low(mo_array, para_env=para_env, qs_kind_set=qs_kind_set, &
                                 particle_set=particle_set, natom=natom, &
                                 rst_unit=restart_unit, multiplicity=multiplicity, natom_mismatch=natom_mismatch)
+
       IF (PRESENT(natom_mismatch)) THEN
          ! read_mos_restart_low only the io_node returns natom_mismatch, must broadcast it
          CALL mp_bcast(natom_mismatch, source, group)
@@ -557,8 +549,8 @@ CONTAINS
             IF (para_env%ionode) CALL close_file(unit_number=restart_unit)
             CALL timestop(handle)
             RETURN
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Close restart file
       IF (para_env%ionode) CALL close_file(unit_number=restart_unit)
@@ -566,14 +558,15 @@ CONTAINS
       ! CDFT has no real dft_section and does not need to print
       IF (.NOT. my_cdft) THEN
          DO ispin = 1, nspin
-            CALL write_mo_set(mo_array(ispin)%mo_set, atomic_kind_set, qs_kind_set, &
-                              particle_set, 4, dft_section)
+            CALL write_mo_set_to_output_unit(mo_array(ispin), atomic_kind_set, qs_kind_set, &
+                                             particle_set, dft_section, 4, 0, final_mos=.FALSE.)
          END DO
       END IF
 
       CALL timestop(handle)
 
    END SUBROUTINE read_mo_set_from_restart
+
 ! **************************************************************************************************
 !> \brief ...
 !> \param mo_array ...
@@ -589,7 +582,7 @@ CONTAINS
    SUBROUTINE read_rt_mos_from_restart(mo_array, rt_mos, atomic_kind_set, qs_kind_set, &
                                        particle_set, para_env, id_nr, multiplicity, dft_section)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mo_array
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: rt_mos
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -598,8 +591,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: id_nr, multiplicity
       TYPE(section_vals_type), POINTER                   :: dft_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_rt_mos_from_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_rt_mos_from_restart'
 
       CHARACTER(LEN=default_path_length)                 :: file_name
       INTEGER                                            :: group, handle, ispin, natom, nspin, &
@@ -641,8 +633,8 @@ CONTAINS
       IF (para_env%ionode) CALL close_file(unit_number=restart_unit)
 
       DO ispin = 1, nspin
-         CALL write_mo_set(mo_array(ispin)%mo_set, atomic_kind_set, qs_kind_set, &
-                           particle_set, 4, dft_section)
+         CALL write_mo_set_to_output_unit(mo_array(ispin), atomic_kind_set, qs_kind_set, &
+                                          particle_set, dft_section, 4, 0, final_mos=.FALSE.)
       END DO
 
       CALL timestop(handle)
@@ -667,7 +659,7 @@ CONTAINS
    SUBROUTINE read_mos_restart_low(mos, para_env, qs_kind_set, particle_set, natom, rst_unit, &
                                    multiplicity, rt_mos, natom_mismatch)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mos
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -676,9 +668,6 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rt_mos
       LOGICAL, INTENT(OUT), OPTIONAL                     :: natom_mismatch
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_mos_restart_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: group, homo, homo_read, i, iatom, ikind, imat, irow, iset, iset_read, ishell, &
          ishell_read, iso, ispin, lfomo_read, lmax, lshell, my_mult, nao, nao_read, natom_read, &
@@ -697,7 +686,7 @@ CONTAINS
       logger => cp_get_default_logger()
 
       nspin = SIZE(mos)
-      nao = mos(1)%mo_set%nao
+      nao = mos(1)%nao
       my_mult = 0
       IF (PRESENT(multiplicity)) my_mult = multiplicity
       group = para_env%group
@@ -718,7 +707,7 @@ CONTAINS
             ! this case needs fixing of homo/lfomo/nelec/occupations ...
             IF (nspin_read > nspin) THEN
                CPABORT("Reducing nspin is not possible. ")
-            ENDIF
+            END IF
          END IF
 
          natom_match = (natom_read == natom)
@@ -768,8 +757,8 @@ CONTAINS
             RETURN
          ELSE
             CPABORT("Incorrect number of atoms in restart file. ")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL mp_bcast(nspin_read, source, group)
 
@@ -777,11 +766,11 @@ CONTAINS
 
       DO ispin = 1, nspin
 
-         nmo = mos(ispin)%mo_set%nmo
-         homo = mos(ispin)%mo_set%homo
-         mos(ispin)%mo_set%eigenvalues(:) = 0.0_dp
-         mos(ispin)%mo_set%occupation_numbers(:) = 0.0_dp
-         CALL cp_fm_set_all(mos(ispin)%mo_set%mo_coeff, 0.0_dp)
+         nmo = mos(ispin)%nmo
+         homo = mos(ispin)%homo
+         mos(ispin)%eigenvalues(:) = 0.0_dp
+         mos(ispin)%occupation_numbers(:) = 0.0_dp
+         CALL cp_fm_set_all(mos(ispin)%mo_coeff, 0.0_dp)
 
          IF (para_env%ionode .AND. (nmo > 0)) THEN
             READ (rst_unit) nmo_read, homo_read, lfomo_read, nelectron_read
@@ -800,18 +789,18 @@ CONTAINS
                             "the allocated MOs. The read MO set will be truncated!")
 
             READ (rst_unit) eig_read(1:nmo_read), occ_read(1:nmo_read)
-            mos(ispin)%mo_set%eigenvalues(1:nmo) = eig_read(1:nmo)
-            mos(ispin)%mo_set%occupation_numbers(1:nmo) = occ_read(1:nmo)
+            mos(ispin)%eigenvalues(1:nmo) = eig_read(1:nmo)
+            mos(ispin)%occupation_numbers(1:nmo) = occ_read(1:nmo)
             DEALLOCATE (eig_read, occ_read)
 
-            mos(ispin)%mo_set%homo = homo_read
-            mos(ispin)%mo_set%lfomo = lfomo_read
+            mos(ispin)%homo = homo_read
+            mos(ispin)%lfomo = lfomo_read
             IF (homo_read > nmo) THEN
-               IF (nelectron_read == mos(ispin)%mo_set%nelectron) THEN
+               IF (nelectron_read == mos(ispin)%nelectron) THEN
                   CALL cp_warn(__LOCATION__, &
                                "The number of occupied MOs on the restart unit is larger than "// &
                                "the allocated MOs. The read MO set will be truncated and the occupation numbers recalculated!")
-                  CALL set_mo_occupation(mo_set=mos(ispin)%mo_set)
+                  CALL set_mo_occupation(mo_set=mos(ispin))
                ELSE
                   ! can not make this a warning i.e. homo must be smaller than nmo
                   ! otherwise e.g. set_mo_occupation will go out of bounds
@@ -821,11 +810,11 @@ CONTAINS
          END IF
 
          CALL mp_bcast(nmo, source, group)
-         CALL mp_bcast(mos(ispin)%mo_set%homo, source, group)
-         CALL mp_bcast(mos(ispin)%mo_set%lfomo, source, group)
-         CALL mp_bcast(mos(ispin)%mo_set%nelectron, source, group)
-         CALL mp_bcast(mos(ispin)%mo_set%eigenvalues, source, group)
-         CALL mp_bcast(mos(ispin)%mo_set%occupation_numbers, source, group)
+         CALL mp_bcast(mos(ispin)%homo, source, group)
+         CALL mp_bcast(mos(ispin)%lfomo, source, group)
+         CALL mp_bcast(mos(ispin)%nelectron, source, group)
+         CALL mp_bcast(mos(ispin)%eigenvalues, source, group)
+         CALL mp_bcast(mos(ispin)%occupation_numbers, source, group)
          IF (PRESENT(rt_mos)) THEN
             DO imat = 2*ispin - 1, 2*ispin
                DO i = 1, nmo
@@ -862,7 +851,9 @@ CONTAINS
                         nset = 1
                         minbas = .TRUE.
                      ELSE
-                        CPABORT("Unknown basis set type. ")
+                        ! assume an atom without basis set
+                        ! CPABORT("Unknown basis set type. ")
+                        nset = 0
                      END IF
 
                      use_this = .TRUE.
@@ -917,7 +908,7 @@ CONTAINS
                END IF
 
                CALL mp_bcast(vecbuffer, source, group)
-               CALL cp_fm_set_submatrix(mos(ispin)%mo_set%mo_coeff, &
+               CALL cp_fm_set_submatrix(mos(ispin)%mo_coeff, &
                                         vecbuffer, 1, i, nao, 1, transpose=.TRUE.)
             END DO
          END IF
@@ -934,20 +925,20 @@ CONTAINS
          IF (.NOT. PRESENT(rt_mos)) THEN
             IF (ispin == 1 .AND. nspin_read < nspin) THEN
 
-               mos(ispin + 1)%mo_set%homo = mos(ispin)%mo_set%homo
-               mos(ispin + 1)%mo_set%lfomo = mos(ispin)%mo_set%lfomo
-               nelectron = mos(ispin)%mo_set%nelectron
+               mos(ispin + 1)%homo = mos(ispin)%homo
+               mos(ispin + 1)%lfomo = mos(ispin)%lfomo
+               nelectron = mos(ispin)%nelectron
                IF (my_mult .NE. 1) THEN
                   CALL cp_abort(__LOCATION__, &
                                 "Restarting an LSD calculation from an LDA wfn only works for multiplicity=1 (singlets).")
                END IF
-               IF (mos(ispin + 1)%mo_set%nelectron < 0) THEN
+               IF (mos(ispin + 1)%nelectron < 0) THEN
                   CPABORT("LSD: too few electrons for this multiplisity. ")
                END IF
-               mos(ispin + 1)%mo_set%eigenvalues = mos(ispin)%mo_set%eigenvalues
-               mos(ispin)%mo_set%occupation_numbers = mos(ispin)%mo_set%occupation_numbers/2.0_dp
-               mos(ispin + 1)%mo_set%occupation_numbers = mos(ispin)%mo_set%occupation_numbers
-               CALL cp_fm_to_fm(mos(ispin)%mo_set%mo_coeff, mos(ispin + 1)%mo_set%mo_coeff)
+               mos(ispin + 1)%eigenvalues = mos(ispin)%eigenvalues
+               mos(ispin)%occupation_numbers = mos(ispin)%occupation_numbers/2.0_dp
+               mos(ispin + 1)%occupation_numbers = mos(ispin)%occupation_numbers
+               CALL cp_fm_to_fm(mos(ispin)%mo_coeff, mos(ispin + 1)%mo_coeff)
                EXIT
             END IF
          END IF
@@ -966,61 +957,71 @@ CONTAINS
    END SUBROUTINE read_mos_restart_low
 
 ! **************************************************************************************************
-!> \brief   Write the MO eigenvalues, MO occupation numbers and
-!>          MO mo_coeff.
+!> \brief Write MO information to output file (eigenvalues, occupation numbers, coefficients)
 !> \param mo_set ...
 !> \param atomic_kind_set ...
 !> \param qs_kind_set ...
 !> \param particle_set ...
-!> \param before ...
 !> \param dft_section ...
+!> \param before Digits before the dot
+!> \param kpoint An integer that labels the current k point, e.g. its index
+!> \param final_mos ...
 !> \param spin ...
-!> \param last ...
-!> \param kpt An integer that labels the current k point, e.g. its index
+!> \param solver_method ...
+!> \param rtp ...
+!> \param cpart ...
+!> \param sim_step ...
 !> \date    15.05.2001
 !> \par History:
-!>       - Optionally print Cartesian MOs (20.04.2005,MK)
+!>       - Optionally print Cartesian MOs (20.04.2005, MK)
+!>       - Revise printout of MO information (05.05.2021, MK)
 !> \par Variables
 !>       - after : Number of digits after point.
 !>       - before: Number of digits before point.
-!> \author  MK
-!> \version 1.0
+!> \author  Matthias Krack (MK)
+!> \version 1.1
 ! **************************************************************************************************
    SUBROUTINE write_mo_set_to_output_unit(mo_set, atomic_kind_set, qs_kind_set, particle_set, &
-                                          before, dft_section, spin, last, kpt)
+                                          dft_section, before, kpoint, final_mos, spin, &
+                                          solver_method, rtp, cpart, sim_step)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-      INTEGER, INTENT(IN)                                :: before
       TYPE(section_vals_type), POINTER                   :: dft_section
+      INTEGER, INTENT(IN)                                :: before, kpoint
+      LOGICAL, INTENT(IN), OPTIONAL                      :: final_mos
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: spin
-      LOGICAL, INTENT(IN), OPTIONAL                      :: last
-      INTEGER, INTENT(IN), OPTIONAL                      :: kpt
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mo_set_to_output_unit', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=2), INTENT(IN), OPTIONAL             :: solver_method
+      LOGICAL, INTENT(IN), OPTIONAL                      :: rtp
+      INTEGER, INTENT(IN), OPTIONAL                      :: cpart, sim_step
 
       CHARACTER(LEN=12)                                  :: symbol
       CHARACTER(LEN=12), DIMENSION(:), POINTER           :: bcgf_symbol
-      CHARACTER(LEN=16)                                  :: fmtstr5, fmtstr6
-      CHARACTER(LEN=2)                                   :: element_symbol
+      CHARACTER(LEN=14)                                  :: fmtstr5
+      CHARACTER(LEN=15)                                  :: energy_str, orbital_str, step_string
+      CHARACTER(LEN=2)                                   :: element_symbol, my_solver_method
       CHARACTER(LEN=2*default_string_length)             :: name
-      CHARACTER(LEN=22)                                  :: fmtstr2
-      CHARACTER(LEN=25)                                  :: fmtstr1, fmtstr7
-      CHARACTER(LEN=27)                                  :: fmtstr4
-      CHARACTER(LEN=38)                                  :: fmtstr3
+      CHARACTER(LEN=21)                                  :: vector_str
+      CHARACTER(LEN=22)                                  :: fmtstr4
+      CHARACTER(LEN=24)                                  :: fmtstr2
+      CHARACTER(LEN=25)                                  :: fmtstr1
+      CHARACTER(LEN=29)                                  :: fmtstr6
+      CHARACTER(LEN=4)                                   :: reim
+      CHARACTER(LEN=40)                                  :: fmtstr3
       CHARACTER(LEN=6), DIMENSION(:), POINTER            :: bsgf_symbol
       INTEGER :: after, first_mo, from, iatom, icgf, ico, icol, ikind, imo, irow, iset, isgf, &
          ishell, iso, iw, jcol, last_mo, left, lmax, lshell, natom, ncgf, ncol, ncol_global, &
          nrow_global, nset, nsgf, right, scf_step, to, width
       INTEGER, DIMENSION(:), POINTER                     :: mo_index_range, nshell
       INTEGER, DIMENSION(:, :), POINTER                  :: l
-      LOGICAL                                            :: ionode, my_last, p_cart, p_eval, p_evec, &
-                                                            p_occ, should_output
+      LOGICAL                                            :: ionode, my_final, my_rtp, &
+                                                            print_cartesian, print_eigvals, &
+                                                            print_eigvecs, print_occup, &
+                                                            should_output
       REAL(KIND=dp)                                      :: gap
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: cmatrix, smatrix
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: cmatrix, smatrix
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
       TYPE(qs_dftb_atom_type), POINTER                   :: dftb_parameter
@@ -1033,27 +1034,62 @@ CONTAINS
 
       logger => cp_get_default_logger()
       ionode = logger%para_env%ionode
-      CALL section_vals_val_get(dft_section, "PRINT%MO%EIGENVALUES", l_val=p_eval)
-      CALL section_vals_val_get(dft_section, "PRINT%MO%EIGENVECTORS", l_val=p_evec)
-      CALL section_vals_val_get(dft_section, "PRINT%MO%OCCUPATION_NUMBERS", l_val=p_occ)
-      CALL section_vals_val_get(dft_section, "PRINT%MO%CARTESIAN", l_val=p_cart)
+      CALL section_vals_val_get(dft_section, "PRINT%MO%EIGENVALUES", l_val=print_eigvals)
+      CALL section_vals_val_get(dft_section, "PRINT%MO%EIGENVECTORS", l_val=print_eigvecs)
+      CALL section_vals_val_get(dft_section, "PRINT%MO%OCCUPATION_NUMBERS", l_val=print_occup)
+      CALL section_vals_val_get(dft_section, "PRINT%MO%CARTESIAN", l_val=print_cartesian)
       CALL section_vals_val_get(dft_section, "PRINT%MO%MO_INDEX_RANGE", i_vals=mo_index_range)
       CALL section_vals_val_get(dft_section, "PRINT%MO%NDIGITS", i_val=after)
       after = MIN(MAX(after, 1), 16)
-      should_output = BTEST(cp_print_key_should_output(logger%iter_info, dft_section, &
-                                                       "PRINT%MO"), cp_p_file)
 
-      IF ((.NOT. should_output) .OR. (.NOT. (p_eval .OR. p_evec .OR. p_occ))) RETURN
-
-      IF (PRESENT(last)) THEN
-         my_last = last
+      ! Do we print the final MO information after SCF convergence is reached (default: no)
+      IF (PRESENT(final_mos)) THEN
+         my_final = final_mos
       ELSE
-         my_last = .FALSE.
+         my_final = .FALSE.
       END IF
 
-      scf_step = logger%iter_info%iteration(logger%iter_info%n_rlevel) - 1
+      ! complex MOS for RTP, no eigenvalues
+      my_rtp = .FALSE.
+      IF (PRESENT(rtp)) THEN
+         my_rtp = rtp
+      END IF
 
-      IF (p_evec) THEN
+      should_output = BTEST(cp_print_key_should_output(logger%iter_info, dft_section, &
+                                                       "PRINT%MO"), cp_p_file) .OR. my_final
+
+      IF ((.NOT. should_output) .OR. (.NOT. (print_eigvals .OR. print_eigvecs .OR. print_occup))) RETURN
+
+      IF (my_rtp) THEN
+         CPASSERT(PRESENT(sim_step))
+         CPASSERT(PRESENT(cpart))
+         scf_step = sim_step
+         IF (cpart == 0) THEN
+            reim = "IMAG"
+         ELSE
+            reim = "REAL"
+         END IF
+         print_eigvals = .FALSE.
+      ELSE
+         scf_step = MAX(0, logger%iter_info%iteration(logger%iter_info%n_rlevel) - 1)
+      END IF
+
+      IF (.NOT. my_final) THEN
+         IF (.NOT. my_rtp) THEN
+            step_string = " AFTER SCF STEP"
+         ELSE
+            step_string = " AFTER RTP STEP"
+         END IF
+      END IF
+
+      IF (PRESENT(solver_method)) THEN
+         my_solver_method = solver_method
+      ELSE
+         ! Traditional diagonalization is assumed as default solver method
+         my_solver_method = "TD"
+      END IF
+
+      IF (print_eigvecs) THEN
          CALL cp_fm_get_info(mo_set%mo_coeff, &
                              nrow_global=nrow_global, &
                              ncol_global=ncol_global)
@@ -1075,9 +1111,9 @@ CONTAINS
 
          ! Definition of the variable formats
 
-         fmtstr1 = "(/,T2,21X,  (  X,I5,  X))"
-         fmtstr2 = "(T2,21X,  (1X,F  .  ))"
-         fmtstr3 = "(T2,I5,1X,I5,1X,A,1X,A6,  (1X,F  .  ))"
+         fmtstr1 = "(T2,A,21X,  (  X,I5,  X))"
+         fmtstr2 = "(T2,A,21X,  (1X,F  .  ))"
+         fmtstr3 = "(T2,A,I5,1X,I5,1X,A,1X,A6,  (1X,F  .  ))"
 
          width = before + after + 3
          ncol = INT(56/width)
@@ -1089,33 +1125,37 @@ CONTAINS
          WRITE (UNIT=fmtstr1(14:15), FMT="(I2)") left
          WRITE (UNIT=fmtstr1(21:22), FMT="(I2)") right
 
-         WRITE (UNIT=fmtstr2(9:10), FMT="(I2)") ncol
-         WRITE (UNIT=fmtstr2(16:17), FMT="(I2)") width - 1
-         WRITE (UNIT=fmtstr2(19:20), FMT="(I2)") after
+         WRITE (UNIT=fmtstr2(11:12), FMT="(I2)") ncol
+         WRITE (UNIT=fmtstr2(18:19), FMT="(I2)") width - 1
+         WRITE (UNIT=fmtstr2(21:22), FMT="(I2)") after
 
-         WRITE (UNIT=fmtstr3(25:26), FMT="(I2)") ncol
-         WRITE (UNIT=fmtstr3(32:33), FMT="(I2)") width - 1
-         WRITE (UNIT=fmtstr3(35:36), FMT="(I2)") after
+         WRITE (UNIT=fmtstr3(27:28), FMT="(I2)") ncol
+         WRITE (UNIT=fmtstr3(34:35), FMT="(I2)") width - 1
+         WRITE (UNIT=fmtstr3(37:38), FMT="(I2)") after
 
-         IF (p_evec) THEN
+         IF (my_final .OR. (my_solver_method == "TD")) THEN
+            energy_str = "EIGENVALUES"
+            vector_str = "EIGENVECTORS"
+         ELSE
+            energy_str = "ENERGIES"
+            vector_str = "COEFFICIENTS"
+         END IF
 
-            IF (p_cart) THEN
+         IF (my_rtp) THEN
+            energy_str = "ZEROS"
+            vector_str = TRIM(reim)//" RTP COEFFICIENTS"
+         END IF
 
-               IF (my_last) THEN
-                  name = "MO EIGENVALUES, MO OCCUPATION NUMBERS, AND "// &
-                         "CARTESIAN MO EIGENVECTORS"
-               ELSE
-                  WRITE (UNIT=name, FMT="(A,I6)") &
-                     "MO EIGENVALUES, MO OCCUPATION NUMBERS, AND "// &
-                     "CARTESIAN MO EIGENVECTORS AFTER SCF STEP", scf_step
-               END IF
+         IF (print_eigvecs) THEN
+
+            IF (print_cartesian) THEN
+
+               orbital_str = "CARTESIAN"
 
                ALLOCATE (cmatrix(ncgf, ncgf))
-
                cmatrix = 0.0_dp
 
                ! Transform spherical MOs to Cartesian MOs
-
                icgf = 1
                isgf = 1
                DO iatom = 1, natom
@@ -1133,7 +1173,7 @@ CONTAINS
                         DO ishell = 1, nshell(iset)
                            lshell = l(ishell, iset)
                            CALL dgemm("T", "N", nco(lshell), mo_set%nmo, nso(lshell), 1.0_dp, &
-                                      orbtramat(lshell)%s2c, nso(lshell), &
+                                      orbtramat(lshell)%c2s, nso(lshell), &
                                       smatrix(isgf, 1), nsgf, 0.0_dp, &
                                       cmatrix(icgf, 1), ncgf)
                            icgf = icgf + nco(lshell)
@@ -1145,53 +1185,50 @@ CONTAINS
                      DO ishell = 1, lmax + 1
                         lshell = ishell - 1
                         CALL dgemm("T", "N", nco(lshell), nsgf, nso(lshell), 1.0_dp, &
-                                   orbtramat(lshell)%s2c, nso(lshell), &
+                                   orbtramat(lshell)%c2s, nso(lshell), &
                                    smatrix(isgf, 1), nsgf, 0.0_dp, &
                                    cmatrix(icgf, 1), ncgf)
                         icgf = icgf + nco(lshell)
                         isgf = isgf + nso(lshell)
                      END DO
                   ELSE
-                     CPABORT("Unknown basis set type. ")
+                     ! assume atom without basis set
+                     ! CPABORT("Unknown basis set type")
                   END IF
                END DO ! iatom
 
             ELSE
 
-               IF (my_last) THEN
-                  name = "MO EIGENVALUES, MO OCCUPATION NUMBERS, AND "// &
-                         "SPHERICAL MO EIGENVECTORS"
-               ELSE
-                  WRITE (UNIT=name, FMT="(A,I6)") &
-                     "MO EIGENVALUES, MO OCCUPATION NUMBERS, AND "// &
-                     "SPHERICAL MO EIGENVECTORS AFTER SCF STEP", scf_step
-               END IF
+               orbital_str = "SPHERICAL"
 
-            END IF ! p_cart
+            END IF ! print_cartesian
 
-         ELSE IF (p_occ .OR. p_eval) THEN
+            name = TRIM(energy_str)//", OCCUPATION NUMBERS, AND "// &
+                   TRIM(orbital_str)//" "//TRIM(vector_str)
 
-            IF (my_last) THEN
-               name = "MO EIGENVALUES AND MO OCCUPATION NUMBERS"
-            ELSE
-               WRITE (UNIT=name, FMT="(A,I6)") &
-                  "MO EIGENVALUES AND MO OCCUPATION NUMBERS AFTER "// &
-                  "SCF STEP", scf_step
-            END IF
+            IF (.NOT. my_final) &
+               WRITE (UNIT=name, FMT="(A,1X,I0)") TRIM(name)//step_string, scf_step
 
-         END IF ! p_evec
+         ELSE IF (print_occup .OR. print_eigvals) THEN
+            name = TRIM(energy_str)//" AND OCCUPATION NUMBERS"
 
-         CALL compress(name)
+            IF (.NOT. my_final) &
+               WRITE (UNIT=name, FMT="(A,1X,I0)") TRIM(name)//step_string, scf_step
+         END IF ! print_eigvecs
 
          ! Print headline
-         IF (PRESENT(spin) .AND. PRESENT(kpt)) THEN
-            WRITE (UNIT=iw, FMT="(/,/,T2,A,I5)") spin//" "//TRIM(name)//" FOR K-POINT: ", kpt
+         IF (PRESENT(spin) .AND. (kpoint > 0)) THEN
+            WRITE (UNIT=iw, FMT="(/,T2,A,I0)") &
+               "MO| "//TRIM(spin)//" "//TRIM(name)//" FOR K POINT ", kpoint
          ELSE IF (PRESENT(spin)) THEN
-            WRITE (UNIT=iw, FMT="(/,/,T2,A)") spin//" "//TRIM(name)
-         ELSE IF (PRESENT(kpt)) THEN
-            WRITE (UNIT=iw, FMT="(/,/,T2,A,I5)") TRIM(name)//" FOR K-POINT: ", kpt
+            WRITE (UNIT=iw, FMT="(/,T2,A)") &
+               "MO| "//TRIM(spin)//" "//TRIM(name)
+         ELSE IF (kpoint > 0) THEN
+            WRITE (UNIT=iw, FMT="(/,T2,A,I0)") &
+               "MO| "//TRIM(name)//" FOR K POINT ", kpoint
          ELSE
-            WRITE (UNIT=iw, FMT="(/,/,T2,A)") TRIM(name)
+            WRITE (UNIT=iw, FMT="(/,T2,A)") &
+               "MO| "//TRIM(name)
          END IF
 
          ! Check if only a subset of the MOs has to be printed
@@ -1205,7 +1242,7 @@ CONTAINS
             last_mo = mo_set%nmo
          END IF
 
-         IF (p_evec) THEN
+         IF (print_eigvecs) THEN
 
             ! Print full MO information
 
@@ -1214,18 +1251,21 @@ CONTAINS
                from = icol
                to = MIN((from + ncol - 1), last_mo)
 
-               WRITE (UNIT=iw, FMT=fmtstr1) (jcol, jcol=from, to)
-               WRITE (UNIT=iw, FMT=fmtstr2) (mo_set%eigenvalues(jcol), jcol=from, to)
-               WRITE (UNIT=iw, FMT="(A)") ""
-
-               WRITE (UNIT=iw, FMT=fmtstr2) (mo_set%occupation_numbers(jcol), jcol=from, to)
-               WRITE (UNIT=iw, FMT="(A)") ""
+               WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
+               WRITE (UNIT=iw, FMT=fmtstr1) &
+                  "MO|", (jcol, jcol=from, to)
+               WRITE (UNIT=iw, FMT=fmtstr2) &
+                  "MO|", (mo_set%eigenvalues(jcol), jcol=from, to)
+               WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
+               WRITE (UNIT=iw, FMT=fmtstr2) &
+                  "MO|", (mo_set%occupation_numbers(jcol), jcol=from, to)
+               WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
 
                irow = 1
 
                DO iatom = 1, natom
 
-                  IF (iatom /= 1) WRITE (UNIT=iw, FMT="(A)") ""
+                  IF (iatom /= 1) WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
 
                   NULLIFY (orb_basis_set, dftb_parameter)
                   CALL get_atomic_kind(particle_set(iatom)%atomic_kind, &
@@ -1234,7 +1274,7 @@ CONTAINS
                                    basis_set=orb_basis_set, &
                                    dftb_parameter=dftb_parameter)
 
-                  IF (p_cart) THEN
+                  IF (print_cartesian) THEN
 
                      IF (ASSOCIATED(orb_basis_set)) THEN
                         CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
@@ -1249,7 +1289,7 @@ CONTAINS
                               lshell = l(ishell, iset)
                               DO ico = 1, nco(lshell)
                                  WRITE (UNIT=iw, FMT=fmtstr3) &
-                                    irow, iatom, ADJUSTR(element_symbol), bcgf_symbol(icgf), &
+                                    "MO|", irow, iatom, ADJUSTR(element_symbol), bcgf_symbol(icgf), &
                                     (cmatrix(irow, jcol), jcol=from, to)
                                  icgf = icgf + 1
                                  irow = irow + 1
@@ -1265,14 +1305,15 @@ CONTAINS
                               symbol = cgf_symbol(1, indco(1:3, icgf))
                               symbol(1:2) = "  "
                               WRITE (UNIT=iw, FMT=fmtstr3) &
-                                 irow, iatom, ADJUSTR(element_symbol), symbol, &
+                                 "MO|", irow, iatom, ADJUSTR(element_symbol), symbol, &
                                  (cmatrix(irow, jcol), jcol=from, to)
                               icgf = icgf + 1
                               irow = irow + 1
                            END DO
                         END DO
                      ELSE
-                        CPABORT("Unknown basis set type. ")
+                        ! assume atom without basis set
+                        ! CPABORT("Unknown basis set type")
                      END IF
 
                   ELSE
@@ -1289,7 +1330,7 @@ CONTAINS
                               lshell = l(ishell, iset)
                               DO iso = 1, nso(lshell)
                                  WRITE (UNIT=iw, FMT=fmtstr3) &
-                                    irow, iatom, ADJUSTR(element_symbol), bsgf_symbol(isgf), &
+                                    "MO|", irow, iatom, ADJUSTR(element_symbol), bsgf_symbol(isgf), &
                                     (smatrix(irow, jcol), jcol=from, to)
                                  isgf = isgf + 1
                                  irow = irow + 1
@@ -1305,62 +1346,73 @@ CONTAINS
                               symbol = sgf_symbol(1, lshell, -lshell + iso - 1)
                               symbol(1:2) = "  "
                               WRITE (UNIT=iw, FMT=fmtstr3) &
-                                 irow, iatom, ADJUSTR(element_symbol), symbol, &
+                                 "MO|", irow, iatom, ADJUSTR(element_symbol), symbol, &
                                  (smatrix(irow, jcol), jcol=from, to)
                               isgf = isgf + 1
                               irow = irow + 1
                            END DO
                         END DO
                      ELSE
-                        CPABORT("Unknown basis type. ")
+                        ! assume atom without basis set
+                        ! CPABORT("Unknown basis set type")
                      END IF
 
-                  END IF ! p_cart
+                  END IF ! print_cartesian
 
                END DO ! iatom
 
             END DO ! icol
 
-            WRITE (UNIT=iw, FMT="(/)")
+            WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
 
             ! Release work storage
 
             DEALLOCATE (smatrix)
-            IF (p_cart) THEN
+            IF (print_cartesian) THEN
                DEALLOCATE (cmatrix)
             END IF
 
-         ELSE IF (p_occ .OR. p_eval) THEN
+         ELSE IF (print_occup .OR. print_eigvals) THEN
 
-            fmtstr4 = "(T2,I9,2X,F28.  ,1X,F24.  )"
-            WRITE (UNIT=fmtstr4(15:16), FMT="(I2)") after
-            WRITE (UNIT=fmtstr4(25:26), FMT="(I2)") after
-            WRITE (UNIT=iw, FMT="(/,A)") &
-               "# MO index          MO eigenvalue [a.u.]            MO occupation"
+            WRITE (UNIT=iw, FMT="(T2,A)") "MO|"
+            fmtstr4 = "(T2,A,I7,3(1X,F22.  ))"
+            WRITE (UNIT=fmtstr4(19:20), FMT="(I2)") after
+            IF (my_final .OR. (my_solver_method == "TD")) THEN
+               WRITE (UNIT=iw, FMT="(A)") &
+                  " MO|  Index      Eigenvalue [a.u.]        Eigenvalue [eV]             Occupation"
+            ELSE
+               WRITE (UNIT=iw, FMT="(A)") &
+                  " MO|  Index          Energy [a.u.]            Energy [eV]             Occupation"
+            END IF
             DO imo = first_mo, last_mo
                WRITE (UNIT=iw, FMT=fmtstr4) &
-                  imo, mo_set%eigenvalues(imo), mo_set%occupation_numbers(imo)
+                  "MO|", imo, mo_set%eigenvalues(imo), &
+                  mo_set%eigenvalues(imo)*evolt, &
+                  mo_set%occupation_numbers(imo)
             END DO
-            fmtstr5 = "(A,T42,F24.  ,/)"
+            fmtstr5 = "(A,T59,F22.  )"
             WRITE (UNIT=fmtstr5(12:13), FMT="(I2)") after
             WRITE (UNIT=iw, FMT=fmtstr5) &
-               "# Sum", accurate_sum(mo_set%occupation_numbers(:))
+               " MO| Sum:", accurate_sum(mo_set%occupation_numbers(:))
 
-         END IF ! p_evec
+         END IF ! print_eigvecs
 
-         fmtstr6 = "(A,T17,F24.  ,/)"
-         WRITE (UNIT=fmtstr6(12:13), FMT="(I2)") after
-         WRITE (UNIT=iw, FMT=fmtstr6) "  Fermi energy:", mo_set%mu
-         IF ((mo_set%homo > 0)) THEN
+         IF (.NOT. my_rtp) THEN
+            fmtstr6 = "(A,T18,F17.  ,A,T41,F17.  ,A)"
+            WRITE (UNIT=fmtstr6(12:13), FMT="(I2)") after
+            WRITE (UNIT=fmtstr6(25:26), FMT="(I2)") after
+            WRITE (UNIT=iw, FMT=fmtstr6) &
+               " MO| E(Fermi):", mo_set%mu, " a.u.", mo_set%mu*evolt, " eV"
+         END IF
+         IF ((mo_set%homo > 0) .AND. .NOT. my_rtp) THEN
             IF ((mo_set%occupation_numbers(mo_set%homo) == mo_set%maxocc) .AND. (last_mo > mo_set%homo)) THEN
                gap = mo_set%eigenvalues(mo_set%homo + 1) - &
                      mo_set%eigenvalues(mo_set%homo)
-               fmtstr7 = "(A,T17,F24.  ,A,F6.2,A,/)"
-               WRITE (UNIT=fmtstr7(12:13), FMT="(I2)") after
-               WRITE (UNIT=iw, FMT=fmtstr7) &
-                  "  HOMO-LUMO gap:", gap, " = ", gap*evolt, " eV"
+               WRITE (UNIT=iw, FMT=fmtstr6) &
+                  " MO| Band gap:", gap, " a.u.", gap*evolt, " eV"
             END IF
          END IF
+         WRITE (UNIT=iw, FMT="(A)") ""
 
       END IF ! iw
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -55,7 +57,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! The normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -82,7 +84,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (14)
          ch = (/ &
@@ -99,7 +101,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -110,7 +112,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (16)
          ch = (/ &
@@ -128,7 +130,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -139,7 +141,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (20)
          ch = (/ &
@@ -161,7 +163,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -172,7 +174,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (24)
          ch = (/ &
@@ -196,7 +198,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -207,7 +209,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (30)
          ch = (/ &
@@ -234,7 +236,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -245,7 +247,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (40)
          ch = (/ &
@@ -277,7 +279,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -288,7 +290,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (50)
          !******** coefficients for wavelet transform *********************
@@ -326,7 +328,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -337,7 +339,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (60)
          !******** coefficients for wavelet transform *********************
@@ -380,7 +382,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -391,7 +393,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       CASE (100)
          !******** coefficients for wavelet transform *********************
@@ -456,7 +458,7 @@ CONTAINS
             cht(i) = 0._dp
             cg(i) = 0._dp
             cgt(i) = 0._dp
-         ENDDO
+         END DO
 
          ! the normalization is chosen such that a constant function remains the same constant
          ! on each level of the transform
@@ -467,7 +469,7 @@ CONTAINS
          DO i = -m, m - 1
             cg(i + 1) = cht(-i)*(-1)**(i + 1)
             cgt(i + 1) = ch(-i)*(-1)**(i + 1)
-         ENDDO
+         END DO
 
       END SELECT
 

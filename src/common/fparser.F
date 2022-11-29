@@ -1,23 +1,20 @@
+!--------------------------------------------------------------------------------------------------!
+!   CP2K: A general program to perform molecular dynamics simulations                              !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
+!--------------------------------------------------------------------------------------------------!
+
+! **************************************************************************************************
+!> \brief This public domain function parser module is intended for applications
+!>        where a set of mathematical expressions is specified at runtime and is
+!>        then evaluated for a large number of variable values. This is done by
+!>        compiling the set of function strings into byte code, which is interpreted
+!>        very efficiently for the various variable values.
+!>
+!> \author Roland Schmehl <Roland.Schmehl@mach.uni-karlsruhe.de>
 ! **************************************************************************************************
 MODULE fparser
-   !------- -------- --------- --------- --------- --------- --------- --------- -------
-   ! Fortran 90 function parser v1.1
-   !------- -------- --------- --------- --------- --------- --------- --------- -------
-   !
-   ! This public domain function parser module is intended for applications
-   ! where a set of mathematical expressions is specified at runtime and is
-   ! then evaluated for a large number of variable values. This is done by
-   ! compiling the set of function strings into byte code, which is interpreted
-   ! very efficiently for the various variable values.
-   !
-   ! The source code is available from:
-   ! http://www.its.uni-karlsruhe.de/~schmehl/opensource/fparser-v1.1.tar.gz
-   !
-   ! Please send comments, corrections or questions to the author:
-   ! Roland Schmehl <Roland.Schmehl@mach.uni-karlsruhe.de>
-   !
-   !------- -------- --------- --------- --------- --------- --------- --------- -------
-
    USE kinds,                           ONLY: default_string_length,&
                                               rn => dp
 #include "../base/base_uses.f90"
@@ -32,7 +29,7 @@ MODULE fparser
              evalf, & ! Evaluate single function
              finalizef, & ! Finalize the function parser
              evalfd
-   INTEGER, PUBLIC            :: EvalErrType ! =0: no error occured, >0: evaluation error
+   INTEGER, PUBLIC            :: EvalErrType ! =0: no error occurred, >0: evaluation error
    !------- -------- --------- --------- --------- --------- --------- --------- -------
    PRIVATE
    SAVE
@@ -104,7 +101,6 @@ CONTAINS
       !----- -------- --------- --------- --------- --------- --------- --------- -------
       ! Finalize function parser
       !----- -------- --------- --------- --------- --------- --------- --------- -------
-      CHARACTER(len=*), PARAMETER :: routineN = 'finalizef', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -158,8 +154,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(in)                       :: FuncStr
       CHARACTER(LEN=*), DIMENSION(:), INTENT(in)         :: Var
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'parsef', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=LEN(FuncStr))                        :: Func
 
 ! Function string, local use
@@ -195,7 +189,6 @@ CONTAINS
       REAL(rn), DIMENSION(:), INTENT(in)                 :: Val
       REAL(rn)                                           :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'evalf', routineP = moduleN//':'//routineN
       REAL(rn), PARAMETER                                :: zero = 0._rn
 
       INTEGER                                            :: DP, IP, ipow, SP
@@ -218,7 +211,7 @@ CONTAINS
          CASE (cAdd); Comp(i)%Stack(SP - 1) = Comp(i)%Stack(SP - 1) + Comp(i)%Stack(SP); SP = SP - 1
          CASE (cSub); Comp(i)%Stack(SP - 1) = Comp(i)%Stack(SP - 1) - Comp(i)%Stack(SP); SP = SP - 1
          CASE (cMul); Comp(i)%Stack(SP - 1) = Comp(i)%Stack(SP - 1)*Comp(i)%Stack(SP); SP = SP - 1
-         CASE (cDiv); IF (Comp(i)%Stack(SP) == 0._rn) THEN; EvalErrType = 1; res = zero; RETURN; ENDIF
+         CASE (cDiv); IF (Comp(i)%Stack(SP) == 0._rn) THEN; EvalErrType = 1; res = zero; RETURN; END IF
             Comp(i)%Stack(SP - 1) = Comp(i)%Stack(SP - 1)/Comp(i)%Stack(SP); SP = SP - 1
          CASE (cPow)
             ! Fixing for possible Negative floating-point value raised to a real power
@@ -235,11 +228,11 @@ CONTAINS
             SP = SP - 1
          CASE (cAbs); Comp(i)%Stack(SP) = ABS(Comp(i)%Stack(SP))
          CASE (cExp); Comp(i)%Stack(SP) = EXP(Comp(i)%Stack(SP))
-         CASE (cLog10); IF (Comp(i)%Stack(SP) <= 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; ENDIF
+         CASE (cLog10); IF (Comp(i)%Stack(SP) <= 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; END IF
             Comp(i)%Stack(SP) = LOG10(Comp(i)%Stack(SP))
-         CASE (cLog); IF (Comp(i)%Stack(SP) <= 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; ENDIF
+         CASE (cLog); IF (Comp(i)%Stack(SP) <= 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; END IF
             Comp(i)%Stack(SP) = LOG(Comp(i)%Stack(SP))
-         CASE (cSqrt); IF (Comp(i)%Stack(SP) < 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; ENDIF
+         CASE (cSqrt); IF (Comp(i)%Stack(SP) < 0._rn) THEN; EvalErrType = 3; res = zero; RETURN; END IF
             Comp(i)%Stack(SP) = SQRT(Comp(i)%Stack(SP))
          CASE (cSinh); Comp(i)%Stack(SP) = SINH(Comp(i)%Stack(SP))
          CASE (cCosh); Comp(i)%Stack(SP) = COSH(Comp(i)%Stack(SP))
@@ -248,10 +241,10 @@ CONTAINS
          CASE (cCos); Comp(i)%Stack(SP) = COS(Comp(i)%Stack(SP))
          CASE (cTan); Comp(i)%Stack(SP) = TAN(Comp(i)%Stack(SP))
          CASE (cAsin); IF ((Comp(i)%Stack(SP) < -1._rn) .OR. (Comp(i)%Stack(SP) > 1._rn)) THEN
-               EvalErrType = 4; res = zero; RETURN; ENDIF
+               EvalErrType = 4; res = zero; RETURN; END IF
             Comp(i)%Stack(SP) = ASIN(Comp(i)%Stack(SP))
          CASE (cAcos); IF ((Comp(i)%Stack(SP) < -1._rn) .OR. (Comp(i)%Stack(SP) > 1._rn)) THEN
-               EvalErrType = 4; res = zero; RETURN; ENDIF
+               EvalErrType = 4; res = zero; RETURN; END IF
             Comp(i)%Stack(SP) = ACOS(Comp(i)%Stack(SP))
          CASE (cAtan); Comp(i)%Stack(SP) = ATAN(Comp(i)%Stack(SP))
          CASE (cErf); Comp(i)%Stack(SP) = ERF(Comp(i)%Stack(SP))
@@ -374,7 +367,7 @@ CONTAINS
          msg = ''
       ELSE
          msg = m(EvalErrType)
-      ENDIF
+      END IF
    END FUNCTION EvalErrMsg
    !
 ! **************************************************************************************************
@@ -390,8 +383,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: j
       CHARACTER(LEN=*), INTENT(in)                       :: FuncStr
       CHARACTER(LEN=*), INTENT(in), OPTIONAL             :: Msg
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ParseErrMsg', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: message
 
@@ -445,7 +436,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION MathFunctionIndex(str) RESULT(n)
       !----- -------- --------- --------- --------- --------- --------- --------- -------
-      ! Return index of math function beginnig at 1st position of string str
+      ! Return index of math function beginning at 1st position of string str
       !----- -------- --------- --------- --------- --------- --------- --------- -------
       CHARACTER(LEN=*), INTENT(in)                       :: str
       INTEGER(is)                                        :: n
@@ -578,8 +569,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: i
       CHARACTER(LEN=*), INTENT(in)                       :: F
       CHARACTER(LEN=*), DIMENSION(:), INTENT(in)         :: Var
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Compile', routineP = moduleN//':'//routineN
 
 ! Function identifier
 ! Function string
@@ -762,7 +751,7 @@ CONTAINS
                   RETURN
                END IF
             END IF
-         ENDIF
+         END IF
       END IF
       !----- -------- --------- --------- --------- --------- --------- --------- -------
       ! Check for operator in substring: check only base level (k=0), exclude expr. in ()
@@ -848,7 +837,7 @@ CONTAINS
                      EXIT !   * EXIT: 2nd appearance of '.'
                   ELSE
                      Pflag = .TRUE. !   * mark 1st appearance of '.'
-                  ENDIF
+                  END IF
                ELSE
                   EXIT !   * all other characters
                END IF
@@ -910,13 +899,13 @@ CONTAINS
                InExp = .TRUE.; Eflag = .FALSE. ! - at beginning of exponent
             ELSE
                EXIT ! - otherwise STOP
-            ENDIF
+            END IF
          CASE ('0':'9') ! Mark
             IF (Bflag) THEN
                InMan = .TRUE.; Bflag = .FALSE. ! - beginning of mantissa
             ELSEIF (Eflag) THEN
                InExp = .TRUE.; Eflag = .FALSE. ! - beginning of exponent
-            ENDIF
+            END IF
             IF (InMan) DInMan = .TRUE. ! Mantissa contains digit
             IF (InExp) DInExp = .TRUE. ! Exponent contains digit
          CASE ('.')
@@ -933,7 +922,7 @@ CONTAINS
                Eflag = .TRUE.; InMan = .FALSE. ! - following mantissa
             ELSE
                EXIT ! - otherwise STOP
-            ENDIF
+            END IF
          CASE DEFAULT
             EXIT ! STOP at all other characters
          END SELECT
@@ -995,7 +984,6 @@ CONTAINS
       REAL(KIND=rn), INTENT(OUT)                         :: err
       REAL(KIND=rn)                                      :: derivative
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'evalfd', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: ntab = 10
       REAL(KIND=rn), PARAMETER                           :: big_error = 1.0E30_rn, con = 1.4_rn, &
                                                             con2 = con*con, safe = 2.0_rn
@@ -1029,7 +1017,7 @@ CONTAINS
                IF (errt .LE. err) THEN
                   err = errt
                   derivative = a(j, i)
-               ENDIF
+               END IF
             END DO
             IF (ABS(a(i, i) - a(i - 1, i - 1)) .GE. safe*err) RETURN
          END DO

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -20,7 +22,8 @@ MODULE xtb_coulomb
    USE cell_types,                      ONLY: cell_type,&
                                               get_cell,&
                                               pbc
-   USE cp_control_types,                ONLY: dft_control_type
+   USE cp_control_types,                ONLY: dft_control_type,&
+                                              xtb_control_type
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_add,&
                                               dbcsr_get_block_p,&
@@ -81,7 +84,7 @@ MODULE xtb_coulomb
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'xtb_coulomb'
 
-   PUBLIC :: build_xtb_coulomb, gamma_rab_sr
+   PUBLIC :: build_xtb_coulomb, gamma_rab_sr, dgamma_rab_sr, xtb_dsint_list
 
 CONTAINS
 
@@ -107,8 +110,7 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_xtb_coulomb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_xtb_coulomb'
 
       INTEGER :: atom_i, atom_j, blk, ewald_type, handle, i, ia, iac, iatom, ic, icol, ikind, img, &
          irow, is, j, jatom, jkind, la, lb, lmaxa, lmaxb, natom, natorb_a, natorb_b, ni, nimg, nj, &
@@ -152,6 +154,7 @@ CONTAINS
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
       TYPE(virial_type), POINTER                         :: virial
       TYPE(xtb_atom_type), POINTER                       :: xtb_atom_a, xtb_atom_b, xtb_kind
+      TYPE(xtb_control_type), POINTER                    :: xtb_control
 
       CALL timeset(routineN, handle)
 
@@ -164,6 +167,8 @@ CONTAINS
                       virial=virial, &
                       atprop=atprop, &
                       dft_control=dft_control)
+
+      xtb_control => dft_control%qs_control%xtb_control
 
       use_virial = .FALSE.
       IF (calculate_forces) THEN
@@ -194,10 +199,14 @@ CONTAINS
       gmcharge = 0._dp
 
       ! short range contribution (gamma)
-      ! loop over all atom pairs with a non-zero overlap (sab_orb)
-      kg = dft_control%qs_control%xtb_control%kg
+      ! loop over all atom pairs (sab_xtbe)
+      kg = xtb_control%kg
       NULLIFY (n_list)
-      CALL get_qs_env(qs_env=qs_env, sab_orb=n_list)
+      IF (xtb_control%old_coulomb_damping) THEN
+         CALL get_qs_env(qs_env=qs_env, sab_orb=n_list)
+      ELSE
+         CALL get_qs_env(qs_env=qs_env, sab_xtbe=n_list)
+      END IF
       CALL neighbor_list_iterator_create(nl_iterator, n_list)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
          CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, &
@@ -254,52 +263,54 @@ CONTAINS
 
       ! 1/R contribution
 
-      do_ewald = dft_control%qs_control%xtb_control%do_ewald
-      IF (do_ewald) THEN
-         ! Ewald sum
-         NULLIFY (ewald_env, ewald_pw)
-         CALL get_qs_env(qs_env=qs_env, &
-                         ewald_env=ewald_env, ewald_pw=ewald_pw)
-         CALL get_cell(cell=cell, periodic=periodic, deth=deth)
-         CALL ewald_env_get(ewald_env, alpha=alpha, ewald_type=ewald_type)
-         CALL get_qs_env(qs_env=qs_env, sab_tbe=n_list)
-         CALL tb_ewald_overlap(gmcharge, mcharge, alpha, n_list, virial, use_virial, atprop)
-         SELECT CASE (ewald_type)
-         CASE DEFAULT
-            CPABORT("Invalid Ewald type")
-         CASE (do_ewald_none)
-            CPABORT("Not allowed with DFTB")
-         CASE (do_ewald_ewald)
-            CPABORT("Standard Ewald not implemented in DFTB")
-         CASE (do_ewald_pme)
-            CPABORT("PME not implemented in DFTB")
-         CASE (do_ewald_spme)
-            CALL tb_spme_evaluate(ewald_env, ewald_pw, particle_set, cell, &
-                                  gmcharge, mcharge, calculate_forces, virial, use_virial, atprop)
-         END SELECT
-      ELSE
-         ! direct sum
-         CALL get_qs_env(qs_env=qs_env, &
-                         local_particles=local_particles)
-         DO ikind = 1, SIZE(local_particles%n_el)
-            DO ia = 1, local_particles%n_el(ikind)
-               iatom = local_particles%list(ikind)%array(ia)
-               DO jatom = 1, iatom - 1
-                  rij = particle_set(iatom)%r - particle_set(jatom)%r
-                  rij = pbc(rij, cell)
-                  dr = SQRT(SUM(rij(:)**2))
-                  IF (dr > 1.e-6_dp) THEN
-                     gmcharge(iatom, 1) = gmcharge(iatom, 1) + mcharge(jatom)/dr
-                     gmcharge(jatom, 1) = gmcharge(jatom, 1) + mcharge(iatom)/dr
-                     DO i = 2, nmat
-                        gmcharge(iatom, i) = gmcharge(iatom, i) + rij(i - 1)*mcharge(jatom)/dr**3
-                        gmcharge(jatom, i) = gmcharge(jatom, i) - rij(i - 1)*mcharge(iatom)/dr**3
-                     END DO
-                  END IF
+      IF (xtb_control%coulomb_lr) THEN
+         do_ewald = xtb_control%do_ewald
+         IF (do_ewald) THEN
+            ! Ewald sum
+            NULLIFY (ewald_env, ewald_pw)
+            CALL get_qs_env(qs_env=qs_env, &
+                            ewald_env=ewald_env, ewald_pw=ewald_pw)
+            CALL get_cell(cell=cell, periodic=periodic, deth=deth)
+            CALL ewald_env_get(ewald_env, alpha=alpha, ewald_type=ewald_type)
+            CALL get_qs_env(qs_env=qs_env, sab_tbe=n_list)
+            CALL tb_ewald_overlap(gmcharge, mcharge, alpha, n_list, virial, use_virial, atprop)
+            SELECT CASE (ewald_type)
+            CASE DEFAULT
+               CPABORT("Invalid Ewald type")
+            CASE (do_ewald_none)
+               CPABORT("Not allowed with DFTB")
+            CASE (do_ewald_ewald)
+               CPABORT("Standard Ewald not implemented in DFTB")
+            CASE (do_ewald_pme)
+               CPABORT("PME not implemented in DFTB")
+            CASE (do_ewald_spme)
+               CALL tb_spme_evaluate(ewald_env, ewald_pw, particle_set, cell, &
+                                     gmcharge, mcharge, calculate_forces, virial, use_virial, atprop)
+            END SELECT
+         ELSE
+            ! direct sum
+            CALL get_qs_env(qs_env=qs_env, &
+                            local_particles=local_particles)
+            DO ikind = 1, SIZE(local_particles%n_el)
+               DO ia = 1, local_particles%n_el(ikind)
+                  iatom = local_particles%list(ikind)%array(ia)
+                  DO jatom = 1, iatom - 1
+                     rij = particle_set(iatom)%r - particle_set(jatom)%r
+                     rij = pbc(rij, cell)
+                     dr = SQRT(SUM(rij(:)**2))
+                     IF (dr > 1.e-6_dp) THEN
+                        gmcharge(iatom, 1) = gmcharge(iatom, 1) + mcharge(jatom)/dr
+                        gmcharge(jatom, 1) = gmcharge(jatom, 1) + mcharge(iatom)/dr
+                        DO i = 2, nmat
+                           gmcharge(iatom, i) = gmcharge(iatom, i) + rij(i - 1)*mcharge(jatom)/dr**3
+                           gmcharge(jatom, i) = gmcharge(jatom, i) - rij(i - 1)*mcharge(iatom)/dr**3
+                        END DO
+                     END IF
+                  END DO
                END DO
             END DO
-         END DO
-         CPASSERT(.NOT. use_virial)
+            CPASSERT(.NOT. use_virial)
+         END IF
       END IF
 
       ! global sum of gamma*p arrays
@@ -309,11 +320,13 @@ CONTAINS
       CALL mp_sum(gmcharge(:, 1), para_env%group)
       CALL mp_sum(gchrg(:, :, 1), para_env%group)
 
-      IF (do_ewald) THEN
-         ! add self charge interaction and background charge contribution
-         gmcharge(:, 1) = gmcharge(:, 1) - 2._dp*alpha*oorootpi*mcharge(:)
-         IF (ANY(periodic(:) == 1)) THEN
-            gmcharge(:, 1) = gmcharge(:, 1) - pi/alpha**2/deth
+      IF (xtb_control%coulomb_lr) THEN
+         IF (do_ewald) THEN
+            ! add self charge interaction and background charge contribution
+            gmcharge(:, 1) = gmcharge(:, 1) - 2._dp*alpha*oorootpi*mcharge(:)
+            IF (ANY(periodic(:) == 1)) THEN
+               gmcharge(:, 1) = gmcharge(:, 1) - pi/alpha**2/deth
+            END IF
          END IF
       END IF
 
@@ -459,7 +472,7 @@ CONTAINS
                   END DO
                END IF
                DEALLOCATE (gcij)
-            ENDDO
+            END DO
             CALL dbcsr_iterator_stop(iter)
             ! stress tensor (needs recalculation of overlap integrals)
             IF (do_gamma_stress) THEN
@@ -628,7 +641,7 @@ CONTAINS
          END IF
       END IF
 
-      IF (dft_control%qs_control%xtb_control%tb3_interaction) THEN
+      IF (xtb_control%tb3_interaction) THEN
          CALL get_qs_env(qs_env, nkind=nkind)
          ALLOCATE (zeffk(nkind), xgamma(nkind))
          DO ikind = 1, nkind
@@ -688,7 +701,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: kappab
       REAL(dp), INTENT(IN)                               :: etab, kg, rcut
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'gamma_rab_sr', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: rsmooth = 1.0_dp
 
       INTEGER                                            :: i, j
@@ -759,7 +771,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: kappab
       REAL(dp), INTENT(IN)                               :: etab, kg, rcut
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dgamma_rab_sr', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: rsmooth = 1.0_dp
 
       INTEGER                                            :: i, j
@@ -812,7 +823,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_dsint_list', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xtb_dsint_list'
 
       INTEGER :: handle, i, iac, iatom, ikind, ilist, iset, jatom, jkind, jneighbor, jset, ldsab, &
          n1, n2, natorb_a, natorb_b, ncoa, ncob, nkind, nlist, nneighbor, nseta, nsetb, sgfa, sgfb

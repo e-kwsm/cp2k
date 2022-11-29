@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE input_cp2k_restarts_util
@@ -45,8 +47,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: velocity
       REAL(KIND=dp)                                      :: conv_factor
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_velocity_val_set', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_velocity_val_set'
 
       INTEGER                                            :: handle, ik, irk, Nlist, nloop
       LOGICAL                                            :: check

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -21,9 +23,6 @@ MODULE timings
                                               callgraph_item_type,&
                                               callgraph_items,&
                                               callgraph_set
-   USE cuda_profiling,                  ONLY: cuda_mem_info,&
-                                              cuda_nvtx_range_pop,&
-                                              cuda_nvtx_range_push
    USE kinds,                           ONLY: default_string_length,&
                                               dp,&
                                               int_8
@@ -34,6 +33,9 @@ MODULE timings
                                               m_flush,&
                                               m_memory,&
                                               m_walltime
+   USE offload_api,                     ONLY: offload_mem_info,&
+                                              offload_timeset,&
+                                              offload_timestop
    USE routine_map,                     ONLY: routine_map_destroy,&
                                               routine_map_get,&
                                               routine_map_init,&
@@ -224,7 +226,6 @@ CONTAINS
       TYPE(timer_env_type), POINTER                      :: timer_env
 
 !$OMP MASTER
-!$OMP CRITICAL(time_setstop)
 
       ! Default value, using a negative value when timing is not taken
       cs_entry%walltime_start = -HUGE(1.0_dp)
@@ -238,7 +239,7 @@ CONTAINS
       IF (global_timings_level .NE. 0 .OR. routine_id .EQ. root_cp2k_id) THEN
          cs_entry%walltime_start = m_walltime()
          cs_entry%energy_start = m_energy()
-      ENDIF
+      END IF
       timer_env => list_peek(timers_stack)
 
       IF (LEN_TRIM(routineN) > default_string_length) THEN
@@ -262,7 +263,7 @@ CONTAINS
          WRITE (sformat, *) "(A,A,", MAX(1, 3*stack_size - 4), "X,I4,1X,I6,1X,A,A)"
          WRITE (mystring, sformat) timer_env%trace_str, ">>", stack_size + 1, &
             r_stat%total_calls, TRIM(r_stat%routineN), "       start"
-         CALL cuda_mem_info(gpumem_free, gpumem_total)
+         CALL offload_mem_info(gpumem_free, gpumem_total)
          CALL m_memory(cpumem)
          WRITE (line, '(A,A,I0,A,A,I0,A)') TRIM(mystring), &
             " Hostmem: ", (cpumem + 1024*1024 - 1)/(1024*1024), " MB", &
@@ -273,11 +274,8 @@ CONTAINS
 
       handle = routine_id
 
-#if defined( __CUDA_PROFILING )
-      CALL cuda_nvtx_range_push(routineN)
-#endif
+      CALL offload_timeset(routineN)
 
-!$OMP END CRITICAL(time_setstop)
 !$OMP END MASTER
 
    END SUBROUTINE timeset_handler
@@ -306,11 +304,8 @@ CONTAINS
       routine_id = handle
 
 !$OMP MASTER
-!$OMP CRITICAL(time_setstop)
 
-#if defined( __CUDA_PROFILING )
-      CALL cuda_nvtx_range_pop()
-#endif
+      CALL offload_timestop()
 
       timer_env => list_peek(timers_stack)
       cs_entry = list_pop(timer_env%callstack)
@@ -331,14 +326,14 @@ CONTAINS
          ! add the elapsed time for this timeset/timestop to the time accumulator
          wt_elapsed = wt_now - cs_entry%walltime_start
          en_elapsed = en_now - cs_entry%energy_start
-      ENDIF
+      END IF
       r_stat%active_calls = r_stat%active_calls - 1
 
       ! if we're the last instance in the stack, we do the accounting of the total time
       IF (r_stat%active_calls == 0) THEN
          r_stat%incl_walltime_accu = r_stat%incl_walltime_accu + wt_elapsed
          r_stat%incl_energy_accu = r_stat%incl_energy_accu + en_elapsed
-      ENDIF
+      END IF
 
       ! exclusive time we always sum, since children will correct this time with their total time
       r_stat%excl_walltime_accu = r_stat%excl_walltime_accu + wt_elapsed
@@ -365,7 +360,7 @@ CONTAINS
          c_stat%total_calls = c_stat%total_calls + 1
          c_stat%incl_walltime_accu = c_stat%incl_walltime_accu + wt_elapsed
          c_stat%incl_energy_accu = c_stat%incl_energy_accu + en_elapsed
-      ENDIF
+      END IF
 
       !..if debug mode echo the subroutine name
       IF ((timer_env%trace_all .OR. r_stat%trace) .AND. &
@@ -373,16 +368,15 @@ CONTAINS
          WRITE (sformat, *) "(A,A,", MAX(1, 3*stack_size - 4), "X,I4,1X,I6,1X,A,F12.3)"
          WRITE (mystring, sformat) timer_env%trace_str, "<<", stack_size + 1, &
             r_stat%total_calls, TRIM(r_stat%routineN), wt_elapsed
-         CALL cuda_mem_info(gpumem_free, gpumem_total)
+         CALL offload_mem_info(gpumem_free, gpumem_total)
          CALL m_memory(cpumem)
          WRITE (line, '(A,A,I0,A,A,I0,A)') TRIM(mystring), &
             " Hostmem: ", (cpumem + 1024*1024 - 1)/(1024*1024), " MB", &
             " GPUmem: ", (gpumem_total - gpumem_free)/(1024*1024), " MB"
          WRITE (timer_env%trace_unit, *) TRIM(line)
          CALL m_flush(timer_env%trace_unit)
-      ENDIF
+      END IF
 
-!$OMP END CRITICAL(time_setstop)
 !$OMP END MASTER
 
    END SUBROUTINE timestop_handler

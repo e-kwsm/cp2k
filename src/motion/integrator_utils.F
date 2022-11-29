@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -30,15 +32,15 @@ MODULE integrator_utils
                                               npt_info_type
    USE input_constants,                 ONLY: &
         isokin_ensemble, npe_f_ensemble, npe_i_ensemble, nph_uniaxial_damped_ensemble, &
-        nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, nve_ensemble, nvt_ensemble
+        nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, npt_ia_ensemble, nve_ensemble, &
+        nvt_ensemble
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matvec_3x3,&
-                                              transpose_3d
    USE md_environment_types,            ONLY: get_md_env,&
                                               md_environment_type
    USE message_passing,                 ONLY: mp_max,&
                                               mp_sum
-   USE molecule_kind_types,             ONLY: molecule_kind_type
+   USE molecule_kind_types,             ONLY: local_fixd_constraint_type,&
+                                              molecule_kind_type
    USE molecule_types,                  ONLY: get_molecule,&
                                               global_constraint_type,&
                                               molecule_type
@@ -97,8 +99,8 @@ MODULE integrator_utils
 
    PUBLIC :: old_variables_type, tmp_variables_type, allocate_old, deallocate_old, &
              allocate_tmp, update_dealloc_tmp, damp_v, set, update_pv, get_s_ds, &
-             rattle_roll_setup, damp_veps, update_veps, vv_first, vv_second, &
-             variable_timestep
+             rattle_roll_setup, damp_veps, update_veps, vv_first, &
+             vv_second, variable_timestep
 
 CONTAINS
 
@@ -115,8 +117,6 @@ CONTAINS
       TYPE(old_variables_type), POINTER                  :: old
       TYPE(particle_type), POINTER                       :: particle_set(:)
       TYPE(npt_info_type), POINTER                       :: npt(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_old', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: idim, jdim, natoms
 
@@ -148,8 +148,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_old(old)
       TYPE(old_variables_type), POINTER                  :: old
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_old', routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(old)) THEN
          IF (ASSOCIATED(old%v)) THEN
@@ -189,8 +187,6 @@ CONTAINS
       TYPE(tmp_variables_type), POINTER                  :: tmp
       INTEGER, INTENT(IN)                                :: nparticle, nshell
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_tmp', routineP = moduleN//':'//routineN
 
       CPASSERT(.NOT. ASSOCIATED(tmp))
       ALLOCATE (tmp)
@@ -271,9 +267,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
       LOGICAL, INTENT(IN), OPTIONAL                      :: pos, vel, should_deall_vel
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'update_dealloc_tmp', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: my_deall, my_pos, my_vel
 
       CPASSERT(ASSOCIATED(tmp))
@@ -344,8 +337,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: tmpv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_s_ds', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_local
       LOGICAL                                            :: my_tmpv
@@ -413,9 +404,6 @@ CONTAINS
       TYPE(npt_info_type), DIMENSION(:, :), POINTER      :: npt
       CHARACTER(LEN=*), INTENT(IN)                       :: char
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_particle_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: idim, iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &
                                                             nparticle_local
@@ -477,8 +465,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(npt_info_type), DIMENSION(:, :), POINTER      :: npt
       CHARACTER(LEN=*), INTENT(IN)                       :: char
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_vel', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: idim, iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &
@@ -759,12 +745,12 @@ CONTAINS
                         local_particles, kin, pv_kin, virial, para_env%group)
          CALL update_veps(cell, npt, simpar, pv_kin, kin, virial, infree)
 
-      ENDIF
+      END IF
       first = .FALSE.
 
       ! assigning local variable
       SELECT CASE (simpar%ensemble)
-      CASE (npt_i_ensemble)
+      CASE (npt_i_ensemble, npt_ia_ensemble)
          npt_loc(:, :)%v = 0.0_dp
          npt_loc(:, :)%mass = 0.0_dp
          npt_loc(1, 1)%v = npt(1, 1)%v
@@ -967,6 +953,7 @@ CONTAINS
       unit(3, 3) = 1.0_dp
 
       IF (simpar%ensemble == npt_i_ensemble .OR. &
+          simpar%ensemble == npt_ia_ensemble .OR. &
           simpar%ensemble == npe_i_ensemble) THEN
          ! get force on barostat
          fdotr = 0.0_dp
@@ -1005,14 +992,14 @@ CONTAINS
             npt(1, 1)%f = virial%pv_virial(1, 1) + &
                           pv_kin(1, 1) + virial%pv_constraint(1, 1) - &
                           simpar%p0*v + infree*kin
-         ENDIF
+         END IF
          IF (debug_uniaxial_limit) THEN
             ! orthorhombic box ONLY
             npt(1, 1)%f = virial%pv_virial(1, 1) + &
                           pv_kin(1, 1) + virial%pv_constraint(1, 1) - &
                           simpar%p0*box%deth + infree*kin
          END IF
-      ENDIF
+      END IF
 
       ! update barostat velocities
       npt(:, :)%v = npt(:, :)%v + &
@@ -1125,13 +1112,14 @@ CONTAINS
 !> \param shell_adiabatic ...
 !> \param dt ...
 !> \param u ...
+!> \param lfixd_list ...
 !> \par History
 !>      none
 !> \author MI (February 2008)
 ! **************************************************************************************************
    SUBROUTINE vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
                        core_particle_set, shell_particle_set, nparticle_kind, &
-                       shell_adiabatic, dt, u)
+                       shell_adiabatic, dt, u, lfixd_list)
 
       TYPE(tmp_variables_type), POINTER                  :: tmp
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
@@ -1142,8 +1130,8 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
       REAL(KIND=dp)                                      :: dt
       REAL(KIND=dp), DIMENSION(3, 3), OPTIONAL           :: u
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'vv_first', routineP = moduleN//':'//routineN
+      TYPE(local_fixd_constraint_type), DIMENSION(:), &
+         OPTIONAL                                        :: lfixd_list
 
       INTEGER                                            :: iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_local, &
@@ -1301,6 +1289,15 @@ CONTAINS
                         particle_set(iparticle)%r(3)*tmp%scale_r(3)*tmp%scale_r(3) + &
                         tmp%scale_r(3)*tmp%poly_r(3)*dt*tmp%vel(3, iparticle)
 
+                     ! overwrite positions of frozen particles
+                     IF (PRESENT(lfixd_list)) THEN
+                        IF (ANY(lfixd_list(:)%ifixd_index == iparticle)) THEN
+                           tmp%pos(1, iparticle) = particle_set(iparticle)%r(1)
+                           tmp%pos(2, iparticle) = particle_set(iparticle)%r(2)
+                           tmp%pos(3, iparticle) = particle_set(iparticle)%r(3)
+                        END IF
+                     END IF
+
                      tmp%max_vel = MAX(tmp%max_vel, &
                                        ABS(tmp%vel(1, iparticle)), ABS(tmp%vel(2, iparticle)), ABS(tmp%vel(3, iparticle)))
                      tmp%max_dr = MAX(tmp%max_dr, &
@@ -1348,8 +1345,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
       REAL(KIND=dp)                                      :: dt
       REAL(KIND=dp), DIMENSION(3, 3), OPTIONAL           :: u
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'vv_second', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_local, &
@@ -1481,15 +1476,12 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: u(3, 3), dm, dt, poly_v(3), poly_r(3), &
                                                             scale_v(3), scale_r(3)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transform_first', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp), DIMENSION(3)                        :: uf, ur, uv
 
-      CALL matvec_3x3(ur, TRANSPOSE_3D(u), particle_set(index)%r(:))
-      CALL matvec_3x3(uv, TRANSPOSE_3D(u), particle_set(index)%v(:))
-      CALL matvec_3x3(uf, TRANSPOSE_3D(u), particle_set(index)%f(:))
-      !
+      ur = MATMUL(TRANSPOSE(u), particle_set(index)%r(:))
+      uv = MATMUL(TRANSPOSE(u), particle_set(index)%v(:))
+      uf = MATMUL(TRANSPOSE(u), particle_set(index)%f(:))
+
       uv(1) = uv(1)*scale_v(1)*scale_v(1) + uf(1)*scale_v(1)*poly_v(1)*dm
       uv(2) = uv(2)*scale_v(2)*scale_v(2) + uf(2)*scale_v(2)*poly_v(2)*dm
       uv(3) = uv(3)*scale_v(3)*scale_v(3) + uf(3)*scale_v(3)*poly_v(3)*dm
@@ -1497,9 +1489,9 @@ CONTAINS
       ur(1) = ur(1)*scale_r(1)*scale_r(1) + uv(1)*scale_r(1)*poly_r(1)*dt
       ur(2) = ur(2)*scale_r(2)*scale_r(2) + uv(2)*scale_r(2)*poly_r(2)*dt
       ur(3) = ur(3)*scale_r(3)*scale_r(3) + uv(3)*scale_r(3)*poly_r(3)*dt
-      !
-      CALL MATVEC_3x3(pos(:, index), u, ur)
-      CALL MATVEC_3x3(vel(:, index), u, uv)
+
+      pos(:, index) = MATMUL(u, ur)
+      vel(:, index) = MATMUL(u, uv)
 
    END SUBROUTINE transform_first
 
@@ -1524,19 +1516,16 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: index
       REAL(KIND=dp), INTENT(IN)                          :: u(3, 3), dm, poly_v(3), scale_v(3)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transform_second', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp), DIMENSION(3)                        :: uf, uv
 
-      CALL matvec_3x3(uv, TRANSPOSE_3D(u), vel(:, index))
-      CALL matvec_3x3(uf, TRANSPOSE_3D(u), particle_set(index)%f(:))
-      !
+      uv = MATMUL(TRANSPOSE(u), vel(:, index))
+      uf = MATMUL(TRANSPOSE(u), particle_set(index)%f(:))
+
       uv(1) = uv(1)*scale_v(1)*scale_v(1) + uf(1)*scale_v(1)*poly_v(1)*dm
       uv(2) = uv(2)*scale_v(2)*scale_v(2) + uf(2)*scale_v(2)*poly_v(2)*dm
       uv(3) = uv(3)*scale_v(3)*scale_v(3) + uf(3)*scale_v(3)*poly_v(3)*dm
 
-      CALL MATVEC_3x3(vel(:, index), u, uv)
+      vel(:, index) = MATMUL(u, uv)
 
    END SUBROUTINE transform_second
 
@@ -1574,9 +1563,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nparticle_kind
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
       TYPE(npt_info_type), OPTIONAL, POINTER             :: npt(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'variable_timestep', &
-         routineP = moduleN//':'//routineN
 
       INTEGER, SAVE                                      :: itime = 0
       REAL(KIND=dp)                                      :: dt_fact, dt_fact_f, dt_fact_old, &
@@ -1656,7 +1642,7 @@ CONTAINS
    END SUBROUTINE variable_timestep
 
 ! **************************************************************************************************
-!> \brief Repeat the first step of velocity verlet witht the rescaled time step
+!> \brief Repeat the first step of velocity verlet with the rescaled time step
 !> \param tmp ...
 !> \param dt ...
 !> \param simpar ...
@@ -1687,8 +1673,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shell_adiabatic
       TYPE(npt_info_type), OPTIONAL, POINTER             :: npt(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rescaled_vv_first', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: e2 = 1.0_dp/6.0_dp, e4 = e2/20.0_dp, &
                                                             e6 = e4/42.0_dp, e8 = e6/72.0_dp
 
@@ -1712,7 +1696,7 @@ CONTAINS
                        core_particle_set, shell_particle_set, nparticle_kind, &
                        shell_adiabatic, dt)
 
-      CASE (npt_i_ensemble, npe_i_ensemble)
+      CASE (npt_i_ensemble, npt_ia_ensemble, npe_i_ensemble)
          arg_r = arg_r*simpar%dt_fact*simpar%dt_fact
          tmp%poly_r(1:3) = 1.0_dp + e2*arg_r(1) + e4*arg_r(1)*arg_r(1) + e6*arg_r(1)**3 + e8*arg_r(1)**4
          arg_v = arg_v*simpar%dt_fact*simpar%dt_fact

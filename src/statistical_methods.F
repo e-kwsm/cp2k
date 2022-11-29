@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,7 +48,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), INTENT(OUT)                         :: w, pw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'sw_test', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER :: c1(6) = (/0.000000_dp, 0.221157_dp, -0.147981_dp, -2.071190_dp, &
          4.434685_dp, -2.706056_dp/), c2(6) = (/0.000000_dp, 0.042981_dp, -0.293762_dp, &
          -1.752461_dp, 5.682633_dp, -3.582633_dp/), &
@@ -282,18 +283,18 @@ CONTAINS
       IF (z < zero) THEN
          up = .NOT. up
          z = -z
-      ENDIF
+      END IF
       IF (.NOT. (z <= ltone .OR. up .AND. z <= utzero)) THEN
          fn_val = zero
          IF (.NOT. up) fn_val = one - fn_val
          RETURN
-      ENDIF
+      END IF
       y = half*z*z
       IF (z <= con) THEN
          fn_val = r*EXP(-y)/(z + c1 + d1/(z + c2 + d2/(z + c3 + d3/(z + c4 + d4/(z + c5 + d5/(z + c6))))))
       ELSE
          fn_val = half - z*(p - q*y/(y + a1 + b1/(y + a2 + b2/(y + a3))))
-      ENDIF
+      END IF
       IF (.NOT. up) fn_val = one - fn_val
 
    END FUNCTION alnorm
@@ -326,7 +327,7 @@ CONTAINS
       IF (nord == 2) THEN
          fn_val = fn_val + p
          RETURN
-      ENDIF
+      END IF
       n2 = nord - 2
       j = n2 + 1
       DO i = 1, n2
@@ -355,8 +356,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: xdata
       INTEGER, INTENT(IN)                                :: istart, n
       REAL(KIND=dp)                                      :: tau, z, prob
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'k_test', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: is, j, k, nt
       REAL(KIND=dp)                                      :: a1, var
@@ -400,8 +399,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp)                                      :: r, u, prob
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'vn_test', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: q, s, var, x
 
@@ -443,8 +440,6 @@ CONTAINS
    SUBROUTINE tests(xdata, globenv)
       REAL(KIND=dp), DIMENSION(:), POINTER               :: xdata
       TYPE(global_environment_type), POINTER             :: globenv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'tests', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, n
       REAL(KINd=dp)                                      :: prob, pw, r, tau, u, w, z

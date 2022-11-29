@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,11 +29,11 @@ MODULE qs_external_potential
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp
+   USE maxwell_solver_interface,        ONLY: maxwell_solver
    USE message_passing,                 ONLY: mp_bcast
    USE particle_types,                  ONLY: particle_type
    USE pw_grid_types,                   ONLY: PW_MODE_LOCAL
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -63,41 +65,41 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'external_e_potential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'external_e_potential'
 
       INTEGER                                            :: handle, i, j, k
       INTEGER, DIMENSION(2, 3)                           :: bo_global, bo_local
-      LOGICAL                                            :: read_from_cube, static_potential
       REAL(kind=dp)                                      :: dvol, efunc, scaling_factor
       REAL(kind=dp), DIMENSION(3)                        :: dr, grid_p
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(pw_p_type), POINTER                           :: v_ee
+      TYPE(pw_type), POINTER                             :: v_ee
       TYPE(section_vals_type), POINTER                   :: ext_pot_section, input
 
       CALL timeset(routineN, handle)
-      NULLIFY (v_ee, input, ext_pot_section, dft_control)
-      CALL get_qs_env(qs_env, &
-                      vee=v_ee, &
-                      input=input, &
-                      dft_control=dft_control)
+      CALL get_qs_env(qs_env, dft_control=dft_control)
       IF (dft_control%apply_external_potential) THEN
-         ext_pot_section => section_vals_get_subs_vals(input, "DFT%EXTERNAL_POTENTIAL")
-         CALL section_vals_val_get(ext_pot_section, "STATIC", l_val=static_potential)
-         CALL section_vals_val_get(ext_pot_section, "READ_FROM_CUBE", l_val=read_from_cube)
-
-         IF ((.NOT. static_potential) .OR. dft_control%eval_external_potential) THEN
-            IF (read_from_cube) THEN
-               CALL section_vals_val_get(ext_pot_section, "SCALING_FACTOR", r_val=scaling_factor)
-               CALL cp_cube_to_pw(v_ee%pw, 'pot.cube', scaling_factor)
+         IF (dft_control%eval_external_potential) THEN
+            CALL get_qs_env(qs_env, vee=v_ee)
+            IF (dft_control%expot_control%maxwell_solver) THEN
+               scaling_factor = dft_control%expot_control%scaling_factor
+               CALL maxwell_solver(dft_control%maxwell_control, v_ee, &
+                                   qs_env%sim_step, qs_env%sim_time, &
+                                   scaling_factor)
+               dft_control%eval_external_potential = .FALSE.
+            ELSEIF (dft_control%expot_control%read_from_cube) THEN
+               scaling_factor = dft_control%expot_control%scaling_factor
+               CALL cp_cube_to_pw(v_ee, 'pot.cube', scaling_factor)
                dft_control%eval_external_potential = .FALSE.
             ELSE
-               dr = v_ee%pw%pw_grid%dr
-               dvol = v_ee%pw%pw_grid%dvol
-               v_ee%pw%cr3d = 0.0_dp
+               CALL get_qs_env(qs_env, input=input)
+               ext_pot_section => section_vals_get_subs_vals(input, "DFT%EXTERNAL_POTENTIAL")
 
-               bo_local = v_ee%pw%pw_grid%bounds_local
-               bo_global = v_ee%pw%pw_grid%bounds
+               dr = v_ee%pw_grid%dr
+               dvol = v_ee%pw_grid%dvol
+               v_ee%cr3d = 0.0_dp
+
+               bo_local = v_ee%pw_grid%bounds_local
+               bo_global = v_ee%pw_grid%bounds
 
                DO k = bo_local(1, 3), bo_local(2, 3)
                   DO j = bo_local(1, 2), bo_local(2, 2)
@@ -106,7 +108,7 @@ CONTAINS
                         grid_p(2) = (j - bo_global(1, 2))*dr(2)
                         grid_p(3) = (k - bo_global(1, 3))*dr(3)
                         CALL get_external_potential(grid_p, ext_pot_section, func=efunc)
-                        v_ee%pw%cr3d(i, j, k) = v_ee%pw%cr3d(i, j, k) + efunc
+                        v_ee%cr3d(i, j, k) = v_ee%cr3d(i, j, k) + efunc
                      END DO
                   END DO
                END DO
@@ -129,8 +131,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, OPTIONAL                                  :: calculate_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'external_c_potential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'external_c_potential'
 
       INTEGER                                            :: atom_a, handle, iatom, ikind, natom, &
                                                             nkind
@@ -142,7 +143,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-      TYPE(pw_p_type), POINTER                           :: v_ee
+      TYPE(pw_type), POINTER                             :: v_ee
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -161,18 +162,24 @@ CONTAINS
                       dft_control=dft_control)
 
       IF (dft_control%apply_external_potential) THEN
-         IF (dft_control%eval_external_potential) THEN !ensure that external potential is loaded to grid
+         !ensure that external potential is loaded to grid
+         IF (dft_control%eval_external_potential) THEN
             CALL external_e_potential(qs_env)
          END IF
          my_force = .FALSE.
          IF (PRESENT(calculate_forces)) my_force = calculate_forces
-         ext_pot_section => section_vals_get_subs_vals(input, "DFT%EXTERNAL_POTENTIAL")
          ee_core_ener = 0.0_dp
          nkind = SIZE(atomic_kind_set)
 
          !check if external potential on grid has been loaded from a file instead of giving a function
-         CALL section_vals_val_get(ext_pot_section, "READ_FROM_CUBE", l_val=pot_on_grid)
-         IF (pot_on_grid) CALL get_qs_env(qs_env, vee=v_ee, input=input)
+         IF (dft_control%expot_control%read_from_cube .OR. &
+             dft_control%expot_control%maxwell_solver) THEN
+            CALL get_qs_env(qs_env, vee=v_ee)
+            pot_on_grid = .TRUE.
+         ELSE
+            pot_on_grid = .FALSE.
+            ext_pot_section => section_vals_get_subs_vals(input, "DFT%EXTERNAL_POTENTIAL")
+         END IF
 
          DO ikind = 1, SIZE(atomic_kind_set)
             CALL get_atomic_kind(atomic_kind_set(ikind), atom_list=list, natom=natom)
@@ -190,7 +197,7 @@ CONTAINS
                !if potential is on grid, interpolate the value at r,
                !otherwise evaluate the given function
                IF (pot_on_grid) THEN
-                  CALL interpolate_external_potential(r, v_ee%pw, func=efunc, &
+                  CALL interpolate_external_potential(r, v_ee, func=efunc, &
                                                       dfunc=dfunc, calc_derivatives=my_force)
                ELSE
                   CALL get_external_potential(r, ext_pot_section, func=efunc, &
@@ -214,7 +221,7 @@ CONTAINS
 !> \param ext_pot_section ...
 !> \param func             external potential at r
 !> \param dfunc            derivative of the external potential at r
-!> \param calc_derivatives Whether to calulate dfunc
+!> \param calc_derivatives Whether to calculate dfunc
 !> \date   12.2009
 !> \par History
 !>      12.2009            created [tlaino]
@@ -227,8 +234,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: func, dfunc(3)
       LOGICAL, INTENT(IN), OPTIONAL                      :: calc_derivatives
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_external_potential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_external_potential'
 
       CHARACTER(LEN=default_path_length)                 :: coupling_function
       CHARACTER(LEN=default_string_length)               :: def_error, this_error
@@ -294,8 +300,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: func, dfunc(3)
       LOGICAL, INTENT(IN), OPTIONAL                      :: calc_derivatives
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'interpolate_external_potential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'interpolate_external_potential'
 
       INTEGER                                            :: buffer_i, buffer_j, buffer_k, &
                                                             data_source, fd_extra_point, gid, &

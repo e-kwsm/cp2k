@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,71 +12,70 @@
 !> \author Teodoro Laino
 ! **************************************************************************************************
 MODULE qmmm_gpw_forces
-   USE cell_types, ONLY: cell_type, &
-                         pbc
-   USE cp_control_types, ONLY: dft_control_type
-   USE cp_log_handling, ONLY: cp_get_default_logger, &
-                              cp_logger_type
-   USE cp_output_handling, ONLY: cp_print_key_finished_output, &
-                                 cp_print_key_unit_nr
-   USE cp_para_types, ONLY: cp_para_env_type
-   USE cp_spline_utils, ONLY: pw_restrict_s3, &
-                              spline3_nopbc_interp, &
-                              spline3_pbc_interp
-   USE cube_utils, ONLY: cube_info_type
-   USE input_constants, ONLY: do_par_atom, &
-                              do_qmmm_coulomb, &
-                              do_qmmm_gauss, &
-                              do_qmmm_none, &
-                              do_qmmm_pcharge, &
-                              do_qmmm_swave
-   USE input_section_types, ONLY: section_vals_get_subs_vals, &
-                                  section_vals_type, &
-                                  section_vals_val_get
-   USE kinds, ONLY: dp
-   USE message_passing, ONLY: mp_irecv, &
-                              mp_isend, &
-                              mp_sum, &
-                              mp_wait
-   USE mm_collocate_potential, ONLY: collocate_gf_rspace_NoPBC, &
-                                     integrate_gf_rspace_NoPBC
-   USE particle_types, ONLY: particle_type
-   USE pw_env_types, ONLY: pw_env_get, &
-                           pw_env_type
-   USE pw_methods, ONLY: pw_axpy, &
-                         pw_integral_ab, &
-                         pw_transfer, &
-                         pw_zero
-   USE pw_pool_types, ONLY: pw_pool_create_pw, &
-                            pw_pool_give_back_pw, &
-                            pw_pool_p_type, &
-                            pw_pool_type, &
-                            pw_pools_create_pws, &
-                            pw_pools_give_back_pws
-   USE pw_types, ONLY: REALDATA3D, &
-                       REALSPACE, &
-                       pw_p_type, &
-                       pw_type
-   USE qmmm_gaussian_types, ONLY: qmmm_gaussian_p_type, &
-                                  qmmm_gaussian_type
-   USE qmmm_gpw_energy, ONLY: qmmm_elec_with_gaussian, &
-                              qmmm_elec_with_gaussian_LG, &
-                              qmmm_elec_with_gaussian_LR
-   USE qmmm_se_forces, ONLY: deriv_se_qmmm_matrix
-   USE qmmm_types_low, ONLY: qmmm_env_qm_type, &
-                             qmmm_per_pot_p_type, &
-                             qmmm_per_pot_type, &
-                             qmmm_pot_p_type, &
-                             qmmm_pot_type
-   USE qmmm_util, ONLY: spherical_cutoff_factor
-   USE qmmm_tb_methods, ONLY: deriv_tb_qmmm_matrix, &
-                              deriv_tb_qmmm_matrix_pc
-   USE qs_energy_types, ONLY: qs_energy_type
-   USE qs_environment_types, ONLY: get_qs_env, &
-                                   qs_environment_type
-   USE qs_ks_qmmm_types, ONLY: qs_ks_qmmm_env_type
-   USE qs_rho_types, ONLY: qs_rho_get, &
-                           qs_rho_type
+   USE cell_types,                      ONLY: cell_type,&
+                                              pbc
+   USE cp_control_types,                ONLY: dft_control_type
+   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
+                                              cp_logger_type
+   USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
+                                              cp_print_key_unit_nr
+   USE cp_para_types,                   ONLY: cp_para_env_type
+   USE cp_spline_utils,                 ONLY: pw_restrict_s3,&
+                                              spline3_nopbc_interp,&
+                                              spline3_pbc_interp
+   USE cube_utils,                      ONLY: cube_info_type
+   USE input_constants,                 ONLY: do_par_atom,&
+                                              do_qmmm_coulomb,&
+                                              do_qmmm_gauss,&
+                                              do_qmmm_none,&
+                                              do_qmmm_pcharge,&
+                                              do_qmmm_swave
+   USE input_section_types,             ONLY: section_vals_get_subs_vals,&
+                                              section_vals_type,&
+                                              section_vals_val_get
+   USE kinds,                           ONLY: dp
+   USE message_passing,                 ONLY: mp_irecv,&
+                                              mp_isend,&
+                                              mp_sum,&
+                                              mp_wait
+   USE mm_collocate_potential,          ONLY: collocate_gf_rspace_NoPBC,&
+                                              integrate_gf_rspace_NoPBC
+   USE particle_types,                  ONLY: particle_type
+   USE pw_env_types,                    ONLY: pw_env_get,&
+                                              pw_env_type
+   USE pw_methods,                      ONLY: pw_axpy,&
+                                              pw_integral_ab,&
+                                              pw_transfer,&
+                                              pw_zero
+   USE pw_pool_types,                   ONLY: pw_pool_create_pw,&
+                                              pw_pool_give_back_pw,&
+                                              pw_pool_p_type,&
+                                              pw_pool_type,&
+                                              pw_pools_create_pws,&
+                                              pw_pools_give_back_pws
+   USE pw_types,                        ONLY: REALDATA3D,&
+                                              REALSPACE,&
+                                              pw_type
+   USE qmmm_gaussian_types,             ONLY: qmmm_gaussian_p_type,&
+                                              qmmm_gaussian_type
+   USE qmmm_gpw_energy,                 ONLY: qmmm_elec_with_gaussian,&
+                                              qmmm_elec_with_gaussian_LG,&
+                                              qmmm_elec_with_gaussian_LR
+   USE qmmm_se_forces,                  ONLY: deriv_se_qmmm_matrix
+   USE qmmm_tb_methods,                 ONLY: deriv_tb_qmmm_matrix,&
+                                              deriv_tb_qmmm_matrix_pc
+   USE qmmm_types_low,                  ONLY: qmmm_env_qm_type,&
+                                              qmmm_per_pot_p_type,&
+                                              qmmm_per_pot_type,&
+                                              qmmm_pot_p_type,&
+                                              qmmm_pot_type
+   USE qmmm_util,                       ONLY: spherical_cutoff_factor
+   USE qs_energy_types,                 ONLY: qs_energy_type
+   USE qs_environment_types,            ONLY: get_qs_env,&
+                                              qs_environment_type
+   USE qs_ks_qmmm_types,                ONLY: qs_ks_qmmm_env_type
+   USE qs_rho_types,                    ONLY: qs_rho_get,&
+                                              qs_rho_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -107,7 +108,7 @@ CONTAINS
       LOGICAL, INTENT(in), OPTIONAL                      :: calc_force
       TYPE(cell_type), POINTER                           :: mm_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'qmmm_forces'
 
       INTEGER                                            :: handle, iatom, image_IndMM, Imm, IndMM, &
                                                             ispin, iw
@@ -118,11 +119,11 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
-      TYPE(pw_p_type), POINTER                           :: rho0_s_gs, rho_core
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pool
-      TYPE(pw_type), POINTER                             :: rho_tot_r, rho_tot_r2
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
+      TYPE(pw_type), POINTER                             :: rho0_s_gs, rho_core, rho_tot_r, &
+                                                            rho_tot_r2
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_ks_qmmm_env_type), POINTER                 :: ks_qmmm_env_loc
       TYPE(qs_rho_type), POINTER                         :: rho
@@ -201,44 +202,49 @@ CONTAINS
          IF (need_f) THEN
             Forces(:, :) = Forces(:, :)/REAL(para_env%num_pe, KIND=dp)
             Forces_added_charges(:, :) = Forces_added_charges(:, :)/REAL(para_env%num_pe, KIND=dp)
-         ENDIF
+         END IF
       ELSE
          ! GPW/GAPW
          CALL pw_env_get(pw_env=pw_env, &
                          pw_pools=pw_pools, &
                          auxbas_pw_pool=auxbas_pool)
+         NULLIFY (rho_tot_r)
+         ALLOCATE (rho_tot_r)
          CALL pw_pool_create_pw(auxbas_pool, rho_tot_r, &
                                 in_space=REALSPACE, &
                                 use_data=REALDATA3D)
          ! IF GAPW the core charge is replaced by the compensation charge
          IF (gapw) THEN
             IF (dft_control%qs_control%gapw_control%nopaw_as_gpw) THEN
-               CALL pw_transfer(rho_core%pw, rho_tot_r)
-               energy%qmmm_nu = pw_integral_ab(rho_tot_r, ks_qmmm_env_loc%v_qmmm_rspace%pw)
+               CALL pw_transfer(rho_core, rho_tot_r)
+               energy%qmmm_nu = pw_integral_ab(rho_tot_r, ks_qmmm_env_loc%v_qmmm_rspace)
+               NULLIFY (rho_tot_r2)
+               ALLOCATE (rho_tot_r2)
                CALL pw_pool_create_pw(auxbas_pool, rho_tot_r2, &
                                       in_space=REALSPACE, &
                                       use_data=REALDATA3D)
-               CALL pw_transfer(rho0_s_gs%pw, rho_tot_r2)
+               CALL pw_transfer(rho0_s_gs, rho_tot_r2)
                CALL pw_axpy(rho_tot_r2, rho_tot_r)
-               CALL pw_pool_give_back_pw(auxbas_pool, rho_tot_r2, accept_non_compatible=.TRUE.)
+               CALL pw_pool_give_back_pw(auxbas_pool, rho_tot_r2)
+               DEALLOCATE (rho_tot_r2)
             ELSE
-               CALL pw_transfer(rho0_s_gs%pw, rho_tot_r)
+               CALL pw_transfer(rho0_s_gs, rho_tot_r)
                !
                ! QM/MM Nuclear Electrostatic Potential already included through rho0
                !
                energy%qmmm_nu = 0.0_dp
             END IF
          ELSE
-            CALL pw_transfer(rho_core%pw, rho_tot_r)
+            CALL pw_transfer(rho_core, rho_tot_r)
             !
             ! Computes the QM/MM Nuclear Electrostatic Potential
             !
-            energy%qmmm_nu = pw_integral_ab(rho_tot_r, ks_qmmm_env_loc%v_qmmm_rspace%pw)
+            energy%qmmm_nu = pw_integral_ab(rho_tot_r, ks_qmmm_env_loc%v_qmmm_rspace)
          END IF
          IF (need_f) THEN
             !
             DO ispin = 1, SIZE(rho_r)
-               CALL pw_axpy(rho_r(ispin)%pw, rho_tot_r)
+               CALL pw_axpy(rho_r(ispin), rho_tot_r)
             END DO
             IF (iw > 0) WRITE (iw, '(T2,"QMMM|",1X,A)') "Evaluating forces on MM atoms due to the:"
             ! Electrostatic Interaction type...
@@ -308,12 +314,13 @@ CONTAINS
                                       interp_section=interp_section, &
                                       mm_cell=mm_cell)
             END IF
-         ENDIF
+         END IF
       END IF
       ! Give back rho_tot_t to auxbas_pool only for GPW/GAPW
       IF ((.NOT. dft_control%qs_control%semi_empirical) .AND. &
           (.NOT. dft_control%qs_control%dftb) .AND. (.NOT. dft_control%qs_control%xtb)) THEN
-         CALL pw_pool_give_back_pw(auxbas_pool, rho_tot_r, accept_non_compatible=.TRUE.)
+         CALL pw_pool_give_back_pw(auxbas_pool, rho_tot_r)
+         DEALLOCATE (rho_tot_r)
       END IF
       IF (iw > 0) THEN
          IF (.NOT. gapw) WRITE (iw, '(T2,"QMMM|",1X,A,T66,F15.9)') &
@@ -333,12 +340,12 @@ CONTAINS
             IF (qmmm_env%image_charge) THEN
                DO iatom = 1, qmmm_env%num_image_mm_atoms
                   image_IndMM = qmmm_env%image_charge_pot%image_mm_list(iatom)
-                  IF (image_IndMM .eq. IndMM) THEN
+                  IF (image_IndMM .EQ. IndMM) THEN
                      Forces(:, Imm) = Forces(:, Imm) &
                                       + qmmm_env%image_charge_pot%image_forcesMM(:, iatom)
-                  ENDIF
-               ENDDO
-            ENDIF
+                  END IF
+               END DO
+            END IF
 
             ! Hack: In Forces there the gradients indeed...
             ! Minux sign to take care of this misunderstanding...
@@ -414,8 +421,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iw
       TYPE(cell_type), POINTER                           :: mm_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian'
 
       INTEGER                                            :: group, handle, i, igrid, j, k, &
                                                             kind_interp, me, ngrids, request, stat
@@ -423,12 +429,12 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: pos_of_x
       LOGICAL                                            :: shells
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: tmp
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
 ! Statements
 
       CALL timeset(routineN, handle)
-      NULLIFY (grids, tmp)
+      NULLIFY (tmp)
       CPASSERT(ASSOCIATED(mm_particles))
       CPASSERT(ASSOCIATED(qmmm_env%mm_atom_chrg))
       CPASSERT(ASSOCIATED(qmmm_env%mm_atom_index))
@@ -437,44 +443,44 @@ CONTAINS
       ngrids = SIZE(pw_pools)
       CALL pw_pools_create_pws(aug_pools, grids, use_data=REALDATA3D, in_space=REALSPACE)
       DO igrid = 1, ngrids
-         CALL pw_zero(grids(igrid)%pw)
+         CALL pw_zero(grids(igrid))
       END DO
       ! Collocate Density on multigrids
       lb = rho%pw_grid%bounds_local(1, :)
       ub = rho%pw_grid%bounds_local(2, :)
-      grids(auxbas_grid)%pw%cr3d(lb(1):ub(1), &
-                                 lb(2):ub(2), &
-                                 lb(3):ub(3)) = rho%cr3d
+      grids(auxbas_grid)%cr3d(lb(1):ub(1), &
+                              lb(2):ub(2), &
+                              lb(3):ub(3)) = rho%cr3d
       ! copy the boundaries
       DO i = lb(1), ub(1)
-         grids(auxbas_grid)%pw%cr3d(i, ub(2) + 1, ub(3) + 1) = rho%cr3d(i, lb(2), lb(3))
+         grids(auxbas_grid)%cr3d(i, ub(2) + 1, ub(3) + 1) = rho%cr3d(i, lb(2), lb(3))
       END DO
       DO k = lb(3), ub(3)
          DO i = lb(1), ub(1)
-            grids(auxbas_grid)%pw%cr3d(i, ub(2) + 1, k) = rho%cr3d(i, lb(2), k)
+            grids(auxbas_grid)%cr3d(i, ub(2) + 1, k) = rho%cr3d(i, lb(2), k)
          END DO
       END DO
       DO j = lb(2), ub(2)
          DO i = lb(1), ub(1)
-            grids(auxbas_grid)%pw%cr3d(i, j, ub(3) + 1) = rho%cr3d(i, j, lb(3))
+            grids(auxbas_grid)%cr3d(i, j, ub(3) + 1) = rho%cr3d(i, j, lb(3))
          END DO
       END DO
-      pos_of_x => grids(auxbas_grid)%pw%pw_grid%para%pos_of_x
-      group = grids(auxbas_grid)%pw%pw_grid%para%group
-      me = grids(auxbas_grid)%pw%pw_grid%para%my_pos
+      pos_of_x => grids(auxbas_grid)%pw_grid%para%pos_of_x
+      group = grids(auxbas_grid)%pw_grid%para%group
+      me = grids(auxbas_grid)%pw_grid%para%my_pos
       glb = rho%pw_grid%bounds(1, :)
       gub = rho%pw_grid%bounds(2, :)
       IF ((pos_of_x(glb(1)) .EQ. me) .AND. (pos_of_x(gub(1)) .EQ. me)) THEN
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
-               grids(auxbas_grid)%pw%cr3d(ub(1) + 1, j, k) = rho%cr3d(lb(1), j, k)
+               grids(auxbas_grid)%cr3d(ub(1) + 1, j, k) = rho%cr3d(lb(1), j, k)
             END DO
-            grids(auxbas_grid)%pw%cr3d(ub(1) + 1, ub(2) + 1, k) = rho%cr3d(lb(1), lb(2), k)
+            grids(auxbas_grid)%cr3d(ub(1) + 1, ub(2) + 1, k) = rho%cr3d(lb(1), lb(2), k)
          END DO
          DO j = lb(2), ub(2)
-            grids(auxbas_grid)%pw%cr3d(ub(1) + 1, j, ub(3) + 1) = rho%cr3d(lb(1), j, lb(3))
+            grids(auxbas_grid)%cr3d(ub(1) + 1, j, ub(3) + 1) = rho%cr3d(lb(1), j, lb(3))
          END DO
-         grids(auxbas_grid)%pw%cr3d(ub(1) + 1, ub(2) + 1, ub(3) + 1) = rho%cr3d(lb(1), lb(2), lb(3))
+         grids(auxbas_grid)%cr3d(ub(1) + 1, ub(2) + 1, ub(3) + 1) = rho%cr3d(lb(1), lb(2), lb(3))
       ELSE IF (pos_of_x(glb(1)) .EQ. me) THEN
          ALLOCATE (tmp(rho%pw_grid%bounds_local(1, 2):rho%pw_grid%bounds_local(2, 2), &
                        rho%pw_grid%bounds_local(1, 3):rho%pw_grid%bounds_local(2, 3)), &
@@ -495,21 +501,21 @@ CONTAINS
 
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
-               grids(auxbas_grid)%pw%cr3d(ub(1) + 1, j, k) = tmp(j, k)
+               grids(auxbas_grid)%cr3d(ub(1) + 1, j, k) = tmp(j, k)
             END DO
-            grids(auxbas_grid)%pw%cr3d(ub(1) + 1, ub(2) + 1, k) = tmp(lb(2), k)
+            grids(auxbas_grid)%cr3d(ub(1) + 1, ub(2) + 1, k) = tmp(lb(2), k)
          END DO
          DO j = lb(2), ub(2)
-            grids(auxbas_grid)%pw%cr3d(ub(1) + 1, j, ub(3) + 1) = tmp(j, lb(3))
+            grids(auxbas_grid)%cr3d(ub(1) + 1, j, ub(3) + 1) = tmp(j, lb(3))
          END DO
-         grids(auxbas_grid)%pw%cr3d(ub(1) + 1, ub(2) + 1, ub(3) + 1) = tmp(lb(2), lb(3))
+         grids(auxbas_grid)%cr3d(ub(1) + 1, ub(2) + 1, ub(3) + 1) = tmp(lb(2), lb(3))
       END IF
       IF (ASSOCIATED(tmp)) THEN
          DEALLOCATE (tmp)
       END IF
       ! Further setup of parallelization scheme
       IF (qmmm_env%par_scheme == do_par_atom) THEN
-         CALL mp_sum(grids(auxbas_grid)%pw%cr3d, para_env%group)
+         CALL mp_sum(grids(auxbas_grid)%cr3d, para_env%group)
       END IF
       ! RealSpace Interpolation
       CALL section_vals_val_get(interp_section, "kind", i_val=kind_interp)
@@ -517,8 +523,8 @@ CONTAINS
       CASE (spline3_nopbc_interp, spline3_pbc_interp)
          ! Spline Interpolator
          DO Igrid = auxbas_grid, SIZE(grids) - 1
-            CALL pw_restrict_s3(grids(Igrid)%pw, &
-                                grids(Igrid + 1)%pw, &
+            CALL pw_restrict_s3(grids(Igrid), &
+                                grids(Igrid + 1), &
                                 aug_pools(Igrid + 1)%pool, &
                                 param_section=interp_section)
          END DO
@@ -540,7 +546,7 @@ CONTAINS
                                            qmmm_env%added_charges%mm_atom_index, qmmm_env%added_charges%num_mm_atoms, &
                                        cube_info, para_env, eps_mm_rspace, auxbas_grid, coarser_grid, qmmm_env%added_charges%pgfs, &
                                            qmmm_env%added_charges%potentials, Forces_added_charges, aug_pools, mm_cell, &
-                                           qmmm_env%dOmmOqm, qmmm_env%periodic, qmmm_env%per_potentials, iw, qmmm_env%par_scheme, &
+                              qmmm_env%dOmmOqm, qmmm_env%periodic, qmmm_env%added_charges%per_potentials, iw, qmmm_env%par_scheme, &
                                            qmmm_env%spherical_cutoff, shells)
       END IF
 
@@ -595,7 +601,7 @@ CONTAINS
                                            eps_mm_rspace, auxbas_grid, coarser_grid, pgfs, potentials, Forces, &
                                            aug_pools, mm_cell, dOmmOqm, periodic, per_potentials, iw, par_scheme, &
                                            qmmm_spherical_cutoff, shells)
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), DIMENSION(:), INTENT(IN)            :: grids
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
@@ -617,7 +623,7 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: shells
 
       CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_force_with_gaussian_low', &
-                                     routineNb = 'qmmm_forces_gaussian_low', routineP = moduleN//':'//routineN
+         routineNb = 'qmmm_forces_gaussian_low'
 
       INTEGER                                            :: handle, handle2, IGauss, ilevel, Imm, &
                                                             IndMM, IRadTyp, LIndMM, myind, &
@@ -647,14 +653,21 @@ CONTAINS
             alpha = alpha*alpha
             height = pgf%Ak(IGauss)
             ilevel = pgf%grid_level(IGauss)
-            dvol = grids(ilevel)%pw%pw_grid%dvol
-            bo = grids(ilevel)%pw%pw_grid%bounds_local
+            dvol = grids(ilevel)%pw_grid%dvol
+            bo = grids(ilevel)%pw_grid%bounds_local
             ALLOCATE (xdat(2, bo(1, 1):bo(2, 1)))
             ALLOCATE (ydat(2, bo(1, 2):bo(2, 2)))
             ALLOCATE (zdat(2, bo(1, 3):bo(2, 3)))
+            !$OMP PARALLEL DO DEFAULT(NONE) &
+            !$OMP SHARED(pot, par_scheme, dvol, alpha, para_env, mm_atom_index, shells) &
+            !$OMP SHARED(mm_particles, dOmmOqm, mm_cell, height, mm_charges, qmmm_spherical_cutoff) &
+            !$OMP SHARED(grids, cube_info, bo, n_rep_real, eps_mm_rspace, Forces, ilevel) &
+            !$OMP SHARED(IGauss, pgf, IRadTyp, iw, aug_pools, auxbas_grid) &
+            !$OMP PRIVATE(xdat, ydat, zdat) &
+            !$OMP PRIVATE(Imm, LIndMM, IndMM, ra, W, force, sph_chrg_factor, myind)
             Atoms: DO Imm = 1, SIZE(pot%mm_atom_index)
                IF (par_scheme == do_par_atom) THEN
-                  myind = myind + 1
+                  myind = Imm + (IGauss - 1)*SIZE(pot%mm_atom_index) + (IRadTyp - 1)*pgf%Number_of_Gaussians
                   IF (MOD(myind, para_env%num_pe) /= para_env%mepos) CYCLE Atoms
                END IF
                LIndMM = pot%mm_atom_index(Imm)
@@ -676,7 +689,7 @@ CONTAINS
                                               rp=ra, &
                                               scale=-1.0_dp, &
                                               W=W, &
-                                              pwgrid=grids(ilevel)%pw, &
+                                              pwgrid=grids(ilevel), &
                                               cube_info=cube_info(ilevel), &
                                               eps_mm_rspace=eps_mm_rspace, &
                                               xdat=xdat, &
@@ -696,7 +709,7 @@ CONTAINS
                                                        zetp=alpha, &
                                                        rp=ra, &
                                                        W=W, &
-                                                       pwgrid=grids(ilevel)%pw, &
+                                                       pwgrid=grids(ilevel), &
                                                        cube_info=cube_info(ilevel), &
                                                        eps_mm_rspace=eps_mm_rspace, &
                                                        aug_pools=aug_pools, &
@@ -707,6 +720,7 @@ CONTAINS
                                                        iw=iw)
                END IF
             END DO Atoms
+            !$OMP END PARALLEL DO
             DEALLOCATE (xdat)
             DEALLOCATE (ydat)
             DEALLOCATE (zdat)
@@ -716,7 +730,7 @@ CONTAINS
       CALL timeset(routineNb//"_R", handle2)
       IF (periodic) THEN
          CALL qmmm_forces_with_gaussian_LG(pgfs=pgfs, &
-                                           cgrid=grids(coarser_grid)%pw, &
+                                           cgrid=grids(coarser_grid), &
                                            num_mm_atoms=num_mm_atoms, &
                                            mm_charges=mm_charges, &
                                            mm_atom_index=mm_atom_index, &
@@ -734,7 +748,7 @@ CONTAINS
                                            shells=shells)
       ELSE
          CALL qmmm_forces_with_gaussian_LR(pgfs=pgfs, &
-                                           cgrid=grids(coarser_grid)%pw, &
+                                           cgrid=grids(coarser_grid), &
                                            num_mm_atoms=num_mm_atoms, &
                                            mm_charges=mm_charges, &
                                            mm_atom_index=mm_atom_index, &
@@ -784,7 +798,7 @@ CONTAINS
                                            mm_particles, para_env, coarser_grid_level, Forces, per_potentials, &
                                            aug_pools, mm_cell, dOmmOqm, iw, par_scheme, qmmm_spherical_cutoff, shells)
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
-      TYPE(pw_type), POINTER                             :: cgrid
+      TYPE(pw_type), INTENT(IN)                          :: cgrid
       INTEGER, INTENT(IN)                                :: num_mm_atoms
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
@@ -800,18 +814,17 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian_LG', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian_LG'
 
       INTEGER :: handle, i, ii1, ii2, ii3, ii4, ij1, ij2, ij3, ij4, ik1, ik2, ik3, ik4, Imm, &
-                 IndMM, IRadTyp, ivec(3), j, k, LIndMM, my_i, my_j, my_k, myind, npts(3)
+         IndMM, IRadTyp, ivec(3), j, k, LIndMM, my_i, my_j, my_k, myind, npts(3)
       INTEGER, DIMENSION(2, 3)                           :: bo, gbo
       REAL(KIND=dp) :: a1, a2, a3, abc_X(4, 4), abc_X_Y(4), b1, b2, b3, c1, c2, c3, d1, d2, d3, &
-                       dr1, dr1c, dr1i, dr2, dr2c, dr2i, dr3, dr3c, dr3i, dvol, e1, e2, e3, f1, f2, f3, fac, &
-                       ft1, ft2, ft3, g1, g2, g3, h1, h2, h3, p1, p2, p3, q1, q2, q3, qt, r1, r2, r3, rt1, rt2, &
-                       rt3, rv1, rv2, rv3, s1, s1d, s1o, s2, s2d, s2o, s3, s3d, s3o, s4, s4d, s4o, &
-                       sph_chrg_factor, t1, t1d, t1o, t2, t2d, t2o, t3, t3d, t3o, t4, t4d, t4o, u1, u2, u3, v1, &
-                       v1d, v1o, v2, v2d, v2o, v3, v3d, v3o, v4, v4d, v4o, xd1, xd2, xd3, xs1, xs2, xs3
+         dr1, dr1c, dr1i, dr2, dr2c, dr2i, dr3, dr3c, dr3i, dvol, e1, e2, e3, f1, f2, f3, fac, &
+         ft1, ft2, ft3, g1, g2, g3, h1, h2, h3, p1, p2, p3, q1, q2, q3, qt, r1, r2, r3, rt1, rt2, &
+         rt3, rv1, rv2, rv3, s1, s1d, s1o, s2, s2d, s2o, s3, s3d, s3o, s4, s4d, s4o, &
+         sph_chrg_factor, t1, t1d, t1o, t2, t2d, t2o, t3, t3d, t3o, t4, t4d, t4o, u1, u2, u3, v1, &
+         v1d, v1o, v2, v2d, v2o, v3, v3d, v3o, v4, v4d, v4o, xd1, xd2, xd3, xs1, xs2, xs3
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: LForces
       REAL(KIND=dp), DIMENSION(3)                        :: ra, val, vec
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: grid, grid2
@@ -841,9 +854,24 @@ CONTAINS
          dr1i = 1.0_dp/dr1
          dr2i = 1.0_dp/dr2
          dr3i = 1.0_dp/dr3
+
+         !$OMP PARALLEL DO DEFAULT(NONE) &
+         !$OMP SHARED(bo, grid, grid2, pw, npts, gbo, per_pot, mm_atom_index) &
+         !$OMP SHARED(dr1, dr2, dr3, dr1i, dr2i, dr3i, dr1c, dr2c, dr3c, par_scheme, mm_charges) &
+         !$OMP SHARED(mm_cell, dOmmOqm, dvol, shells, para_env, IRadTyp) &
+         !$OMP SHARED(qmmm_spherical_cutoff, mm_particles, Forces, LForces) &
+         !$OMP PRIVATE(qt, Imm, LIndMM, IndMM, sph_chrg_factor, ra, myind) &
+         !$OMP PRIVATE(rt1, rt2, rt3, ft1, ft2, ft3, my_k, my_j, my_i, xs3, xs2, xs1) &
+         !$OMP PRIVATE(rv3, rv2, rv1, vec, ivec, ik1, ik2, ik3, ik4, xd3, xd2, xd1) &
+         !$OMP PRIVATE(p1, p2, p3, q1, q2, q3, r1, r2, r3, u1, u2, u3, v1o, v2o, v3o, v4o) &
+         !$OMP PRIVATE(v1d, v2d, v3d, v4d, ij1, ij2, ij3, ij4, e1, e2, e3, f1, f2, f3) &
+         !$OMP PRIVATE(g1, g2, g3, h1, h2, h3, s1o, s2o, s3o, s4o, s1d, s2d, s3d, s4d) &
+         !$OMP PRIVATE(ii1, ii2, ii3, ii4, a1, a2, a3, b1, b2, b3, c1, c2, c3, d1, d2, d3) &
+         !$OMP PRIVATE(t1o, t2o, t3o, t4o, t1d, t2d, t3d, t4d, t1, t2, t3, t4, s1, s2, s3, s4) &
+         !$OMP PRIVATE(v1, v2, v3, v4, abc_x, abc_x_y, val, fac)
          Atoms: DO Imm = 1, SIZE(per_pot%mm_atom_index)
             IF (par_scheme == do_par_atom) THEN
-               myind = myind + 1
+               myind = Imm + (IRadTyp - 1)*SIZE(per_pot%mm_atom_index)
                IF (MOD(myind, para_env%num_pe) /= para_env%mepos) CYCLE
             END IF
             LIndMM = per_pot%mm_atom_index(Imm)
@@ -960,60 +988,6 @@ CONTAINS
                      t3d = -2.0_dp + 4.0_dp*c1 - 1.5_dp*c2
                      t4d = 0.5_dp*d2
 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-! # v then t then s
-!
-! for ii in 1 2 3; do
-! if [[ $ii == 1 ]]; then ld=t; fi
-! if [[ $ii == 2 ]]; then ld=s; fi
-! if [[ $ii == 3 ]]; then ld=v; fi
-! #
-! for l in t s v; do
-! for i in 1 2 3 4; do
-! if [[ $ld == $l ]]; then
-!  echo "$l$i = $l${i}d*dr${ii}i"
-! else
-!  echo "$l$i = $l${i}o"
-! fi
-! done
-! done
-! #
-! for i in 1 2 3 4; do
-! for j in 1 2 3 4; do
-! echo -n "abc_X($i,$j) = "
-! for k in 1 2 3 4; do
-! if [ $k == 4 ]; then
-! echo "grid2(ii$i,ij$j,ik$k)*v$k"
-! else
-! echo -n "grid2(ii$i,ij$j,ik$k)*v$k + "
-! fi
-! done
-! done
-! done
-! echo ""
-! for j in 1 2 3 4; do
-! echo -n "abc_X_Y($j) = "
-! for k in 1 2 3 4; do
-! if [ $k == 4 ]; then
-! echo "abc_X($k,$j)*t$k"
-! else
-! echo -n "abc_X($k,$j)*t$k + "
-! fi
-! done
-! done
-! echo ""
-! echo -n "val($ii) = "
-! for k in 1 2 3 4; do
-! if [ $k == 4 ]; then
-! echo "abc_X_Y($k)*s$k"
-! else
-! echo -n "abc_X_Y($k)*s$k + "
-! fi
-! done
-! echo ""
-! done
-
                      t1 = t1d*dr1i
                      t2 = t2d*dr1i
                      t3 = t3d*dr1i
@@ -1026,26 +1000,29 @@ CONTAINS
                      v2 = v2o
                      v3 = v3o
                      v4 = v4o
-                 abc_X(1, 1) = grid2(ii1, ij1, ik1)*v1 + grid2(ii1, ij1, ik2)*v2 + grid2(ii1, ij1, ik3)*v3 + grid2(ii1, ij1, ik4)*v4
-                 abc_X(1, 2) = grid2(ii1, ij2, ik1)*v1 + grid2(ii1, ij2, ik2)*v2 + grid2(ii1, ij2, ik3)*v3 + grid2(ii1, ij2, ik4)*v4
-                 abc_X(1, 3) = grid2(ii1, ij3, ik1)*v1 + grid2(ii1, ij3, ik2)*v2 + grid2(ii1, ij3, ik3)*v3 + grid2(ii1, ij3, ik4)*v4
-                 abc_X(1, 4) = grid2(ii1, ij4, ik1)*v1 + grid2(ii1, ij4, ik2)*v2 + grid2(ii1, ij4, ik3)*v3 + grid2(ii1, ij4, ik4)*v4
-                 abc_X(2, 1) = grid2(ii2, ij1, ik1)*v1 + grid2(ii2, ij1, ik2)*v2 + grid2(ii2, ij1, ik3)*v3 + grid2(ii2, ij1, ik4)*v4
-                 abc_X(2, 2) = grid2(ii2, ij2, ik1)*v1 + grid2(ii2, ij2, ik2)*v2 + grid2(ii2, ij2, ik3)*v3 + grid2(ii2, ij2, ik4)*v4
-                 abc_X(2, 3) = grid2(ii2, ij3, ik1)*v1 + grid2(ii2, ij3, ik2)*v2 + grid2(ii2, ij3, ik3)*v3 + grid2(ii2, ij3, ik4)*v4
-                 abc_X(2, 4) = grid2(ii2, ij4, ik1)*v1 + grid2(ii2, ij4, ik2)*v2 + grid2(ii2, ij4, ik3)*v3 + grid2(ii2, ij4, ik4)*v4
-                 abc_X(3, 1) = grid2(ii3, ij1, ik1)*v1 + grid2(ii3, ij1, ik2)*v2 + grid2(ii3, ij1, ik3)*v3 + grid2(ii3, ij1, ik4)*v4
-                 abc_X(3, 2) = grid2(ii3, ij2, ik1)*v1 + grid2(ii3, ij2, ik2)*v2 + grid2(ii3, ij2, ik3)*v3 + grid2(ii3, ij2, ik4)*v4
-                 abc_X(3, 3) = grid2(ii3, ij3, ik1)*v1 + grid2(ii3, ij3, ik2)*v2 + grid2(ii3, ij3, ik3)*v3 + grid2(ii3, ij3, ik4)*v4
-                 abc_X(3, 4) = grid2(ii3, ij4, ik1)*v1 + grid2(ii3, ij4, ik2)*v2 + grid2(ii3, ij4, ik3)*v3 + grid2(ii3, ij4, ik4)*v4
-                 abc_X(4, 1) = grid2(ii4, ij1, ik1)*v1 + grid2(ii4, ij1, ik2)*v2 + grid2(ii4, ij1, ik3)*v3 + grid2(ii4, ij1, ik4)*v4
-                 abc_X(4, 2) = grid2(ii4, ij2, ik1)*v1 + grid2(ii4, ij2, ik2)*v2 + grid2(ii4, ij2, ik3)*v3 + grid2(ii4, ij2, ik4)*v4
-                 abc_X(4, 3) = grid2(ii4, ij3, ik1)*v1 + grid2(ii4, ij3, ik2)*v2 + grid2(ii4, ij3, ik3)*v3 + grid2(ii4, ij3, ik4)*v4
-                 abc_X(4, 4) = grid2(ii4, ij4, ik1)*v1 + grid2(ii4, ij4, ik2)*v2 + grid2(ii4, ij4, ik3)*v3 + grid2(ii4, ij4, ik4)*v4
 
+                 abc_X(1, 1) = grid2(ii1, ij1, ik1)*v1 + grid2(ii1, ij1, ik2)*v2 + grid2(ii1, ij1, ik3)*v3 + grid2(ii1, ij1, ik4)*v4
+                 abc_X(2, 1) = grid2(ii2, ij1, ik1)*v1 + grid2(ii2, ij1, ik2)*v2 + grid2(ii2, ij1, ik3)*v3 + grid2(ii2, ij1, ik4)*v4
+                 abc_X(3, 1) = grid2(ii3, ij1, ik1)*v1 + grid2(ii3, ij1, ik2)*v2 + grid2(ii3, ij1, ik3)*v3 + grid2(ii3, ij1, ik4)*v4
+                 abc_X(4, 1) = grid2(ii4, ij1, ik1)*v1 + grid2(ii4, ij1, ik2)*v2 + grid2(ii4, ij1, ik3)*v3 + grid2(ii4, ij1, ik4)*v4
                      abc_X_Y(1) = abc_X(1, 1)*t1 + abc_X(2, 1)*t2 + abc_X(3, 1)*t3 + abc_X(4, 1)*t4
+
+                 abc_X(1, 2) = grid2(ii1, ij2, ik1)*v1 + grid2(ii1, ij2, ik2)*v2 + grid2(ii1, ij2, ik3)*v3 + grid2(ii1, ij2, ik4)*v4
+                 abc_X(2, 2) = grid2(ii2, ij2, ik1)*v1 + grid2(ii2, ij2, ik2)*v2 + grid2(ii2, ij2, ik3)*v3 + grid2(ii2, ij2, ik4)*v4
+                 abc_X(3, 2) = grid2(ii3, ij2, ik1)*v1 + grid2(ii3, ij2, ik2)*v2 + grid2(ii3, ij2, ik3)*v3 + grid2(ii3, ij2, ik4)*v4
+                 abc_X(4, 2) = grid2(ii4, ij2, ik1)*v1 + grid2(ii4, ij2, ik2)*v2 + grid2(ii4, ij2, ik3)*v3 + grid2(ii4, ij2, ik4)*v4
                      abc_X_Y(2) = abc_X(1, 2)*t1 + abc_X(2, 2)*t2 + abc_X(3, 2)*t3 + abc_X(4, 2)*t4
+
+                 abc_X(1, 3) = grid2(ii1, ij3, ik1)*v1 + grid2(ii1, ij3, ik2)*v2 + grid2(ii1, ij3, ik3)*v3 + grid2(ii1, ij3, ik4)*v4
+                 abc_X(2, 3) = grid2(ii2, ij3, ik1)*v1 + grid2(ii2, ij3, ik2)*v2 + grid2(ii2, ij3, ik3)*v3 + grid2(ii2, ij3, ik4)*v4
+                 abc_X(3, 3) = grid2(ii3, ij3, ik1)*v1 + grid2(ii3, ij3, ik2)*v2 + grid2(ii3, ij3, ik3)*v3 + grid2(ii3, ij3, ik4)*v4
+                 abc_X(4, 3) = grid2(ii4, ij3, ik1)*v1 + grid2(ii4, ij3, ik2)*v2 + grid2(ii4, ij3, ik3)*v3 + grid2(ii4, ij3, ik4)*v4
                      abc_X_Y(3) = abc_X(1, 3)*t1 + abc_X(2, 3)*t2 + abc_X(3, 3)*t3 + abc_X(4, 3)*t4
+
+                 abc_X(1, 4) = grid2(ii1, ij4, ik1)*v1 + grid2(ii1, ij4, ik2)*v2 + grid2(ii1, ij4, ik3)*v3 + grid2(ii1, ij4, ik4)*v4
+                 abc_X(2, 4) = grid2(ii2, ij4, ik1)*v1 + grid2(ii2, ij4, ik2)*v2 + grid2(ii2, ij4, ik3)*v3 + grid2(ii2, ij4, ik4)*v4
+                 abc_X(3, 4) = grid2(ii3, ij4, ik1)*v1 + grid2(ii3, ij4, ik2)*v2 + grid2(ii3, ij4, ik3)*v3 + grid2(ii3, ij4, ik4)*v4
+                 abc_X(4, 4) = grid2(ii4, ij4, ik1)*v1 + grid2(ii4, ij4, ik2)*v2 + grid2(ii4, ij4, ik3)*v3 + grid2(ii4, ij4, ik4)*v4
                      abc_X_Y(4) = abc_X(1, 4)*t1 + abc_X(2, 4)*t2 + abc_X(3, 4)*t3 + abc_X(4, 4)*t4
 
                      val(1) = abc_X_Y(1)*s1 + abc_X_Y(2)*s2 + abc_X_Y(3)*s3 + abc_X_Y(4)*s4
@@ -1058,26 +1035,6 @@ CONTAINS
                      s2 = s2d*dr2i
                      s3 = s3d*dr2i
                      s4 = s4d*dr2i
-                     !! v1 = v1o
-                     !! v2 = v2o
-                     !! v3 = v3o
-                     !! v4 = v4o
-                     !! abc_X(1,1) = grid2(ii1,ij1,ik1)*v1 + grid2(ii1,ij1,ik2)*v2 + grid2(ii1,ij1,ik3)*v3 + grid2(ii1,ij1,ik4)*v4
-                     !! abc_X(1,2) = grid2(ii1,ij2,ik1)*v1 + grid2(ii1,ij2,ik2)*v2 + grid2(ii1,ij2,ik3)*v3 + grid2(ii1,ij2,ik4)*v4
-                     !! abc_X(1,3) = grid2(ii1,ij3,ik1)*v1 + grid2(ii1,ij3,ik2)*v2 + grid2(ii1,ij3,ik3)*v3 + grid2(ii1,ij3,ik4)*v4
-                     !! abc_X(1,4) = grid2(ii1,ij4,ik1)*v1 + grid2(ii1,ij4,ik2)*v2 + grid2(ii1,ij4,ik3)*v3 + grid2(ii1,ij4,ik4)*v4
-                     !! abc_X(2,1) = grid2(ii2,ij1,ik1)*v1 + grid2(ii2,ij1,ik2)*v2 + grid2(ii2,ij1,ik3)*v3 + grid2(ii2,ij1,ik4)*v4
-                     !! abc_X(2,2) = grid2(ii2,ij2,ik1)*v1 + grid2(ii2,ij2,ik2)*v2 + grid2(ii2,ij2,ik3)*v3 + grid2(ii2,ij2,ik4)*v4
-                     !! abc_X(2,3) = grid2(ii2,ij3,ik1)*v1 + grid2(ii2,ij3,ik2)*v2 + grid2(ii2,ij3,ik3)*v3 + grid2(ii2,ij3,ik4)*v4
-                     !! abc_X(2,4) = grid2(ii2,ij4,ik1)*v1 + grid2(ii2,ij4,ik2)*v2 + grid2(ii2,ij4,ik3)*v3 + grid2(ii2,ij4,ik4)*v4
-                     !! abc_X(3,1) = grid2(ii3,ij1,ik1)*v1 + grid2(ii3,ij1,ik2)*v2 + grid2(ii3,ij1,ik3)*v3 + grid2(ii3,ij1,ik4)*v4
-                     !! abc_X(3,2) = grid2(ii3,ij2,ik1)*v1 + grid2(ii3,ij2,ik2)*v2 + grid2(ii3,ij2,ik3)*v3 + grid2(ii3,ij2,ik4)*v4
-                     !! abc_X(3,3) = grid2(ii3,ij3,ik1)*v1 + grid2(ii3,ij3,ik2)*v2 + grid2(ii3,ij3,ik3)*v3 + grid2(ii3,ij3,ik4)*v4
-                     !! abc_X(3,4) = grid2(ii3,ij4,ik1)*v1 + grid2(ii3,ij4,ik2)*v2 + grid2(ii3,ij4,ik3)*v3 + grid2(ii3,ij4,ik4)*v4
-                     !! abc_X(4,1) = grid2(ii4,ij1,ik1)*v1 + grid2(ii4,ij1,ik2)*v2 + grid2(ii4,ij1,ik3)*v3 + grid2(ii4,ij1,ik4)*v4
-                     !! abc_X(4,2) = grid2(ii4,ij2,ik1)*v1 + grid2(ii4,ij2,ik2)*v2 + grid2(ii4,ij2,ik3)*v3 + grid2(ii4,ij2,ik4)*v4
-                     !! abc_X(4,3) = grid2(ii4,ij3,ik1)*v1 + grid2(ii4,ij3,ik2)*v2 + grid2(ii4,ij3,ik3)*v3 + grid2(ii4,ij3,ik4)*v4
-                     !! abc_X(4,4) = grid2(ii4,ij4,ik1)*v1 + grid2(ii4,ij4,ik2)*v2 + grid2(ii4,ij4,ik3)*v3 + grid2(ii4,ij4,ik4)*v4
 
                      abc_X_Y(1) = abc_X(1, 1)*t1 + abc_X(2, 1)*t2 + abc_X(3, 1)*t3 + abc_X(4, 1)*t4
                      abc_X_Y(2) = abc_X(1, 2)*t1 + abc_X(2, 2)*t2 + abc_X(3, 2)*t3 + abc_X(4, 2)*t4
@@ -1098,30 +1055,29 @@ CONTAINS
                      v2 = v2d*dr3i
                      v3 = v3d*dr3i
                      v4 = v4d*dr3i
-                 abc_X(1, 1) = grid2(ii1, ij1, ik1)*v1 + grid2(ii1, ij1, ik2)*v2 + grid2(ii1, ij1, ik3)*v3 + grid2(ii1, ij1, ik4)*v4
-                 abc_X(1, 2) = grid2(ii1, ij2, ik1)*v1 + grid2(ii1, ij2, ik2)*v2 + grid2(ii1, ij2, ik3)*v3 + grid2(ii1, ij2, ik4)*v4
-                 abc_X(1, 3) = grid2(ii1, ij3, ik1)*v1 + grid2(ii1, ij3, ik2)*v2 + grid2(ii1, ij3, ik3)*v3 + grid2(ii1, ij3, ik4)*v4
-                 abc_X(1, 4) = grid2(ii1, ij4, ik1)*v1 + grid2(ii1, ij4, ik2)*v2 + grid2(ii1, ij4, ik3)*v3 + grid2(ii1, ij4, ik4)*v4
-                 abc_X(2, 1) = grid2(ii2, ij1, ik1)*v1 + grid2(ii2, ij1, ik2)*v2 + grid2(ii2, ij1, ik3)*v3 + grid2(ii2, ij1, ik4)*v4
-                 abc_X(2, 2) = grid2(ii2, ij2, ik1)*v1 + grid2(ii2, ij2, ik2)*v2 + grid2(ii2, ij2, ik3)*v3 + grid2(ii2, ij2, ik4)*v4
-                 abc_X(2, 3) = grid2(ii2, ij3, ik1)*v1 + grid2(ii2, ij3, ik2)*v2 + grid2(ii2, ij3, ik3)*v3 + grid2(ii2, ij3, ik4)*v4
-                 abc_X(2, 4) = grid2(ii2, ij4, ik1)*v1 + grid2(ii2, ij4, ik2)*v2 + grid2(ii2, ij4, ik3)*v3 + grid2(ii2, ij4, ik4)*v4
-                 abc_X(3, 1) = grid2(ii3, ij1, ik1)*v1 + grid2(ii3, ij1, ik2)*v2 + grid2(ii3, ij1, ik3)*v3 + grid2(ii3, ij1, ik4)*v4
-                 abc_X(3, 2) = grid2(ii3, ij2, ik1)*v1 + grid2(ii3, ij2, ik2)*v2 + grid2(ii3, ij2, ik3)*v3 + grid2(ii3, ij2, ik4)*v4
-                 abc_X(3, 3) = grid2(ii3, ij3, ik1)*v1 + grid2(ii3, ij3, ik2)*v2 + grid2(ii3, ij3, ik3)*v3 + grid2(ii3, ij3, ik4)*v4
-                 abc_X(3, 4) = grid2(ii3, ij4, ik1)*v1 + grid2(ii3, ij4, ik2)*v2 + grid2(ii3, ij4, ik3)*v3 + grid2(ii3, ij4, ik4)*v4
-                 abc_X(4, 1) = grid2(ii4, ij1, ik1)*v1 + grid2(ii4, ij1, ik2)*v2 + grid2(ii4, ij1, ik3)*v3 + grid2(ii4, ij1, ik4)*v4
-                 abc_X(4, 2) = grid2(ii4, ij2, ik1)*v1 + grid2(ii4, ij2, ik2)*v2 + grid2(ii4, ij2, ik3)*v3 + grid2(ii4, ij2, ik4)*v4
-                 abc_X(4, 3) = grid2(ii4, ij3, ik1)*v1 + grid2(ii4, ij3, ik2)*v2 + grid2(ii4, ij3, ik3)*v3 + grid2(ii4, ij3, ik4)*v4
-                 abc_X(4, 4) = grid2(ii4, ij4, ik1)*v1 + grid2(ii4, ij4, ik2)*v2 + grid2(ii4, ij4, ik3)*v3 + grid2(ii4, ij4, ik4)*v4
 
+                 abc_X(1, 1) = grid2(ii1, ij1, ik1)*v1 + grid2(ii1, ij1, ik2)*v2 + grid2(ii1, ij1, ik3)*v3 + grid2(ii1, ij1, ik4)*v4
+                 abc_X(2, 1) = grid2(ii2, ij1, ik1)*v1 + grid2(ii2, ij1, ik2)*v2 + grid2(ii2, ij1, ik3)*v3 + grid2(ii2, ij1, ik4)*v4
+                 abc_X(3, 1) = grid2(ii3, ij1, ik1)*v1 + grid2(ii3, ij1, ik2)*v2 + grid2(ii3, ij1, ik3)*v3 + grid2(ii3, ij1, ik4)*v4
+                 abc_X(4, 1) = grid2(ii4, ij1, ik1)*v1 + grid2(ii4, ij1, ik2)*v2 + grid2(ii4, ij1, ik3)*v3 + grid2(ii4, ij1, ik4)*v4
                      abc_X_Y(1) = abc_X(1, 1)*t1 + abc_X(2, 1)*t2 + abc_X(3, 1)*t3 + abc_X(4, 1)*t4
+                 abc_X(1, 2) = grid2(ii1, ij2, ik1)*v1 + grid2(ii1, ij2, ik2)*v2 + grid2(ii1, ij2, ik3)*v3 + grid2(ii1, ij2, ik4)*v4
+                 abc_X(2, 2) = grid2(ii2, ij2, ik1)*v1 + grid2(ii2, ij2, ik2)*v2 + grid2(ii2, ij2, ik3)*v3 + grid2(ii2, ij2, ik4)*v4
+                 abc_X(3, 2) = grid2(ii3, ij2, ik1)*v1 + grid2(ii3, ij2, ik2)*v2 + grid2(ii3, ij2, ik3)*v3 + grid2(ii3, ij2, ik4)*v4
+                 abc_X(4, 2) = grid2(ii4, ij2, ik1)*v1 + grid2(ii4, ij2, ik2)*v2 + grid2(ii4, ij2, ik3)*v3 + grid2(ii4, ij2, ik4)*v4
                      abc_X_Y(2) = abc_X(1, 2)*t1 + abc_X(2, 2)*t2 + abc_X(3, 2)*t3 + abc_X(4, 2)*t4
+                 abc_X(1, 3) = grid2(ii1, ij3, ik1)*v1 + grid2(ii1, ij3, ik2)*v2 + grid2(ii1, ij3, ik3)*v3 + grid2(ii1, ij3, ik4)*v4
+                 abc_X(2, 3) = grid2(ii2, ij3, ik1)*v1 + grid2(ii2, ij3, ik2)*v2 + grid2(ii2, ij3, ik3)*v3 + grid2(ii2, ij3, ik4)*v4
+                 abc_X(3, 3) = grid2(ii3, ij3, ik1)*v1 + grid2(ii3, ij3, ik2)*v2 + grid2(ii3, ij3, ik3)*v3 + grid2(ii3, ij3, ik4)*v4
+                 abc_X(4, 3) = grid2(ii4, ij3, ik1)*v1 + grid2(ii4, ij3, ik2)*v2 + grid2(ii4, ij3, ik3)*v3 + grid2(ii4, ij3, ik4)*v4
                      abc_X_Y(3) = abc_X(1, 3)*t1 + abc_X(2, 3)*t2 + abc_X(3, 3)*t3 + abc_X(4, 3)*t4
+                 abc_X(1, 4) = grid2(ii1, ij4, ik1)*v1 + grid2(ii1, ij4, ik2)*v2 + grid2(ii1, ij4, ik3)*v3 + grid2(ii1, ij4, ik4)*v4
+                 abc_X(2, 4) = grid2(ii2, ij4, ik1)*v1 + grid2(ii2, ij4, ik2)*v2 + grid2(ii2, ij4, ik3)*v3 + grid2(ii2, ij4, ik4)*v4
+                 abc_X(3, 4) = grid2(ii3, ij4, ik1)*v1 + grid2(ii3, ij4, ik2)*v2 + grid2(ii3, ij4, ik3)*v3 + grid2(ii3, ij4, ik4)*v4
+                 abc_X(4, 4) = grid2(ii4, ij4, ik1)*v1 + grid2(ii4, ij4, ik2)*v2 + grid2(ii4, ij4, ik3)*v3 + grid2(ii4, ij4, ik4)*v4
                      abc_X_Y(4) = abc_X(1, 4)*t1 + abc_X(2, 4)*t2 + abc_X(3, 4)*t3 + abc_X(4, 4)*t4
 
                      val(3) = abc_X_Y(1)*s1 + abc_X_Y(2)*s2 + abc_X_Y(3)*s3 + abc_X_Y(4)*s4
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
                      fac = grid(i, j, k)
                      ft1 = ft1 + val(1)*fac
@@ -1141,6 +1097,7 @@ CONTAINS
             Forces(2, LIndMM) = Forces(2, LIndMM) + LForces(2, LindMM)
             Forces(3, LIndMM) = Forces(3, LIndMM) + LForces(3, LindMM)
          END DO Atoms
+         !$OMP END PARALLEL DO
       END DO Radius
       !
       ! Debug Statement
@@ -1197,7 +1154,7 @@ CONTAINS
                                            mm_particles, para_env, coarser_grid_level, Forces, potentials, &
                                            aug_pools, mm_cell, dOmmOqm, iw, par_scheme, qmmm_spherical_cutoff, shells)
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
-      TYPE(pw_type), POINTER                             :: cgrid
+      TYPE(pw_type), INTENT(IN)                          :: cgrid
       INTEGER, INTENT(IN)                                :: num_mm_atoms
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
@@ -1213,8 +1170,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian_LR', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian_LR'
 
       INTEGER                                            :: handle, i, Imm, IndMM, IRadTyp, ix, j, &
                                                             k, LIndMM, my_i, my_j, my_k, myind, &
@@ -1248,9 +1204,16 @@ CONTAINS
          pot => potentials(IRadTyp)%pot
          dx = Pot%dx
          pot0_2 => Pot%pot0_2
+         !$OMP PARALLEL DO DEFAULT(NONE) &
+         !$OMP SHARED(pot, par_scheme,  para_env, dvol, mm_atom_index, mm_particles, dOmmOqm) &
+         !$OMP SHARED(mm_cell, mm_charges, dx, LForces, Forces, qmmm_spherical_cutoff, shells, dr1, dr2, dr3, gbo, bo) &
+         !$OMP SHARED(IRadTyp, pot0_2, grid) &
+         !$OMP PRIVATE(Imm, myind, ra, LIndMM, IndMM, qt, rt1, rt2, rt3, ft1, ft2, ft3, i, j, k, sph_chrg_factor) &
+         !$OMP PRIVATE(my_k, my_j, my_i, xs3, xs2, xs1, rv1, rv2, rv3, r, ix, rx, rx2, r2, Term, fac) &
+         !$OMP PRIVATE(rd1, rd2, rd3)
          Atoms: DO Imm = 1, SIZE(pot%mm_atom_index)
             IF (par_scheme == do_par_atom) THEN
-               myind = myind + 1
+               myind = Imm + (IRadTyp - 1)*SIZE(pot%mm_atom_index)
                IF (MOD(myind, para_env%num_pe) /= para_env%mepos) CYCLE
             END IF
             LIndMM = pot%mm_atom_index(Imm)
@@ -1319,6 +1282,7 @@ CONTAINS
             Forces(2, LIndMM) = Forces(2, LIndMM) + LForces(2, LindMM)
             Forces(3, LIndMM) = Forces(3, LIndMM) + LForces(3, LindMM)
          END DO Atoms
+         !$OMP END PARALLEL DO
       END DO Radius
       !
       ! Debug Statement
@@ -1377,8 +1341,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: interp_section
       TYPE(cell_type), POINTER                           :: mm_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_debug_forces', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'qmmm_debug_forces'
 
       INTEGER                                            :: handle, I, IndMM, iw, J, K
       REAL(KIND=dp)                                      :: Coord_save
@@ -1388,8 +1351,8 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_qmmm_rspace
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
+      TYPE(pw_type)                                      :: v_qmmm_rspace
       TYPE(qs_ks_qmmm_env_type), POINTER                 :: ks_qmmm_env_loc
       TYPE(section_vals_type), POINTER                   :: input_section, print_section
 
@@ -1404,7 +1367,7 @@ CONTAINS
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, print_section, "PROGRAM_RUN_INFO", extension=".qmmmLog")
       CALL pw_env_get(pw_env=pw_env, pw_pools=pw_pools)
-      CALL pw_pool_create_pw(pw_pools(1)%pool, v_qmmm_rspace%pw, &
+      CALL pw_pool_create_pw(pw_pools(1)%pool, v_qmmm_rspace, &
                              use_data=REALDATA3D, in_space=REALSPACE)
       ALLOCATE (Num_Forces(3, num_mm_atoms))
       ks_qmmm_env_loc => qs_env%ks_qmmm_env
@@ -1416,7 +1379,7 @@ CONTAINS
             energy = 0.0_dp
             Diff: DO K = 1, 2
                mm_particles(IndMM)%r(J) = Coord_save + (-1)**K*Dx
-               CALL pw_zero(v_qmmm_rspace%pw)
+               CALL pw_zero(v_qmmm_rspace)
                SELECT CASE (qmmm_env%qmmm_coupl_type)
                CASE (do_qmmm_coulomb)
                   CPABORT("Coulomb QM/MM electrostatic coupling not implemented for GPW/GAPW.")
@@ -1441,7 +1404,7 @@ CONTAINS
                   IF (iw > 0) WRITE (iw, '(T3,A)') "Unknown Coupling..."
                   CPABORT("")
                END SELECT
-               energy(K) = pw_integral_ab(rho, v_qmmm_rspace%pw)
+               energy(K) = pw_integral_ab(rho, v_qmmm_rspace)
             END DO Diff
             IF (iw > 0) THEN
                WRITE (iw, '(A,I6,A,I3,A,2F15.9)') &
@@ -1483,7 +1446,7 @@ CONTAINS
       END SELECT
       CALL cp_print_key_finished_output(iw, logger, print_section, "PROGRAM_RUN_INFO")
 
-      CALL pw_pool_give_back_pw(pw_pools(1)%pool, v_qmmm_rspace%pw)
+      CALL pw_pool_give_back_pw(pw_pools(1)%pool, v_qmmm_rspace)
       DEALLOCATE (Num_Forces)
       CALL timestop(handle)
 100   FORMAT(I5, 2F15.9, " ( ", F7.2, " ) ", 2F15.9, " ( ", F7.2, " ) ", 2F15.9, " ( ", F7.2, " ) ")
@@ -1515,7 +1478,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: zetp
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rp
       REAL(KIND=dp), INTENT(IN)                          :: W
-      TYPE(pw_type), POINTER                             :: pwgrid
+      TYPE(pw_type), INTENT(IN)                          :: pwgrid
       TYPE(cube_info_type), INTENT(IN)                   :: cube_info
       REAL(KIND=dp), INTENT(IN)                          :: eps_mm_rspace
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: aug_pools
@@ -1525,8 +1488,7 @@ CONTAINS
       INTEGER, DIMENSION(3), INTENT(IN)                  :: n_rep_real
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'debug_integrate_gf_rspace_NoPBC', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'debug_integrate_gf_rspace_NoPBC'
 
       INTEGER                                            :: handle, i, igrid, k, ngrids
       INTEGER, DIMENSION(2, 3)                           :: bo2
@@ -1534,19 +1496,18 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2)                        :: energy
       REAL(KIND=dp), DIMENSION(3)                        :: Err, force, myrp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: xdat, ydat, zdat
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
       DATA Icount/0/
       ! Statements
       CALL timeset(routineN, handle)
-      NULLIFY (grids)
       !Statements
       ngrids = SIZE(aug_pools)
       CALL pw_pools_create_pws(aug_pools, grids, use_data=REALDATA3D, in_space=REALSPACE)
       DO igrid = 1, ngrids
-         CALL pw_zero(grids(igrid)%pw)
+         CALL pw_zero(grids(igrid))
       END DO
-      bo2 = grids(auxbas_grid)%pw%pw_grid%bounds
+      bo2 = grids(auxbas_grid)%pw_grid%bounds
       ALLOCATE (xdat(bo2(1, 1):bo2(2, 1)))
       ALLOCATE (ydat(bo2(1, 2):bo2(2, 2)))
       ALLOCATE (zdat(bo2(1, 3):bo2(2, 3)))
@@ -1556,12 +1517,12 @@ CONTAINS
          DO k = 1, 2
             myrp = rp
             myrp(i) = myrp(i) + (-1.0_dp)**k*Dx
-            CALL pw_zero(grids(ilevel)%pw)
+            CALL pw_zero(grids(ilevel))
             CALL collocate_gf_rspace_NoPBC(zetp=zetp, &
                                            rp=myrp, &
                                            scale=-1.0_dp, &
                                            W=W, &
-                                           pwgrid=grids(ilevel)%pw, &
+                                           pwgrid=grids(ilevel), &
                                            cube_info=cube_info, &
                                            eps_mm_rspace=eps_mm_rspace, &
                                            xdat=xdat, &
@@ -1571,7 +1532,7 @@ CONTAINS
                                            n_rep_real=n_rep_real, &
                                            mm_cell=mm_cell)
 
-            energy(k) = pw_integral_ab(pwgrid, grids(ilevel)%pw)
+            energy(k) = pw_integral_ab(pwgrid, grids(ilevel))
          END DO
          force(i) = (energy(2) - energy(1))/(2.0_dp*Dx)
       END DO
@@ -1591,13 +1552,13 @@ CONTAINS
 
       IF (ASSOCIATED(xdat)) THEN
          DEALLOCATE (xdat)
-      ENDIF
+      END IF
       IF (ASSOCIATED(ydat)) THEN
          DEALLOCATE (ydat)
-      ENDIF
+      END IF
       IF (ASSOCIATED(zdat)) THEN
          DEALLOCATE (zdat)
-      ENDIF
+      END IF
 
       CALL pw_pools_give_back_pws(aug_pools, grids)
       CALL timestop(handle)
@@ -1633,7 +1594,7 @@ CONTAINS
 
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: aug_pools
-      TYPE(pw_type), POINTER                             :: rho
+      TYPE(pw_type), INTENT(IN)                          :: rho
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
@@ -1647,23 +1608,21 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'debug_qmmm_forces_with_gauss_LG', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'debug_qmmm_forces_with_gauss_LG'
 
       INTEGER                                            :: handle, I, igrid, IndMM, J, K, ngrids
       REAL(KIND=dp)                                      :: Coord_save
       REAL(KIND=dp), DIMENSION(2)                        :: energy
       REAL(KIND=dp), DIMENSION(3)                        :: Err
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: Num_Forces
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
       ALLOCATE (Num_Forces(3, num_mm_atoms))
-      NULLIFY (grids)
       CALL timeset(routineN, handle)
       ngrids = SIZE(aug_pools)
       CALL pw_pools_create_pws(aug_pools, grids, use_data=REALDATA3D, in_space=REALSPACE)
       DO igrid = 1, ngrids
-         CALL pw_zero(grids(igrid)%pw)
+         CALL pw_zero(grids(igrid))
       END DO
       Atoms: DO I = 1, num_mm_atoms
          IndMM = mm_atom_index(I)
@@ -1672,10 +1631,10 @@ CONTAINS
             energy = 0.0_dp
             Diff: DO K = 1, 2
                mm_particles(IndMM)%r(J) = Coord_save + (-1)**K*Dx
-               CALL pw_zero(grids(coarser_grid_level)%pw)
+               CALL pw_zero(grids(coarser_grid_level))
 
                CALL qmmm_elec_with_gaussian_LG(pgfs=pgfs, &
-                                               cgrid=grids(coarser_grid_level)%pw, &
+                                               cgrid=grids(coarser_grid_level), &
                                                mm_charges=mm_charges, &
                                                mm_atom_index=mm_atom_index, &
                                                mm_particles=mm_particles, &
@@ -1687,7 +1646,7 @@ CONTAINS
                                                qmmm_spherical_cutoff=qmmm_spherical_cutoff, &
                                                shells=shells)
 
-               energy(K) = pw_integral_ab(rho, grids(coarser_grid_level)%pw)
+               energy(K) = pw_integral_ab(rho, grids(coarser_grid_level))
             END DO Diff
             IF (iw > 0) &
                WRITE (iw, '(A,I6,A,I3,A,2F15.9)') &
@@ -1749,7 +1708,7 @@ CONTAINS
 
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: aug_pools
-      TYPE(pw_type), POINTER                             :: rho
+      TYPE(pw_type), INTENT(IN)                          :: rho
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
@@ -1763,23 +1722,21 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'debug_qmmm_forces_with_gauss_LR', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'debug_qmmm_forces_with_gauss_LR'
 
       INTEGER                                            :: handle, I, igrid, IndMM, J, K, ngrids
       REAL(KIND=dp)                                      :: Coord_save
       REAL(KIND=dp), DIMENSION(2)                        :: energy
       REAL(KIND=dp), DIMENSION(3)                        :: Err
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: Num_Forces
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
       ALLOCATE (Num_Forces(3, num_mm_atoms))
-      NULLIFY (grids)
       CALL timeset(routineN, handle)
       ngrids = SIZE(aug_pools)
       CALL pw_pools_create_pws(aug_pools, grids, use_data=REALDATA3D, in_space=REALSPACE)
       DO igrid = 1, ngrids
-         CALL pw_zero(grids(igrid)%pw)
+         CALL pw_zero(grids(igrid))
       END DO
       Atoms: DO I = 1, num_mm_atoms
          IndMM = mm_atom_index(I)
@@ -1788,10 +1745,10 @@ CONTAINS
             energy = 0.0_dp
             Diff: DO K = 1, 2
                mm_particles(IndMM)%r(J) = Coord_save + (-1)**K*Dx
-               CALL pw_zero(grids(coarser_grid_level)%pw)
+               CALL pw_zero(grids(coarser_grid_level))
 
                CALL qmmm_elec_with_gaussian_LR(pgfs=pgfs, &
-                                               grid=grids(coarser_grid_level)%pw, &
+                                               grid=grids(coarser_grid_level), &
                                                mm_charges=mm_charges, &
                                                mm_atom_index=mm_atom_index, &
                                                mm_particles=mm_particles, &
@@ -1803,7 +1760,7 @@ CONTAINS
                                                qmmm_spherical_cutoff=qmmm_spherical_cutoff, &
                                                shells=shells)
 
-               energy(K) = pw_integral_ab(rho, grids(coarser_grid_level)%pw)
+               energy(K) = pw_integral_ab(rho, grids(coarser_grid_level))
             END DO Diff
             IF (iw > 0) &
                WRITE (iw, '(A,I6,A,I3,A,2F15.9)') &

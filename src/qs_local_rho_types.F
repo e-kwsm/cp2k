@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 MODULE qs_local_rho_types
@@ -42,7 +44,7 @@ MODULE qs_local_rho_types
       TYPE(rho_atom_type), DIMENSION(:), POINTER            :: rho_atom_set
       TYPE(rho0_mpole_type), POINTER                        :: rho0_mpole
       TYPE(rho0_atom_type), DIMENSION(:), POINTER           :: rho0_atom_set
-      TYPE(rhoz_type), DIMENSION(:), POINTER               :: rhoz_set
+      TYPE(rhoz_type), DIMENSION(:), POINTER                :: rhoz_set
       REAL(dp)                                              :: rhoz_tot
    END TYPE local_rho_type
 
@@ -66,8 +68,6 @@ CONTAINS
       TYPE(rhoz_type), DIMENSION(:), POINTER             :: rhoz_set
       INTEGER                                            :: nkind
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_rhoz', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       IF (ASSOCIATED(rhoz_set)) THEN
@@ -80,7 +80,7 @@ CONTAINS
          NULLIFY (rhoz_set(ikind)%r_coef)
          NULLIFY (rhoz_set(ikind)%dr_coef)
          NULLIFY (rhoz_set(ikind)%vr_coef)
-      ENDDO
+      END DO
 
    END SUBROUTINE allocate_rhoz
 
@@ -103,8 +103,6 @@ CONTAINS
       INTEGER                                            :: natom
       REAL(dp), INTENT(INOUT)                            :: rhoz_tot
       TYPE(harmonics_atom_type)                          :: harmonics
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_rhoz', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ir, na, nr
       REAL(dp)                                           :: c1, c2, c3, prefactor1, prefactor2, &
@@ -149,9 +147,6 @@ CONTAINS
 
       TYPE(rhoz_type), DIMENSION(:), POINTER             :: rhoz_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_rhoz', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind, nkind
 
       nkind = SIZE(rhoz_set)
@@ -184,8 +179,6 @@ CONTAINS
       TYPE(rho0_mpole_type), OPTIONAL, POINTER           :: rho0_mpole
       TYPE(rhoz_type), DIMENSION(:), OPTIONAL, POINTER   :: rhoz_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_local_rho', routineP = moduleN//':'//routineN
-
       IF (PRESENT(rho_atom_set)) rho_atom_set => local_rho_set%rho_atom_set
       IF (PRESENT(rho0_atom_set)) rho0_atom_set => local_rho_set%rho0_atom_set
       IF (PRESENT(rho0_mpole)) rho0_mpole => local_rho_set%rho0_mpole
@@ -201,15 +194,14 @@ CONTAINS
 
       TYPE(local_rho_type), POINTER                      :: local_rho_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'local_rho_set_create', &
-         routineP = moduleN//':'//routineN
-
       ALLOCATE (local_rho_set)
 
       NULLIFY (local_rho_set%rho_atom_set)
       NULLIFY (local_rho_set%rho0_atom_set)
       NULLIFY (local_rho_set%rho0_mpole)
       NULLIFY (local_rho_set%rhoz_set)
+
+      local_rho_set%rhoz_tot = 0.0_dp
 
    END SUBROUTINE local_rho_set_create
 
@@ -220,9 +212,6 @@ CONTAINS
    SUBROUTINE local_rho_set_release(local_rho_set)
 
       TYPE(local_rho_type), POINTER                      :: local_rho_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'local_rho_set_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(local_rho_set)) THEN
          IF (ASSOCIATED(local_rho_set%rho_atom_set)) THEN
@@ -239,7 +228,7 @@ CONTAINS
 
          IF (ASSOCIATED(local_rho_set%rhoz_set)) THEN
             CALL deallocate_rhoz(local_rho_set%rhoz_set)
-         ENDIF
+         END IF
 
          DEALLOCATE (local_rho_set)
       END IF
@@ -265,33 +254,31 @@ CONTAINS
       TYPE(rho0_mpole_type), OPTIONAL, POINTER           :: rho0_mpole
       TYPE(rhoz_type), DIMENSION(:), OPTIONAL, POINTER   :: rhoz_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_local_rho', routineP = moduleN//':'//routineN
-
       IF (PRESENT(rho_atom_set)) THEN
          IF (ASSOCIATED(local_rho_set%rho_atom_set)) THEN
             CALL deallocate_rho_atom_set(local_rho_set%rho_atom_set)
-         ENDIF
+         END IF
          local_rho_set%rho_atom_set => rho_atom_set
       END IF
 
       IF (PRESENT(rho0_atom_set)) THEN
          IF (ASSOCIATED(local_rho_set%rho0_atom_set)) THEN
             CALL deallocate_rho0_atom(local_rho_set%rho0_atom_set)
-         ENDIF
+         END IF
          local_rho_set%rho0_atom_set => rho0_atom_set
       END IF
 
       IF (PRESENT(rho0_mpole)) THEN
          IF (ASSOCIATED(local_rho_set%rho0_mpole)) THEN
             CALL deallocate_rho0_mpole(local_rho_set%rho0_mpole)
-         ENDIF
+         END IF
          local_rho_set%rho0_mpole => rho0_mpole
       END IF
 
       IF (PRESENT(rhoz_set)) THEN
          IF (ASSOCIATED(local_rho_set%rhoz_set)) THEN
             CALL deallocate_rhoz(local_rho_set%rhoz_set)
-         ENDIF
+         END IF
          local_rho_set%rhoz_set => rhoz_set
       END IF
 

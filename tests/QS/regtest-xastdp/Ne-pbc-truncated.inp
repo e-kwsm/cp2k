@@ -15,14 +15,12 @@
     &END QS
 
     &XC
-      &XC_FUNCTIONAL 
-         &LIBXC
-            FUNCTIONAL LDA_C_VWN
-         &END LIBXC
-         &LIBXC
-            FUNCTIONAL LDA_X
+      &XC_FUNCTIONAL
+         &LDA_C_VWN
+         &END LDA_C_VWN
+         &LDA_X
             SCALE 0.75
-         &END LIBXC
+         &END LDA_X
       &END XC_FUNCTIONAL
       &HF
          FRACTION 0.25
@@ -36,25 +34,23 @@
     &XAS_TDP
       &DONOR_STATES
          DEFINE_EXCITED BY_INDEX
-         AT_LIST 1 
+         AT_LIST 1
          STATE_TYPES 1s
          N_SEARCH 8
          LOCALIZE
       &END DONOR_STATES
 
-      TAMM_DANCOFF 
+      TAMM_DANCOFF
       GRID Ne 150 150
       N_EXCITED 10
 
       &KERNEL
-         &XC_FUNCTIONAL 
-            &LIBXC
-               FUNCTIONAL LDA_C_VWN
-            &END LIBXC
-            &LIBXC
-               FUNCTIONAL LDA_X
+         &XC_FUNCTIONAL
+            &LDA_C_VWN
+            &END LDA_C_VWN
+            &LDA_X
                SCALE 0.75
-            &END LIBXC
+            &END LDA_X
          &END XC_FUNCTIONAL
 
          &EXACT_EXCHANGE

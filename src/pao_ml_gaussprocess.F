@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -52,18 +54,18 @@ CONTAINS
             jdescr => training_matrix%inputs(:, j)
             training_matrix%GP(i, j) = kernel(pao%gp_scale, idescr, jdescr)
             training_matrix%GP(j, i) = training_matrix%GP(i, j)
-         ENDDO
-         ENDDO
+         END DO
+         END DO
 
          ! add noise of training data
          DO i = 1, npoints
             training_matrix%GP(i, i) = training_matrix%GP(i, i) + pao%gp_noise_var**2
-         ENDDO
+         END DO
 
          ! compute cholesky decomposition of covariance matrix
          CALL dpotrf("U", npoints, training_matrix%GP, npoints, info)
          CPASSERT(info == 0)
-      ENDDO
+      END DO
 
    END SUBROUTINE pao_ml_gp_train
 
@@ -93,7 +95,7 @@ CONTAINS
       ALLOCATE (cov(npoints))
       DO i = 1, npoints
          cov(i) = kernel(pao%gp_scale, descriptor, training_matrix%inputs(:, i))
-      ENDDO
+      END DO
 
       ! calculate weights
       ALLOCATE (weights(npoints))
@@ -105,7 +107,7 @@ CONTAINS
       output = 0.0_dp
       DO i = 1, npoints
          output(:) = output + weights(i)*training_matrix%outputs(:, i)
-      ENDDO
+      END DO
 
       ! calculate prediction's variance
       variance = kernel(pao%gp_scale, descriptor, descriptor) - DOT_PRODUCT(weights, cov)
@@ -143,7 +145,7 @@ CONTAINS
       ALLOCATE (weights_deriv(npoints))
       DO i = 1, npoints
          weights_deriv(i) = SUM(outer_deriv*training_matrix%outputs(:, i))
-      ENDDO
+      END DO
 
       ! calculate derivative of covariances
       ALLOCATE (cov_deriv(npoints))
@@ -156,7 +158,7 @@ CONTAINS
       DO i = 1, npoints
          kg = kernel_grad(pao%gp_scale, descriptor, training_matrix%inputs(:, i))
          gradient(:) = gradient(:) + kg(:)*cov_deriv(i)
-      ENDDO
+      END DO
 
       DEALLOCATE (cov_deriv, weights_deriv)
    END SUBROUTINE pao_ml_gp_gradient

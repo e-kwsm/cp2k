@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -100,8 +102,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_crd', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_crd'
 
       CHARACTER(LEN=default_string_length)               :: string
       INTEGER                                            :: handle, iw, j, natom
@@ -109,10 +110,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: velocity
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
       TYPE(section_vals_type), POINTER                   :: velocity_section
 
-      NULLIFY (parser, logger, velocity)
+      NULLIFY (logger, velocity)
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/CRD_INFO", &
                                 extension=".subsysLog")
@@ -287,8 +288,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_connectivity_amber', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_connectivity_amber'
 
       INTEGER                                            :: handle, iw
       TYPE(atom_info_type), POINTER                      :: atom_info
@@ -376,7 +376,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rdparm_amber_8', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rdparm_amber_8'
 
       CHARACTER(LEN=default_string_length)               :: input_format, section
       CHARACTER(LEN=default_string_length), &
@@ -394,10 +394,9 @@ CONTAINS
       LOGICAL                                            :: check, valid_format
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: asol, bsol, cn1, cn2, phase, pk, pn, &
                                                             req, rk, teq, tk
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       CALL timeset(routineN, handle)
-      NULLIFY (parser)
       IF (output_unit > 0) WRITE (output_unit, '(/,A)') " AMBER_INFO| Reading Amber Topology File: "// &
          TRIM(filename)
       CALL parser_create(parser, filename, para_env=para_env, parse_white_lines=.TRUE.)
@@ -515,7 +514,7 @@ CONTAINS
                CALL rd_amber_section(parser, section, strtmp_a, natom)
                DO i = 1, natom
                   atom_info%id_atmname(natom_prev + i) = str2id(strtmp_a(i))
-               ENDDO
+               END DO
                DEALLOCATE (strtmp_a)
             CASE ("CHARGE")
                IF (.NOT. do_connectivity) CYCLE
@@ -556,12 +555,24 @@ CONTAINS
             CASE ("DIHEDRAL_FORCE_CONSTANT")
                IF (.NOT. do_forcefield) CYCLE
                CALL rd_amber_section(parser, section, pk, nptra)
+               IF (nptra <= 0) CYCLE
+               ! Save raw values
+               IF (ASSOCIATED(amb_info%raw_torsion_k)) DEALLOCATE (amb_info%raw_torsion_k)
+               ALLOCATE (amb_info%raw_torsion_k(nptra), source=pk)
             CASE ("DIHEDRAL_PERIODICITY")
                IF (.NOT. do_forcefield) CYCLE
                CALL rd_amber_section(parser, section, pn, nptra)
+               IF (nptra <= 0) CYCLE
+               ! Save raw values
+               IF (ASSOCIATED(amb_info%raw_torsion_m)) DEALLOCATE (amb_info%raw_torsion_m)
+               ALLOCATE (amb_info%raw_torsion_m(nptra), source=pn)
             CASE ("DIHEDRAL_PHASE")
                IF (.NOT. do_forcefield) CYCLE
                CALL rd_amber_section(parser, section, phase, nptra)
+               IF (nptra <= 0) CYCLE
+               ! Save raw values
+               IF (ASSOCIATED(amb_info%raw_torsion_phi0)) DEALLOCATE (amb_info%raw_torsion_phi0)
+               ALLOCATE (amb_info%raw_torsion_phi0(nptra), source=phase)
             CASE ("LENNARD_JONES_ACOEF")
                IF (.NOT. do_forcefield) CYCLE
                CALL rd_amber_section(parser, section, cn1, ntypes*(ntypes + 1)/2)
@@ -620,6 +631,25 @@ CONTAINS
                ! Just Ignore other sections...
             END SELECT
          END DO
+         ! Save raw torsion info: atom indices and dihedral index
+         IF (do_forcefield .AND. (nphih + nphia > 0)) THEN
+            IF (ASSOCIATED(amb_info%raw_torsion_id)) DEALLOCATE (amb_info%raw_torsion_id)
+            ALLOCATE (amb_info%raw_torsion_id(5, nphih + nphia))
+            DO i = 1, nphih
+               amb_info%raw_torsion_id(1, i) = iph(i)
+               amb_info%raw_torsion_id(2, i) = jph(i)
+               amb_info%raw_torsion_id(3, i) = kph(i)
+               amb_info%raw_torsion_id(4, i) = lph(i)
+               amb_info%raw_torsion_id(5, i) = icph(i)
+            END DO
+            DO i = 1, nphia
+               amb_info%raw_torsion_id(1, nphih + i) = ip(i)
+               amb_info%raw_torsion_id(2, nphih + i) = jp(i)
+               amb_info%raw_torsion_id(3, nphih + i) = kp(i)
+               amb_info%raw_torsion_id(4, nphih + i) = lp(i)
+               amb_info%raw_torsion_id(5, nphih + i) = icp(i)
+            END DO
+         END IF
       END IF
 
       ! Extracts connectivity info from the AMBER topology file
@@ -633,7 +663,7 @@ CONTAINS
 
          DO i = 1, SIZE(isymbl)
             isymbl(i) = id2str(atom_info%id_atmname(natom_prev + i))
-         ENDDO
+         END DO
 
          ! Sort atom names + charges and identify unique types
          CALL sort(isymbl, natom, iwork)
@@ -831,6 +861,7 @@ CONTAINS
          ! Force Fields informations related to torsions
          ! in amb_info%phi0 we store PHI0
          ! ----------------------------------------------------------
+
          CALL reallocate(amb_info%torsion_a, 1, buffer_size)
          CALL reallocate(amb_info%torsion_b, 1, buffer_size)
          CALL reallocate(amb_info%torsion_c, 1, buffer_size)
@@ -857,6 +888,13 @@ CONTAINS
          CALL reallocate(amb_info%torsion_k, 1, nsize)
          CALL reallocate(amb_info%torsion_m, 1, nsize)
          CALL reallocate(amb_info%torsion_phi0, 1, nsize)
+
+         ! Sort dihedral metadata for faster lookup
+         IF (nphih + nphia /= 0) THEN
+            ALLOCATE (iwork(nphih + nphia))
+            CALL sort(amb_info%raw_torsion_id, 1, nphih + nphia, 1, 5, iwork)
+            DEALLOCATE (iwork)
+         END IF
 
          ! ----------------------------------------------------------
          ! Post process of LJ parameters
@@ -945,8 +983,7 @@ CONTAINS
       INTEGER, INTENT(INOUT)                             :: istart
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'conform_atom_type_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'conform_atom_type_low'
 
       INTEGER                                            :: counter, gind, handle, iend, ind, isize, &
                                                             j, k, kend, kstart
@@ -1014,13 +1051,10 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_i1(parser, section, array1, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       INTEGER, DIMENSION(:)                              :: array1
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_i1', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1052,13 +1086,10 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_i3(parser, section, array1, array2, array3, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       INTEGER, DIMENSION(:)                              :: array1, array2, array3
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_i3', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1102,13 +1133,10 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_i4(parser, section, array1, array2, array3, array4, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       INTEGER, DIMENSION(:)                              :: array1, array2, array3, array4
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_i4', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1159,13 +1187,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_i5(parser, section, array1, array2, array3, array4, &
                                   array5, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       INTEGER, DIMENSION(:)                              :: array1, array2, array3, array4, array5
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_i5', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1216,13 +1241,10 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_c1(parser, section, array1, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       CHARACTER(LEN=default_string_length), DIMENSION(:) :: array1
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_c1', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1252,13 +1274,10 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    SUBROUTINE rd_amber_section_r1(parser, section, array1, dim)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: section
       REAL(KIND=dp), DIMENSION(:)                        :: array1
       INTEGER, INTENT(IN)                                :: dim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rd_amber_section_r1', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_end
@@ -1287,12 +1306,9 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    FUNCTION get_section_parmtop(parser, section, input_format) RESULT(another_section)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=default_string_length), INTENT(OUT)  :: section, input_format
       LOGICAL                                            :: another_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_section_parmtop', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: end_f, indflag, start_f
       LOGICAL                                            :: found, my_end
@@ -1327,12 +1343,9 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    FUNCTION check_amber_8_std(parser, output_unit) RESULT(found_AMBER_V8)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL                                            :: found_AMBER_V8
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_amber_8_std', &
-         routineP = moduleN//':'//routineN
 
       CALL parser_search_string(parser, "%VERSION ", .TRUE., found_AMBER_V8, begin_line=.TRUE.)
       IF (.NOT. found_AMBER_V8) &
@@ -1371,8 +1384,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: ib, jb, icb
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: rk, req
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_bonds_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_bonds_info'
 
       CHARACTER(LEN=default_string_length)               :: name_atm_a, name_atm_b
       CHARACTER(LEN=default_string_length), &
@@ -1460,8 +1472,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: it, jt, kt, ict
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: tk, teq
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_bends_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_bends_info'
 
       CHARACTER(LEN=default_string_length)               :: name_atm_a, name_atm_b, name_atm_c
       CHARACTER(LEN=default_string_length), &
@@ -1564,8 +1575,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: ip, jp, kp, lp, icp
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: pk, pn, phase
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_torsions_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_torsions_info'
 
       CHARACTER(LEN=default_string_length)               :: name_atm_a, name_atm_b, name_atm_c, &
                                                             name_atm_d
@@ -1613,12 +1623,12 @@ CONTAINS
          label_b(iphi) = work_label(2, 1)
          label_c(iphi) = work_label(3, 1)
          label_d(iphi) = work_label(4, 1)
-         k(iphi) = pk(icp(iwork(1)))*0.5_dp
+         k(iphi) = pk(icp(iwork(1)))
          m(iphi) = NINT(pn(icp(iwork(1))))
          IF (m(iphi) - pn(icp(iwork(1))) .GT. EPSILON(1.0_dp)) THEN
             ! non integer torsions not supported
             CPABORT("")
-         ENDIF
+         END IF
 
          phi0(iphi) = phase(icp(iwork(1)))
 
@@ -1647,12 +1657,12 @@ CONTAINS
                label_b(iphi) = work_label(2, i)
                label_c(iphi) = work_label(3, i)
                label_d(iphi) = work_label(4, i)
-               k(iphi) = pk(icp(iwork(i)))*0.5_dp
+               k(iphi) = pk(icp(iwork(i)))
                m(iphi) = NINT(pn(icp(iwork(i))))
                IF (m(iphi) - pn(icp(iwork(i))) .GT. EPSILON(1.0_dp)) THEN
                   ! non integer torsions not supported
                   CPABORT("")
-               ENDIF
+               END IF
                phi0(iphi) = phase(icp(iwork(i)))
             END IF
          END DO
@@ -1690,8 +1700,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: cn1, cn2
       INTEGER, INTENT(IN)                                :: natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_LJ_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_LJ_info'
 
       CHARACTER(LEN=default_string_length)               :: name_atm_a
       CHARACTER(LEN=default_string_length), &

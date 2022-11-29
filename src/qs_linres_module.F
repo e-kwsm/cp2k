@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,7 +16,8 @@
 !> \author MI
 ! **************************************************************************************************
 MODULE qs_linres_module
-   USE bibliography,                    ONLY: Weber2009,&
+   USE bibliography,                    ONLY: Ditler2021,&
+                                              Weber2009,&
                                               cite_reference
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -38,6 +41,16 @@ MODULE qs_linres_module
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
+   USE kinds,                           ONLY: dp
+   USE qs_dcdr,                         ONLY: apt_dR,&
+                                              apt_dR_localization,&
+                                              dcdr_build_op_dR,&
+                                              dcdr_response_dR,&
+                                              prepare_per_atom
+   USE qs_dcdr_utils,                   ONLY: dcdr_env_cleanup,&
+                                              dcdr_env_init,&
+                                              dcdr_print
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
                                               set_qs_env
@@ -72,14 +85,13 @@ MODULE qs_linres_module
                                               polar_print,&
                                               polar_response
    USE qs_linres_types,                 ONLY: current_env_type,&
+                                              dcdr_env_type,&
                                               epr_env_type,&
                                               issc_env_type,&
                                               linres_control_create,&
-                                              linres_control_release,&
                                               linres_control_type,&
                                               nmr_env_type
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: mo_set_type
    USE qs_p_env_methods,                ONLY: p_env_create,&
                                               p_env_psi0_changed
    USE qs_p_env_types,                  ONLY: p_env_release,&
@@ -100,6 +112,52 @@ MODULE qs_linres_module
 
 CONTAINS
 
+! *****************************************************************************
+!> \brief Calculates the derivatives of the MO coefficients dC/dR^lambda_beta
+!>         wrt to nuclear coordinates. The derivative is index by `beta`, the
+!>         electric dipole operator by `alpha`.
+!>        Also calculates the APT
+!>               P^lambda_alpha,beta = d< mu_alpha >/dR^lambda_beta
+!>        and calculates the sum rules for the APT elements.
+!> \param qs_env ...
+!> \param p_env ...
+! **************************************************************************************************
+   SUBROUTINE dcdr_linres(qs_env, p_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(qs_p_env_type)                                :: p_env
+
+      INTEGER                                            :: beta, latom
+      TYPE(dcdr_env_type)                                :: dcdr_env
+
+      CALL cite_reference(Ditler2021)
+      CALL dcdr_env_init(dcdr_env, qs_env)
+      DO latom = 1, SIZE(dcdr_env%list_of_atoms)
+         dcdr_env%lambda = dcdr_env%list_of_atoms(latom)
+         CALL prepare_per_atom(dcdr_env, qs_env)
+
+         DO beta = 1, 3                   ! in every direction
+            dcdr_env%beta = beta
+            dcdr_env%deltaR(dcdr_env%beta, dcdr_env%lambda) = 1._dp
+
+            CALL dcdr_build_op_dR(dcdr_env, qs_env)
+            CALL dcdr_response_dR(dcdr_env, p_env, qs_env)
+
+            IF (.NOT. dcdr_env%localized_psi0) THEN
+               CALL apt_dR(qs_env, dcdr_env)
+            ELSE IF (dcdr_env%localized_psi0) THEN
+               CALL apt_dR_localization(qs_env, dcdr_env)
+            END IF
+
+         END DO !beta
+
+         dcdr_env%apt_total_dcdr(:, :, dcdr_env%lambda) = &
+            dcdr_env%apt_el_dcdr(:, :, dcdr_env%lambda) + dcdr_env%apt_nuc_dcdr(:, :, dcdr_env%lambda)
+      END DO !lambda
+
+      CALL dcdr_print(dcdr_env, qs_env)
+      CALL dcdr_env_cleanup(qs_env, dcdr_env)
+   END SUBROUTINE dcdr_linres
+
 ! **************************************************************************************************
 !> \brief Driver for the linear response calculatios
 !> \param force_env ...
@@ -111,8 +169,7 @@ CONTAINS
 
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'linres_calculation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'linres_calculation'
 
       INTEGER                                            :: handle
       TYPE(qs_environment_type), POINTER                 :: qs_env
@@ -156,17 +213,16 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'linres_calculation_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'linres_calculation_low'
 
       INTEGER                                            :: handle, iounit
-      LOGICAL                                            :: epr_present, issc_present, &
+      LOGICAL                                            :: dcdr_present, epr_present, issc_present, &
                                                             lr_calculation, nmr_present, &
                                                             polar_present
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(section_vals_type), POINTER                   :: lr_section, prop_section
 
       CALL timeset(routineN, handle)
@@ -176,8 +232,9 @@ CONTAINS
       epr_present = .FALSE.
       issc_present = .FALSE.
       polar_present = .FALSE.
+      dcdr_present = .FALSE.
 
-      NULLIFY (dft_control, p_env, linres_control, logger, prop_section, lr_section)
+      NULLIFY (dft_control, linres_control, logger, prop_section, lr_section)
       logger => cp_get_default_logger()
 
       lr_section => section_vals_get_subs_vals(qs_env%input, "PROPERTIES%LINRES")
@@ -202,7 +259,7 @@ CONTAINS
          IF (nmr_present .OR. epr_present) THEN
             CALL nmr_epr_linres(linres_control, qs_env, p_env, dft_control, &
                                 nmr_present, epr_present, iounit)
-         ENDIF
+         END IF
 
          ! We do the indirect spin-spin coupling calculation
          prop_section => section_vals_get_subs_vals(lr_section, "SPINSPIN")
@@ -210,13 +267,21 @@ CONTAINS
 
          IF (issc_present) THEN
             CALL issc_linres(linres_control, qs_env, p_env, dft_control)
-         ENDIF
+         END IF
 
          ! We do the polarizability calculation
          prop_section => section_vals_get_subs_vals(lr_section, "POLAR")
          CALL section_vals_get(prop_section, explicit=polar_present)
          IF (polar_present) THEN
             CALL polar_linres(qs_env, p_env)
+         END IF
+
+         ! Nuclear Position Perturbation
+         prop_section => section_vals_get_subs_vals(lr_section, "dcdr")
+         CALL section_vals_get(prop_section, explicit=dcdr_present)
+
+         IF (dcdr_present) THEN
+            CALL dcdr_linres(qs_env, p_env)
          END IF
 
          ! Other possible LR calculations can be introduced here
@@ -252,10 +317,8 @@ CONTAINS
    SUBROUTINE linres_init(lr_section, p_env, qs_env)
 
       TYPE(section_vals_type), POINTER                   :: lr_section
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type), INTENT(OUT)                   :: p_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'linres_init', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iounit, ispin
       LOGICAL                                            :: do_it
@@ -263,7 +326,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(section_vals_type), POINTER                   :: loc_section
 
@@ -273,12 +336,10 @@ CONTAINS
                                     extension=".linresLog")
       NULLIFY (dft_control, linres_control, loc_section, rho, mos, matrix_ks, rho_ao)
 
-      CPASSERT(.NOT. ASSOCIATED(p_env))
-
+      ALLOCATE (linres_control)
       CALL linres_control_create(linres_control)
       CALL set_qs_env(qs_env=qs_env, linres_control=linres_control)
-      CALL linres_control_release(linres_control)
-      CALL get_qs_env(qs_env=qs_env, linres_control=linres_control, &
+      CALL get_qs_env(qs_env=qs_env, &
                       dft_control=dft_control, matrix_ks=matrix_ks, mos=mos, rho=rho)
       CALL qs_rho_get(rho, rho_ao=rho_ao)
 
@@ -296,8 +357,8 @@ CONTAINS
          CALL linres_localize(qs_env, linres_control, dft_control%nspins)
 
          DO ispin = 1, dft_control%nspins
-            CALL calculate_density_matrix(mos(ispin)%mo_set, rho_ao(ispin)%matrix)
-         ENDDO
+            CALL calculate_density_matrix(mos(ispin), rho_ao(ispin)%matrix)
+         END DO
          ! ** update qs_env%rho
          CALL qs_rho_update_rho(rho, qs_env=qs_env)
       END IF
@@ -317,7 +378,7 @@ CONTAINS
             REPEAT("=", 79)
 
          WRITE (UNIT=iounit, FMT="(T2,A)") &
-            "LINRES| Properties to be calulated:"
+            "LINRES| Properties to be calculated:"
          CALL section_vals_val_get(lr_section, "NMR%_SECTION_PARAMETERS_", l_val=do_it)
          IF (do_it) WRITE (UNIT=iounit, FMT="(T62,A)") "NMR Chemical Shift"
          CALL section_vals_val_get(lr_section, "EPR%_SECTION_PARAMETERS_", l_val=do_it)
@@ -370,7 +431,6 @@ CONTAINS
       ! update the m_epsilon matrix
       CALL p_env_psi0_changed(p_env, qs_env)
 
-      p_env%os_valid = .FALSE.
       p_env%new_preconditioner = .TRUE.
       CALL cp_print_key_finished_output(iounit, logger, lr_section, &
                                         "PRINT%PROGRAM_RUN_INFO")
@@ -391,12 +451,10 @@ CONTAINS
 
       TYPE(linres_control_type), POINTER                 :: linres_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(dft_control_type), POINTER                    :: dft_control
       LOGICAL                                            :: nmr_present, epr_present
       INTEGER                                            :: iounit
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'nmr_epr_linres', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iB
       LOGICAL                                            :: do_qmmm
@@ -414,14 +472,13 @@ CONTAINS
                        "shift without localized psi0?")
          CALL linres_localize(qs_env, linres_control, &
                               dft_control%nspins, centers_only=.TRUE.)
-      ENDIF
+      END IF
       IF (dft_control%nspins /= 2 .AND. epr_present) THEN
          CPABORT("LSD is needed to perform a g tensor calculation!")
-      ENDIF
+      END IF
       !
       !Initialize the current environment
       do_qmmm = .FALSE.
-      current_env%ref_count = 0
       IF (qs_env%qmmm) do_qmmm = .TRUE.
       current_env%do_qmmm = do_qmmm
       !current_env%prop='nmr'
@@ -432,17 +489,15 @@ CONTAINS
       IF (current_env%all_pert_op_done) THEN
          !Initialize the nmr environment
          IF (nmr_present) THEN
-            nmr_env%ref_count = 0
             CALL nmr_env_init(nmr_env, qs_env)
-         ENDIF
+         END IF
          !
          !Initialize the epr environment
          IF (epr_present) THEN
-            epr_env%ref_count = 0
             CALL epr_env_init(epr_env, qs_env)
             CALL epr_g_zke(epr_env, qs_env)
             CALL epr_nablavks(epr_env, qs_env)
-         ENDIF
+         END IF
          !
          ! Build the rs_gauge if needed
          !CALL current_set_gauge(current_env,qs_env)
@@ -457,27 +512,27 @@ CONTAINS
             ! Compute NMR shift
             IF (nmr_present) THEN
                CALL nmr_shift(nmr_env, current_env, qs_env, iB)
-            ENDIF
+            END IF
             !
             ! Compute EPR
             IF (epr_present) THEN
                CALL epr_ind_magnetic_field(epr_env, current_env, qs_env, iB)
                CALL epr_g_so(epr_env, current_env, qs_env, iB)
                CALL epr_g_soo(epr_env, current_env, qs_env, iB)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          !
          ! Finalized the nmr environment
          IF (nmr_present) THEN
             CALL nmr_shift_print(nmr_env, current_env, qs_env)
             CALL nmr_env_cleanup(nmr_env)
-         ENDIF
+         END IF
          !
          ! Finalized the epr environment
          IF (epr_present) THEN
             CALL epr_g_print(epr_env, qs_env)
             CALL epr_env_cleanup(epr_env)
-         ENDIF
+         END IF
          !
       ELSE
          IF (iounit > 0) THEN
@@ -487,7 +542,7 @@ CONTAINS
          END IF
       END IF
       ! Finalized the current environment
-      CALL current_env_cleanup(current_env, qs_env)
+      CALL current_env_cleanup(current_env)
 
    END SUBROUTINE nmr_epr_linres
 
@@ -502,10 +557,8 @@ CONTAINS
 
       TYPE(linres_control_type), POINTER                 :: linres_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(dft_control_type), POINTER                    :: dft_control
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'issc_linres', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom
       LOGICAL                                            :: do_qmmm
@@ -519,11 +572,10 @@ CONTAINS
                        "shift without localized psi0?")
          CALL linres_localize(qs_env, linres_control, &
                               dft_control%nspins, centers_only=.TRUE.)
-      ENDIF
+      END IF
       !
       !Initialize the current environment
       do_qmmm = .FALSE.
-      current_env%ref_count = 0
       IF (qs_env%qmmm) do_qmmm = .TRUE.
       current_env%do_qmmm = do_qmmm
       !current_env%prop='issc'
@@ -531,7 +583,6 @@ CONTAINS
       !CALL current_response(current_env,p_env,qs_env)
       !
       !Initialize the issc environment
-      issc_env%ref_count = 0
       CALL issc_env_init(issc_env, qs_env)
       !
       ! Loop over atoms
@@ -539,7 +590,7 @@ CONTAINS
          CALL issc_operators(issc_env, qs_env, iatom)
          CALL issc_response(issc_env, p_env, qs_env)
          CALL issc_issc(issc_env, qs_env, iatom)
-      ENDDO
+      END DO
       !
       ! Finalized the issc environment
       CALL issc_print(issc_env, qs_env)
@@ -557,9 +608,7 @@ CONTAINS
    SUBROUTINE polar_linres(qs_env, p_env)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'polar_linres', routineP = moduleN//':'//routineN
+      TYPE(qs_p_env_type)                                :: p_env
 
       CALL polar_env_init(qs_env)
       CALL polar_operators(qs_env)

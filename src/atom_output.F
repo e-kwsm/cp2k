@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -21,20 +23,19 @@ MODULE atom_output
         do_rhf_atom, do_rks_atom, do_rohf_atom, do_sczoramp_atom, do_uhf_atom, do_uks_atom, &
         do_zoramp_atom, poly_conf, xc_none
    USE input_cp2k_check,                ONLY: xc_functionals_expand
-   USE input_section_types,             ONLY: section_vals_duplicate,&
-                                              section_vals_get,&
-                                              section_vals_get_subs_vals,&
+   USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_get_subs_vals2,&
-                                              section_vals_release,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE mathconstants,                   ONLY: pi
+   USE mathconstants,                   ONLY: dfac,&
+                                              pi
    USE periodic_table,                  ONLY: ptable
    USE physcon,                         ONLY: evolt
    USE xc_derivatives,                  ONLY: xc_functional_get_info
-   USE xc_libxc,                        ONLY: libxc_version_info
+   USE xc_libxc,                        ONLY: libxc_check_existence_in_libxc,&
+                                              libxc_get_reference_length
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -63,9 +64,6 @@ CONTAINS
       CHARACTER(len=*), INTENT(IN)                       :: info
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_info', &
-         routineP = moduleN//':'//routineN
-
       WRITE (iw, '(/," ",A,T40,A," [",A,"]",T62,"Atomic number:",T78,I3,/)') &
          ADJUSTL(TRIM(info)), TRIM(ptable(zval)%name), TRIM(ptable(zval)%symbol), zval
 
@@ -84,8 +82,6 @@ CONTAINS
       TYPE(atom_state)                                   :: state
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_state', &
-         routineP = moduleN//':'//routineN
       CHARACTER(LEN=1), DIMENSION(0:7), PARAMETER :: &
          label = (/"S", "P", "D", "F", "G", "H", "I", "K"/)
 
@@ -178,9 +174,6 @@ CONTAINS
       TYPE(atom_type)                                    :: atom
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_energies', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, l, n
       REAL(KIND=dp)                                      :: drho
 
@@ -256,9 +249,6 @@ CONTAINS
       TYPE(atom_type), INTENT(IN)                        :: atom
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_zmp_iteration', &
-         routineP = moduleN//':'//routineN
-
       IF (iter == 1) THEN
          WRITE (iw, '(/," ",79("*"),/,T33,"Integral",T48,"Integral",/,T3,A,T16,A,T33,A,T46,A,T69,A/," ",79("*"))') &
             "Iteration", "Convergence", "rho diff.", "rho*v_xc[au]", "Energy[au]"
@@ -282,9 +272,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: deps, etot
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_iteration', &
-         routineP = moduleN//':'//routineN
-
       IF (iter == 1) THEN
          WRITE (iw, '(/," ",79("*"),/,T19,A,T38,A,T70,A,/," ",79("*"))') &
             "Iteration", "Convergence", "Energy [au]"
@@ -305,9 +292,6 @@ CONTAINS
       TYPE(atom_basis_type)                              :: atom_basis
       INTEGER, INTENT(IN)                                :: iw
       CHARACTER(len=*)                                   :: title
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, l
 
@@ -389,6 +373,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Print the optimized atomic basis set into a file.
 !> \param atom_basis  atomic basis set
+!> \param wfn ...
 !> \par History
 !>    * 11.2016 revised output format [Matthias Krack]
 !>    * 11.2011 Slater basis functions [Juerg Hutter]
@@ -396,13 +381,12 @@ CONTAINS
 !> \note  The basis set is stored as the file 'OPT_BASIS' inside the current working directory.
 !>        It may be a good idea, however, to specify the name of this file via some input section.
 ! **************************************************************************************************
-   SUBROUTINE atom_print_basis_file(atom_basis)
+   SUBROUTINE atom_print_basis_file(atom_basis, wfn)
       TYPE(atom_basis_type)                              :: atom_basis
+      REAL(KIND=dp), DIMENSION(:, :, 0:), OPTIONAL       :: wfn
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_basis_file', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: i, iw, l
+      INTEGER                                            :: i, im, iw, l
+      REAL(KIND=dp)                                      :: expzet, prefac, zeta
 
       CALL open_file(file_name="OPT_BASIS", file_status="UNKNOWN", file_action="WRITE", unit_number=iw)
       SELECT CASE (atom_basis%basis_type)
@@ -475,6 +459,30 @@ CONTAINS
       CASE DEFAULT
          CPABORT("")
       END SELECT
+
+      IF (PRESENT(wfn)) THEN
+         SELECT CASE (atom_basis%basis_type)
+         CASE DEFAULT
+         CASE (GTO_BASIS)
+            IF (.NOT. atom_basis%geometrical) THEN
+               WRITE (iw, '(/,T3,A)') "ORBITAL COEFFICENTS (Quickstep normalization)"
+               im = MIN(6, SIZE(wfn, 2))
+               DO l = 0, lmat
+                  IF (atom_basis%nbas(l) > 0) THEN
+                     WRITE (iw, '(T3,A,I3)') "L Quantum Number:", l
+                     ! Quickstep normalization
+                     expzet = 0.25_dp*REAL(2*l + 3, dp)
+                     prefac = SQRT(SQRT(pi)/2._dp**(l + 2)*dfac(2*l + 1))
+                     DO i = 1, atom_basis%nbas(l)
+                        zeta = (2._dp*atom_basis%am(i, l))**expzet
+                        WRITE (iw, '(T5,F14.8,2x,6F12.8)') atom_basis%am(i, l), wfn(i, 1:im, l)*prefac/zeta
+                     END DO
+                  END IF
+               END DO
+            END IF
+         END SELECT
+      END IF
+
       CALL close_file(unit_number=iw)
 
    END SUBROUTINE atom_print_basis_file
@@ -495,17 +503,12 @@ CONTAINS
       TYPE(atom_type)                                    :: atom
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_method', &
-         routineP = moduleN//':'//routineN
-
-      CHARACTER(len=10*default_string_length)            :: reference
       CHARACTER(len=160)                                 :: shortform
-      CHARACTER(len=20)                                  :: tmpStr
-      INTEGER                                            :: i_rep, ifun, il, meth, myfun, n_rep, &
-                                                            reltyp
+      CHARACTER(LEN=20)                                  :: tmpStr
+      CHARACTER(len=:), ALLOCATABLE                      :: reference
+      INTEGER                                            :: ifun, il, meth, myfun, reltyp
       LOGICAL                                            :: lsd
-      TYPE(section_vals_type), POINTER                   :: libxc_fun, xc_fun, xc_fun_section, &
-                                                            xc_section
+      TYPE(section_vals_type), POINTER                   :: xc_fun, xc_fun_section, xc_section
 
       NULLIFY (xc_fun, xc_fun_section, xc_section)
 
@@ -600,32 +603,18 @@ CONTAINS
                ifun = ifun + 1
                xc_fun => section_vals_get_subs_vals2(xc_fun_section, i_section=ifun)
                IF (.NOT. ASSOCIATED(xc_fun)) EXIT
-               IF (TRIM(xc_fun%section%name) /= "LIBXC") THEN
-                  CALL xc_functional_get_info(xc_fun, lsd=lsd, reference=reference, shortform=shortform)
-                  WRITE (iw, fmt="(' FUNCTIONAL| ',a,':')") &
-                     TRIM(xc_fun%section%name)
-                  DO il = 1, LEN_TRIM(reference), 67
-                     WRITE (iw, fmt="(' FUNCTIONAL| ',a67)") reference(il:)
-                  END DO
+               IF (libxc_check_existence_in_libxc(xc_fun)) THEN
+                  ALLOCATE (CHARACTER(LEN=libxc_get_reference_length(xc_fun, lsd)) :: reference)
                ELSE
-                  ! LIBXC is the only repeatable functional section - for each we need
-                  ! NOT the single values, but the whole section_vals_type independently
-                  CALL section_vals_get(xc_fun, n_repetition=n_rep)
-                  DO i_rep = 1, n_rep
-                     NULLIFY (libxc_fun)
-                     CALL section_vals_duplicate(xc_fun, libxc_fun, i_rep_start=i_rep, i_rep_end=i_rep)
-                     IF (.NOT. ASSOCIATED(libxc_fun)) EXIT
-                     CALL xc_functional_get_info(libxc_fun, lsd=lsd, reference=reference, shortform=shortform)
-                     CALL section_vals_release(libxc_fun)
-                     CALL libxc_version_info(tmpStr)
-                     WRITE (iw, fmt="(A,A,A)") ' FUNCTIONAL| LIBXC Vers. ', TRIM(tmpStr(1:5)), &
-                        ' (Marques, Oliveira, Burnus, CPC 183, 2272 (2012))'
-                     WRITE (iw, fmt="(' FUNCTIONAL| ',a,':')") TRIM(shortform)
-                     DO il = 1, LEN_TRIM(reference), 67
-                        WRITE (iw, fmt="(' FUNCTIONAL| ',a67)") reference(il:)
-                     END DO
-                  END DO
+                  ALLOCATE (CHARACTER(LEN=20*default_string_length) :: reference)
                END IF
+               CALL xc_functional_get_info(xc_fun, lsd=lsd, reference=reference, shortform=shortform)
+               WRITE (iw, fmt="(' FUNCTIONAL| ',a,':')") &
+                  TRIM(xc_fun%section%name)
+               DO il = 1, LEN_TRIM(reference), 67
+                  WRITE (iw, fmt="(' FUNCTIONAL| ',a67)") reference(il:)
+               END DO
+               DEALLOCATE (reference)
             END DO
          END IF
       ELSE
@@ -649,9 +638,6 @@ CONTAINS
    SUBROUTINE atom_print_potential(potential, iw)
       TYPE(atom_potential_type)                          :: potential
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_potential', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=60)                                  :: pline
       INTEGER                                            :: i, j, k, l
@@ -758,9 +744,6 @@ CONTAINS
       TYPE(atom_gthpot_type), INTENT(INOUT)              :: gthpot
       INTEGER, INTENT(IN), OPTIONAL                      :: iunit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_write_pseudo_param', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iw, j, k, n
 
       IF (PRESENT(iunit)) THEN
@@ -829,9 +812,6 @@ CONTAINS
       TYPE(atom_type), POINTER                           :: atom
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_orbitals', &
-         routineP = moduleN//':'//routineN
-
       SELECT CASE (atom%method_type)
       CASE DEFAULT
          CPABORT("")
@@ -865,9 +845,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, 0:), INTENT(INOUT)  :: wfn
       CHARACTER(len=*), INTENT(IN)                       :: description
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_print_orbitals_helper', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: b, l, maxl, nb, nv, v
 

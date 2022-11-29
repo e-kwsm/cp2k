@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -74,9 +76,6 @@ CONTAINS
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
       LOGICAL, INTENT(IN)                                :: calc_force, consistent_energies, linres
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_calc_energy_force', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: description, iter
       INTEGER                                            :: ip, j, nres, output_unit
       INTEGER, DIMENSION(:), POINTER                     :: qm_atom_index
@@ -109,7 +108,6 @@ CONTAINS
       print_key => section_vals_get_subs_vals(force_env_section, "QMMM%PRINT%DIPOLE")
 
       CPASSERT(ASSOCIATED(qmmm_env))
-      CPASSERT(qmmm_env%ref_count > 0)
 
       CALL apply_qmmm_translate(qmmm_env)
 
@@ -136,7 +134,7 @@ CONTAINS
             IF (output_unit > 0 .AND. .NOT. check) THEN
                WRITE (unit=output_unit, fmt='("ip, j, pos, lat_pos ",2I6,6F12.5)') ip, j, &
                   particles_qm(ip)%r, DOT_PRODUCT(qm_cell%h_inv(j, :), particles_qm(ip)%r)
-            ENDIF
+            END IF
             IF (.NOT. check) &
                CALL cp_abort(__LOCATION__, &
                              "QM/MM QM atoms must be fully contained in the same image of the QM box "// &

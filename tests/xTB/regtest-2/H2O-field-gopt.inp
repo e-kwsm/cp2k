@@ -9,10 +9,13 @@
     &PERIODIC_EFIELD
        POLARISATION 1 0 0
        INTENSITY 0.001
-    &END    
+    &END
     &QS
       METHOD xTB
       EPS_DEFAULT 1.0E-12
+      &xTB
+        DO_EWALD T
+      &END xTB
     &END QS
     &KPOINTS
        SCHEME GAMMA
@@ -51,4 +54,4 @@
       MAX_ITER 3
    &END
 &END
-      
+

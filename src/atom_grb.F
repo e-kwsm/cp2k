@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE atom_grb
@@ -77,9 +79,6 @@ CONTAINS
       TYPE(atom_p_type), DIMENSION(:, :), POINTER        :: atom_info
       TYPE(section_vals_type), POINTER                   :: atom_section
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_grb_construction', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: abas, basname
       CHARACTER(len=default_string_length), DIMENSION(1) :: basline
@@ -305,10 +304,10 @@ CONTAINS
             DO j = 1, i - 1
                o = DOT_PRODUCT(rbasis(1:m, j, l), RESHAPE(MATMUL(ovlp(1:m, 1:m, l), rbasis(1:m, i:i, l)), (/m/)))
                rbasis(1:m, i, l) = rbasis(1:m, i, l) - o*rbasis(1:m, j, l)
-            ENDDO
+            END DO
             o = DOT_PRODUCT(rbasis(1:m, i, l), RESHAPE(MATMUL(ovlp(1:m, 1:m, l), rbasis(1:m, i:i, l)), (/m/)))
             rbasis(1:m, i, l) = rbasis(1:m, i, l)/SQRT(o)
-         ENDDO
+         END DO
 
          ! check
          ALLOCATE (amat(n, n))
@@ -412,42 +411,45 @@ CONTAINS
       CALL deallocate_orbital_pointers
       CALL deallocate_spherical_harmonics
 
-      ! generate polarization sets
-      IF (iw > 0) THEN
-         WRITE (iw, '(/,A)') " Polarization basis set  "
-      END IF
-      maxl = atom%state%maxl_occ
-      CALL section_vals_val_get(grb_section, "NUM_GTO_POLARIZATION", i_val=num_gto)
-      CPASSERT(num_gto > 0)
-      num_pol = num_gto
-      ALLOCATE (pbasis(num_gto, num_gto, 0:7), alp(num_gto))
-      pbasis = 0.0_dp
       ! get density maximum
       ALLOCATE (rho(basis%grid%nr))
       CALL calculate_atom(atom, iw=0, noguess=.TRUE.)
       CALL atom_density(rho(:), atom%orbitals%pmat, atom%basis, maxl, typ="RHO")
       n = SUM(MAXLOC(rho(:)))
       rmax = basis%grid%rad(n)
+      IF (rmax < 0.1_dp) rmax = 1.0_dp
       DEALLOCATE (rho)
-      ! optimize exponents
-      lval = maxl + 1
-      zval = SQRT(REAL(2*lval + 2, dp))*REAL(lval + 1, dp)/(2._dp*rmax)
-      aval = atom%basis%am(1, 0)
-      cval = 2.5_dp
-      rconf = atom%potential%scon
-      CALL atom_fit_pol(zval, rconf, lval, aval, cval, num_gto, iw, powell_section)
-      ! calculate contractions
-      DO i = 1, num_gto
-         alp(i) = aval*cval**(i - 1)
-      END DO
-      ALLOCATE (rho(num_gto))
-      DO l = maxl + 1, MIN(maxl + num_gto, 7)
-         zval = SQRT(REAL(2*l + 2, dp))*REAL(l + 1, dp)/(2._dp*rmax)
-         CALL hydrogenic(zval, rconf, l, alp, num_gto, rho, pbasis(:, :, l))
-         IF (iw > 0) WRITE (iw, '(T5,A,i5,T66,A,F10.4)') &
-            " Polarization basis set contraction for lval=", l, "zval=", zval
-      END DO
-      DEALLOCATE (rho)
+
+      ! generate polarization sets
+      maxl = atom%state%maxl_occ
+      CALL section_vals_val_get(grb_section, "NUM_GTO_POLARIZATION", i_val=num_gto)
+      num_pol = num_gto
+      IF (num_gto > 0) THEN
+         IF (iw > 0) THEN
+            WRITE (iw, '(/,A)') " Polarization basis set  "
+         END IF
+         ALLOCATE (pbasis(num_gto, num_gto, 0:7), alp(num_gto))
+         pbasis = 0.0_dp
+         ! optimize exponents
+         lval = maxl + 1
+         zval = SQRT(REAL(2*lval + 2, dp))*REAL(lval + 1, dp)/(2._dp*rmax)
+         aval = atom%basis%am(1, 0)
+         cval = 2.5_dp
+         rconf = atom%potential%scon
+         CALL atom_fit_pol(zval, rconf, lval, aval, cval, num_gto, iw, powell_section)
+         ! calculate contractions
+         DO i = 1, num_gto
+            alp(i) = aval*cval**(i - 1)
+         END DO
+         ALLOCATE (rho(num_gto))
+         DO l = maxl + 1, MIN(maxl + num_gto, 7)
+            zval = SQRT(REAL(2*l + 2, dp))*REAL(l + 1, dp)/(2._dp*rmax)
+            CALL hydrogenic(zval, rconf, l, alp, num_gto, rho, pbasis(:, :, l))
+            IF (iw > 0) WRITE (iw, '(T5,A,i5,T66,A,F10.4)') &
+               " Polarization basis set contraction for lval=", l, "zval=", zval
+         END DO
+         DEALLOCATE (rho)
+      END IF
 
       ! generate valence expansion sets
       maxl = atom%state%maxl_occ
@@ -675,14 +677,19 @@ CONTAINS
          CALL grb_print_basis(header=basline, nprim=num_pol, nbas=nbas, al=alp, gcc=pbasis, iunit=iunit)
       END DO
       ! extension set
-      basline(1) = ""
-      WRITE (basline(1), "(T2,A,T5,A)") ADJUSTL(ptable(atom_ref%z)%symbol), TRIM(ADJUSTL(basname))//"-EXT"
-      CALL grb_print_basis(header=basline, nprim=next_prim(0), nbas=next_bas, al=ale, gcc=ebasis, iunit=iunit)
+      IF (SUM(next_bas) > 0) THEN
+         basline(1) = ""
+         WRITE (basline(1), "(T2,A,T5,A)") ADJUSTL(ptable(atom_ref%z)%symbol), TRIM(ADJUSTL(basname))//"-EXT"
+         CALL grb_print_basis(header=basline, nprim=next_prim(0), nbas=next_bas, al=ale, gcc=ebasis, iunit=iunit)
+      END IF
       !
       CALL close_file(unit_number=iunit)
 
       ! clean up
-      DEALLOCATE (wfn, rbasis, qbasis, ebasis, pbasis, ale, alp)
+      IF (ALLOCATED(pbasis)) DEALLOCATE (pbasis)
+      IF (ALLOCATED(alp)) DEALLOCATE (alp)
+      IF (ALLOCATED(ebasis)) DEALLOCATE (ebasis)
+      DEALLOCATE (wfn, rbasis, qbasis, ale)
 
       DO ider = 0, 10
          IF (ASSOCIATED(vbasis(ider)%basis)) THEN
@@ -723,9 +730,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, 0:), INTENT(IN), &
          OPTIONAL                                        :: gcc
       INTEGER, INTENT(IN)                                :: iunit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'grb_print_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, l, lmax, lmin, nval
 
@@ -787,7 +791,6 @@ CONTAINS
       CHARACTER(len=*), INTENT(out)                      :: label
       INTEGER, DIMENSION(0:), INTENT(in)                 :: np, nb
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_label', routineP = moduleN//':'//routineN
       INTEGER                                            :: i, l, lmax
       CHARACTER(len=1), DIMENSION(0:7), PARAMETER :: &
          lq = (/"s", "p", "d", "f", "g", "h", "i", "k"/)
@@ -844,8 +847,6 @@ CONTAINS
       TYPE(atom_basis_type), POINTER                     :: basis
       REAL(dp), INTENT(OUT)                              :: afun
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'grb_fit', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: do_eric, do_erie, reltyp, zval
       LOGICAL                                            :: eri_c, eri_e
@@ -953,8 +954,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iunit
       TYPE(section_vals_type), POINTER                   :: powell_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_fit_grb', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, k, l, ll, n10, nr
       REAL(KIND=dp)                                      :: al, cnum, crad, cradx, ear, fopt, rk
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: x
@@ -1022,7 +1021,7 @@ CONTAINS
          CALL powell_optimize(ostate%nvar, x, ostate)
 
          IF (ostate%nf == 2 .AND. iunit > 0) THEN
-            WRITE (iunit, '(" POWELL| Inital value of function",T61,F20.10)') ostate%f
+            WRITE (iunit, '(" POWELL| Initial value of function",T61,F20.10)') ostate%f
          END IF
          IF (MOD(ostate%nf, n10) == 0 .AND. iunit > 0) THEN
             WRITE (iunit, '(" POWELL| Reached",i4,"% of maximal function calls",T61,F20.10)') &
@@ -1116,8 +1115,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nbas, iunit
       TYPE(section_vals_type), POINTER                   :: powell_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_fit_pol', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, n10
       REAL(KIND=dp)                                      :: fopt, x(2)
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: am, ener
@@ -1165,7 +1162,7 @@ CONTAINS
          CALL powell_optimize(ostate%nvar, x, ostate)
 
          IF (ostate%nf == 2 .AND. iunit > 0) THEN
-            WRITE (iunit, '(" POWELL| Inital value of function",T61,F20.10)') ostate%f
+            WRITE (iunit, '(" POWELL| Initial value of function",T61,F20.10)') ostate%f
          END IF
          IF (MOD(ostate%nf, n10) == 0 .AND. iunit > 0) THEN
             WRITE (iunit, '(" POWELL| Reached",i4,"% of maximal function calls",T61,F20.10)') &
@@ -1216,8 +1213,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nbas
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: ener
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: orb
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'hydrogenic', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: info, k, lwork, n
       REAL(KIND=dp)                                      :: cf

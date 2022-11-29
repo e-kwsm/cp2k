@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -89,15 +91,15 @@ MODULE cp_output_handling
 !!                   the printkey)
 !! cp_out_file: always calculate and output the property
 !! cp_out_store: always calculate and store in memory the property
-!! cp_out_calc: just calculate the value (indipendently from the fact that there
+!! cp_out_calc: just calculate the value (independently from the fact that there
 !!              should be output)
-!! cp_out_default: the default value for proprety flags (cp_out_file_if)
+!! cp_out_default: the default value for property flags (cp_out_file_if)
 !!
 !! this flags can be ior-ed together:
 !! ior(cp_out_file_if,cp_out_store_if): if the printkey says it both print
 !!                                          and store the property
 !!
-!! there is no guarantee that a proprety is not stored if it is not necessary
+!! there is no guarantee that a property is not stored if it is not necessary
 !! not all printkeys have a control flag
    INTEGER, PUBLIC, PARAMETER :: cp_p_file_if = 3, cp_p_store_if = 4, &
                                  cp_p_store = 2, cp_p_file = 1, cp_p_file_each = 5, cp_p_store_each = 6, cp_p_calc = 7
@@ -116,7 +118,6 @@ MODULE cp_output_handling
 ! **************************************************************************************************
 !> \brief stores the flags_env controlling the output of properties
 !> \param ref_count reference count (see doc/ReferenceCounting.html)
-!> \param id_nr identification number (unique to each istance)
 !> \param n_flags number of flags stored in this type
 !> \param names names of the stored flags
 !> \param control_val value of the flag
@@ -138,7 +139,7 @@ MODULE cp_output_handling
 !> \author fawzi
 ! **************************************************************************************************
    TYPE cp_out_flags_type
-      INTEGER :: ref_count, id_nr, n_flags
+      INTEGER :: ref_count, n_flags
       CHARACTER(default_string_length), DIMENSION(:), POINTER :: names
       INTEGER, DIMENSION(:), POINTER :: control_val
       TYPE(section_vals_type), POINTER :: input
@@ -183,9 +184,6 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL                    :: citations
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: unit_str
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_print_key_section_create', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_path_length)                 :: my_filename
       INTEGER                                            :: i_each, i_iter, my_add_last, &
                                                             my_comm_iter_levels, my_print_level, &
@@ -222,7 +220,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL section_create(subsection, __LOCATION__, name="EACH", &
-                          description="This section specifies how often this proprety is printed."// &
+                          description="This section specifies how often this property is printed."// &
                           "Each keyword inside this section is mapping to a specific iteration level and "// &
                           "the value of each of these keywords is matched with the iteration level during "// &
                           "the calculation. How to handle the last iteration is treated "// &
@@ -326,7 +324,7 @@ CONTAINS
    END SUBROUTINE cp_print_key_section_create
 
 ! **************************************************************************************************
-!> \brief returns what should be done with the given proprety
+!> \brief returns what should be done with the given property
 !>      if btest(res,cp_p_store) then the property should be stored in memory
 !>      if btest(res,cp_p_file) then the property should be print ed to a file
 !>      if res==0 then nothing should be done
@@ -345,15 +343,13 @@ CONTAINS
    FUNCTION cp_print_key_should_output(iteration_info, basis_section, &
                                        print_key_path, used_print_key, first_time) &
       RESULT(res)
-      TYPE(cp_iteration_info_type), POINTER              :: iteration_info
-      TYPE(section_vals_type), POINTER                   :: basis_section
+      TYPE(cp_iteration_info_type), INTENT(IN)           :: iteration_info
+      TYPE(section_vals_type), INTENT(IN), TARGET        :: basis_section
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: print_key_path
-      TYPE(section_vals_type), OPTIONAL, POINTER         :: used_print_key
+      TYPE(section_vals_type), INTENT(INOUT), OPTIONAL, &
+         POINTER                                         :: used_print_key
       LOGICAL, INTENT(OUT), OPTIONAL                     :: first_time
       INTEGER                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_print_key_should_output', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: end_str, my_control_val, to_path
       LOGICAL                                            :: flags, is_iter, is_on
@@ -361,13 +357,8 @@ CONTAINS
 
       res = 0
       IF (PRESENT(first_time)) first_time = .FALSE.
-      CPASSERT(ASSOCIATED(basis_section))
       CPASSERT(basis_section%ref_count > 0)
       IF (PRESENT(used_print_key)) NULLIFY (used_print_key)
-      ! IF (failure) THEN
-      !    IF (iteration_info%print_level>=debug_print_level) res=cp_out_default
-      !    RETURN
-      ! END IF
 
       IF (PRESENT(print_key_path)) THEN
          end_str = LEN_TRIM(print_key_path)
@@ -436,16 +427,12 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    FUNCTION cp_printkey_is_on(iteration_info, print_key) RESULT(res)
-      TYPE(cp_iteration_info_type), POINTER              :: iteration_info
+      TYPE(cp_iteration_info_type), INTENT(IN)           :: iteration_info
       TYPE(section_vals_type), POINTER                   :: print_key
       LOGICAL                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_printkey_is_on', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: print_level
 
-      CPASSERT(ASSOCIATED(iteration_info))
       CPASSERT(iteration_info%ref_count > 0)
       IF (.NOT. ASSOCIATED(print_key)) THEN
          res = (iteration_info%print_level > debug_print_level)
@@ -469,18 +456,14 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION cp_printkey_is_iter(iteration_info, print_key, first_time) &
       RESULT(res)
-      TYPE(cp_iteration_info_type), POINTER              :: iteration_info
+      TYPE(cp_iteration_info_type), INTENT(IN)           :: iteration_info
       TYPE(section_vals_type), POINTER                   :: print_key
       LOGICAL, INTENT(OUT), OPTIONAL                     :: first_time
       LOGICAL                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_printkey_is_iter', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: add_last, ilevel, iter_nr, ival
       LOGICAL                                            :: first, level_passed
 
-      CPASSERT(ASSOCIATED(iteration_info))
       CPASSERT(iteration_info%ref_count > 0)
       IF (.NOT. ASSOCIATED(print_key)) THEN
          res = (iteration_info%print_level > debug_print_level)
@@ -536,8 +519,6 @@ CONTAINS
       TYPE(section_vals_type), OPTIONAL, POINTER         :: print_key
       LOGICAL, INTENT(IN), OPTIONAL                      :: for_file
       CHARACTER(len=default_string_length)               :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_iter_string', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: add_last, c_i_level, ilevel, n_rlevel, &
                                                             s_level
@@ -596,8 +577,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: iter_nr, increment
       INTEGER, INTENT(OUT), OPTIONAL                     :: iter_nr_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_iterate', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: my_increment
       LOGICAL                                            :: my_last
 
@@ -634,9 +613,6 @@ CONTAINS
       TYPE(cp_iteration_info_type), POINTER              :: iteration_info
       CHARACTER(LEN=*), INTENT(IN)                       :: level_name
       INTEGER, INTENT(OUT), OPTIONAL                     :: n_rlevel_new
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_add_iter_level', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: found
@@ -681,9 +657,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: level_name
       INTEGER, INTENT(IN), OPTIONAL                      :: n_rlevel_att
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_rm_iter_level', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: check
 
       CPASSERT(ASSOCIATED(iteration_info))
@@ -703,7 +676,7 @@ CONTAINS
    END SUBROUTINE cp_rm_iter_level
 
 ! **************************************************************************************************
-!> \brief Utility function that retuns a unit number to write the print key.
+!> \brief Utility function that returns a unit number to write the print key.
 !>     Might open a file with a unique filename, generated from
 !>     the print_key name and iteration info.
 !>
@@ -776,7 +749,7 @@ CONTAINS
          ELSE
             my_middle_name = ""
          END IF
-      ENDIF
+      END IF
 
       IF (.NOT. has_root) THEN
          root = TRIM(logger%iter_info%project_name)//TRIM(my_middle_name)
@@ -829,7 +802,7 @@ CONTAINS
                                  file_action, file_status, do_backup, on_file, is_new_file, mpi_io, &
                                  fout) RESULT(res)
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(section_vals_type), POINTER                   :: basis_section
+      TYPE(section_vals_type), INTENT(IN)                :: basis_section
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: print_key_path
       CHARACTER(len=*), INTENT(IN)                       :: extension
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: middle_name
@@ -842,9 +815,6 @@ CONTAINS
       CHARACTER(len=default_path_length), INTENT(OUT), &
          OPTIONAL                                        :: fout
       INTEGER                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_print_key_unit_nr', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_path_length)                 :: filename, filename_bak, filename_bak_1, &
                                                             filename_bak_2
@@ -899,7 +869,6 @@ CONTAINS
          mpi_io = my_mpi_io
       END IF
       NULLIFY (print_key)
-      CPASSERT(ASSOCIATED(basis_section))
       CPASSERT(ASSOCIATED(logger))
       CPASSERT(basis_section%ref_count > 0)
       CPASSERT(logger%ref_count > 0)
@@ -1043,13 +1012,10 @@ CONTAINS
                                            mpi_io)
       INTEGER, INTENT(INOUT)                             :: unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(section_vals_type), POINTER                   :: basis_section
+      TYPE(section_vals_type), INTENT(IN)                :: basis_section
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: print_key_path
       LOGICAL, INTENT(IN), OPTIONAL                      :: local, ignore_should_output, on_file, &
                                                             mpi_io
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_print_key_finished_output', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: outPath
       LOGICAL                                            :: my_local, my_mpi_io, my_on_file, &
@@ -1063,7 +1029,6 @@ CONTAINS
       IF (PRESENT(local)) my_local = local
       IF (PRESENT(on_file)) my_on_file = on_file
       IF (PRESENT(mpi_io)) my_mpi_io = mpi_io
-      CPASSERT(ASSOCIATED(basis_section))
       CPASSERT(ASSOCIATED(logger))
       CPASSERT(basis_section%ref_count > 0)
       CPASSERT(logger%ref_count > 0)
@@ -1084,7 +1049,7 @@ CONTAINS
             unit_nr = -1
          ELSE
             unit_nr = -1
-         ENDIF
+         END IF
       END IF
       CPASSERT(unit_nr == -1)
       unit_nr = -1
@@ -1100,8 +1065,6 @@ CONTAINS
    SUBROUTINE cp_mpi_io_set(flag)
       LOGICAL, INTENT(IN)                                :: flag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_mpi_io_set', routineP = moduleN//':'//routineN
-
       enable_mpi_io = flag
    END SUBROUTINE cp_mpi_io_set
 
@@ -1115,10 +1078,7 @@ CONTAINS
    FUNCTION cp_mpi_io_get() RESULT(flag)
       LOGICAL                                            :: flag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_mpi_io_get', routineP = moduleN//':'//routineN
-
       flag = enable_mpi_io
    END FUNCTION cp_mpi_io_get
 
 END MODULE cp_output_handling
-

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,9 +50,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: basis
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: scon_shg
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'contraction_matrix_shg', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ipgf, iset, ishell, l, maxpgf, maxshell, &
                                                             nset
       INTEGER, DIMENSION(:), POINTER                     :: npgf, nshell
@@ -96,8 +95,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: basis
       REAL(dp), DIMENSION(:, :), INTENT(INOUT)           :: norm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_norm_shg', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ipgf, iset, ishell, jpgf, l
       REAL(KIND=dp)                                      :: aai, aaj, cci, ccj, expa, ppl
 
@@ -139,9 +136,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis, ri_basis
       INTEGER, DIMENSION(:, :, :), POINTER               :: orb_index, ri_index
       REAL(KIND=dp), DIMENSION(:, :, :, :), POINTER      :: scon_mix
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'contraction_matrix_shg_mix', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: forb, fri, iil, il, ipgf, iset, ishell, jpgf, jset, jshell, l, l1, l2, lmax_orb, &
          lmax_ri, maxpgf_orb, maxpgf_ri, maxshell_orb, maxshell_ri, nf_orb, nf_ri, nl, nl_max, &
@@ -221,7 +215,7 @@ CONTAINS
                      DO iil = 1, il
                         shg_fac(iil) = fac(l + iil - 1)*ifac(l)*REAL(l, dp) &
                                        *fac(il)/fac(il - iil)/fac(iil)
-                     ENDDO
+                     END DO
                      DO ipgf = 1, npgf_orb(iset)
                         forb = orb_index(ipgf, ishell, iset)
                         gcc_orb = orb_basis%gcc(ipgf, ishell, iset)
@@ -235,14 +229,14 @@ CONTAINS
                            prefac = const*cjf*scon1*scon2
                            DO iil = 0, il
                               scon_mix(iil + 1, fri, forb, il + 1) = prefac*shg_fac(iil)/zet**iil
-                           ENDDO
-                        ENDDO
-                     ENDDO
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+                           END DO
+                        END DO
+                     END DO
+                  END DO
+               END DO
+            END DO
+         END DO
+      END DO
 
       DEALLOCATE (norm_orb, norm_ri, shg_fac)
 
@@ -261,9 +255,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: m
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: scon_shg
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: scon_rx2m
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'contraction_matrix_shg_rx2m', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ipgf, iset, ishell, j, l, maxpgf, &
                                                             maxshell, nset
@@ -289,15 +280,15 @@ CONTAINS
             DO j = 1, m
                shg_fac(j) = fac(l + j - 1)*ifac(l)*REAL(l, dp) &
                             *fac(m)/fac(m - j)/fac(j)
-            ENDDO
+            END DO
             DO ipgf = 1, npgf(iset)
                DO j = 0, m
                   scon_rx2m(ipgf, j + 1, ishell, iset) = scon_shg(ipgf, ishell, iset) &
                                                          *shg_fac(j)/zet(ipgf, iset)**j
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+               END DO
+            END DO
+         END DO
+      END DO
 
       DEALLOCATE (shg_fac)
 
@@ -319,9 +310,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :, :), POINTER               :: cg_none0_list
       INTEGER, DIMENSION(:, :), POINTER                  :: ncg_none0
       INTEGER, INTENT(IN)                                :: maxl1, maxl2
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_clebsch_gordon_coefficients', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: il, ilist, iso, iso1, iso2, l1, l1l2, &
                                                             l2, lc1, lc2, lp, m1, m2, maxl, mm, &
@@ -374,7 +362,7 @@ CONTAINS
                            iso = nsoset(lp - 1) + lp + 1 - ABS(mp)
                         END IF
                         my_cg(iso1, iso2, iso) = rga(il, 1)
-                     ENDIF
+                     END IF
                      IF (mp /= mm .AND. ABS(mm) <= lp) THEN
                         IF (mm >= 0) THEN
                            iso = nsoset(lp - 1) + lp + 1 + mm
@@ -382,7 +370,7 @@ CONTAINS
                            iso = nsoset(lp - 1) + lp + 1 - ABS(mm)
                         END IF
                         my_cg(iso1, iso2, iso) = rga(il, 2)
-                     ENDIF
+                     END IF
                   END DO
                   nlist = 0
                   DO ilist = 1, nsfunc
@@ -391,15 +379,15 @@ CONTAINS
                         IF (nlist > nlist_max) THEN
                            CALL reallocate(cg_none0_list, 1, nsfunc1, 1, nsfunc2, 1, nlist)
                            nlist_max = nlist
-                        ENDIF
+                        END IF
                         cg_none0_list(iso1, iso2, nlist) = ilist
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
                   ncg_none0(iso1, iso2) = nlist
-               ENDDO ! iso2
-            ENDDO ! lc2
-         ENDDO ! iso1
-      ENDDO ! lc1
+               END DO ! iso2
+            END DO ! lc2
+         END DO ! iso1
+      END DO ! lc1
 
       DEALLOCATE (rga)
       CALL clebsch_gordon_deallocate()

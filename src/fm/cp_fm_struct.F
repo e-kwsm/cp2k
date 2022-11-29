@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -30,7 +32,6 @@ MODULE cp_fm_struct
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_fm_struct'
-   INTEGER, SAVE, PRIVATE :: last_fmstruct_id_nr = 0
 
 ! the default blacs block sizes
 ! consider using #ifdefs to give them the optimal values
@@ -68,7 +69,6 @@ MODULE cp_fm_struct
 !>        used on the processors with context%mepos(1)==i
 !> \param ncol_locals ncol_locals(i) number of local rows of the matrix really
 !>        used on the processors with context%mepos(2)==i
-!> \param id_nr an identification number (guaranteed to be unique)
 !> \param ref_count reference count (see doc/ReferenceCounting.html)
 !> \param local_leading_dimension leading dimension of the data that is
 !>        stored on this processor
@@ -90,7 +90,7 @@ MODULE cp_fm_struct
       INTEGER, DIMENSION(2) :: first_p_pos
       INTEGER, DIMENSION(:), POINTER :: row_indices, col_indices, &
                                         nrow_locals, ncol_locals
-      INTEGER :: id_nr, ref_count, local_leading_dimension
+      INTEGER :: ref_count, local_leading_dimension
    END TYPE cp_fm_struct_type
 ! **************************************************************************************************
    TYPE cp_fm_struct_p_type
@@ -105,10 +105,10 @@ CONTAINS
 !> \param para_env the parallel environment
 !> \param context the blacs context of this matrix
 !> \param nrow_global the number of row of the full matrix
-!> \param ncol_global the number of colums of the full matrix
+!> \param ncol_global the number of columns of the full matrix
 !> \param nrow_block the number of rows of a block of the matrix,
 !>        omit or set to -1 to use the built-in defaults
-!> \param ncol_block the number of colums of a block of the matrix,
+!> \param ncol_block the number of columns of a block of the matrix,
 !>        omit or set to -1 to use the built-in defaults
 !> \param descriptor the scalapack descriptor of the matrix (if not given
 !>        a new one is allocated
@@ -137,9 +137,6 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER, OPTIONAL   :: template_fmstruct
       LOGICAL, OPTIONAL, INTENT(in)                :: square_blocks
       LOGICAL, OPTIONAL, INTENT(in)                :: force_block
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_struct_create', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                      :: dumblock
 #if defined(__SCALAPACK)
@@ -258,7 +255,7 @@ CONTAINS
          WRITE (iunit, *) "ncol_locals", fmstruct%ncol_locals
          WRITE (iunit, *) "nrow_locals", fmstruct%nrow_locals
          CALL m_flush(iunit)
-      ENDIF
+      END IF
 
       IF (SUM(fmstruct%ncol_locals) .NE. fmstruct%ncol_global) &
          CPABORT("sum of local cols not equal global cols")
@@ -283,8 +280,6 @@ CONTAINS
       END IF
 
       NULLIFY (fmstruct%row_indices, fmstruct%col_indices)
-      last_fmstruct_id_nr = last_fmstruct_id_nr + 1
-      fmstruct%id_nr = last_fmstruct_id_nr
       fmstruct%ref_count = 1
 
       IF (PRESENT(descriptor)) THEN
@@ -313,9 +308,6 @@ CONTAINS
    SUBROUTINE cp_fm_struct_retain(fmstruct)
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_struct_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(fmstruct))
       CPASSERT(fmstruct%ref_count > 0)
       fmstruct%ref_count = fmstruct%ref_count + 1
@@ -331,9 +323,6 @@ CONTAINS
    SUBROUTINE cp_fm_struct_release(fmstruct)
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_struct_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(fmstruct)) THEN
          CPASSERT(fmstruct%ref_count > 0)
          fmstruct%ref_count = fmstruct%ref_count - 1
@@ -342,7 +331,7 @@ CONTAINS
             CALL cp_para_env_release(fmstruct%para_env)
             IF (ASSOCIATED(fmstruct%row_indices)) THEN
                DEALLOCATE (fmstruct%row_indices)
-            ENDIF
+            END IF
             IF (ASSOCIATED(fmstruct%col_indices)) THEN
                DEALLOCATE (fmstruct%col_indices)
             END IF
@@ -372,16 +361,13 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct1, fmstruct2
       LOGICAL                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_struct_equivalent', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       CPASSERT(ASSOCIATED(fmstruct1))
       CPASSERT(ASSOCIATED(fmstruct2))
       CPASSERT(fmstruct1%ref_count > 0)
       CPASSERT(fmstruct2%ref_count > 0)
-      IF (fmstruct1%id_nr == fmstruct2%id_nr) THEN
+      IF (ASSOCIATED(fmstruct1, fmstruct2)) THEN
          res = .TRUE.
       ELSE
          res = (fmstruct1%context%group == fmstruct2%context%group) .AND. &
@@ -397,7 +383,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief returns the values of various attributes of the matrix structure
-!> \param fmstruct the structure you whant info about
+!> \param fmstruct the structure you want info about
 !> \param para_env ...
 !> \param context ...
 !> \param descriptor ...
@@ -405,8 +391,6 @@ CONTAINS
 !> \param nrow_block ...
 !> \param nrow_global ...
 !> \param ncol_global ...
-!> \param id_nr ...
-!> \param ref_count ...
 !> \param first_p_pos ...
 !> \param row_indices ...
 !> \param col_indices ...
@@ -421,29 +405,25 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_struct_get(fmstruct, para_env, context, &
                                descriptor, ncol_block, nrow_block, nrow_global, &
-                               ncol_global, id_nr, ref_count, first_p_pos, row_indices, &
+                               ncol_global, first_p_pos, row_indices, &
                                col_indices, nrow_local, ncol_local, nrow_locals, ncol_locals, &
                                local_leading_dimension)
-      TYPE(cp_fm_struct_type), POINTER :: fmstruct
+      TYPE(cp_fm_struct_type), INTENT(INOUT) :: fmstruct
       TYPE(cp_para_env_type), POINTER, OPTIONAL :: para_env
       TYPE(cp_blacs_env_type), POINTER, OPTIONAL :: context
       INTEGER, DIMENSION(9), INTENT(OUT), OPTIONAL :: descriptor
       INTEGER, INTENT(out), OPTIONAL :: ncol_block, nrow_block, nrow_global, &
-                                        ncol_global, id_nr, ref_count, nrow_local, ncol_local, &
+                                        ncol_global, nrow_local, ncol_local, &
                                         local_leading_dimension
       INTEGER, DIMENSION(2), INTENT(out), OPTIONAL :: first_p_pos
       INTEGER, DIMENSION(:), POINTER, OPTIONAL :: row_indices, col_indices, &
                                                   nrow_locals, ncol_locals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_struct_get', &
-                                     routineP = moduleN//':'//routineN
       INTEGER i, nprow, npcol, myprow, mypcol
 #if defined(__SCALAPACK)
       INTEGER, EXTERNAL :: indxl2g
 #endif
 
-      CPASSERT(ASSOCIATED(fmstruct))
-      CPASSERT(fmstruct%ref_count > 0)
       IF (PRESENT(para_env)) para_env => fmstruct%para_env
       IF (PRESENT(context)) context => fmstruct%context
       IF (PRESENT(descriptor)) descriptor = fmstruct%descriptor
@@ -451,8 +431,6 @@ CONTAINS
       IF (PRESENT(nrow_block)) nrow_block = fmstruct%nrow_block
       IF (PRESENT(nrow_global)) nrow_global = fmstruct%nrow_global
       IF (PRESENT(ncol_global)) ncol_global = fmstruct%ncol_global
-      IF (PRESENT(id_nr)) id_nr = fmstruct%id_nr
-      IF (PRESENT(ref_count)) ref_count = fmstruct%ref_count
       IF (PRESENT(first_p_pos)) first_p_pos = fmstruct%first_p_pos
       IF (PRESENT(nrow_locals)) nrow_locals => fmstruct%nrow_locals
       IF (PRESENT(ncol_locals)) ncol_locals => fmstruct%ncol_locals
@@ -477,14 +455,14 @@ CONTAINS
             DO i = 1, SIZE(row_indices)
                row_indices(i) = &
                   indxl2g(i, fmstruct%nrow_block, myprow, fmstruct%first_p_pos(1), nprow)
-            ENDDO
+            END DO
 #else
             DO i = 1, SIZE(row_indices)
                row_indices(i) = i
-            ENDDO
+            END DO
 #endif
          END IF
-      ENDIF
+      END IF
 
       IF (PRESENT(col_indices)) THEN
          col_indices => fmstruct%col_indices
@@ -495,15 +473,15 @@ CONTAINS
             DO i = 1, SIZE(col_indices)
                col_indices(i) = &
                   indxl2g(i, fmstruct%ncol_block, mypcol, fmstruct%first_p_pos(2), npcol)
-            ENDDO
+            END DO
 #else
             DO i = 1, SIZE(col_indices)
                col_indices(i) = i
-            ENDDO
+            END DO
 #endif
          END IF
 
-      ENDIF
+      END IF
    END SUBROUTINE cp_fm_struct_get
 
 ! **************************************************************************************************
@@ -560,9 +538,6 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct, struct
       TYPE(cp_blacs_env_type), POINTER                   :: context
       LOGICAL, INTENT(in)                                :: col, row
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_struct_double', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: n_doubled_items_in_partially_filled_block, ncol_block, ncol_global, newdim_col, &
          newdim_row, nfilled_blocks, nfilled_blocks_remain, nprocs_col, nprocs_row, nrow_block, &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -81,7 +83,7 @@ CONTAINS
 !>      atom=(0,0,1)
 !> \param current_atom the atom whose connections we're looking at
 !> \param avoid_atom the atom whose direction the search is not supposed to go
-!> \param connectivity an array telling us the neigbors of all atoms
+!> \param connectivity an array telling us the neighbors of all atoms
 !> \param atom the array that tells us if one can get to a given atom by
 !>        starting at current_atom and not going through avoid_atom...0 is no,
 !>        1 is yes
@@ -102,11 +104,11 @@ CONTAINS
                atom(connectivity(iatom, current_atom)) = 1
                CALL depth_first_search(connectivity(iatom, current_atom), &
                                        current_atom, connectivity, atom)
-            ENDIF
+            END IF
          ELSE
             RETURN
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
    END SUBROUTINE depth_first_search
 
@@ -145,8 +147,7 @@ CONTAINS
       LOGICAL, INTENT(OUT)                               :: lreject
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_conformation_change', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_conformation_change'
 
       CHARACTER(default_string_length)                   :: name
       CHARACTER(default_string_length), DIMENSION(:), &
@@ -190,7 +191,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
 ! figure out which molecule number we are
@@ -201,9 +202,9 @@ CONTAINS
          IF (atom_number == start_atom) THEN
             molecule_number = imolecule
             EXIT
-         ENDIF
+         END IF
          atom_number = atom_number + nunits(mol_type(imolecule + start_mol - 1))
-      ENDDO
+      END DO
       IF (molecule_number == 0) CPABORT('Cannot find the molecule number')
 
 ! are we biasing this move?
@@ -218,7 +219,7 @@ CONTAINS
 
 ! grab the coordinates
          CALL force_env_get(force_env, subsys=subsys)
-      ENDIF
+      END IF
 
 ! now find the molecule type associated with this guy
       CALL cp_subsys_get(subsys, &
@@ -229,13 +230,13 @@ CONTAINS
          IF (TRIM(ADJUSTL(name)) == TRIM(ADJUSTL(names(molecule_type)))) THEN
             molecule_kind => molecule_kinds%els(imol_type)
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
 ! save the coordinates
       DO ipart = start_atom, end_atom
          r_old(1:3, ipart - start_atom + 1) = particles%els(ipart)%r(1:3)
-      ENDDO
+      END DO
 
       IF (.NOT. ASSOCIATED(molecule_kind)) CPABORT('Cannot find the molecule type')
 ! do the move
@@ -253,7 +254,7 @@ CONTAINS
             moves%bias_bond%qsuccesses = moves%bias_bond%qsuccesses + 1
             move_updates%bias_bond%qsuccesses = &
                move_updates%bias_bond%qsuccesses + 1
-         ENDIF
+         END IF
 
 ! do the move
          CALL change_bond_length(r_old, r_new, mc_par, molecule_type, &
@@ -273,7 +274,7 @@ CONTAINS
             moves%bias_angle%qsuccesses = moves%bias_angle%qsuccesses + 1
             move_updates%bias_angle%qsuccesses = &
                move_updates%bias_angle%qsuccesses + 1
-         ENDIF
+         END IF
 
 ! do the move
          CALL change_bond_angle(r_old, r_new, mc_par, molecule_type, &
@@ -292,19 +293,19 @@ CONTAINS
             moves%bias_dihedral%qsuccesses = moves%bias_dihedral%qsuccesses + 1
             move_updates%bias_dihedral%qsuccesses = &
                move_updates%bias_dihedral%qsuccesses + 1
-         ENDIF
+         END IF
 
 ! do the move
          CALL change_dihedral(r_old, r_new, mc_par, molecule_type, &
                               molecule_kind, particles, rng_stream)
          dis_length = 1.0E0_dp
 
-      ENDIF
+      END IF
 
 ! set the coordinates
       DO ipart = start_atom, end_atom
          particles%els(ipart)%r(1:3) = r_new(1:3, ipart - start_atom + 1)
-      ENDDO
+      END DO
 
 ! check for overlap
       lreject = .FALSE.
@@ -317,7 +318,7 @@ CONTAINS
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
                                 molecule_number=molecule_number)
          IF (loverlap) lreject = .TRUE.
-      ENDIF
+      END IF
 
 ! if we're biasing classical, check for acceptance
       IF (lbias) THEN
@@ -340,9 +341,9 @@ CONTAINS
                w = 0.0_dp
             ELSE
                w = EXP(value)*dis_length**2
-            ENDIF
+            END IF
 
-         ENDIF
+         END IF
 
          IF (w .GE. 1.0E0_dp) THEN
             w = 1.0E0_dp
@@ -350,9 +351,9 @@ CONTAINS
          ELSE
             IF (ionode) THEN
                rand = rng_stream%next()
-            ENDIF
+            END IF
             CALL mp_bcast(rand, source, group)
-         ENDIF
+         END IF
 
          IF (rand .LT. w) THEN
 
@@ -378,7 +379,7 @@ CONTAINS
                moves%bias_dihedral%successes = moves%bias_dihedral%successes + 1
                move_updates%bias_dihedral%successes = &
                   move_updates%bias_dihedral%successes + 1
-            ENDIF
+            END IF
 
             bias_energy = bias_energy + bias_energy_new - &
                           bias_energy_old
@@ -391,12 +392,12 @@ CONTAINS
             CALL cp_subsys_get(subsys, particles=particles)
             DO ipart = start_atom, end_atom
                particles%els(ipart)%r(1:3) = r_old(1:3, ipart - start_atom + 1)
-            ENDDO
+            END DO
             CALL cp_subsys_set(subsys, particles=particles)
 
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r_old)
@@ -441,8 +442,7 @@ CONTAINS
       LOGICAL, INTENT(OUT)                               :: lreject
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_molecule_translation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_molecule_translation'
 
       INTEGER :: atom_number, end_atom, end_mol, group, handle, imolecule, ipart, iparticle, jbox, &
          molecule_number, move_direction, nunits_mol, source, start_mol
@@ -478,7 +478,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
 ! do some allocation
@@ -493,9 +493,9 @@ CONTAINS
          IF (atom_number == start_atom) THEN
             molecule_number = imolecule
             EXIT
-         ENDIF
+         END IF
          atom_number = atom_number + nunits(mol_type(imolecule + start_mol - 1))
-      ENDDO
+      END DO
       IF (molecule_number == 0) CPABORT('Cannot find the molecule number')
 
 ! are we biasing this move?
@@ -508,7 +508,7 @@ CONTAINS
 ! save the coordinates
          DO ipart = 1, nunits_tot(box_number)
             r_old(1:3, ipart) = particles%els(ipart)%r(1:3)
-         ENDDO
+         END DO
 
 ! save the energy
          bias_energy_old = bias_energy
@@ -518,7 +518,7 @@ CONTAINS
 ! grab the coordinates
          CALL force_env_get(force_env, subsys=subsys)
          CALL cp_subsys_get(subsys, particles=particles)
-      ENDIF
+      END IF
 
 ! record the attempt
       moves%trans%attempts = moves%trans%attempts + 1
@@ -530,7 +530,7 @@ CONTAINS
          move_updates%trans%qsuccesses = move_updates%trans%qsuccesses + 1
          moves%bias_trans%qsuccesses = moves%bias_trans%qsuccesses + 1
          move_updates%bias_trans%qsuccesses = move_updates%bias_trans%qsuccesses + 1
-      ENDIF
+      END IF
 
 ! move one molecule in the system
 
@@ -549,7 +549,7 @@ CONTAINS
       DO iparticle = start_atom, end_atom
          particles%els(iparticle)%r(move_direction) = &
             particles%els(iparticle)%r(move_direction) + dis_mol
-      ENDDO
+      END DO
       CALL cp_subsys_set(subsys, particles=particles)
 
 ! figure out if there is any overlap...need the number of the molecule
@@ -563,7 +563,7 @@ CONTAINS
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
                                 molecule_number=molecule_number)
          IF (loverlap) lreject = .TRUE.
-      ENDIF
+      END IF
 
 ! if we're biasing with a cheaper potential, check for acceptance
       IF (lbias) THEN
@@ -583,9 +583,9 @@ CONTAINS
                w = 0.0_dp
             ELSE
                w = EXP(value)
-            ENDIF
+            END IF
 
-         ENDIF
+         END IF
 
          IF (w .GE. 1.0E0_dp) THEN
             w = 1.0E0_dp
@@ -593,7 +593,7 @@ CONTAINS
          ELSE
             IF (ionode) rand = rng_stream%next()
             CALL mp_bcast(rand, source, group)
-         ENDIF
+         END IF
 
          IF (rand .LT. w) THEN
 
@@ -615,12 +615,12 @@ CONTAINS
             CALL cp_subsys_get(subsys, particles=particles)
             DO ipart = 1, nunits_tot(box_number)
                particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-            ENDDO
+            END DO
             CALL cp_subsys_set(subsys, particles=particles)
 
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r_old)
@@ -664,8 +664,7 @@ CONTAINS
       LOGICAL, INTENT(OUT)                               :: lreject
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_molecule_rotation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_molecule_rotation'
 
       INTEGER :: atom_number, dir, end_atom, end_mol, group, handle, ii, imolecule, ipart, iunit, &
          jbox, molecule_number, nunits_mol, source, start_mol
@@ -701,7 +700,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
       nunits_mol = nunits(molecule_type)
@@ -725,9 +724,9 @@ CONTAINS
          IF (atom_number == start_atom) THEN
             molecule_number = imolecule
             EXIT
-         ENDIF
+         END IF
          atom_number = atom_number + nunits(mol_type(imolecule + start_mol - 1))
-      ENDDO
+      END DO
       IF (molecule_number == 0) CPABORT('Cannot find the molecule number')
 
 ! are we biasing this move?
@@ -740,7 +739,7 @@ CONTAINS
 ! save the coordinates
          DO ipart = 1, nunits_tot(box_number)
             r_old(1:3, ipart) = particles%els(ipart)%r(1:3)
-         ENDDO
+         END DO
 
 ! save the energy
          bias_energy_old = bias_energy
@@ -750,7 +749,7 @@ CONTAINS
 ! grab the coordinates
          CALL force_env_get(force_env, subsys=subsys)
          CALL cp_subsys_get(subsys, particles=particles)
-      ENDIF
+      END IF
 
 ! grab the masses
       masstot = SUM(mass(1:nunits(molecule_type), molecule_type))
@@ -765,7 +764,7 @@ CONTAINS
          move_updates%rot%qsuccesses = move_updates%rot%qsuccesses + 1
          moves%bias_rot%qsuccesses = moves%bias_rot%qsuccesses + 1
          move_updates%bias_rot%qsuccesses = move_updates%bias_rot%qsuccesses + 1
-      ENDIF
+      END IF
 
 ! rotate one molecule in the system
 
@@ -780,7 +779,7 @@ CONTAINS
          lx = .TRUE.
       ELSEIF (dir .EQ. 2) THEN
          ly = .TRUE.
-      ENDIF
+      END IF
 
 ! Determine new center of mass for chain i by finding the sum
 ! of m*r for each unit, then dividing by the total mass of the chain
@@ -791,7 +790,7 @@ CONTAINS
          nxcm = nxcm + particles%els(start_atom - 1 + ii)%r(1)*mass(ii, molecule_type)
          nycm = nycm + particles%els(start_atom - 1 + ii)%r(2)*mass(ii, molecule_type)
          nzcm = nzcm + particles%els(start_atom - 1 + ii)%r(3)*mass(ii, molecule_type)
-      ENDDO
+      END DO
       nxcm = nxcm/masstot
       nycm = nycm/masstot
       nzcm = nzcm/masstot
@@ -819,7 +818,7 @@ CONTAINS
             particles%els(iunit)%r(2) = rynew + nycm
             particles%els(iunit)%r(3) = rznew + nzcm
 
-         ENDDO
+         END DO
       ELSEIF (ly) THEN
 
 ! ***    ROTATE UNITS OF I AROUND y-AXIS ***
@@ -833,7 +832,7 @@ CONTAINS
             particles%els(iunit)%r(1) = rxnew + nxcm
             particles%els(iunit)%r(3) = rznew + nzcm
 
-         ENDDO
+         END DO
 
       ELSE
 
@@ -849,9 +848,9 @@ CONTAINS
             particles%els(iunit)%r(1) = rxnew + nxcm
             particles%els(iunit)%r(2) = rynew + nycm
 
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
       CALL cp_subsys_set(subsys, particles=particles)
 
 ! check for overlap
@@ -865,7 +864,7 @@ CONTAINS
                                 nunits(:), loverlap, mol_type(start_mol:end_mol), &
                                 molecule_number=molecule_number)
          IF (loverlap) lreject = .TRUE.
-      ENDIF
+      END IF
 
 ! if we're biasing classical, check for acceptance
       IF (lbias) THEN
@@ -886,9 +885,9 @@ CONTAINS
                w = 0.0_dp
             ELSE
                w = EXP(value)
-            ENDIF
+            END IF
 
-         ENDIF
+         END IF
 
          IF (w .GE. 1.0E0_dp) THEN
             w = 1.0E0_dp
@@ -896,7 +895,7 @@ CONTAINS
          ELSE
             IF (ionode) rand = rng_stream%next()
             CALL mp_bcast(rand, source, group)
-         ENDIF
+         END IF
 
          IF (rand .LT. w) THEN
 
@@ -916,12 +915,12 @@ CONTAINS
             CALL cp_subsys_get(subsys, particles=particles)
             DO ipart = 1, nunits_tot(box_number)
                particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-            ENDDO
+            END DO
             CALL cp_subsys_set(subsys, particles=particles)
 
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r_old)
@@ -969,7 +968,7 @@ CONTAINS
       INTEGER, DIMENSION(1:3, 1:2), INTENT(INOUT)        :: discrete_array
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mc_volume_move', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mc_volume_move'
 
       CHARACTER(LEN=200)                                 :: fft_lib
       CHARACTER(LEN=40)                                  :: dat_file
@@ -1011,7 +1010,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
       print_level = 1 ! hack, printlevel is for print_keys
@@ -1038,10 +1037,10 @@ CONTAINS
       old_cell_length(2) = abc(2)
       old_cell_length(3) = abc(3)
 
-! save the old coordiantes
+! save the old coordinates
       DO iatom = 1, nunits_tot(box_number)
          r(1:3, iatom) = particles_old%els(iatom)%r(1:3)
-      ENDDO
+      END DO
 
 ! now do the move
 
@@ -1055,7 +1054,7 @@ CONTAINS
             lincrease = .TRUE.
          ELSE
             lincrease = .FALSE.
-         ENDIF
+         END IF
 
          new_cell_length(1:3) = old_cell_length(1:3)
 
@@ -1069,8 +1068,8 @@ CONTAINS
                   new_cell_length(iside_change) = &
                      new_cell_length(iside_change) + discrete_step
                   EXIT
-               ENDIF
-            ENDDO
+               END IF
+            END DO
          ELSE
             DO
                IF (ionode) rand = rng_stream%next()
@@ -1080,9 +1079,9 @@ CONTAINS
                   new_cell_length(iside_change) = &
                      new_cell_length(iside_change) - discrete_step
                   EXIT
-               ENDIF
-            ENDDO
-         ENDIF
+               END IF
+            END DO
+         END IF
          vol_dis = (new_cell_length(1)*new_cell_length(2)*new_cell_length(3)) &
                    - old_cell_length(1)*old_cell_length(2)*old_cell_length(3)
       ELSE
@@ -1108,8 +1107,8 @@ CONTAINS
             new_cell_length(2) = new_cell_length(1)
             new_cell_length(3) = new_cell_length(1)
             loverlap = .FALSE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       CALL mp_bcast(loverlap, source, group)
 
       IF (loverlap) THEN
@@ -1122,7 +1121,7 @@ CONTAINS
 !     end the timing
          CALL timestop(handle)
          RETURN
-      ENDIF
+      END IF
 
 ! now we need to make the new cell
       hmat_test(:, :) = 0.0e0_dp
@@ -1152,7 +1151,7 @@ CONTAINS
          DO iside = 1, 3
             center_of_mass_new(iside) = center_of_mass(iside)* &
                                         new_cell_length(iside)/old_cell_length(iside)
-         ENDDO
+         END DO
 
          DO idim = 1, 3
             diff(idim) = center_of_mass_new(idim) - center_of_mass(idim)
@@ -1160,9 +1159,9 @@ CONTAINS
             DO iunit = start_atom, end_atom
                particles_old%els(iunit)%r(idim) = &
                   particles_old%els(iunit)%r(idim) + diff(idim)
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
 
 ! check for overlap
       CALL check_for_overlap(force_env, nchains(:, box_number), &
@@ -1185,9 +1184,9 @@ CONTAINS
          CALL cp_subsys_set(oldsys, cell=cell_old)
          DO iatom = 1, nunits_tot(box_number)
             particles_old%els(iatom)%r(1:3) = r_old(1:3, iatom)
-         ENDDO
+         END DO
          RETURN
-      ENDIF
+      END IF
 
 ! stop if we're trying to change a box to a boxlength smaller than rcut
       IF (ionode) THEN
@@ -1202,9 +1201,9 @@ CONTAINS
                WRITE (iw, *) 'new_cell_lengths ', &
                   new_cell_length(1:3)/angstrom
                WRITE (iw, *) 'rcut ', rcut/angstrom
-            ENDIF
-         ENDIF
-      ENDIF
+            END IF
+         END IF
+      END IF
       CALL mp_bcast(ltoo_small, source, group)
       IF (ltoo_small) &
          CPABORT("Attempted a volume move where box size got too small.")
@@ -1229,7 +1228,7 @@ CONTAINS
          w = 0.0_dp
       ELSE
          w = EXP(value)
-      ENDIF
+      END IF
 
 !!!!!!!!!!!!!!!! for E_V curves
 !         w=1.0E0_dp
@@ -1241,7 +1240,7 @@ CONTAINS
       ELSE
          IF (ionode) rand = rng_stream%next()
          CALL mp_bcast(rand, source, group)
-      ENDIF
+      END IF
 
       IF (rand .LT. w) THEN
 
@@ -1255,13 +1254,13 @@ CONTAINS
 
          DO iatom = 1, nunits_tot(box_number)
             r_old(1:3, iatom) = particles_old%els(iatom)%r(1:3)
-         ENDDO
+         END DO
 
 ! update discrete_array if we're doing a discrete volume move
          IF (ldiscrete) THEN
             CALL create_discrete_array(new_cell_length(:), &
                                        discrete_array(:, :), discrete_step)
-         ENDIF
+         END IF
 
       ELSE
 
@@ -1269,9 +1268,9 @@ CONTAINS
          CALL cp_subsys_set(oldsys, cell=cell_old)
          DO iatom = 1, nunits_tot(box_number)
             particles_old%els(iatom)%r(1:3) = r_old(1:3, iatom)
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r)
@@ -1312,8 +1311,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'change_bond_length', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'change_bond_length'
 
       INTEGER                                            :: bond_number, group, handle, i, iatom, &
                                                             ibond, ipart, natom, nbond, source
@@ -1342,12 +1340,12 @@ CONTAINS
 ! copy the incoming coordinates so we can change them
       DO ipart = 1, nunits(molecule_type)
          r_new(1:3, ipart) = r_old(1:3, ipart)
-      ENDDO
+      END DO
 
 ! pick which bond in the molecule at random
       IF (ionode) THEN
          rand = rng_stream%next()
-      ENDIF
+      END IF
       CALL mp_bcast(rand, source, group)
       CALL get_molecule_kind(molecule_kind, natom=natom, nbond=nbond, &
                              bond_list=bond_list)
@@ -1375,9 +1373,9 @@ CONTAINS
             ELSEIF (bond_list(ibond)%b == iatom) THEN
                counter(iatom) = counter(iatom) + 1
                connectivity(counter(iatom), iatom) = bond_list(ibond)%a
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
 ! now I need to do a depth first search to figure out which atoms are on atom a's
 ! side and which are on atom b's
@@ -1401,8 +1399,8 @@ CONTAINS
             mass_a = mass_a + atom_mass
          ELSE
             mass_b = mass_b + atom_mass
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
 ! choose a displacement
       IF (ionode) rand = rng_stream%next()
@@ -1415,7 +1413,7 @@ CONTAINS
          bond_a(i) = r_new(i, bond_list(bond_number)%a) - &
                      r_new(i, bond_list(bond_number)%b)
          bond_b(i) = -bond_a(i)
-      ENDDO
+      END DO
 
 ! notice we weight by the opposite masses...therefore lighter segments
 ! will move further
@@ -1426,7 +1424,7 @@ CONTAINS
       DO i = 1, 3
          bond_a(i) = bond_a(i)/old_length*new_length_a
          bond_b(i) = bond_b(i)/old_length*new_length_b
-      ENDDO
+      END DO
 
       DO iatom = 1, natom
          IF (atom_a(iatom) == 1) THEN
@@ -1437,8 +1435,8 @@ CONTAINS
             r_new(1, iatom) = r_new(1, iatom) + bond_b(1)
             r_new(2, iatom) = r_new(2, iatom) + bond_b(2)
             r_new(3, iatom) = r_new(3, iatom) + bond_b(3)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
 ! correct the value of dis_length for the acceptance rule
       dis_length = (old_length + dis_length)/old_length
@@ -1479,8 +1477,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'change_bond_angle', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'change_bond_angle'
 
       INTEGER                                            :: bend_number, group, handle, i, iatom, &
                                                             ibond, ipart, natom, nbend, nbond, &
@@ -1512,12 +1509,12 @@ CONTAINS
 ! copy the incoming coordinates so we can change them
       DO ipart = 1, nunits(molecule_type)
          r_new(1:3, ipart) = r_old(1:3, ipart)
-      ENDDO
+      END DO
 
 ! pick which bond in the molecule at random
       IF (ionode) THEN
          rand = rng_stream%next()
-      ENDIF
+      END IF
       CALL mp_bcast(rand, source, group)
       CALL get_molecule_kind(molecule_kind, natom=natom, nbend=nbend, &
                              bend_list=bend_list, bond_list=bond_list, nbond=nbond)
@@ -1545,9 +1542,9 @@ CONTAINS
             ELSEIF (bond_list(ibond)%b == iatom) THEN
                counter(iatom) = counter(iatom) + 1
                connectivity(counter(iatom), iatom) = bond_list(ibond)%a
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
 ! now I need to do a depth first search to figure out which atoms are on atom a's
 ! side and which are on atom c's
@@ -1569,7 +1566,7 @@ CONTAINS
                               mass=atom_mass)
          IF (atom_a(iatom) == 1) mass_a = mass_a + atom_mass
          IF (atom_c(iatom) == 1) mass_c = mass_c + atom_mass
-      ENDDO
+      END DO
 
 ! choose a displacement
       IF (ionode) rand = rng_stream%next()
@@ -1589,7 +1586,7 @@ CONTAINS
                      r_new(i, bend_list(bend_number)%b)
          bond_c(i) = r_new(i, bend_list(bend_number)%c) - &
                      r_new(i, bend_list(bend_number)%b)
-      ENDDO
+      END DO
       old_length_a = SQRT(DOT_PRODUCT(bond_a, bond_a))
       old_length_c = SQRT(DOT_PRODUCT(bond_c, bond_c))
       old_angle = ACOS(DOT_PRODUCT(bond_a, bond_c)/(old_length_a*old_length_c))
@@ -1597,7 +1594,7 @@ CONTAINS
       DO i = 1, 3
          bisector(i) = bond_a(i)/old_length_a + & ! not yet normalized
                        bond_c(i)/old_length_c
-      ENDDO
+      END DO
       bis_length = SQRT(DOT_PRODUCT(bisector, bisector))
       bisector(1:3) = bisector(1:3)/bis_length
 
@@ -1621,7 +1618,7 @@ CONTAINS
       DO iatom = 1, natom
          r_new(1:3, iatom) = r_new(1:3, iatom) - &
                              r_old(1:3, bend_list(bend_number)%b)
-      ENDDO
+      END DO
 
 ! figure out how much we move each side, since we're mass-weighting, by the
 ! opposite masses, so lighter moves farther..this angle is the angle between
@@ -1664,7 +1661,7 @@ CONTAINS
                                    SIN(new_angle_a)*temp_length*cross_prod_plane(1:3) + &
                                    DOT_PRODUCT(cross_prod(1:3), r_new(1:3, iatom))* &
                                    cross_prod(1:3)
-            ENDIF
+            END IF
 
          ELSEIF (atom_c(iatom) == 1) THEN
 
@@ -1688,15 +1685,15 @@ CONTAINS
                                    SIN(new_angle_c)*temp_length*cross_prod_plane(1:3) + &
                                    DOT_PRODUCT(cross_prod(1:3), r_new(1:3, iatom))* &
                                    cross_prod(1:3)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
-      ENDDO
+      END DO
 
       DO iatom = 1, natom
          r_new(1:3, iatom) = r_new(1:3, iatom) + &
                              r_old(1:3, bend_list(bend_number)%b)
-      ENDDO
+      END DO
 
 ! deallocate some stuff
       DEALLOCATE (connection)
@@ -1739,8 +1736,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'change_dihedral', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'change_dihedral'
 
       INTEGER                                            :: group, handle, i, iatom, ibond, ipart, &
                                                             natom, nbond, ntorsion, source, &
@@ -1773,13 +1769,13 @@ CONTAINS
 ! copy the incoming coordinates so we can change them
       DO ipart = 1, nunits(molecule_type)
          r_new(1:3, ipart) = r_old(1:3, ipart)
-      ENDDO
+      END DO
 
 ! pick which bond in the molecule at random
       IF (ionode) THEN
          rand = rng_stream%next()
 !      CALL RANDOM_NUMBER(rand)
-      ENDIF
+      END IF
       CALL mp_bcast(rand, source, group)
       CALL get_molecule_kind(molecule_kind, natom=natom, &
                              bond_list=bond_list, nbond=nbond, &
@@ -1808,9 +1804,9 @@ CONTAINS
             ELSEIF (bond_list(ibond)%b == iatom) THEN
                counter(iatom) = counter(iatom) + 1
                connectivity(counter(iatom), iatom) = bond_list(ibond)%a
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
 ! now I need to do a depth first search to figure out which atoms are on atom
 ! a's side and which are on atom d's, but remember we're moving all atoms on a's
@@ -1833,7 +1829,7 @@ CONTAINS
                               mass=atom_mass)
          IF (atom_a(iatom) == 1) mass_a = mass_a + atom_mass
          IF (atom_d(iatom) == 1) mass_d = mass_d + atom_mass
-      ENDDO
+      END DO
 
 ! choose a displacement
       IF (ionode) rand = rng_stream%next()
@@ -1845,7 +1841,7 @@ CONTAINS
       DO i = 1, 3
          bond_a(i) = r_new(i, torsion_list(torsion_number)%c) - &
                      r_new(i, torsion_list(torsion_number)%b)
-      ENDDO
+      END DO
       old_length_a = SQRT(DOT_PRODUCT(bond_a, bond_a))
       bond_a(1:3) = bond_a(1:3)/old_length_a
 
@@ -1903,8 +1899,8 @@ CONTAINS
 ! shift back to the original position
             temp(1:3) = temp(1:3) + r_new(1:3, torsion_list(torsion_number)%c)
             r_new(1:3, iatom) = temp(1:3)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
 ! deallocate some stuff
       DEALLOCATE (connection)
@@ -1926,7 +1922,7 @@ CONTAINS
 !>            be null if lbias=.false. in mc_par)
 !> \param moves the structure that keeps track of how many moves have been
 !>               accepted/rejected
-!> \param energy_check the running energy difference between now and the inital
+!> \param energy_check the running energy difference between now and the initial
 !>        energy
 !> \param r_old the coordinates of force_env before the move
 !> \param old_energy the energy of the force_env before the move
@@ -1960,7 +1956,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: move_type
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_avbmc_move', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mc_avbmc_move'
 
       INTEGER                                            :: end_mol, group, handle, ipart, jbox, &
                                                             natom, nswapmoves, source, start_mol
@@ -1999,7 +1995,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
 ! nullify some pointers
@@ -2034,7 +2030,7 @@ CONTAINS
          CALL get_molecule_kind(molecule_kind, natom=natom)
          CALL get_cell(cell, abc=abc)
 
-      ENDIF
+      END IF
 
 ! let's determine if the molecule to be moved is in the "in" region or the
 ! "out" region of the target
@@ -2055,7 +2051,7 @@ CONTAINS
          lin = .TRUE.
       ELSE
          lin = .FALSE.
-      ENDIF
+      END IF
 
 ! increment the counter of the particular move we've done
 !     swapping into the "in" region of mol_target
@@ -2066,7 +2062,7 @@ CONTAINS
          ELSE
             moves%avbmc_inout%attempts = &
                moves%avbmc_inout%attempts + 1
-         ENDIF
+         END IF
       ELSE
          IF (move_type == 'in') THEN
             moves%avbmc_outin%attempts = &
@@ -2074,8 +2070,8 @@ CONTAINS
          ELSE
             moves%avbmc_outout%attempts = &
                moves%avbmc_outout%attempts + 1
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (lbias) THEN
 
@@ -2105,7 +2101,7 @@ CONTAINS
                                            rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='in', &
                                            target_atom=target_atom)
 
-         ENDIF
+         END IF
 
 ! generate the new config
          CALL generate_cbmc_swap_config(bias_env, BETA, max_val, min_val, exp_max_val, &
@@ -2152,7 +2148,7 @@ CONTAINS
                                            rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type='in', &
                                            target_atom=target_atom)
 
-         ENDIF
+         END IF
 
          ! generate the new config...do this after, because it changes the force_env
          CALL generate_cbmc_swap_config(force_env, BETA, max_val, min_val, exp_max_val, &
@@ -2165,7 +2161,7 @@ CONTAINS
                                         rmin=avbmc_rmin(molecule_type), rmax=avbmc_rmax(molecule_type), move_type=move_type, &
                                         target_atom=target_atom)
 
-      ENDIF
+      END IF
 
       IF (loverlap) THEN
          DEALLOCATE (r_new)
@@ -2177,15 +2173,15 @@ CONTAINS
          ELSE
             CALL force_env_get(force_env, subsys=subsys)
             CALL cp_subsys_get(subsys, particles=particles)
-         ENDIF
+         END IF
          DO ipart = 1, nunits_tot(box_number)
             particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-         ENDDO
+         END DO
 
          CALL timestop(handle)
 
          RETURN
-      ENDIF
+      END IF
 
 ! if we're biasing, we need to compute the new energy with the full
 ! potential
@@ -2197,14 +2193,14 @@ CONTAINS
          CALL cp_subsys_get(subsys, particles=particles)
          DO ipart = 1, nunits_tot(box_number)
             particles_force%els(ipart)%r(1:3) = particles%els(ipart)%r(1:3)
-         ENDDO
+         END DO
 
          CALL force_env_calc_energy_force(force_env, &
                                           calc_force=.FALSE.)
          CALL force_env_get(force_env, &
                             potential_energy=new_energy)
 
-      ENDIF
+      END IF
 
       volume_in = 4.0_dp/3.0_dp*pi*(avbmc_rmax(molecule_type)**3 - avbmc_rmin(molecule_type)**3)
       volume_out = abc(1)*abc(2)*abc(3) - volume_in
@@ -2217,7 +2213,7 @@ CONTAINS
          prefactor = (1.0_dp - pbias(molecule_type))*volume_in/(pbias(molecule_type)*volume_out)
       ELSE
          prefactor = pbias(molecule_type)*volume_out/((1.0_dp - pbias(molecule_type))*volume_in)
-      ENDIF
+      END IF
 
       IF (lbias) THEN
 ! AVBMC with CBMC and a biasing potential...notice that if the biasing
@@ -2232,7 +2228,7 @@ CONTAINS
             del_quickstep_energy = 0.0_dp
          ELSE
             del_quickstep_energy = EXP(del_quickstep_energy)
-         ENDIF
+         END IF
 
          w = prefactor*del_quickstep_energy*weight_new/weight_old
 
@@ -2240,7 +2236,7 @@ CONTAINS
 
 ! AVBMC with CBMC
          w = prefactor*weight_new/weight_old
-      ENDIF
+      END IF
 
 ! check if the move is accepted
       IF (w .GE. 1.0E0_dp) THEN
@@ -2248,7 +2244,7 @@ CONTAINS
       ELSE
          IF (ionode) rand = rng_stream%next()
          CALL mp_bcast(rand, source, group)
-      ENDIF
+      END IF
 
       IF (rand .LT. w) THEN
 
@@ -2261,7 +2257,7 @@ CONTAINS
             ELSE
                moves%avbmc_inout%successes = &
                   moves%avbmc_inout%successes + 1
-            ENDIF
+            END IF
          ELSE
             IF (move_type == 'in') THEN
                moves%avbmc_outin%successes = &
@@ -2269,14 +2265,14 @@ CONTAINS
             ELSE
                moves%avbmc_outout%successes = &
                   moves%avbmc_outout%successes + 1
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
 ! we need to compensate for the fact that we take the difference in
 ! generate_cbmc_config to keep the exponetials small
          IF (.NOT. lbias) THEN
             new_energy = new_energy + old_energy
-         ENDIF
+         END IF
 
 ! update energies
          energy_check = energy_check + (new_energy - old_energy)
@@ -2287,14 +2283,14 @@ CONTAINS
 ! need to do this outside of the routine
             last_bias_energy = bias_energy_new
             bias_energy_old = bias_energy_new
-         ENDIF
+         END IF
 
 ! update coordinates
          CALL force_env_get(force_env, subsys=subsys)
          CALL cp_subsys_get(subsys, particles=particles)
          DO ipart = 1, nunits_tot(box_number)
             r_old(1:3, ipart) = particles%els(ipart)%r(1:3)
-         ENDDO
+         END DO
       ELSE
 ! reject the move...need to restore the old coordinates
          IF (lbias) THEN
@@ -2302,17 +2298,17 @@ CONTAINS
             CALL cp_subsys_get(subsys, particles=particles)
             DO ipart = 1, nunits_tot(box_number)
                particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-            ENDDO
+            END DO
             CALL cp_subsys_set(subsys, particles=particles)
-         ENDIF
+         END IF
          CALL force_env_get(force_env, subsys=subsys)
          CALL cp_subsys_get(subsys, particles=particles)
          DO ipart = 1, nunits_tot(box_number)
             particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-         ENDDO
+         END DO
          CALL cp_subsys_set(subsys, particles=particles)
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r_new)
@@ -2356,7 +2352,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: r_old
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mc_hmc_move', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mc_hmc_move'
 
       INTEGER                                            :: group, handle, iatom, source
       INTEGER, DIMENSION(:), POINTER                     :: nunits_tot
@@ -2398,7 +2394,7 @@ CONTAINS
 ! save the old coordinates
       DO iatom = 1, nunits_tot(box_number)
          r(1:3, iatom) = particles_old%els(iatom)%r(1:3)
-      ENDDO
+      END DO
 
 ! now run the MD simulation
       CALL qs_mol_dyn(force_env, globenv, hmc_e_initial=hmc_ekin%initial_ekin, hmc_e_final=hmc_ekin%final_ekin)
@@ -2418,7 +2414,7 @@ CONTAINS
          w = 0.0_dp
       ELSE
          w = EXP(value)
-      ENDIF
+      END IF
 
       IF (w .GE. 1.0E0_dp) THEN
          w = 1.0E0_dp
@@ -2426,7 +2422,7 @@ CONTAINS
       ELSE
          IF (ionode) rand = rng_stream%next()
          CALL mp_bcast(rand, source, group)
-      ENDIF
+      END IF
 
       IF (rand .LT. w) THEN
 
@@ -2440,16 +2436,16 @@ CONTAINS
 
          DO iatom = 1, nunits_tot(box_number)
             r_old(1:3, iatom) = particles_old%els(iatom)%r(1:3)
-         ENDDO
+         END DO
 
       ELSE
 
 ! reset the cell and particle positions
          DO iatom = 1, nunits_tot(box_number)
             particles_old%els(iatom)%r(1:3) = r_old(1:3, iatom)
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (r)
@@ -2491,8 +2487,7 @@ CONTAINS
       LOGICAL, INTENT(OUT)                               :: lreject
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_cluster_translation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_cluster_translation'
 
       INTEGER :: cstart, end_mol, group, handle, imol, ipart, iparticle, iunit, jbox, jpart, &
          junit, move_direction, nend, nunit, source, start_mol, total_clus, total_clusafmo
@@ -2528,7 +2523,7 @@ CONTAINS
       start_mol = 1
       DO jbox = 1, box_number - 1
          start_mol = start_mol + SUM(nchains(:, jbox))
-      ENDDO
+      END DO
       end_mol = start_mol + SUM(nchains(:, box_number)) - 1
 
 ! do some allocation
@@ -2550,7 +2545,7 @@ CONTAINS
       ELSE
          CALL cluster_search(mc_par, force_env, cluster, nchains(:, box_number), &
                              nunits, mol_type(start_mol:end_mol), total_clus)
-      ENDIF
+      END IF
 
       IF (lbias) THEN
 
@@ -2561,7 +2556,7 @@ CONTAINS
 ! save the coordinates
          DO ipart = 1, nunits_tot(box_number)
             r_old(1:3, ipart) = particles%els(ipart)%r(1:3)
-         ENDDO
+         END DO
 
 ! save the energy
          bias_energy_old = bias_energy
@@ -2570,7 +2565,7 @@ CONTAINS
 ! grab the coordinates
          CALL force_env_get(force_env, subsys=subsys)
          CALL cp_subsys_get(subsys, particles=particles)
-      ENDIF
+      END IF
 
 ! record the attempt
       moves%cltrans%attempts = moves%cltrans%attempts + 1
@@ -2582,7 +2577,7 @@ CONTAINS
          move_updates%cltrans%qsuccesses = move_updates%cltrans%qsuccesses + 1
          moves%bias_cltrans%qsuccesses = moves%bias_cltrans%qsuccesses + 1
          move_updates%bias_cltrans%qsuccesses = move_updates%bias_cltrans%qsuccesses + 1
-      ENDIF
+      END IF
 
 ! call a random number to figure out which direction we're moving
       IF (ionode) rand = rng_stream%next()
@@ -2614,7 +2609,7 @@ CONTAINS
             DO iparticle = iunit, junit
                particles%els(iparticle)%r(move_direction) = &
                   particles%els(iparticle)%r(move_direction) + dis_mol
-            ENDDO
+            END DO
          END IF
       END DO
       CALL cp_subsys_set(subsys, particles=particles)
@@ -2633,7 +2628,7 @@ CONTAINS
       ELSE
          CALL cluster_search(mc_par, force_env, cluster, nchains(:, box_number), &
                              nunits, mol_type(start_mol:end_mol), total_clusafmo)
-      ENDIF
+      END IF
 
 ! figure out if there is any overlap...need the number of the molecule
       lreject = .FALSE.
@@ -2644,7 +2639,7 @@ CONTAINS
          CALL check_for_overlap(force_env, nchains(:, box_number), &
                                 nunits(:), loverlap, mol_type(start_mol:end_mol))
          IF (loverlap) lreject = .TRUE.
-      ENDIF
+      END IF
 
 ! check if cluster size changes then reject the move
       IF (lbias) THEN
@@ -2656,7 +2651,7 @@ CONTAINS
             loverlap = .TRUE.
             lreject = .TRUE.
          END IF
-      ENDIF
+      END IF
 
 ! if we're biasing with a cheaper potential, check for acceptance
       IF (lbias) THEN
@@ -2676,9 +2671,9 @@ CONTAINS
                w = 0.0_dp
             ELSE
                w = EXP(value)
-            ENDIF
+            END IF
 
-         ENDIF
+         END IF
 
          IF (w .GE. 1.0E0_dp) THEN
             w = 1.0E0_dp
@@ -2686,7 +2681,7 @@ CONTAINS
          ELSE
             IF (ionode) rand = rng_stream%next()
             CALL mp_bcast(rand, source, group)
-         ENDIF
+         END IF
          IF (rand .LT. w) THEN
 
 ! accept the move
@@ -2707,12 +2702,12 @@ CONTAINS
             CALL cp_subsys_get(subsys, particles=particles)
             DO ipart = 1, nunits_tot(box_number)
                particles%els(ipart)%r(1:3) = r_old(1:3, ipart)
-            ENDDO
+            END DO
             CALL cp_subsys_set(subsys, particles=particles)
 
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
 ! deallocate some stuff
       DEALLOCATE (cluster)

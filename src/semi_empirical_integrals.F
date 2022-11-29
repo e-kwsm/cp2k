@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -74,8 +76,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotint', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: buffer_left, buffer_size, buffer_start, &
                                                             cache_size, memory_usage, nbits, &
@@ -227,8 +227,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), OPTIONAL, POINTER    :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotnuc', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: buffer_left, buffer_size, buffer_start, &
                                                             cache_size, memory_usage, nbits, &
@@ -405,8 +403,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore', routineP = moduleN//':'//routineN
-
       enuc = 0.0_dp
       IF (se_int_control%integral_screening == do_se_IS_slater) THEN
          CALL corecore_gks(sepi, sepj, rij, enuc=enuc, se_int_control=se_int_control)
@@ -446,8 +442,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore_el', routineP = moduleN//':'//routineN
-
       enuc = 0.0_dp
       IF (anag) THEN
          CALL corecore_el_ana(sepi, sepj, rij, enuc=enuc, itype=itype, se_int_control=se_int_control, &
@@ -480,8 +474,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: anag
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'drotint', routineP = moduleN//':'//routineN
 
       dw(:, :) = 0.0_dp
       IF (se_int_control%integral_screening == do_se_IS_slater) THEN
@@ -520,8 +512,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: anag
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'drotnuc', routineP = moduleN//':'//routineN
 
       IF (PRESENT(de1b)) de1b(:, :) = 0.0_dp
       IF (PRESENT(de2a)) de2a(:, :) = 0.0_dp
@@ -564,8 +554,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcorecore', routineP = moduleN//':'//routineN
-
       denuc = 0.0_dp
       IF (se_int_control%integral_screening == do_se_IS_slater) THEN
          CALL corecore_gks(sepi, sepj, rij, denuc=denuc, se_int_control=se_int_control)
@@ -606,8 +594,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: anag
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcorecore_el', routineP = moduleN//':'//routineN
 
       denuc = 0.0_dp
       IF (anag) THEN

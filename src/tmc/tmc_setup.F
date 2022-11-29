@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -103,11 +105,11 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_tmc', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'do_tmc'
 
       INTEGER                                            :: bcast_output_unit, handle, i, ierr, &
                                                             output_unit
-      LOGICAL                                            :: success
+      LOGICAL                                            :: init_rng, success
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: init_rng_seed
       TYPE(cp_logger_type), POINTER                      :: logger, logger_sub
       TYPE(section_vals_type), POINTER                   :: tmc_ana_section
@@ -128,7 +130,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          CALL tmc_header(output_unit)
          CALL m_flush(output_unit)
-      ENDIF
+      END IF
       ! ugly, we need to know the output unit on source, everywhere, in particular
       ! the tmc master
       IF (output_unit .NE. default_output_unit .AND. output_unit .GT. 0) THEN
@@ -164,23 +166,27 @@ CONTAINS
          !CALL init_move_types(tmc_params=tmc_env%params)
 
          ! init random number generator: use determistic random numbers
-         IF (tmc_env%tmc_comp_set%group_nr .EQ. 0 .AND. &
-             tmc_env%m_env%rnd_init .GT. 0) THEN
-            ALLOCATE (init_rng_seed(3, 2))
-            init_rng_seed(:, :) = &
-               RESHAPE((/tmc_env%m_env%rnd_init*42.0_dp, &
-                         tmc_env%m_env%rnd_init*54.0_dp, &
-                         tmc_env%m_env%rnd_init*63.0_dp, &
-                         tmc_env%m_env%rnd_init*98.0_dp, &
-                         tmc_env%m_env%rnd_init*10.0_dp, &
-                         tmc_env%m_env%rnd_init*2.0_dp/), &
-                       (/3, 2/))
-            tmc_env%rng_stream = rng_stream_type( &
-                                 name="TMC_deterministic_rng_stream", &
-                                 seed=init_rng_seed(:, :), &
-                                 distribution_type=UNIFORM)
-            DEALLOCATE (init_rng_seed)
-         ELSE
+         init_rng = .TRUE.
+         IF (tmc_env%tmc_comp_set%group_nr .EQ. 0) THEN
+            IF (tmc_env%m_env%rnd_init .GT. 0) THEN
+               init_rng = .FALSE.
+               ALLOCATE (init_rng_seed(3, 2))
+               init_rng_seed(:, :) = &
+                  RESHAPE((/tmc_env%m_env%rnd_init*42.0_dp, &
+                            tmc_env%m_env%rnd_init*54.0_dp, &
+                            tmc_env%m_env%rnd_init*63.0_dp, &
+                            tmc_env%m_env%rnd_init*98.0_dp, &
+                            tmc_env%m_env%rnd_init*10.0_dp, &
+                            tmc_env%m_env%rnd_init*2.0_dp/), &
+                          (/3, 2/))
+               tmc_env%rng_stream = rng_stream_type( &
+                                    name="TMC_deterministic_rng_stream", &
+                                    seed=init_rng_seed(:, :), &
+                                    distribution_type=UNIFORM)
+               DEALLOCATE (init_rng_seed)
+            END IF
+         END IF
+         IF (init_rng) THEN
             tmc_env%rng_stream = rng_stream_type( &
                                  name="TMC_rng_stream", &
                                  distribution_type=UNIFORM)
@@ -205,7 +211,7 @@ CONTAINS
                               file_action="WRITE", file_position="APPEND", &
                               unit_number=tmc_env%m_env%io_unit)
                CALL tmc_header(tmc_env%m_env%io_unit)
-            ENDIF
+            END IF
             ! print the intresting parameters and starting values
             CALL tmc_print_params(tmc_env)
             CALL print_move_types(init=.TRUE., file_io=tmc_env%m_env%io_unit, &
@@ -214,7 +220,7 @@ CONTAINS
 
             IF (bcast_output_unit .NE. tmc_env%m_env%io_unit) THEN
                CALL close_file(unit_number=tmc_env%m_env%io_unit)
-            ENDIF
+            END IF
 
             CALL cp_rm_default_logger()
             CALL cp_logger_release(logger_sub)
@@ -285,7 +291,7 @@ CONTAINS
                               file_action="WRITE", file_position="APPEND", &
                               unit_number=output_unit)
                CALL tmc_ana_header(output_unit)
-            ENDIF
+            END IF
 
             ALLOCATE (tmc_ana_env_list(tmc_env%params%nr_temp))
             tmc_ana_section => section_vals_get_subs_vals(root_section, "MOTION%TMC%TMC_ANALYSIS")
@@ -302,7 +308,7 @@ CONTAINS
             DEALLOCATE (tmc_ana_env_list)
             IF (bcast_output_unit .NE. output_unit) THEN
                CALL close_file(unit_number=tmc_env%m_env%io_unit)
-            ENDIF
+            END IF
             CALL cp_rm_default_logger()
             CALL cp_logger_release(logger_sub)
 
@@ -327,7 +333,7 @@ CONTAINS
             WRITE (output_unit, *) "TMC|NOTcalculatedTotal energy: -999"
          END IF
       END IF
-      ! finalize / deallocate everthing
+      ! finalize / deallocate everything
       CALL tmc_env_release(tmc_env)
 
       ! end the timing
@@ -348,8 +354,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_analyze_files', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'do_analyze_files'
 
       INTEGER                                            :: comm, dir_ind, handle, my_mpi_world, &
                                                             nr_dim, output_unit, temp
@@ -434,7 +439,7 @@ CONTAINS
             END DO
             CALL finalize_tmc_analysis(ana_env=ana_list(temp)%temp)
             ! write analysis restart file
-            !  if there is somthing to write
+            !  if there is something to write
             ! shifts the last element to actual element
             IF (ASSOCIATED(ana_list(temp)%temp%last_elem)) &
                CALL analysis_restart_print(ana_env=ana_list(temp)%temp)
@@ -473,9 +478,6 @@ CONTAINS
       TYPE(tmc_ana_list_type), DIMENSION(:), POINTER     :: ana_list
       TYPE(tree_type), POINTER                           :: elem
       TYPE(tmc_env_type), POINTER                        :: tmc_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'tmc_read_ana_files_input', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length), &
          DIMENSION(:), POINTER                           :: directories
@@ -572,9 +574,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'tmc_preread_input', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: c_tmp
       INTEGER                                            :: itmp
       LOGICAL                                            :: explicit_key, flag
@@ -630,7 +629,7 @@ CONTAINS
                          "because no approximated energy input is specified.")
          tmc_env%tmc_comp_set%group_cc_size = 0
       ELSE
-         ! check file existance
+         ! check file existence
          INQUIRE (FILE=TRIM(tmc_env%params%NMC_inp_file), EXIST=flag, IOSTAT=itmp)
          IF (.NOT. flag .OR. itmp .NE. 0) &
             CPABORT("a valid NMC input file has to be specified")
@@ -683,8 +682,6 @@ CONTAINS
    SUBROUTINE tmc_read_input(input, tmc_env)
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(tmc_env_type), POINTER                        :: tmc_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'tmc_read_input', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: itmp
       LOGICAL                                            :: explicit, flag
@@ -747,7 +744,7 @@ CONTAINS
       ! file name keyword without file name
       IF (tmc_env%params%energy_inp_file .EQ. "") &
          CPABORT("a valid exact energy input file has to be specified ")
-      ! check file existance
+      ! check file existence
       INQUIRE (FILE=TRIM(tmc_env%params%energy_inp_file), EXIST=flag, IOSTAT=itmp)
       IF (.NOT. flag .OR. itmp .NE. 0) &
          CALL cp_abort(__LOCATION__, "a valid exact energy input file has to be specified, "// &
@@ -811,9 +808,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER                                            :: ana_on_the_fly
       LOGICAL                                            :: success
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'tmc_redistributing_cores', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: cc_group, cc_group_rank, comm_tmp, master_ana_group, master_ana_rank, &
          master_first_e_worker_g, master_first_e_worker_r, master_worker_group, &
@@ -942,7 +936,7 @@ CONTAINS
                                        group=comm_tmp)
             ELSE
                CALL mp_comm_free(comm_tmp)
-            ENDIF
+            END IF
 
             ! worker master communication
             CALL mp_comm_split_direct(my_mpi_world, comm_tmp, master_worker_group, master_worker_rank)
@@ -953,7 +947,7 @@ CONTAINS
                                        group=comm_tmp)
             ELSE
                CALL mp_comm_free(comm_tmp)
-            ENDIF
+            END IF
 
             ! communicator only for first energy worker master and global master
             CALL mp_comm_split_direct(my_mpi_world, comm_tmp, master_first_e_worker_g, master_first_e_worker_r)
@@ -964,7 +958,7 @@ CONTAINS
                                        group=comm_tmp)
             ELSE
                CALL mp_comm_free(comm_tmp)
-            ENDIF
+            END IF
 
             ! communicator only for analysis worker and global master
             CALL mp_comm_split_direct(my_mpi_world, comm_tmp, master_ana_group, master_ana_rank)
@@ -974,7 +968,7 @@ CONTAINS
                                        group=comm_tmp)
             ELSE
                CALL mp_comm_free(comm_tmp)
-            ENDIF
+            END IF
 
             ! communicator for master only to handle external control
             master_ana_group = my_mpi_undefined
@@ -990,7 +984,7 @@ CONTAINS
                                        group=comm_tmp)
             ELSE
                CALL mp_comm_free(comm_tmp)
-            ENDIF
+            END IF
          END IF
          CALL mp_comm_free(my_mpi_world)
       END IF
@@ -1004,8 +998,7 @@ CONTAINS
    SUBROUTINE tmc_print_params(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: fmt_my = '(T2,A,"| ",A,T41,A40)', plabel = "TMC", &
-         routineN = 'tmc_print_params', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: fmt_my = '(T2,A,"| ",A,T41,A40)', plabel = "TMC"
 
       CHARACTER(LEN=80)                                  :: c_tmp, fmt_tmp
       INTEGER                                            :: file_nr

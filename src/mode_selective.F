@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,9 @@ MODULE mode_selective
    USE message_passing,                 ONLY: mp_bcast
    USE molden_utils,                    ONLY: write_vibrations_molden
    USE particle_types,                  ONLY: particle_type
-   USE physcon,                         ONLY: massunit,&
+   USE physcon,                         ONLY: bohr,&
+                                              debye,&
+                                              massunit,&
                                               vibfac
    USE replica_methods,                 ONLY: rep_env_calc_e_f
    USE replica_types,                   ONLY: replica_env_type
@@ -108,7 +112,7 @@ CONTAINS
       INTEGER                                            :: output_unit
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ms_vb_anal', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ms_vb_anal'
 
       CHARACTER(LEN=default_string_length)               :: description
       INTEGER                                            :: handle, i, ip1, j, natoms, ncoord
@@ -264,8 +268,7 @@ CONTAINS
       LOGICAL                                            :: calc_intens
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'MS_initial_moves', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'MS_initial_moves'
 
       INTEGER                                            :: guess, handle, i, j, jj, k, m, &
                                                             n_rep_val, natoms, ncoord
@@ -448,8 +451,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER                                            :: nrep
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'bfgs_guess', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: hes_filename
       INTEGER                                            :: hesunit, i, j, jj, k, natoms, ncoord, &
                                                             output_unit, stat
@@ -478,7 +479,7 @@ CONTAINS
          ! should use the cp_fm_read_unformatted...
          DO i = 1, ncoord
             READ (UNIT=hesunit, IOSTAT=stat) ms_vib%hes_bfgs(:, i)
-         ENDDO
+         END DO
          CALL close_file(hesunit)
          IF (output_unit > 0) THEN
             IF (stat /= 0) THEN
@@ -558,8 +559,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
       INTEGER                                            :: nrep
       LOGICAL                                            :: calc_intens
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rest_guess', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_path_length)                 :: ms_filename
       INTEGER                                            :: hesunit, i, j, mat, natoms, ncoord, &
@@ -670,8 +669,6 @@ CONTAINS
       REAL(Kind=dp), DIMENSION(:)                        :: mass
       INTEGER                                            :: ncoord, nrep
       TYPE(cp_logger_type), POINTER                      :: logger
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'molden_guess', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: at_name
       CHARACTER(LEN=default_path_length)                 :: ms_filename
@@ -841,9 +838,6 @@ CONTAINS
       INTEGER                                            :: output_unit_ms
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'evaluate_H_update_b', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, jj, k, natoms, ncoord
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: ind
       LOGICAL                                            :: dump_only_positive
@@ -867,7 +861,7 @@ CONTAINS
 
          DEALLOCATE (ms_vib%b_mat)
          DEALLOCATE (ms_vib%s_mat)
-      ENDIF
+      END IF
 
       ALLOCATE (ms_vib%b_mat(3*natoms, ms_vib%mat_size + nrep))
       ALLOCATE (ms_vib%s_mat(3*natoms, ms_vib%mat_size + nrep))
@@ -970,7 +964,7 @@ CONTAINS
          ELSE
             CALL ms_out(output_unit_ms, converged, freq, criteria, ms_vib, &
                         input, nrep, approx_H, eigenval, calc_intens, logger=logger)
-         ENDIF
+         END IF
          dump_only_positive = ms_vib%low_freq .GT. 0.0_dp
          CALL write_vibrations_molden(input, particles, eigenval, tmp_b, intensities, calc_intens, &
                                       dump_only_positive=dump_only_positive, logger=logger)
@@ -979,7 +973,7 @@ CONTAINS
          END IF
          DEALLOCATE (tmp_b)
          DEALLOCATE (tmp_s)
-      ENDIF
+      END IF
 
       IF (.NOT. converged) CALL ms_out(output_unit_ms, converged, freq, criteria, &
                                        ms_vib, input, nrep, approx_H, eigenval, calc_intens, logger=logger)
@@ -1016,8 +1010,6 @@ CONTAINS
       INTEGER, DIMENSION(:)                              :: ind
       REAL(KIND=dp), DIMENSION(:, :)                     :: residuum
       REAL(KIND=dp), DIMENSION(2, nrep), OPTIONAL        :: criteria
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'select_vector', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, jj, k
       REAL(KIND=dp)                                      :: my_val, norm
@@ -1148,15 +1140,15 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: intensities
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ms_out', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, msunit, stat
-      REAL(KIND=dp)                                      :: crit_a, crit_b
+      REAL(KIND=dp)                                      :: crit_a, crit_b, fint, gintval
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: residuum
       TYPE(section_vals_type), POINTER                   :: ms_vib_section
 
       ms_vib_section => section_vals_get_subs_vals(input, &
                                                    "VIBRATIONAL_ANALYSIS%MODE_SELECTIVE")
+
+      fint = 42.255_dp*massunit*debye**2*bohr**2
 
       IF (converged) THEN
          IF (iw .GT. 0) THEN
@@ -1168,10 +1160,10 @@ CONTAINS
             WRITE (iw, '( /, 1X, 79("-") )')
             WRITE (iw, '( 25X, A)') 'FREQUENCY AND CONVERGENCE LIST'
             IF (PRESENT(intensities)) THEN
-               WRITE (iw, '(3X,5(4X, A))') 'FREQUENCY', 'INTENSITY', 'MAXVAL CRITERIA', 'NORM CRITERIA', 'CONVERGENCE'
+               WRITE (iw, '(3X,5(4X, A))') 'FREQUENCY', 'INT[KM/Mole]', 'MAXVAL CRITERIA', 'NORM CRITERIA', 'CONVERGENCE'
             ELSE
                WRITE (iw, '(3X,5(4X, A))') 'FREQUENCY', 'MAXVAL CRITERIA', 'NORM CRITERIA', 'CONVERGENCE'
-            ENDIF
+            END IF
             DO i = 1, SIZE(ms_vib%b_mat, 2)
                residuum = 0._dp
                DO j = 1, SIZE(ms_vib%b_mat, 2)
@@ -1183,13 +1175,14 @@ CONTAINS
                crit_a = MAXVAL(residuum(:))
                crit_b = SQRT(DOT_PRODUCT(residuum, residuum))
                IF (PRESENT(intensities)) THEN
+                  gintval = fint*intensities(i)**2
                   IF (crit_a .LE. ms_vib%eps(1) .AND. crit_b .LE. ms_vib%eps(2)) THEN
                      IF (eigenval(i) .GT. ms_vib%low_freq) WRITE (iw, '(2X,A,2X,F9.3,1X,F12.6,3X,E12.3,7X,E12.3,11X,A)') &
-                        'VIB|', eigenval(i), intensities(i), crit_a, crit_b, 'YES'
+                        'VIB|', eigenval(i), gintval, crit_a, crit_b, 'YES'
                   ELSE
                      IF (eigenval(i) .GT. ms_vib%low_freq) WRITE (iw, '(2X,A,2X,F9.3,1X,F12.6,3X,E12.3,7X,E12.3,11X,A)') &
-                        'VIB|', eigenval(i), intensities(i), crit_a, crit_b, 'NO'
-                  ENDIF
+                        'VIB|', eigenval(i), gintval, crit_a, crit_b, 'NO'
+                  END IF
                ELSE
                   IF (crit_a .LE. ms_vib%eps(1) .AND. crit_b .LE. ms_vib%eps(2)) THEN
                      IF (eigenval(i) .GT. ms_vib%low_freq) WRITE (iw, '(2X,A,2X,F9.3,5X,E12.6,5X,E12.3,11X,A)') &
@@ -1197,7 +1190,7 @@ CONTAINS
                   ELSE
                      IF (eigenval(i) .GT. ms_vib%low_freq) WRITE (iw, '(2X,A,2X,F9.3,5X,E12.6,5X,E12.3,11X,A)') &
                         'VIB|', eigenval(i), crit_a, crit_b, 'NO'
-                  ENDIF
+                  END IF
                END IF
             END DO
             DEALLOCATE (residuum)

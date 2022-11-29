@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -9,31 +11,79 @@
 ! **************************************************************************************************
 MODULE semi_empirical_int_utils
 
-   USE input_constants,                 ONLY: do_method_pchg,&
-                                              do_se_IS_kdso_d
-   USE kinds,                           ONLY: dp
-   USE semi_empirical_int3_utils,       ONLY: charg_int_3,&
-                                              dcharg_int_3,&
-                                              ijkl_low_3
-   USE semi_empirical_int_arrays,       ONLY: &
-        CLMp, CLMxx, CLMxy, CLMyy, CLMz, CLMzp, CLMzz, clm_d, clm_sp, ijkl_ind, indexa, indexb, &
-        int2c_type
-   USE semi_empirical_types,            ONLY: rotmat_type,&
-                                              se_int_control_type,&
-                                              se_int_screen_type,&
-                                              se_taper_type,&
-                                              semi_empirical_type
+   USE input_constants, ONLY: do_method_pchg, &
+                              do_se_IS_kdso_d
+   USE kinds, ONLY: dp
+   USE semi_empirical_int3_utils, ONLY: charg_int_3, &
+                                        dcharg_int_3, &
+                                        ijkl_low_3
+   USE semi_empirical_int_arrays, ONLY: &
+      CLMp, CLMxx, CLMxy, CLMyy, CLMz, CLMzp, CLMzz, clm_d, clm_sp, ijkl_ind, indexa, indexb, &
+      int2c_type
+   USE semi_empirical_types, ONLY: rotmat_type, &
+                                   se_int_control_type, &
+                                   se_int_screen_type, &
+                                   se_taper_type, &
+                                   semi_empirical_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
-#include "semi_empirical_int_debug.h"
-
    PRIVATE
+
+   #:include 'semi_empirical_int_debug.fypp'
+
    LOGICAL, PARAMETER, PRIVATE          :: debug_this_module = .FALSE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'semi_empirical_int_utils'
 
    PUBLIC ::   ijkl_sp, ijkl_d, rotmat, rot_2el_2c_first, store_2el_2c_diag, &
              d_ijkl_sp, d_ijkl_d
+
+   ABSTRACT INTERFACE
+! **************************************************************************************************
+!> \brief ...
+!> \param r ...
+!> \param l1_i ...
+!> \param l2_i ...
+!> \param m1_i ...
+!> \param m2_i ...
+!> \param da_i ...
+!> \param db_i ...
+!> \param add0 ...
+!> \param fact_screen ...
+!> \return ...
+! **************************************************************************************************
+      FUNCTION eval_func_sp(r, l1_i, l2_i, m1_i, m2_i, da_i, db_i, add0, fact_screen) RESULT(charg)
+         USE kinds, ONLY: dp
+         REAL(KIND=dp), INTENT(IN)                          :: r
+         INTEGER, INTENT(IN)                                :: l1_i, l2_i, m1_i, m2_i
+         REAL(KIND=dp), INTENT(IN)                          :: da_i, db_i, add0, fact_screen
+         REAL(KIND=dp)                                      :: charg
+
+      END FUNCTION eval_func_sp
+   END INTERFACE
+
+   ABSTRACT INTERFACE
+! **************************************************************************************************
+!> \brief ...
+!> \param r ...
+!> \param l1_i ...
+!> \param l2_i ...
+!> \param m ...
+!> \param da_i ...
+!> \param db_i ...
+!> \param add0 ...
+!> \param fact_screen ...
+!> \return ...
+! **************************************************************************************************
+      FUNCTION eval_func_d(r, l1_i, l2_i, m, da_i, db_i, add0, fact_screen) RESULT(charg)
+         USE kinds, ONLY: dp
+         REAL(KIND=dp), INTENT(IN)                          :: r
+         INTEGER, INTENT(IN)                                :: l1_i, l2_i, m
+         REAL(KIND=dp), INTENT(IN)                          :: da_i, db_i, add0, fact_screen
+         REAL(KIND=dp)                                      :: charg
+
+      END FUNCTION eval_func_d
+   END INTERFACE
 
 CONTAINS
 
@@ -71,8 +121,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ijkl_sp', routineP = moduleN//':'//routineN
-
       res = ijkl_sp_low(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, se_int_screen, &
                         se_int_control%integral_screening, se_int_control%shortrange, &
                         se_int_control%pc_coulomb_int, se_int_control%max_multipole, &
@@ -82,7 +130,7 @@ CONTAINS
       IF ((.NOT. se_int_control%pc_coulomb_int) .AND. (itype /= do_method_pchg)) THEN
          ! Handle the 1/r^3 term, this term is ALWAYS false for KDSO-D integrals
          IF (se_int_control%shortrange .AND. se_int_control%do_ewald_r3) THEN
-            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, &
+            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, &
                                    itype, charg_int_3)
          END IF
       END IF
@@ -122,8 +170,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'd_ijkl_sp', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: dfs, srd
 
       IF (se_int_control%integral_screening == do_se_IS_kdso_d) THEN
@@ -158,7 +204,7 @@ CONTAINS
       IF ((.NOT. se_int_control%pc_coulomb_int) .AND. (itype /= do_method_pchg)) THEN
          ! Handle the 1/r^3 term, this term is ALWAYS false for KDSO-D integrals
          IF (se_int_control%shortrange .AND. se_int_control%do_ewald_r3) THEN
-            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, &
+            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, &
                                    itype, dcharg_int_3)
          END IF
       END IF
@@ -203,9 +249,9 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iscreen
       LOGICAL, INTENT(IN)                                :: shortrange, pc_coulomb_int
       INTEGER, INTENT(IN)                                :: max_multipole, itype
-      REAL(KIND=dp)                                      :: eval, res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ijkl_sp_low', routineP = moduleN//':'//routineN
+      PROCEDURE(eval_func_sp)                               :: eval
+      REAL(KIND=dp)                                      :: res
 
       INTEGER                                            :: ccc, l1, l1max, l1min, l2, l2max, l2min, &
                                                             lij, lkl, lmin, m
@@ -345,8 +391,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: l1_i, l2_i, m1_i, m2_i
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'charg_int_nri', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: l1, l2, m1, m2
       REAL(KIND=dp)                                      :: add, da, db, dxdx, dxqxz, dzdz, dzqxx, &
@@ -550,8 +594,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcharg_int_nri', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: l1, l2, m1, m2
       REAL(KIND=dp)                                      :: add, da, db, dxdx, dxqxz, dzdz, dzqxx, &
                                                             dzqzz, fact, qqxx, qqzz, qxxqxx, &
@@ -754,9 +796,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: l1_i, l2_i, m1_i, m2_i
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcharg_int_nri_fs', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: l1, l2, m1, m2
       REAL(KIND=dp)                                      :: add, da, db, dxdx, dxqxz, dzdz, dzqxx, &
@@ -971,8 +1010,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ijkl_d', routineP = moduleN//':'//routineN
-
       res = ijkl_d_low(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, se_int_screen, &
                        se_int_control%integral_screening, se_int_control%shortrange, &
                        se_int_control%pc_coulomb_int, se_int_control%max_multipole, &
@@ -982,7 +1019,7 @@ CONTAINS
       IF ((.NOT. se_int_control%pc_coulomb_int) .AND. (itype /= do_method_pchg)) THEN
          ! Handle the 1/r^3 term, this term is ALWAYS false for KDSO-D integrals
          IF (se_int_control%shortrange .AND. se_int_control%do_ewald_r3) THEN
-            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, &
+            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, &
                                    itype, charg_int_3)
          END IF
       END IF
@@ -1028,8 +1065,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'd_ijkl_d', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: dfs, srd
 
       IF (se_int_control%integral_screening == do_se_IS_kdso_d) THEN
@@ -1064,7 +1099,7 @@ CONTAINS
       IF ((.NOT. se_int_control%pc_coulomb_int) .AND. (itype /= do_method_pchg)) THEN
          ! Handle the 1/r^3 term, this term is ALWAYS false for KDSO-D integrals
          IF (se_int_control%shortrange .AND. se_int_control%do_ewald_r3) THEN
-            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, &
+            res = res - ijkl_low_3(sepi, sepj, ij, kl, li, lj, lk, ll, ic, r, &
                                    itype, dcharg_int_3)
          END IF
       END IF
@@ -1114,9 +1149,9 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iscreen
       LOGICAL, INTENT(IN)                                :: shortrange, pc_coulomb_int
       INTEGER, INTENT(IN)                                :: max_multipole, itype
-      REAL(KIND=dp)                                      :: eval, res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ijkl_d_low', routineP = moduleN//':'//routineN
+      PROCEDURE(eval_func_d)                               :: eval
+      REAL(KIND=dp)                                      :: res
 
       INTEGER                                            :: l1, l1max, l1min, l2, l2max, l2min, lij, &
                                                             lkl, lmin, m, mm
@@ -1258,8 +1293,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'charg_int_ri', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: l1, l2
       REAL(KIND=dp)                                      :: aa, ab, add, da, db, dxdx, dxqxz, dzdz, &
                                                             dzqzz, fact, qqzz, qxzqxz, xyxy, zzzz
@@ -1392,8 +1425,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: l1_i, l2_i, m
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcharg_int_ri', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: l1, l2
       REAL(KIND=dp)                                      :: aa, ab, add, da, db, dxdx, dxqxz, dzdz, &
@@ -1530,9 +1561,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(in)                          :: da_i, db_i, add0, fact_screen
       REAL(KIND=dp)                                      :: charg
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcharg_int_ri_fs', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: l1, l2
       REAL(KIND=dp)                                      :: aa, ab, add, da, db, dxdx, dxqxz, dzdz, &
                                                             dzqzz, fact, qqzz, qxzqxz, xyxy, zzzz
@@ -1665,8 +1693,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: do_derivatives
       LOGICAL, INTENT(OUT), OPTIONAL                     :: do_invert
       LOGICAL, INTENT(IN), OPTIONAL                      :: debug_invert
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotmat', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: imap(3), k, l
       LOGICAL                                            :: dbg_inv, eval
@@ -2090,9 +2116,6 @@ CONTAINS
       LOGICAL, DIMENSION(45, 45), INTENT(OUT), OPTIONAL  :: logv_d
       REAL(KIND=dp), DIMENSION(3), INTENT(IN), OPTIONAL  :: drij
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rot_2el_2c_first', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, i1, ij, j1, k, k1, kl, l, l1, limkl, &
                                                             ll, mm, nd
       REAL(KIND=dp)                                      :: wrepp, wrepp_d(3)
@@ -2419,9 +2442,6 @@ CONTAINS
          INTENT(IN), OPTIONAL                            :: ww_dx, ww_dy, ww_dz
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: dw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'store_2el_2c_diag', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ij, kl, l
 

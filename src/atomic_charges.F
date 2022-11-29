@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -35,7 +37,7 @@ CONTAINS
 !> \param title ...
 !> \param electronic_charges (natom,nspin), the number of electrons of (so positive) per spin
 !>                            if (nspin==1) it is the sum of alpha and beta electrons
-!> \param atomic_charges truely the atomic charge (taking Z into account, atoms negative, no spin)
+!> \param atomic_charges truly the atomic charge (taking Z into account, atoms negative, no spin)
 !> \par History
 !>      03.2006 created [Joost VandeVondele]
 !> \note
@@ -52,8 +54,7 @@ CONTAINS
          OPTIONAL                                        :: electronic_charges
       REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: atomic_charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_atomic_charges', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_atomic_charges'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: handle, iatom, ikind, natom, nspin
@@ -68,7 +69,7 @@ CONTAINS
          CPASSERT(PRESENT(atomic_charges))
          natom = SIZE(atomic_charges, 1)
          nspin = 0
-      ENDIF
+      END IF
 
       IF (scr > 0) THEN
          IF (SIZE(particle_set) /= natom) THEN
@@ -81,7 +82,7 @@ CONTAINS
                WRITE (scr, '(A)') "  Type |   Atom   |    Charge"
             ELSE
                WRITE (scr, '(A)') "  Atom     |    Charge"
-            ENDIF
+            END IF
          CASE DEFAULT
             WRITE (scr, '(A)') "  Atom     |    Charge | Spin diff charge"
          END SELECT
@@ -100,7 +101,7 @@ CONTAINS
                ELSE
                   WRITE (scr, '(I6,A2,A2,F12.6)') iatom, "  ", element_symbol, atomic_charges(iatom)
                   total_charge = total_charge + atomic_charges(iatom)
-               ENDIF
+               END IF
             CASE (1)
                WRITE (scr, '(I6,A2,A2,F12.6)') iatom, "  ", element_symbol, zeff - electronic_charges(iatom, 1)
                total_charge = total_charge + zeff - electronic_charges(iatom, 1)
@@ -110,14 +111,14 @@ CONTAINS
                   (electronic_charges(iatom, 1) - electronic_charges(iatom, 2))
                total_charge = total_charge + zeff - (electronic_charges(iatom, 1) + electronic_charges(iatom, 2))
             END SELECT
-         ENDDO
+         END DO
          IF (title == "RESP charges:") THEN
             WRITE (scr, '(A,F10.6)') "  Total             ", total_charge
          ELSE
             WRITE (scr, '(A,F10.6)') "  Total     ", total_charge
-         ENDIF
+         END IF
          WRITE (scr, '(A)') ""
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -143,8 +144,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          OPTIONAL                                        :: quadrupole
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_multipoles', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'print_multipoles'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: handle, i, iatom, ikind, natom
@@ -155,7 +155,7 @@ CONTAINS
       natom = 0
       IF (PRESENT(charge)) THEN
          natom = SIZE(charge)
-      ENDIF
+      END IF
 
       IF (scr > 0) THEN
 
@@ -175,11 +175,11 @@ CONTAINS
             WRITE (scr, '(a)') 'quadrupole = '
             DO i = 1, 3
                WRITE (scr, '(3f20.10)') quadrupole(i, :, iatom)
-            ENDDO
+            END DO
 
-         ENDDO
+         END DO
          WRITE (scr, '(A)') ""
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -199,9 +199,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: scr
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: bond_orders
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_bond_orders', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: el1, el2
       INTEGER                                            :: iatom, jatom, natom
 
@@ -219,9 +216,9 @@ CONTAINS
                IF (bond_orders(iatom, jatom) > 0.1_dp) THEN
                   WRITE (scr, '(T6,A2,I6,T24,A2,I6,T40,F12.6)') el1, iatom, el2, jatom, bond_orders(iatom, jatom)
                END IF
-            ENDDO
-         ENDDO
-      ENDIF
+            END DO
+         END DO
+      END IF
 
    END SUBROUTINE print_bond_orders
 

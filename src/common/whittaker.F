@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,7 +29,7 @@ MODULE whittaker
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief int(y^(2+l) * exp(-alpha*y*y),y=0..x);
+!> \brief int(y^(2+l1+l2) * exp(-alpha*y*y),y=0..x) / x^(l2+1);
 !>        wc(:)    :: output
 !>        r(:)     :: coordinate
 !>        expa(:)  :: exp(-alpha*r(:)**2)
@@ -51,8 +53,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: alpha
       REAL(KIND=dp), DIMENSION(n), INTENT(IN)            :: erfa, expa, r
       REAL(KIND=dp), DIMENSION(n), INTENT(OUT)           :: wc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'whittaker_c0a', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, k, l
       REAL(dp)                                           :: t1, x, y
@@ -113,8 +113,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: alpha
       REAL(KIND=dp), DIMENSION(n), INTENT(IN)            :: erfa, expa, r
       REAL(KIND=dp), DIMENSION(n), INTENT(OUT)           :: wc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'whittaker_c0', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, k
       REAL(dp) :: t1, t10, t11, t12, t13, t14, t16, t17, t18, t19, t2, t21, t22, t23, t25, t28, &
@@ -343,8 +341,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: alpha
       REAL(KIND=dp), DIMENSION(n), INTENT(IN)            :: expa, r
       REAL(KIND=dp), DIMENSION(n), INTENT(OUT)           :: wc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'whittaker_ci', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, k
       REAL(dp)                                           :: t1, t10, t13, t14, t17, t18, t2, t21, &

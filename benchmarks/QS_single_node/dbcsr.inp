@@ -2,9 +2,6 @@
   PRINT_LEVEL  MEDIUM
   PROGRAM_NAME TEST
   RUN_TYPE NONE
-  &TIMINGS
-     THRESHOLD 0.00000000001
-  &END
 &END GLOBAL
 &TEST
   &CP_DBCSR
@@ -34,7 +31,7 @@
      bs_m 1 32
      bs_k 1 32
      bs_n 1 32
-  &END 
+  &END
   &CP_DBCSR
      K 13800
      M 13800

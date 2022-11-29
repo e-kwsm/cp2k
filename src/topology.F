@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -137,8 +139,7 @@ CONTAINS
          POINTER                                         :: exclusions
       LOGICAL, INTENT(IN), OPTIONAL                      :: elkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'topology_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'topology_control'
 
       INTEGER                                            :: handle, iw, iw2
       LOGICAL                                            :: binary_coord_read, el_as_kind, explicit, &
@@ -288,8 +289,7 @@ CONTAINS
       TYPE(qmmm_env_mm_type), OPTIONAL, POINTER          :: qmmm_env
       TYPE(section_vals_type), POINTER                   :: subsys_section, force_env_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'connectivity_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'connectivity_control'
       INTEGER, PARAMETER                                 :: map0 = ICHAR("0"), map9 = ICHAR("9")
 
       CHARACTER(len=default_string_length)               :: element0, my_element
@@ -353,7 +353,7 @@ CONTAINS
       ALLOCATE (elements(SIZE(topology%atom_info%id_element)))
       DO i = 1, SIZE(elements)
          elements(i) = id2str(topology%atom_info%id_element(i))
-      ENDDO
+      END DO
 
       DO i = 1, topology%natoms
          IF (elements(i) == "__DEF__") CYCLE
@@ -453,9 +453,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_topology_conn', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_path_length)                 :: filename
       INTEGER                                            :: i_rep, imol, loc_conn_type, n_rep, nmol
       TYPE(section_vals_type), POINTER                   :: section
@@ -522,8 +519,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'coordinate_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'coordinate_control'
 
       CHARACTER(LEN=default_string_length)               :: message
       INTEGER                                            :: handle, handle2, istat, iw
@@ -615,9 +611,6 @@ CONTAINS
       TYPE(colvar_p_type), DIMENSION(:), POINTER         :: colvar_p
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_post_proc_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(colvar_p)) THEN
@@ -638,8 +631,6 @@ CONTAINS
 
       TYPE(cell_type), POINTER                           :: cell_muc, cell
       TYPE(section_vals_type), POINTER                   :: subsys_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_cell_muc', routineP = moduleN//':'//routineN
 
       INTEGER, DIMENSION(:), POINTER                     :: multiple_unit_cell
       REAL(KIND=dp), DIMENSION(3, 3)                     :: hmat_ref

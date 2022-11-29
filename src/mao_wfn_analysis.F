@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -89,7 +91,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input_section
       INTEGER, INTENT(IN)                                :: unit_nr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_analysis', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mao_analysis'
 
       CHARACTER(len=2)                                   :: element_symbol, esa, esb, esc
       INTEGER :: fall, handle, ia, iab, iabc, iatom, ib, ic, icol, ikind, irow, ispin, jatom, &
@@ -222,7 +224,7 @@ CONTAINS
       IF (unit_nr > 0 .AND. fall > 0) THEN
          WRITE (UNIT=unit_nr, FMT="(/,T2,A,/,T2,A,/)") &
             "Warning: Extended MAO basis used with original basis filtered density matrix", &
-            "Warning: Possible errors can be controled with EPS_PGF_ORB"
+            "Warning: Possible errors can be controlled with EPS_PGF_ORB"
       END IF
 
       ! MAO matrices
@@ -249,9 +251,10 @@ CONTAINS
       END DO
       DEALLOCATE (row_blk_sizes, col_blk_sizes)
 
-      ! optimze MAOs
+      ! optimize MAOs
       epsx = 1000.0_dp
-      CALL mao_optimize(mao_coef, matrix_q, matrix_smm, electra, max_iter, eps_grad, epsx, unit_nr)
+      CALL mao_optimize(mao_coef, matrix_q, matrix_smm, electra, max_iter, eps_grad, epsx, &
+                        3, unit_nr)
 
       ! Analyze the MAO basis
       CALL mao_basis_analysis(mao_coef, matrix_smm, mao_basis_set_list, particle_set, &

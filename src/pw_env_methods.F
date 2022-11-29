@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,15 +47,19 @@ MODULE pw_env_methods
    USE gaussian_gridlevels,             ONLY: destroy_gaussian_gridlevel,&
                                               gaussian_gridlevel,&
                                               init_gaussian_gridlevel
-   USE input_constants,                 ONLY: xc_vdw_fun_nonloc
+   USE input_constants,                 ONLY: do_method_gapw,&
+                                              do_method_gapw_xc,&
+                                              do_method_gpw,&
+                                              do_method_lrigpw,&
+                                              do_method_ofgpw,&
+                                              do_method_rigpw,&
+                                              xc_vdw_fun_nonloc
    USE input_section_types,             ONLY: section_get_ival,&
                                               section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE lgrid_types,                     ONLY: lgrid_create,&
-                                              lgrid_release
    USE ps_implicit_types,               ONLY: MIXED_BC,&
                                               MIXED_PERIODIC_BC,&
                                               NEUMANN_BC,&
@@ -91,8 +97,8 @@ MODULE pw_env_methods
                                               rho0_mpole_type
    USE realspace_grid_types,            ONLY: &
         realspace_grid_desc_p_type, realspace_grid_desc_type, realspace_grid_input_type, &
-        realspace_grid_p_type, realspace_grid_type, rs_grid_create, rs_grid_create_descriptor, &
-        rs_grid_print, rs_grid_release, rs_grid_release_descriptor
+        realspace_grid_type, rs_grid_create, rs_grid_create_descriptor, rs_grid_print, &
+        rs_grid_release, rs_grid_release_descriptor
    USE xc_input_constants,              ONLY: &
         xc_deriv_collocate, xc_deriv_nn10_smooth, xc_deriv_nn50_smooth, xc_deriv_pw, &
         xc_deriv_spline2, xc_deriv_spline2_smooth, xc_deriv_spline3, xc_deriv_spline3_smooth, &
@@ -119,7 +125,7 @@ CONTAINS
    SUBROUTINE pw_env_create(pw_env)
       TYPE(pw_env_type), POINTER                         :: pw_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_env_create', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_env_create'
 
       INTEGER                                            :: handle
 
@@ -129,7 +135,7 @@ CONTAINS
       ALLOCATE (pw_env)
       NULLIFY (pw_env%pw_pools, pw_env%gridlevel_info, pw_env%poisson_env, &
                pw_env%cube_info, pw_env%rs_descs, pw_env%rs_grids, &
-               pw_env%xc_pw_pool, pw_env%vdw_pw_pool, pw_env%lgrid, &
+               pw_env%xc_pw_pool, pw_env%vdw_pw_pool, &
                pw_env%interp_section)
       pw_env%auxbas_grid = -1
       pw_env%ref_count = 1
@@ -152,17 +158,15 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: external_para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_env_rebuild', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_env_rebuild'
 
       CHARACTER(LEN=3)                                   :: string
       INTEGER :: blocked_id, blocked_id_input, boundary_condition, grid_span, handle, i, &
          igrid_level, iounit, ncommensurate, ngrid_level, xc_deriv_method_id, xc_smooth_method_id
       INTEGER, DIMENSION(2)                              :: distribution_layout
       INTEGER, DIMENSION(3)                              :: higher_grid_layout
-      LOGICAL                                            :: efg_present, linres_present, odd, &
-                                                            set_vdw_pool, should_output, &
-                                                            smooth_required, spherical, uf_grid, &
-                                                            use_ref_cell
+      LOGICAL :: do_io, efg_present, linres_present, odd, set_vdw_pool, should_output, &
+         smooth_required, spherical, uf_grid, use_ref_cell
       REAL(KIND=dp)                                      :: cutilev, rel_cutoff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: radius
       REAL(KIND=dp), DIMENSION(:), POINTER               :: cutoff
@@ -179,7 +183,7 @@ CONTAINS
       TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
          POINTER                                         :: rs_descs
       TYPE(realspace_grid_input_type)                    :: input_settings
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: rs_grids
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_grids
       TYPE(section_vals_type), POINTER                   :: efg_section, input, linres_section, &
                                                             poisson_section, print_section, &
                                                             rs_grid_section, xc_section
@@ -224,11 +228,10 @@ CONTAINS
       END IF
       IF (ASSOCIATED(pw_env%rs_grids)) THEN
          DO i = 1, SIZE(pw_env%rs_grids)
-            CALL rs_grid_release(pw_env%rs_grids(i)%rs_grid)
+            CALL rs_grid_release(pw_env%rs_grids(i))
          END DO
          DEALLOCATE (pw_env%rs_grids)
       END IF
-      CALL lgrid_release(pw_env%lgrid)
       IF (ASSOCIATED(pw_env%gridlevel_info)) THEN
          CALL destroy_gaussian_gridlevel(pw_env%gridlevel_info)
       ELSE
@@ -249,10 +252,12 @@ CONTAINS
       !
       !
 
+      do_io = .TRUE.
       IF (PRESENT(external_para_env)) THEN
          para_env => external_para_env
          CPASSERT(ASSOCIATED(para_env))
-      ENDIF
+         do_io = .FALSE. !multiple MPI subgroups mess-up the output file
+      END IF
       ! interpolation section
       pw_env%interp_section => section_vals_get_subs_vals(input, "DFT%MGRID%INTERPOLATOR")
 
@@ -282,7 +287,7 @@ CONTAINS
          ncommensurate = ngrid_level
       ELSE
          ncommensurate = 0
-      ENDIF
+      END IF
       !
       ! If Tuckerman is present let's perform the set-up of the super-reference-grid
       !
@@ -307,8 +312,13 @@ CONTAINS
       !
       ! Setup of the multi-grid pw_grid and pw_pools
       !
-      logger => cp_get_default_logger()
-      iounit = cp_print_key_unit_nr(logger, print_section, '', extension='.Log')
+
+      IF (do_io) THEN
+         logger => cp_get_default_logger()
+         iounit = cp_print_key_unit_nr(logger, print_section, '', extension='.Log')
+      ELSE
+         iounit = 0
+      END IF
 
       IF (dft_control%qs_control%pw_grid_opt%spherical) THEN
          grid_span = HALFSPACE
@@ -357,14 +367,14 @@ CONTAINS
       CALL section_vals_get(linres_section, explicit=linres_present)
       IF (linres_present) THEN
          smooth_required = smooth_required .OR. .TRUE.
-      ENDIF
+      END IF
 
       efg_section => section_vals_get_subs_vals(section_vals=input, &
                                                 subsection_name="DFT%PRINT%ELECTRIC_FIELD_GRADIENT")
       CALL section_vals_get(efg_section, explicit=efg_present)
       IF (efg_present) THEN
          smooth_required = smooth_required .OR. .TRUE.
-      ENDIF
+      END IF
 
       DO igrid_level = 1, ngrid_level
          CALL pw_grid_create(pw_grid, para_env%group)
@@ -381,13 +391,13 @@ CONTAINS
          ! FIXME ... check if a plane distributed lower grid is sufficient
          IF (qs_env%qmmm) THEN
             distribution_layout = (/para_env%num_pe, 1/)
-         ENDIF
+         END IF
 
          ! If splines are required
          ! FIXME.... should only be true for the highest grid
          IF (smooth_required) THEN
             distribution_layout = (/para_env%num_pe, 1/)
-         ENDIF
+         END IF
 
          IF (igrid_level == 1) THEN
             IF (ASSOCIATED(old_pw_grid)) THEN
@@ -473,7 +483,7 @@ CONTAINS
          CALL pw_pool_retain(pw_env%vdw_pw_pool)
       END IF
 
-      CALL cp_print_key_finished_output(iounit, logger, print_section, '')
+      IF (do_io) CALL cp_print_key_finished_output(iounit, logger, print_section, '')
 
       ! complete init of the poisson_env
       IF (.NOT. ASSOCIATED(pw_env%poisson_env)) THEN
@@ -494,7 +504,7 @@ CONTAINS
       IF (use_ref_cell) THEN
          DO igrid_level = 1, SIZE(pw_pools)
             CALL pw_grid_change(cell%hmat, pw_pools(igrid_level)%pool%pw_grid)
-         ENDDO
+         END DO
          IF (set_vdw_pool) CALL pw_grid_change(cell%hmat, pw_env%vdw_pw_pool%pw_grid)
          CALL pw_poisson_read_parameters(poisson_section, poisson_params)
          CALL pw_poisson_set(pw_env%poisson_env, cell_hmat=cell%hmat, pw_pools=pw_env%pw_pools, &
@@ -576,23 +586,19 @@ CONTAINS
 
          IF (rs_descs(igrid_level)%rs_desc%distributed) higher_grid_layout = rs_descs(igrid_level)%rs_desc%group_dim
 
-         NULLIFY (rs_grids(igrid_level)%rs_grid)
-         CALL rs_grid_create(rs_grids(igrid_level)%rs_grid, rs_descs(igrid_level)%rs_desc)
+         CALL rs_grid_create(rs_grids(igrid_level), rs_descs(igrid_level)%rs_desc)
       END DO
       pw_env%rs_descs => rs_descs
       pw_env%rs_grids => rs_grids
 
       DEALLOCATE (radius)
 
-      ! Initialise the lgrids which may be used by OpenMP threads in QS routines
-      ! (but don't yet allocate the lgrid, in case we don't need it)
-      CALL lgrid_create(pw_env%lgrid, pw_env%rs_descs)
-
       ! Print grid information
 
-      logger => cp_get_default_logger()
-      iounit = cp_print_key_unit_nr(logger, print_section, '', &
-                                    extension='.Log')
+      IF (do_io) THEN
+         logger => cp_get_default_logger()
+         iounit = cp_print_key_unit_nr(logger, print_section, '', extension='.Log')
+      END IF
       IF (iounit > 0) THEN
          SELECT CASE (poisson_params%solver)
          CASE (pw_poisson_periodic)
@@ -703,29 +709,47 @@ CONTAINS
          CASE default
             CPABORT("Invalid Poisson solver selected")
          END SELECT
-         IF ((poisson_params%solver .NE. pw_poisson_wavelet) .AND. &
-             (poisson_params%solver .NE. pw_poisson_implicit)) THEN
+         IF ((poisson_params%solver /= pw_poisson_wavelet) .AND. &
+             (poisson_params%solver /= pw_poisson_implicit)) THEN
             IF (SUM(poisson_params%periodic(1:3)) == 0) THEN
-               WRITE (UNIT=iounit, FMT="(T2,A,T51,A30)") &
+               WRITE (UNIT=iounit, FMT="(T2,A,T77,A4)") &
                   "POISSON| Periodicity", "NONE"
             ELSE
                string = ""
                IF (poisson_params%periodic(1) == 1) string = TRIM(string)//"X"
                IF (poisson_params%periodic(2) == 1) string = TRIM(string)//"Y"
                IF (poisson_params%periodic(3) == 1) string = TRIM(string)//"Z"
-               WRITE (UNIT=iounit, FMT="(T2,A,T51,A30)") &
-                  "POISSON| Periodicity", string
+               WRITE (UNIT=iounit, FMT="(T2,A,T78,A3)") &
+                  "POISSON| Periodicity", ADJUSTR(string)
             END IF
          END IF
       END IF
-      should_output = BTEST(cp_print_key_should_output(logger%iter_info, &
-                                                       print_section, ''), cp_p_file)
-      IF (should_output) THEN
-         DO igrid_level = 1, ngrid_level
-            CALL rs_grid_print(rs_grids(igrid_level)%rs_grid, iounit)
-         END DO
+
+      IF ((dft_control%qs_control%method_id == do_method_gpw) .OR. &
+          (dft_control%qs_control%method_id == do_method_gapw) .OR. &
+          (dft_control%qs_control%method_id == do_method_gapw_xc) .OR. &
+          (dft_control%qs_control%method_id == do_method_lrigpw) .OR. &
+          (dft_control%qs_control%method_id == do_method_rigpw) .OR. &
+          (dft_control%qs_control%method_id == do_method_ofgpw)) THEN
+         IF ((poisson_params%solver /= pw_poisson_wavelet) .AND. &
+             (poisson_params%solver /= pw_poisson_implicit)) THEN
+            IF (ANY(my_cell%perd(1:3) /= poisson_params%periodic(1:3))) THEN
+               CALL cp_warn(__LOCATION__, &
+                            "The selected periodicities in the sections &CELL and &POISSON do not match")
+            END IF
+         END IF
       END IF
-      CALL cp_print_key_finished_output(iounit, logger, print_section, "")
+
+      IF (do_io) THEN
+         should_output = BTEST(cp_print_key_should_output(logger%iter_info, &
+                                                          print_section, ''), cp_p_file)
+         IF (should_output) THEN
+            DO igrid_level = 1, ngrid_level
+               CALL rs_grid_print(rs_grids(igrid_level), iounit)
+            END DO
+         END IF
+         CALL cp_print_key_finished_output(iounit, logger, print_section, "")
+      END IF
 
       CALL timestop(handle)
 
@@ -746,8 +770,7 @@ CONTAINS
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_max_radius', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_max_radius'
       CHARACTER(LEN=8), DIMENSION(4), PARAMETER :: &
          pbas = (/"ORB     ", "AUX_FIT ", "MAO     ", "HARRIS  "/)
       CHARACTER(LEN=8), DIMENSION(8), PARAMETER :: sbas = (/"ORB     ", "AUX     ", "RI_AUX  ", &
@@ -811,10 +834,10 @@ CONTAINS
             CALL get_qs_kind(qs_kind_set(ikind), &
                              alpha_core_charge=alpha, ccore_charge=core_charge)
             IF (alpha > 0.0_dp .AND. core_charge .NE. 0.0_dp) THEN
-               maxradius = MAX(maxradius, exp_radius(0, alpha, eps_rho, core_charge))
+               maxradius = MAX(maxradius, exp_radius(0, alpha, eps_rho, core_charge, rlow=maxradius))
                ! forces
-               maxradius = MAX(maxradius, exp_radius(1, alpha, eps_rho, core_charge))
-            ENDIF
+               maxradius = MAX(maxradius, exp_radius(1, alpha, eps_rho, core_charge, rlow=maxradius))
+            END IF
          END DO
 
          ! loop over basis sets that are used in grid collocation directly (no product)
@@ -835,8 +858,8 @@ CONTAINS
                         la = lshella(ishell, iset)
                         lgrid_level = gaussian_gridlevel(pw_env%gridlevel_info, zetp)
                         IF (lgrid_level .EQ. igrid_level) THEN
-                           maxradius = MAX(maxradius, exp_radius(la, zetp, eps_rho, 1.0_dp))
-                        ENDIF
+                           maxradius = MAX(maxradius, exp_radius(la, zetp, eps_rho, 1.0_dp, rlow=maxradius))
+                        END IF
                      END DO
                   END DO
                END DO
@@ -872,14 +895,14 @@ CONTAINS
                         lgrid_level = gaussian_gridlevel(pw_env%gridlevel_info, zetp)
                         IF (lgrid_level .EQ. igrid_level) THEN
                            ! density (scale is at most 2)
-                           maxradius = MAX(maxradius, exp_radius(lb, zetp, eps_rho, 2.0_dp))
+                           maxradius = MAX(maxradius, exp_radius(lb, zetp, eps_rho, 2.0_dp, rlow=maxradius))
                            ! tau, properties?
-                           maxradius = MAX(maxradius, exp_radius(lb + 1, zetp, eps_rho, 2.0_dp))
+                           maxradius = MAX(maxradius, exp_radius(lb + 1, zetp, eps_rho, 2.0_dp, rlow=maxradius))
                            ! potential
-                           maxradius = MAX(maxradius, exp_radius(lb, zetp, eps_gvg, 2.0_dp))
+                           maxradius = MAX(maxradius, exp_radius(lb, zetp, eps_gvg, 2.0_dp, rlow=maxradius))
                            ! forces
-                           maxradius = MAX(maxradius, exp_radius(lb + 1, zetp, eps_gvg, 2.0_dp))
-                        ENDIF
+                           maxradius = MAX(maxradius, exp_radius(lb + 1, zetp, eps_gvg, 2.0_dp, rlow=maxradius))
+                        END IF
                      END DO
                      END DO
                      END DO
@@ -931,9 +954,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: my_ncommensurate
       LOGICAL, INTENT(in)                                :: uf_grid
       TYPE(section_vals_type), POINTER                   :: print_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_super_ref_grid', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iounit, my_val, nn(3), no(3)
       LOGICAL                                            :: mt_s_grid
@@ -1014,8 +1034,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_diel_rs_grid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_diel_rs_grid'
 
       INTEGER                                            :: border_points, handle
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
@@ -1038,6 +1057,7 @@ CONTAINS
                            1, (/-1, -1, -1/))
       CALL rs_grid_create_descriptor(rs_desc, pw_grid, input_settings, &
                                      border_points=border_points)
+      ALLOCATE (diel_rs_grid)
       CALL rs_grid_create(diel_rs_grid, rs_desc)
 !   CALL rs_grid_print(diel_rs_grid,6)
       CALL rs_grid_release_descriptor(rs_desc)

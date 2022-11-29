@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,7 +18,8 @@ MODULE al_system_mapping
    USE input_constants,                 ONLY: &
         do_thermo_communication, do_thermo_no_communication, isokin_ensemble, langevin_ensemble, &
         npe_f_ensemble, npe_i_ensemble, nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, &
-        npt_f_ensemble, npt_i_ensemble, nve_ensemble, nvt_ensemble, reftraj_ensemble
+        npt_f_ensemble, npt_i_ensemble, npt_ia_ensemble, nve_ensemble, nvt_ensemble, &
+        reftraj_ensemble
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_sum
    USE molecule_kind_types,             ONLY: molecule_kind_type
@@ -63,9 +66,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'al_to_particle_mapping', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imap, j, natoms_local, &
                                                             sum_of_thermostats
       INTEGER, DIMENSION(:), POINTER                     :: deg_of_freedom, massive_atom_list
@@ -79,7 +79,7 @@ CONTAINS
       CASE (nve_ensemble, isokin_ensemble, npe_f_ensemble, npe_i_ensemble, nph_uniaxial_ensemble, &
             nph_uniaxial_damped_ensemble, reftraj_ensemble, langevin_ensemble)
          CPABORT('Never reach this point!')
-      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble)
+      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble, npt_ia_ensemble)
 
          CALL setup_al_thermostat(al, thermostat_info, deg_of_freedom, &
                                   massive_atom_list, molecule_kind_set, local_molecules, molecule_set, &
@@ -155,9 +155,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: sum_of_thermostats
       TYPE(global_constraint_type), POINTER              :: gci
       LOGICAL, INTENT(IN), OPTIONAL                      :: shell
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_al_thermostat', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nkind, number, region
       LOGICAL                                            :: do_shell

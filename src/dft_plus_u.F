@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief   Add the DFT+U contribution to the Hamiltonian matrix
@@ -36,7 +38,6 @@ MODULE dft_plus_u
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_p_file,&
@@ -58,6 +59,7 @@ MODULE dft_plus_u
    USE mathlib,                         ONLY: jacobi
    USE message_passing,                 ONLY: mp_sum
    USE orbital_symbols,                 ONLY: sgf_symbol
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: evolt
@@ -71,6 +73,7 @@ MODULE dft_plus_u
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_scf_types,                    ONLY: qs_scf_env_type
+   USE virial_types,                    ONLY: virial_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -98,7 +101,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: matrix_h, matrix_w
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'plus_u', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'plus_u'
 
       INTEGER                                            :: handle, output_unit, print_level
       LOGICAL                                            :: orthonormal_basis, should_output
@@ -205,7 +208,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: should_output
       INTEGER, INTENT(IN)                                :: output_unit, print_level
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lowdin', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'lowdin'
 
       CHARACTER(LEN=10)                                  :: spin_info
       CHARACTER(LEN=6), ALLOCATABLE, DIMENSION(:)        :: symbol
@@ -242,6 +245,7 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
+      TYPE(virial_type), POINTER                         :: virial
 
       CALL timeset(routineN, handle)
 
@@ -291,6 +295,7 @@ CONTAINS
                       particle_set=particle_set, &
                       rho=rho, &
                       scf_env=scf_env, &
+                      virial=virial, &
                       para_env=para_env, &
                       blacs_env=blacs_env)
 
@@ -361,12 +366,14 @@ CONTAINS
                                   nrow_global=nsgf, &
                                   ncol_global=nsgf)
          IF (.NOT. ASSOCIATED(fm_work1)) THEN
+            ALLOCATE (fm_work1)
             CALL cp_fm_create(matrix=fm_work1, &
                               matrix_struct=fmstruct, &
                               name="FULL WORK MATRIX 1")
             fm_work1_local_alloc = .TRUE.
          END IF
          IF (.NOT. ASSOCIATED(fm_work2)) THEN
+            ALLOCATE (fm_work2)
             CALL cp_fm_create(matrix=fm_work2, &
                               matrix_struct=fmstruct, &
                               name="FULL WORK MATRIX 2")
@@ -409,16 +416,16 @@ CONTAINS
          ! Calculate S^(1/2)*P*S^(1/2) as a full matrix (Lowdin)
 
          CALL cp_dbcsr_sm_fm_multiply(sm_p, fm_s_half, fm_work1, nsgf)
-         CALL cp_gemm(transa="N", &
-                      transb="N", &
-                      m=nsgf, &
-                      n=nsgf, &
-                      k=nsgf, &
-                      alpha=1.0_dp, &
-                      matrix_a=fm_s_half, &
-                      matrix_b=fm_work1, &
-                      beta=0.0_dp, &
-                      matrix_c=fm_work2)
+         CALL parallel_gemm(transa="N", &
+                            transb="N", &
+                            m=nsgf, &
+                            n=nsgf, &
+                            k=nsgf, &
+                            alpha=1.0_dp, &
+                            matrix_a=fm_s_half, &
+                            matrix_b=fm_work1, &
+                            beta=0.0_dp, &
+                            matrix_c=fm_work2)
          IF (debug) THEN
             CALL cp_dbcsr_write_sparse_matrix(sm_p, 4, 6, qs_env, para_env, &
                                               output_unit=output_unit)
@@ -565,7 +572,7 @@ CONTAINS
                                  IF (l(jshell, jset) /= lu) CYCLE
                                  DO jsgf = first_sgf(jshell, jset), last_sgf(jshell, jset)
                                     j = j + 1
-                                    q_matrix(i, j) = q_block(isgf, jsgf)
+                                    IF (isgf == jsgf) q_matrix(i, j) = q_block(isgf, jsgf)
                                  END DO ! next contracted spherical Gaussian function "jsgf"
                               END DO ! next shell "jshell"
                            END DO ! next shell set "jset"
@@ -673,6 +680,7 @@ CONTAINS
                                        IF (isgf == jsgf) THEN
                                           v_block(isgf, isgf) = u_minus_j*(0.5_dp - fspin*q_matrix(i, i))
                                        ELSE
+                                          CPASSERT(ABS(q_matrix(j, i)) < 1.0E-14_dp)
                                           v_block(isgf, jsgf) = -u_minus_j*fspin*q_matrix(j, i)
                                        END IF
                                     END DO ! next contracted spherical Gaussian function "jsgf"
@@ -782,7 +790,10 @@ CONTAINS
 
          IF (ASSOCIATED(sm_w)) THEN
 
-            CPABORT("Forces are not yet fully implemented for DFT+U method LOWDIN")
+            CPWARN("This is an experimental version of the forces calculation for the DFT+U method LOWDIN")
+            IF (virial%pv_calculate) THEN
+               CPABORT("The stress tensor is not implemented for the DFT+U method LOWDIN")
+            END IF
 
          END IF ! W matrix update requested
 
@@ -802,9 +813,11 @@ CONTAINS
       NULLIFY (fm_s_half)
       IF (fm_work1_local_alloc) THEN
          CALL cp_fm_release(matrix=fm_work1)
+         DEALLOCATE (fm_work1)
       END IF
       IF (fm_work2_local_alloc) THEN
          CALL cp_fm_release(matrix=fm_work2)
+         DEALLOCATE (fm_work2)
       END IF
 
       ! Release (local) sparse matrices
@@ -856,7 +869,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: should_output
       INTEGER, INTENT(IN)                                :: output_unit, print_level
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mulliken', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mulliken'
 
       CHARACTER(LEN=10)                                  :: spin_info
       CHARACTER(LEN=6), ALLOCATABLE, DIMENSION(:)        :: symbol
@@ -868,7 +881,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: atom_list, nshell, orbitals
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgf, l, last_sgf
       LOGICAL                                            :: debug, dft_plus_u_atom, found, &
-                                                            just_energy, smear
+                                                            just_energy, occupation_enforced, smear
       LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: is_plus_u_kind, orb_occ
       REAL(KIND=dp)                                      :: eps_scf, eps_u_ramping, fspin, occ, trq, &
                                                             trq2, u_minus_j, u_minus_j_target, &
@@ -925,6 +938,7 @@ CONTAINS
       smear = .FALSE.
       max_scf = -1
       eps_scf = 1.0E30_dp
+      occupation_enforced = .FALSE.
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
@@ -1248,6 +1262,7 @@ CONTAINS
                         DEALLOCATE (orb_occ)
                         DEALLOCATE (q_eigval)
                         DEALLOCATE (q_eigvec)
+                        occupation_enforced = .TRUE.
                      END IF
                   END IF ! orbitals associated
 
@@ -1452,10 +1467,13 @@ CONTAINS
 
       CALL mp_sum(energy%dft_plus_u, para_env%group)
 
-      IF (energy%dft_plus_u < 0.0_dp) &
-         CALL cp_warn(__LOCATION__, &
-                      "DFT+U energy contibution is negative possibly due "// &
-                      "to unphysical Mulliken charges!")
+      IF (energy%dft_plus_u < 0.0_dp) THEN
+         IF (.NOT. occupation_enforced) THEN
+            CALL cp_warn(__LOCATION__, &
+                         "DFT+U energy contibution is negative possibly due "// &
+                         "to unphysical Mulliken charges!")
+         END IF
+      END IF
 
       CALL dbcsr_deallocate_matrix(sm_q)
       CALL dbcsr_deallocate_matrix(sm_v)
@@ -1510,8 +1528,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: should_output
       INTEGER, INTENT(IN)                                :: output_unit, print_level
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mulliken_charges', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mulliken_charges'
 
       CHARACTER(LEN=10)                                  :: spin_info
       CHARACTER(LEN=6), ALLOCATABLE, DIMENSION(:)        :: symbol

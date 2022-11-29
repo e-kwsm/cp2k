@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -98,8 +100,6 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), OPTIONAL, POINTER         :: input
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'kg_env_create', routineP = moduleN//':'//routineN
-
       ALLOCATE (kg_env)
       CALL init_kg_env(qs_env, kg_env, qs_kind_set, input)
    END SUBROUTINE kg_env_create
@@ -121,7 +121,7 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), OPTIONAL, POINTER         :: input
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_kg_env', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'init_kg_env'
 
       CHARACTER(LEN=10)                                  :: intgrid
       INTEGER                                            :: handle, i, iatom, ib, ikind, iunit, n, &
@@ -146,10 +146,12 @@ CONTAINS
       NULLIFY (kg_env%subset)
       NULLIFY (kg_env%tnadd_mat)
       NULLIFY (kg_env%lri_env)
+      NULLIFY (kg_env%lri_env1)
       NULLIFY (kg_env%int_grid_atom)
       NULLIFY (kg_env%int_grid_molecules)
       NULLIFY (kg_env%int_grid_full)
       NULLIFY (kg_env%lri_density)
+      NULLIFY (kg_env%lri_rho1)
 
       kg_env%nsubsets = 0
 
@@ -189,6 +191,12 @@ CONTAINS
          lri_section => section_vals_get_subs_vals(input, "DFT%KG_METHOD%LRIGPW")
          CALL lri_env_init(kg_env%lri_env, lri_section)
          CALL lri_env_basis("LRI", qs_env, kg_env%lri_env, qs_kind_set)
+         !
+         ! if energy correction is performed with force calculation,
+         ! then response calculation requires
+         ! perturbation density for kernel calculation
+         CALL lri_env_init(kg_env%lri_env1, lri_section)
+         CALL lri_env_basis("LRI", qs_env, kg_env%lri_env1, qs_kind_set)
          !
          ! integration grid
          !
@@ -302,8 +310,7 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: subset_of_mol
       INTEGER, OPTIONAL                                  :: current_subset
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_build_neighborlist', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_build_neighborlist'
 
       INTEGER                                            :: handle, ikind, nkind
       LOGICAL                                            :: mic, molecule_only
@@ -438,8 +445,7 @@ CONTAINS
          INTENT(INOUT)                                   :: pairs_buffer
       INTEGER, INTENT(INOUT)                             :: n
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_remove_duplicates', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_remove_duplicates'
 
       INTEGER                                            :: handle, i, npairs
       INTEGER, DIMENSION(n)                              :: ind
@@ -494,7 +500,7 @@ CONTAINS
          DIMENSION(:, :), INTENT(IN)                     :: pairs
       INTEGER, INTENT(IN)                                :: nnodes
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_to_file', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'write_to_file'
 
       INTEGER                                            :: handle, i, imol, jmol, npairs, unit_nr
       INTEGER(KIND=int_4), ALLOCATABLE, DIMENSION(:, :)  :: sorted_pairs
@@ -554,8 +560,7 @@ CONTAINS
       TYPE(kg_environment_type), POINTER                 :: kg_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_build_subsets', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'kg_build_subsets'
 
       INTEGER                                            :: color, handle, i, iatom, imol, isub, &
                                                             jatom, jmol, nmol, npairs, npairs_local
@@ -643,7 +648,7 @@ CONTAINS
          ALLOCATE (msg_gather(2, npairs*para_env%num_pe))
       ELSE
          ALLOCATE (msg_gather(2, 1))
-      ENDIF
+      END IF
 
       msg_gather = 0
 
@@ -677,7 +682,7 @@ CONTAINS
          ! write to file, nnodes = number of molecules
          IF (.FALSE.) THEN
             CALL write_to_file(pairs, SIZE(kg_env%molecule_set))
-         ENDIF
+         END IF
 
          ! vertex coloring algorithm
          CALL kg_vertex_coloring(kg_env, pairs, ncolors, color_of_node)

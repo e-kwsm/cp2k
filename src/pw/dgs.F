@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -30,9 +32,8 @@ MODULE dgs
                                               pw_grid_setup
    USE pw_types,                        ONLY: COMPLEXDATA3D,&
                                               REALDATA3D,&
-                                              pw_p_type
-   USE realspace_grid_types,            ONLY: realspace_grid_p_type,&
-                                              realspace_grid_type
+                                              pw_type
+   USE realspace_grid_types,            ONLY: realspace_grid_type
    USE structure_factors,               ONLY: structure_factor_evaluate
 #include "../base/base_uses.f90"
 
@@ -115,7 +116,7 @@ CONTAINS
       ELSE
          CALL pw_grid_setup(b_cell_hmat, grid_b, bounds=bo, cutoff=ecut, spherical=.TRUE., &
                             rs_dims=rs_dims, iounit=iounit, fft_usage=fft_usage)
-      ENDIF
+      END IF
 
       CALL dg_find_basis(grid_b%npts, b_cell_hmat, unit_cell_hmat)
 
@@ -133,7 +134,7 @@ CONTAINS
 !> \par History 01.2014 copied from cell_types::get_cell()
 !> \author Ole Schuett
 ! **************************************************************************************************
-   FUNCTION get_cell_lengths(cell_hmat) RESULT(abc)
+   PURE FUNCTION get_cell_lengths(cell_hmat) RESULT(abc)
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: cell_hmat
       REAL(KIND=dp), DIMENSION(3)                        :: abc
 
@@ -166,8 +167,6 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: grid_s, grid_b
       REAL(KIND=dp), INTENT(OUT)                         :: cutoff
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dg_find_cutoff', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: nout(3)
       REAL(KIND=dp)                                      :: b_cell_deth, cell_lengths(3), dr(3)
       REAL(KIND=dp), DIMENSION(3, 3)                     :: b_cell_h_inv
@@ -196,15 +195,15 @@ CONTAINS
       IF (nout(1) > grid_b%npts(1)) THEN
          grid_b%npts(1) = nout(1)
          dr(1) = cell_lengths(1)/REAL(nout(1), KIND=dp)
-      ENDIF
+      END IF
       IF (nout(2) > grid_b%npts(2)) THEN
          grid_b%npts(2) = nout(2)
          dr(2) = cell_lengths(2)/REAL(nout(2), KIND=dp)
-      ENDIF
+      END IF
       IF (nout(3) > grid_b%npts(3)) THEN
          grid_b%npts(3) = nout(3)
          dr(3) = cell_lengths(3)/REAL(nout(3), KIND=dp)
-      ENDIF
+      END IF
 
 ! big grid bounds
       grid_b%bounds(1, :) = -grid_b%npts/2
@@ -284,7 +283,7 @@ CONTAINS
 !> \param cell_hmat ...
 !> \param unit_cell_hmat ...
 ! **************************************************************************************************
-   SUBROUTINE dg_find_basis(npts, cell_hmat, unit_cell_hmat)
+   PURE SUBROUTINE dg_find_basis(npts, cell_hmat, unit_cell_hmat)
       INTEGER, DIMENSION(:), INTENT(IN)                  :: npts
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: cell_hmat
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(OUT)        :: unit_cell_hmat
@@ -305,7 +304,7 @@ CONTAINS
 !> \param unit_cell_hmat ...
 !> \param cell_hmat ...
 ! **************************************************************************************************
-   SUBROUTINE dg_set_cell(npts, unit_cell_hmat, cell_hmat)
+   PURE SUBROUTINE dg_set_cell(npts, unit_cell_hmat, cell_hmat)
       INTEGER, DIMENSION(:), INTENT(IN)                  :: npts
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: unit_cell_hmat
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(OUT)        :: cell_hmat
@@ -364,8 +363,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(OUT)                 :: centre
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: delta
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dg_get_delta', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: cell_deth
       REAL(KIND=dp), DIMENSION(3)                        :: grid_i, s
       REAL(KIND=dp), DIMENSION(3, 3)                     :: cell_h_inv
@@ -404,10 +401,10 @@ CONTAINS
 !> \param rhos ...
 !> \param center ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_coef(rs, rhos, center)
+   PURE SUBROUTINE dg_sum_patch_coef(rs, rhos, center)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_p_type), INTENT(IN)                        :: rhos
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: rs
+      TYPE(pw_type), INTENT(IN)                          :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
 
       INTEGER                                            :: i, ia, ii
@@ -416,8 +413,8 @@ CONTAINS
 
       folded = .FALSE.
 
-      DO i = rhos%pw%pw_grid%bounds(1, 1), rhos%pw%pw_grid%bounds(2, 1)
-         ia = i - rhos%pw%pw_grid%bounds(1, 1) + 1
+      DO i = rhos%pw_grid%bounds(1, 1), rhos%pw_grid%bounds(2, 1)
+         ia = i - rhos%pw_grid%bounds(1, 1) + 1
          ii = center(1) + i - rs%lb_local(1)
          IF (ii < 0) THEN
             rs%px(ia) = ii + rs%npts_local(1) + 1
@@ -427,10 +424,10 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%px(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 2), rhos%pw%pw_grid%bounds(2, 2)
-         ia = i - rhos%pw%pw_grid%bounds(1, 2) + 1
+      DO i = rhos%pw_grid%bounds(1, 2), rhos%pw_grid%bounds(2, 2)
+         ia = i - rhos%pw_grid%bounds(1, 2) + 1
          ii = center(2) + i - rs%lb_local(2)
          IF (ii < 0) THEN
             rs%py(ia) = ii + rs%npts_local(2) + 1
@@ -440,10 +437,10 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%py(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 3), rhos%pw%pw_grid%bounds(2, 3)
-         ia = i - rhos%pw%pw_grid%bounds(1, 3) + 1
+      DO i = rhos%pw_grid%bounds(1, 3), rhos%pw_grid%bounds(2, 3)
+         ia = i - rhos%pw_grid%bounds(1, 3) + 1
          ii = center(3) + i - rs%lb_local(3)
          IF (ii < 0) THEN
             rs%pz(ia) = ii + rs%npts_local(3) + 1
@@ -453,17 +450,17 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%pz(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
 
       IF (folded) THEN
-         CALL dg_add_patch(rs%r, rhos%pw%cr3d, rhos%pw%pw_grid%npts, &
+         CALL dg_add_patch(rs%r, rhos%cr3d, rhos%pw_grid%npts, &
                            rs%px, rs%py, rs%pz)
       ELSE
          nc(1) = rs%px(1) - 1
          nc(2) = rs%py(1) - 1
          nc(3) = rs%pz(1) - 1
-         CALL dg_add_patch(rs%r, rhos%pw%cr3d, rhos%pw%pw_grid%npts, nc)
+         CALL dg_add_patch(rs%r, rhos%cr3d, rhos%pw_grid%npts, nc)
       END IF
 
    END SUBROUTINE dg_sum_patch_coef
@@ -474,9 +471,9 @@ CONTAINS
 !> \param rhos ...
 !> \param center ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_arr(rs, rhos, center)
+   PURE SUBROUTINE dg_sum_patch_arr(rs, rhos, center)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: rs
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
 
@@ -502,7 +499,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%px(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
       DO i = lb(2), ub(2)
          ia = i - lb(2) + 1
@@ -515,7 +512,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%py(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
       DO i = lb(3), ub(3)
          ia = i - lb(3) + 1
@@ -528,7 +525,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             rs%pz(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
 
       IF (folded) THEN
@@ -549,9 +546,10 @@ CONTAINS
 !> \param center ...
 !> \param force ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_force_arr_3d(drpot, rhos, center, force)
+   PURE SUBROUTINE dg_sum_patch_force_arr_3d(drpot, rhos, center, force)
 
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: drpot
+      TYPE(realspace_grid_type), DIMENSION(:), &
+         INTENT(INOUT)                                   :: drpot
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: force
@@ -569,54 +567,54 @@ CONTAINS
 
       DO i = lb(1), ub(1)
          ia = i - lb(1) + 1
-         ii = center(1) + i - drpot(1)%rs_grid%lb_local(1)
+         ii = center(1) + i - drpot(1)%lb_local(1)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%px(ia) = ii + drpot(1)%rs_grid%npts_local(1) + 1
+            drpot(1)%px(ia) = ii + drpot(1)%npts_local(1) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%npts_local(1)) THEN
-            drpot(1)%rs_grid%px(ia) = ii - drpot(1)%rs_grid%npts_local(1) + 1
+         ELSEIF (ii >= drpot(1)%npts_local(1)) THEN
+            drpot(1)%px(ia) = ii - drpot(1)%npts_local(1) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%px(ia) = ii + 1
-         ENDIF
+            drpot(1)%px(ia) = ii + 1
+         END IF
       END DO
       DO i = lb(2), ub(2)
          ia = i - lb(2) + 1
-         ii = center(2) + i - drpot(1)%rs_grid%lb_local(2)
+         ii = center(2) + i - drpot(1)%lb_local(2)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%py(ia) = ii + drpot(1)%rs_grid%npts_local(2) + 1
+            drpot(1)%py(ia) = ii + drpot(1)%npts_local(2) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%npts_local(2)) THEN
-            drpot(1)%rs_grid%py(ia) = ii - drpot(1)%rs_grid%npts_local(2) + 1
+         ELSEIF (ii >= drpot(1)%npts_local(2)) THEN
+            drpot(1)%py(ia) = ii - drpot(1)%npts_local(2) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%py(ia) = ii + 1
-         ENDIF
+            drpot(1)%py(ia) = ii + 1
+         END IF
       END DO
       DO i = lb(3), ub(3)
          ia = i - lb(3) + 1
-         ii = center(3) + i - drpot(1)%rs_grid%lb_local(3)
+         ii = center(3) + i - drpot(1)%lb_local(3)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%pz(ia) = ii + drpot(1)%rs_grid%npts_local(3) + 1
+            drpot(1)%pz(ia) = ii + drpot(1)%npts_local(3) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%npts_local(3)) THEN
-            drpot(1)%rs_grid%pz(ia) = ii - drpot(1)%rs_grid%npts_local(3) + 1
+         ELSEIF (ii >= drpot(1)%npts_local(3)) THEN
+            drpot(1)%pz(ia) = ii - drpot(1)%npts_local(3) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%pz(ia) = ii + 1
-         ENDIF
+            drpot(1)%pz(ia) = ii + 1
+         END IF
       END DO
 
       IF (folded) THEN
-         CALL dg_int_patch_3d(drpot(1)%rs_grid%r, drpot(2)%rs_grid%r, &
-                              drpot(3)%rs_grid%r, rhos, force, ns, &
-                              drpot(1)%rs_grid%px, drpot(1)%rs_grid%py, drpot(1)%rs_grid%pz)
+         CALL dg_int_patch_3d(drpot(1)%r, drpot(2)%r, &
+                              drpot(3)%r, rhos, force, ns, &
+                              drpot(1)%px, drpot(1)%py, drpot(1)%pz)
       ELSE
-         nc(1) = drpot(1)%rs_grid%px(1) - 1
-         nc(2) = drpot(1)%rs_grid%py(1) - 1
-         nc(3) = drpot(1)%rs_grid%pz(1) - 1
-         CALL dg_int_patch_3d(drpot(1)%rs_grid%r, drpot(2)%rs_grid%r, &
-                              drpot(3)%rs_grid%r, rhos, force, ns, nc)
+         nc(1) = drpot(1)%px(1) - 1
+         nc(2) = drpot(1)%py(1) - 1
+         nc(3) = drpot(1)%pz(1) - 1
+         CALL dg_int_patch_3d(drpot(1)%r, drpot(2)%r, &
+                              drpot(3)%r, rhos, force, ns, nc)
       END IF
 
    END SUBROUTINE dg_sum_patch_force_arr_3d
@@ -628,9 +626,9 @@ CONTAINS
 !> \param center ...
 !> \param force ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_force_arr_1d(drpot, rhos, center, force)
+   PURE SUBROUTINE dg_sum_patch_force_arr_1d(drpot, rhos, center, force)
 
-      TYPE(realspace_grid_type), POINTER                 :: drpot
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: drpot
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
       REAL(KIND=dp), INTENT(OUT)                         :: force
@@ -657,7 +655,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%px(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
       DO i = lb(2), ub(2)
          ia = i - lb(2) + 1
@@ -670,7 +668,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%py(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
       DO i = lb(3), ub(3)
          ia = i - lb(3) + 1
@@ -683,7 +681,7 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%pz(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
 
       IF (folded) THEN
@@ -705,10 +703,11 @@ CONTAINS
 !> \param center ...
 !> \param force ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_force_coef_3d(drpot, rhos, center, force)
+   PURE SUBROUTINE dg_sum_patch_force_coef_3d(drpot, rhos, center, force)
 
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: drpot
-      TYPE(pw_p_type), INTENT(IN)                        :: rhos
+      TYPE(realspace_grid_type), DIMENSION(:), &
+         INTENT(INOUT)                                   :: drpot
+      TYPE(pw_type), INTENT(IN)                          :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: force
 
@@ -718,56 +717,56 @@ CONTAINS
 
       folded = .FALSE.
 
-      DO i = rhos%pw%pw_grid%bounds(1, 1), rhos%pw%pw_grid%bounds(2, 1)
-         ia = i - rhos%pw%pw_grid%bounds(1, 1) + 1
-         ii = center(1) + i - drpot(1)%rs_grid%lb_local(1)
+      DO i = rhos%pw_grid%bounds(1, 1), rhos%pw_grid%bounds(2, 1)
+         ia = i - rhos%pw_grid%bounds(1, 1) + 1
+         ii = center(1) + i - drpot(1)%lb_local(1)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%px(ia) = ii + drpot(1)%rs_grid%desc%npts(1) + 1
+            drpot(1)%px(ia) = ii + drpot(1)%desc%npts(1) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%desc%npts(1)) THEN
-            drpot(1)%rs_grid%px(ia) = ii - drpot(1)%rs_grid%desc%npts(1) + 1
+         ELSEIF (ii >= drpot(1)%desc%npts(1)) THEN
+            drpot(1)%px(ia) = ii - drpot(1)%desc%npts(1) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%px(ia) = ii + 1
-         ENDIF
+            drpot(1)%px(ia) = ii + 1
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 2), rhos%pw%pw_grid%bounds(2, 2)
-         ia = i - rhos%pw%pw_grid%bounds(1, 2) + 1
-         ii = center(2) + i - drpot(1)%rs_grid%lb_local(2)
+      DO i = rhos%pw_grid%bounds(1, 2), rhos%pw_grid%bounds(2, 2)
+         ia = i - rhos%pw_grid%bounds(1, 2) + 1
+         ii = center(2) + i - drpot(1)%lb_local(2)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%py(ia) = ii + drpot(1)%rs_grid%desc%npts(2) + 1
+            drpot(1)%py(ia) = ii + drpot(1)%desc%npts(2) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%desc%npts(2)) THEN
-            drpot(1)%rs_grid%py(ia) = ii - drpot(1)%rs_grid%desc%npts(2) + 1
+         ELSEIF (ii >= drpot(1)%desc%npts(2)) THEN
+            drpot(1)%py(ia) = ii - drpot(1)%desc%npts(2) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%py(ia) = ii + 1
-         ENDIF
+            drpot(1)%py(ia) = ii + 1
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 3), rhos%pw%pw_grid%bounds(2, 3)
-         ia = i - rhos%pw%pw_grid%bounds(1, 3) + 1
-         ii = center(3) + i - drpot(1)%rs_grid%lb_local(3)
+      DO i = rhos%pw_grid%bounds(1, 3), rhos%pw_grid%bounds(2, 3)
+         ia = i - rhos%pw_grid%bounds(1, 3) + 1
+         ii = center(3) + i - drpot(1)%lb_local(3)
          IF (ii < 0) THEN
-            drpot(1)%rs_grid%pz(ia) = ii + drpot(1)%rs_grid%desc%npts(3) + 1
+            drpot(1)%pz(ia) = ii + drpot(1)%desc%npts(3) + 1
             folded = .TRUE.
-         ELSEIF (ii >= drpot(1)%rs_grid%desc%npts(3)) THEN
-            drpot(1)%rs_grid%pz(ia) = ii - drpot(1)%rs_grid%desc%npts(3) + 1
+         ELSEIF (ii >= drpot(1)%desc%npts(3)) THEN
+            drpot(1)%pz(ia) = ii - drpot(1)%desc%npts(3) + 1
             folded = .TRUE.
          ELSE
-            drpot(1)%rs_grid%pz(ia) = ii + 1
-         ENDIF
+            drpot(1)%pz(ia) = ii + 1
+         END IF
       END DO
 
       IF (folded) THEN
-         CALL dg_int_patch_3d(drpot(1)%rs_grid%r, drpot(2)%rs_grid%r, &
-                              drpot(3)%rs_grid%r, rhos%pw%cr3d, force, rhos%pw%pw_grid%npts, &
-                              drpot(1)%rs_grid%px, drpot(1)%rs_grid%py, drpot(1)%rs_grid%pz)
+         CALL dg_int_patch_3d(drpot(1)%r, drpot(2)%r, &
+                              drpot(3)%r, rhos%cr3d, force, rhos%pw_grid%npts, &
+                              drpot(1)%px, drpot(1)%py, drpot(1)%pz)
       ELSE
-         nc(1) = drpot(1)%rs_grid%px(1) - 1
-         nc(2) = drpot(1)%rs_grid%py(1) - 1
-         nc(3) = drpot(1)%rs_grid%pz(1) - 1
-         CALL dg_int_patch_3d(drpot(1)%rs_grid%r, drpot(2)%rs_grid%r, &
-                              drpot(3)%rs_grid%r, rhos%pw%cr3d, force, rhos%pw%pw_grid%npts, nc)
+         nc(1) = drpot(1)%px(1) - 1
+         nc(2) = drpot(1)%py(1) - 1
+         nc(3) = drpot(1)%pz(1) - 1
+         CALL dg_int_patch_3d(drpot(1)%r, drpot(2)%r, &
+                              drpot(3)%r, rhos%cr3d, force, rhos%pw_grid%npts, nc)
       END IF
 
    END SUBROUTINE dg_sum_patch_force_coef_3d
@@ -779,10 +778,10 @@ CONTAINS
 !> \param center ...
 !> \param force ...
 ! **************************************************************************************************
-   SUBROUTINE dg_sum_patch_force_coef_1d(drpot, rhos, center, force)
+   PURE SUBROUTINE dg_sum_patch_force_coef_1d(drpot, rhos, center, force)
 
-      TYPE(realspace_grid_type), POINTER                 :: drpot
-      TYPE(pw_p_type), INTENT(IN)                        :: rhos
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: drpot
+      TYPE(pw_type), INTENT(IN)                          :: rhos
       INTEGER, DIMENSION(3), INTENT(IN)                  :: center
       REAL(KIND=dp), INTENT(OUT)                         :: force
 
@@ -792,8 +791,8 @@ CONTAINS
 
       folded = .FALSE.
 
-      DO i = rhos%pw%pw_grid%bounds(1, 1), rhos%pw%pw_grid%bounds(2, 1)
-         ia = i - rhos%pw%pw_grid%bounds(1, 1) + 1
+      DO i = rhos%pw_grid%bounds(1, 1), rhos%pw_grid%bounds(2, 1)
+         ia = i - rhos%pw_grid%bounds(1, 1) + 1
          ii = center(1) + i - drpot%lb_local(1)
          IF (ii < 0) THEN
             drpot%px(ia) = ii + drpot%desc%npts(1) + 1
@@ -803,10 +802,10 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%px(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 2), rhos%pw%pw_grid%bounds(2, 2)
-         ia = i - rhos%pw%pw_grid%bounds(1, 2) + 1
+      DO i = rhos%pw_grid%bounds(1, 2), rhos%pw_grid%bounds(2, 2)
+         ia = i - rhos%pw_grid%bounds(1, 2) + 1
          ii = center(2) + i - drpot%lb_local(2)
          IF (ii < 0) THEN
             drpot%py(ia) = ii + drpot%desc%npts(2) + 1
@@ -816,10 +815,10 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%py(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
-      DO i = rhos%pw%pw_grid%bounds(1, 3), rhos%pw%pw_grid%bounds(2, 3)
-         ia = i - rhos%pw%pw_grid%bounds(1, 3) + 1
+      DO i = rhos%pw_grid%bounds(1, 3), rhos%pw_grid%bounds(2, 3)
+         ia = i - rhos%pw_grid%bounds(1, 3) + 1
          ii = center(3) + i - drpot%lb_local(3)
          IF (ii < 0) THEN
             drpot%pz(ia) = ii + drpot%desc%npts(3) + 1
@@ -829,17 +828,17 @@ CONTAINS
             folded = .TRUE.
          ELSE
             drpot%pz(ia) = ii + 1
-         ENDIF
+         END IF
       END DO
 
       IF (folded) THEN
-         CALL dg_int_patch_1d(drpot%r, rhos%pw%cr3d, force, &
-                              rhos%pw%pw_grid%npts, drpot%px, drpot%py, drpot%pz)
+         CALL dg_int_patch_1d(drpot%r, rhos%cr3d, force, &
+                              rhos%pw_grid%npts, drpot%px, drpot%py, drpot%pz)
       ELSE
          nc(1) = drpot%px(1) - 1
          nc(2) = drpot%py(1) - 1
          nc(3) = drpot%pz(1) - 1
-         CALL dg_int_patch_1d(drpot%r, rhos%pw%cr3d, force, rhos%pw%pw_grid%npts, nc)
+         CALL dg_int_patch_1d(drpot%r, rhos%cr3d, force, rhos%pw_grid%npts, nc)
       END IF
 
    END SUBROUTINE dg_sum_patch_force_coef_1d
@@ -855,20 +854,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dg_get_patch_1(rho0, rhos1, charge1, ex1, ey1, ez1)
 
-      TYPE(pw_p_type), INTENT(IN)                        :: rho0
-      TYPE(pw_p_type), INTENT(INOUT)                     :: rhos1
+      TYPE(pw_type), INTENT(IN)                          :: rho0
+      TYPE(pw_type), INTENT(INOUT)                       :: rhos1
       REAL(KIND=dp), INTENT(IN)                          :: charge1
       COMPLEX(KIND=dp), DIMENSION(:), INTENT(IN)         :: ex1, ey1, ez1
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dg_get_patch_1', routineP = moduleN//':'//routineN
 
       COMPLEX(KIND=dp)                                   :: za, zb
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: zs
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: cd
-      INTEGER                                            :: n, nd(3)
+      INTEGER                                            :: nd(3)
 
-      nd = rhos1%pw%pw_grid%npts
-      n = PRODUCT(nd)
+      nd = rhos1%pw_grid%npts
 
       ALLOCATE (zs(nd(1)*nd(2)))
       zs = 0.0_dp
@@ -878,12 +874,12 @@ CONTAINS
       za = CMPLX(0.0_dp, 0.0_dp, KIND=dp)
       zb = CMPLX(charge1, 0.0_dp, KIND=dp)
       CALL rankup(nd, za, cd, zb, ex1, ey1, ez1, zs)
-      IF (rho0%pw%in_use == REALDATA3D) &
-         CALL vr_x_vc(rho0%pw%cr3d, cd)
-      IF (rho0%pw%in_use == COMPLEXDATA3D) &
-         CALL vc_x_vc(rho0%pw%cc3d, cd)
+      IF (rho0%in_use == REALDATA3D) &
+         CALL vr_x_vc(rho0%cr3d, cd)
+      IF (rho0%in_use == COMPLEXDATA3D) &
+         CALL vc_x_vc(rho0%cc3d, cd)
       CALL fft3d(BWFFT, nd, cd)
-      CALL copy_cr(cd, rhos1%pw%cr3d)
+      CALL copy_cr(cd, rhos1%cr3d)
 
       DEALLOCATE (zs)
       DEALLOCATE (cd)
@@ -907,20 +903,17 @@ CONTAINS
    SUBROUTINE dg_get_patch_2(rho0, rhos1, rhos2, charge1, charge2, &
                              ex1, ey1, ez1, ex2, ey2, ez2)
 
-      TYPE(pw_p_type), INTENT(IN)                        :: rho0
-      TYPE(pw_p_type), INTENT(INOUT)                     :: rhos1, rhos2
+      TYPE(pw_type), INTENT(IN)                          :: rho0
+      TYPE(pw_type), INTENT(INOUT)                       :: rhos1, rhos2
       REAL(KIND=dp), INTENT(IN)                          :: charge1, charge2
       COMPLEX(KIND=dp), DIMENSION(:), INTENT(IN)         :: ex1, ey1, ez1, ex2, ey2, ez2
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dg_get_patch_2', routineP = moduleN//':'//routineN
 
       COMPLEX(KIND=dp)                                   :: za, zb
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: zs
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: cd
-      INTEGER                                            :: n, nd(3)
+      INTEGER                                            :: nd(3)
 
-      nd = rhos1%pw%pw_grid%npts
-      n = PRODUCT(nd)
+      nd = rhos1%pw_grid%npts
 
       ALLOCATE (zs(nd(1)*nd(2)))
       zs = 0.0_dp
@@ -933,12 +926,12 @@ CONTAINS
       za = CMPLX(0.0_dp, 1.0_dp, KIND=dp)
       zb = CMPLX(charge1, 0.0_dp, KIND=dp)
       CALL rankup(nd, za, cd, zb, ex1, ey1, ez1, zs)
-      IF (rho0%pw%in_use == REALDATA3D) &
-         CALL vr_x_vc(rho0%pw%cr3d, cd)
-      IF (rho0%pw%in_use == COMPLEXDATA3D) &
-         CALL vc_x_vc(rho0%pw%cc3d, cd)
+      IF (rho0%in_use == REALDATA3D) &
+         CALL vr_x_vc(rho0%cr3d, cd)
+      IF (rho0%in_use == COMPLEXDATA3D) &
+         CALL vc_x_vc(rho0%cc3d, cd)
       CALL fft3d(BWFFT, nd, cd)
-      CALL copy_cri(cd, rhos1%pw%cr3d, rhos2%pw%cr3d)
+      CALL copy_cri(cd, rhos1%cr3d, rhos2%cr3d)
 
       DEALLOCATE (zs)
       DEALLOCATE (cd)
@@ -952,7 +945,7 @@ CONTAINS
 !> \param ns ...
 !> \param nc ...
 ! **************************************************************************************************
-   SUBROUTINE dg_add_patch_simple(rb, rs, ns, nc)
+   PURE SUBROUTINE dg_add_patch_simple(rb, rs, ns, nc)
 
       REAL(KIND=dp), INTENT(INOUT)                       :: rb(:, :, :)
       REAL(KIND=dp), INTENT(IN)                          :: rs(:, :, :)
@@ -982,7 +975,7 @@ CONTAINS
 !> \param py ...
 !> \param pz ...
 ! **************************************************************************************************
-   SUBROUTINE dg_add_patch_folded(rb, rs, ns, px, py, pz)
+   PURE SUBROUTINE dg_add_patch_folded(rb, rs, ns, px, py, pz)
 
       REAL(KIND=dp), INTENT(INOUT)                       :: rb(:, :, :)
       REAL(KIND=dp), INTENT(IN)                          :: rs(:, :, :)
@@ -1014,7 +1007,7 @@ CONTAINS
 !> \param ns ...
 !> \param nc ...
 ! **************************************************************************************************
-   SUBROUTINE dg_int_patch_simple_3d(rbx, rby, rbz, rs, f, ns, nc)
+   PURE SUBROUTINE dg_int_patch_simple_3d(rbx, rby, rbz, rs, f, ns, nc)
 
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rbx, rby, rbz, rs
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: f
@@ -1048,7 +1041,7 @@ CONTAINS
 !> \param ns ...
 !> \param nc ...
 ! **************************************************************************************************
-   SUBROUTINE dg_int_patch_simple_1d(rb, rs, f, ns, nc)
+   PURE SUBROUTINE dg_int_patch_simple_1d(rb, rs, f, ns, nc)
 
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rb, rs
       REAL(KIND=dp), INTENT(OUT)                         :: f
@@ -1084,7 +1077,7 @@ CONTAINS
 !> \param py ...
 !> \param pz ...
 ! **************************************************************************************************
-   SUBROUTINE dg_int_patch_folded_3d(rbx, rby, rbz, rs, f, ns, px, py, pz)
+   PURE SUBROUTINE dg_int_patch_folded_3d(rbx, rby, rbz, rs, f, ns, px, py, pz)
 
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rbx, rby, rbz, rs
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: f
@@ -1121,7 +1114,7 @@ CONTAINS
 !> \param py ...
 !> \param pz ...
 ! **************************************************************************************************
-   SUBROUTINE dg_int_patch_folded_1d(rb, rs, f, ns, px, py, pz)
+   PURE SUBROUTINE dg_int_patch_folded_1d(rb, rs, f, ns, px, py, pz)
 
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: rb, rs
       REAL(KIND=dp), INTENT(INOUT)                       :: f

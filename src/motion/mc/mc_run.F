@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -104,8 +106,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       CHARACTER(LEN=*)                                   :: input_file_name
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_mon_car', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=20)                                  :: ensemble
       CHARACTER(LEN=40)                                  :: box2_file, dat_file
       INTEGER                                            :: box_number, ibox, isos, iw, nboxes, &
@@ -193,9 +193,10 @@ CONTAINS
             WRITE (iw, *)
             WRITE (iw, '(A,I2,A)') '******************************** Begin BOX ', ibox, &
                '  *******************************'
-         ENDIF
+         END IF
 
 ! allocates an mc_env and sets the variables to zero
+         ALLOCATE (mc_env(ibox)%mc_env)
          CALL mc_env_create(mc_env(ibox)%mc_env)
 
 ! now read in the values of the mc_pars
@@ -214,7 +215,7 @@ CONTAINS
          ELSE
             CALL read_mc_section(mc_par(ibox)%mc_par, para_env, globenv, box2_file, &
                                  root_section, force_env_section)
-         ENDIF
+         END IF
 
 ! get the input file data, in case we need to make a restart...
 ! this is also used in the swap move, or anytime we need to make a dat file
@@ -228,7 +229,7 @@ CONTAINS
          ELSE
             CALL mc_input_file_create(mc_input_file, &
                                       box2_file, mc_molecule_info, empty_coordinates, lhmc)
-         ENDIF
+         END IF
          CALL set_mc_par(mc_par(ibox)%mc_par, mc_input_file=mc_input_file)
 
          IF (lbias) THEN
@@ -236,7 +237,7 @@ CONTAINS
             CALL mc_input_file_create(mc_bias_file, &
                                       "bias_template.inp", mc_molecule_info, empty_coordinates, lhmc)
             CALL set_mc_par(mc_par(ibox)%mc_par, mc_bias_file=mc_bias_file)
-         ENDIF
+         END IF
 
 ! check for restart
          CALL get_mc_par(mc_par(ibox)%mc_par, lrestart=lrestart, &
@@ -248,9 +249,9 @@ CONTAINS
             CALL force_env_release(force_env(ibox)%force_env)
             CALL mc_create_force_env(force_env(ibox)%force_env, &
                                      input_declaration, para_env, dat_file)
-         ENDIF
+         END IF
 
-      ENDDO
+      END DO
 
 ! figure out if we have an empty box
       box_number = 0
@@ -262,8 +263,8 @@ CONTAINS
             END IF
             box_number = ibox
             lskip_box = .TRUE.
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
 ! in case there was a restart, we need to do this again
       CALL mc_molecule_info_destroy(mc_molecule_info)
@@ -272,7 +273,7 @@ CONTAINS
                                 nunits_tot=nunits_tot)
       DO ibox = 1, nboxes
          CALL set_mc_par(mc_par(ibox)%mc_par, mc_molecule_info=mc_molecule_info)
-      ENDDO
+      END DO
 ! if we're doing a classical simulation, figure out the largest
 ! potential cutoff and write it to the screen
       IF (force_env(1)%force_env%in_use .EQ. use_fist_force) THEN
@@ -282,13 +283,13 @@ CONTAINS
             ' MC| Interaction cutoff [angstroms]', rcut*angstrom
          IF (lterminate) THEN
             CPABORT('Cutoff larger than twice the boxlength')
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
 ! make sure some values are the same between boxes
       IF (nboxes == 2) THEN
          CALL equilize_mc_sim_parameters(mc_par, iw)
-      ENDIF
+      END IF
 
 ! now check the input parameters and run the simulation
       DO ibox = 1, nboxes
@@ -299,7 +300,7 @@ CONTAINS
          CALL set_mc_env(mc_env(ibox)%mc_env, mc_par=mc_par(ibox)%mc_par, &
                          force_env=force_env(ibox)%force_env)
 
-      ENDDO
+      END DO
 
 ! if we're computing the second virial coefficient, do that instead
 ! of running a simulation
@@ -324,12 +325,13 @@ CONTAINS
          IF (lbias) THEN
             CALL get_mc_par(mc_par(ibox)%mc_par, mc_bias_file=mc_bias_file)
             CALL mc_input_file_destroy(mc_bias_file)
-         ENDIF
+         END IF
 
          CALL mc_sim_par_destroy(mc_par(ibox)%mc_par)
          CALL mc_env_release(mc_env(ibox)%mc_env)
+         DEALLOCATE (mc_env(ibox)%mc_env)
          CALL force_env_release(force_env(ibox)%force_env)
-      ENDDO
+      END DO
 
       DEALLOCATE (empty_coordinates)
       DEALLOCATE (mc_par)
@@ -376,7 +378,7 @@ CONTAINS
          WRITE (iw, '( A,A )') 'pmtraion_mol,pmtrans_mol,pmrot_mol,pmswap_mol,', &
             'avbmc_atom'
          WRITE (iw, '( A,A )') 'avbmc_rmin,avmbc_rmax,pmavbmc_mol,pbias,pmswap'
-      ENDIF
+      END IF
 
       CALL get_mc_par(mc_par(1)%mc_par, nstep=nstep, iupvolume=iupvolume, iupcltrans=iupcltrans, &
                       iuptrans=iuptrans, nmoves=nmoves, nswapmoves=nswapmoves, &

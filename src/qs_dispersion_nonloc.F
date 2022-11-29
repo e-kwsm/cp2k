@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,6 @@ MODULE qs_dispersion_nonloc
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qs_dispersion_types,             ONLY: qs_dispersion_type
    USE virial_types,                    ONLY: virial_type
@@ -72,8 +73,7 @@ CONTAINS
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dispersion_nonloc_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dispersion_nonloc_init'
 
       CHARACTER(LEN=default_string_length)               :: filename
       INTEGER                                            :: funit, handle, nqs, nr_points, q1_i, &
@@ -168,7 +168,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_dispersion_nonloc(vxc_rho, rho_r, rho_g, edispersion, &
                                           dispersion_env, energy_only, pw_pool, xc_pw_pool, para_env, virial)
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vxc_rho, rho_r, rho_g
+      TYPE(pw_type), DIMENSION(:), POINTER               :: vxc_rho, rho_r, rho_g
       REAL(KIND=dp), INTENT(OUT)                         :: edispersion
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
       LOGICAL, INTENT(IN)                                :: energy_only
@@ -176,8 +176,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(virial_type), OPTIONAL, POINTER               :: virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_dispersion_nonloc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_dispersion_nonloc'
       INTEGER, DIMENSION(3, 3), PARAMETER :: nd = RESHAPE((/1, 0, 0, 0, 1, 0, 0, 0, 1/), (/3, 3/))
 
       INTEGER                                            :: handle, i, i_grid, idir, ispin, nl_type, &
@@ -189,9 +188,9 @@ CONTAINS
                                                             q0, rho
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: drho, thetas
       TYPE(pw_grid_type), POINTER                        :: grid
-      TYPE(pw_p_type), ALLOCATABLE, DIMENSION(:)         :: thetas_g
-      TYPE(pw_p_type), ALLOCATABLE, DIMENSION(:, :)      :: drho_r
-      TYPE(pw_type), POINTER                             :: tmp_g, tmp_r, vxc_g, vxc_r
+      TYPE(pw_type)                                      :: tmp_g, tmp_r, vxc_g, vxc_r
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: thetas_g
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:, :)        :: drho_r
 
       CALL timeset(routineN, handle)
 
@@ -203,7 +202,7 @@ CONTAINS
          use_virial = virial%pv_calculate .AND. (.NOT. virial%pv_numer)
       ELSE
          use_virial = .FALSE.
-      ENDIF
+      END IF
       IF (use_virial) THEN
          CPASSERT(.NOT. energy_only)
       END IF
@@ -227,12 +226,11 @@ CONTAINS
       ALLOCATE (drho_r(3, nspin))
       DO ispin = 1, nspin
          DO idir = 1, 3
-            NULLIFY (drho_r(idir, ispin)%pw)
-            CALL pw_pool_create_pw(pw_pool, drho_r(idir, ispin)%pw, &
+            CALL pw_pool_create_pw(pw_pool, drho_r(idir, ispin), &
                                    use_data=REALDATA3D, in_space=REALSPACE)
-            CALL pw_transfer(rho_g(ispin)%pw, tmp_g)
+            CALL pw_transfer(rho_g(ispin), tmp_g)
             CALL pw_derive(tmp_g, nd(:, idir))
-            CALL pw_transfer(tmp_g, drho_r(idir, ispin)%pw)
+            CALL pw_transfer(tmp_g, drho_r(idir, ispin))
          END DO
       END DO
 
@@ -268,8 +266,8 @@ CONTAINS
 !$OMP END PARALLEL DO
       END DO
       DO ispin = 1, nspin
-         CPASSERT(rho_r(ispin)%pw%in_use == REALDATA3D)
-         CALL pw_transfer(rho_g(ispin)%pw, tmp_g)
+         CPASSERT(rho_r(ispin)%in_use == REALDATA3D)
+         CALL pw_transfer(rho_g(ispin), tmp_g)
          CALL pw_transfer(tmp_g, tmp_r)
 !$OMP PARALLEL DO DEFAULT(NONE)            &
 !$OMP             SHARED(n,lo,rho,tmp_r)   &
@@ -293,7 +291,7 @@ CONTAINS
                DO q = 0, n(2) - 1
                   DO p = 0, n(1) - 1
                      s = r*n(2)*n(1) + q*n(1) + p + 1
-                     drho(s, i) = drho(s, i) + drho_r(i, ispin)%pw%cr3d(p + lo(1), q + lo(2), r + lo(3))
+                     drho(s, i) = drho(s, i) + drho_r(i, ispin)%cr3d(p + lo(1), q + lo(2), r + lo(3))
                   END DO
                END DO
             END DO
@@ -336,7 +334,7 @@ CONTAINS
       !! constant*rho^(3/4)*P_i(q0(rho, gradient_rho)) for rVV10 where P_i is a polynomial that
       !! interpolates a Kronecker delta function at the point q_i (taken from the q_mesh) and q0 is
       !! the saturated version of q.
-      !! q is defined in equations 11 and 12 of DION and the saturation proceedure is defined in equation 5
+      !! q is defined in equations 11 and 12 of DION and the saturation procedure is defined in equation 5
       !! of soler.  This is the biggest memory consumer in the method since the thetas array is
       !! (total # of FFT points)*Nqs complex numbers.  In a parallel run, each processor will hold the
       !! values of all the theta functions on just the points assigned to it.
@@ -398,11 +396,10 @@ CONTAINS
             END DO
          END DO
 !$OMP END PARALLEL DO
-         NULLIFY (thetas_g(i)%pw)
-         CALL pw_pool_create_pw(pw_pool, thetas_g(i)%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-         CALL pw_transfer(tmp_r, thetas_g(i)%pw)
+         CALL pw_pool_create_pw(pw_pool, thetas_g(i), use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+         CALL pw_transfer(tmp_r, thetas_g(i))
       END DO
-      grid => thetas_g(1)%pw%pw_grid
+      grid => thetas_g(1)%pw_grid
       !! ---------------------------------------------------------------------------------------------
       !! Carry out the integration in equation 8 of SOLER.  This also turns the thetas array into the
       !! precursor to the u_i(k) array which is inverse fourier transformed to get the u_i(r) functions
@@ -430,6 +427,7 @@ CONTAINS
          END SELECT
       END IF
       CALL mp_sum(Ec_nl, para_env%group)
+      IF (nl_type == vdw_nl_RVV10) Ec_nl = Ec_nl*dispersion_env%scale_rvv10
       edispersion = Ec_nl
 
       IF (energy_only) THEN
@@ -444,7 +442,7 @@ CONTAINS
             n(i) = hi(i) - lo(i) + 1
          END DO
          DO i = 1, dispersion_env%nqs
-            CALL pw_transfer(thetas_g(i)%pw, tmp_r)
+            CALL pw_transfer(thetas_g(i), tmp_r)
 !$OMP PARALLEL DO DEFAULT(NONE)                        &
 !$OMP             SHARED(i,n,lo,thetas,tmp_r)          &
 !$OMP             COLLAPSE(3)
@@ -476,8 +474,8 @@ CONTAINS
          END IF
          SELECT CASE (nl_type)
          CASE (vdw_nl_RVV10)
-            potential(:) = 0.5_dp*potential(:) + beta
-            hpot(:) = 0.5_dp*hpot(:)
+            potential(:) = (0.5_dp*potential(:) + beta)*dispersion_env%scale_rvv10
+            hpot(:) = 0.5_dp*dispersion_env%scale_rvv10*hpot(:)
          END SELECT
          CALL pw_pool_create_pw(pw_pool, vxc_r, use_data=REALDATA3D, in_space=REALSPACE)
          DO i = 1, 3
@@ -522,7 +520,7 @@ CONTAINS
                      DO p = 0, n(1) - 1
                         tmp_r%cr3d(p + lo(1), q + lo(2), r + lo(3)) = tmp_r%cr3d(p + lo(1), q + lo(2), r + lo(3)) &
                                                                       + hpot(r*n(2)*n(1) + q*n(1) + p + 1) &
-                                                                      *drho_r(idir, ispin)%pw%cr3d(p + lo(1), q + lo(2), r + lo(3))
+                                                                      *drho_r(idir, ispin)%cr3d(p + lo(1), q + lo(2), r + lo(3))
                      END DO
                   END DO
                END DO
@@ -540,7 +538,7 @@ CONTAINS
          CALL pw_transfer(tmp_g, vxc_g)
          CALL pw_transfer(vxc_g, vxc_r)
          DO ispin = 1, nspin
-            CALL pw_axpy(vxc_r, vxc_rho(ispin)%pw, 1._dp)
+            CALL pw_axpy(vxc_r, vxc_rho(ispin), 1._dp)
          END DO
          CALL pw_pool_give_back_pw(xc_pw_pool, vxc_r)
          CALL pw_pool_give_back_pw(xc_pw_pool, vxc_g)
@@ -550,11 +548,11 @@ CONTAINS
       DEALLOCATE (thetas)
 
       DO i = 1, dispersion_env%nqs
-         CALL pw_pool_give_back_pw(pw_pool, thetas_g(i)%pw)
+         CALL pw_pool_give_back_pw(pw_pool, thetas_g(i))
       END DO
       DO ispin = 1, nspin
          DO idir = 1, 3
-            CALL pw_pool_give_back_pw(pw_pool, drho_r(idir, ispin)%pw)
+            CALL pw_pool_give_back_pw(pw_pool, drho_r(idir, ispin))
          END DO
       END DO
       CALL pw_pool_give_back_pw(pw_pool, tmp_r)
@@ -580,13 +578,13 @@ CONTAINS
 !>    OpenMP added: Aug 2016  MTucker
 ! **************************************************************************************************
    SUBROUTINE vdW_energy(thetas_g, dispersion_env, vdW_xc_energy, energy_only, virial)
-      TYPE(pw_p_type), ALLOCATABLE, DIMENSION(:)         :: thetas_g
+      TYPE(pw_type), DIMENSION(:), INTENT(IN)            :: thetas_g
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
       REAL(KIND=dp), INTENT(OUT)                         :: vdW_xc_energy
       LOGICAL, INTENT(IN)                                :: energy_only
       TYPE(virial_type), OPTIONAL, POINTER               :: virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'vdW_energy', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'vdW_energy'
 
       COMPLEX(KIND=dp)                                   :: uu
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: theta
@@ -606,7 +604,7 @@ CONTAINS
       virial_thread(:, :) = 0.0_dp ! always initialize to avoid floating point exceptions in OMP REDUCTION
 
       vdW_xc_energy = 0._dp
-      grid => thetas_g(1)%pw%pw_grid
+      grid => thetas_g(1)%pw_grid
 
       IF (grid%grid_span == HALFSPACE) THEN
          g_multiplier = 2._dp
@@ -648,7 +646,7 @@ CONTAINS
             IF (use_virial) CALL interpolate_dkernel_dk(g, dkernel_of_dk, dispersion_env)
          END IF
          DO iq = 1, nqs
-            theta(iq) = thetas_g(iq)%pw%cc(ig)
+            theta(iq) = thetas_g(iq)%cc(ig)
          END DO
          DO q2_i = 1, nqs
             uu = CMPLX(0.0_dp, 0.0_dp, KIND=dp)
@@ -687,7 +685,7 @@ CONTAINS
 !$OMP DO
          DO ig = 1, grid%ngpts_cut_local
             DO iq = 1, nqs
-               thetas_g(iq)%pw%cc(ig) = u_vdW(ig, iq)
+               thetas_g(iq)%cc(ig) = u_vdW(ig, iq)
             END DO
          END DO
 !$OMP END DO
@@ -750,7 +748,7 @@ CONTAINS
       REAL(dp), INTENT(IN), OPTIONAL                     :: dvol
       TYPE(virial_type), OPTIONAL, POINTER               :: virial
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_potential', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'get_potential'
 
       INTEGER                                            :: handle, i_grid, l, m, nl_type, nqs, P_i, &
                                                             q, q_hi, q_low
@@ -844,7 +842,7 @@ CONTAINS
                   prefactor = u_vdW(i_grid, P_i)*const*tmp_3_4*dP_dq0*dq0_dgradrho(i_grid)
                ELSE
                   prefactor = 0.0_dp
-               ENDIF
+               END IF
             END SELECT
             IF (q0(i_grid) .NE. q_mesh(nqs)) THEN
                h_prefactor(i_grid) = h_prefactor(i_grid) + prefactor
@@ -861,8 +859,8 @@ CONTAINS
                DO l = 1, 3
                   DO m = 1, l
                      virial_thread(l, m) = virial_thread(l, m) - prefactor*drho(i_grid, l)*drho(i_grid, m)
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
             END IF
 
          END DO ! P_i = 1, nqs
@@ -877,10 +875,10 @@ CONTAINS
             DO m = 1, (l - 1)
                virial%pv_xc(l, m) = virial%pv_xc(l, m) + virial_thread(l, m)
                virial%pv_xc(m, l) = virial%pv_xc(l, m)
-            ENDDO
+            END DO
             m = l
             virial%pv_xc(l, m) = virial%pv_xc(l, m) + virial_thread(l, m)
-         ENDDO
+         END DO
       END IF
 
       CALL timestop(handle)
@@ -894,7 +892,7 @@ CONTAINS
 !> \par History
 !>     Created:  MTucker, Aug 2016
 ! **************************************************************************************************
-   SUBROUTINE calculate_exponent(hi, alpha, exponent)
+   ELEMENTAL SUBROUTINE calculate_exponent(hi, alpha, exponent)
       INTEGER, INTENT(in)                                :: hi
       REAL(dp), INTENT(in)                               :: alpha
       REAL(dp), INTENT(out)                              :: exponent
@@ -921,7 +919,7 @@ CONTAINS
 !> \par History
 !>     Created:  MTucker, Aug 2016
 ! **************************************************************************************************
-   SUBROUTINE calculate_exponent_derivative(hi, alpha, exponent, derivative)
+   ELEMENTAL SUBROUTINE calculate_exponent_derivative(hi, alpha, exponent, derivative)
       INTEGER, INTENT(in)                                :: hi
       REAL(dp), INTENT(in)                               :: alpha
       REAL(dp), INTENT(out)                              :: exponent, derivative
@@ -964,8 +962,6 @@ CONTAINS
       REAL(dp), INTENT(OUT)                              :: q0(:), dq0_drho(:), dq0_dgradrho(:)
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_q0_on_grid_vdw', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: m_cut = 12
       REAL(dp), PARAMETER :: LDA_A = 0.031091_dp, LDA_a1 = 0.2137_dp, LDA_b1 = 7.5957_dp, &
          LDA_b2 = 3.5876_dp, LDA_b3 = 1.6382_dp, LDA_b4 = 0.49294_dp
@@ -1064,7 +1060,7 @@ CONTAINS
 !> \param dq0_dgradrho ...
 !> \param dispersion_env ...
 ! **************************************************************************************************
-   SUBROUTINE get_q0_on_grid_rvv10(total_rho, gradient_rho, q0, dq0_drho, dq0_dgradrho, dispersion_env)
+   PURE SUBROUTINE get_q0_on_grid_rvv10(total_rho, gradient_rho, q0, dq0_drho, dq0_dgradrho, dispersion_env)
       !!
       !! more specifically it calculates the following
       !!
@@ -1130,7 +1126,7 @@ CONTAINS
 
             dq0_drho(i_grid) = dq0_dq*1.0_dp/(k**2.0)*(dw0_dn*k - dk_dn*w0)
             dq0_dgradrho(i_grid) = dq0_dq*1.0_dp/(2.0_dp*k*w0)*4.0_dp*wg2/gmod2
-         ENDIF
+         END IF
 
       END DO
 
@@ -1149,8 +1145,6 @@ CONTAINS
       REAL(dp), INTENT(OUT)                              :: q0(:)
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_q0_on_grid_eo_vdw', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: m_cut = 12
       REAL(dp), PARAMETER :: LDA_A = 0.031091_dp, LDA_a1 = 0.2137_dp, LDA_b1 = 7.5957_dp, &
          LDA_b2 = 3.5876_dp, LDA_b3 = 1.6382_dp, LDA_b4 = 0.49294_dp
@@ -1224,7 +1218,7 @@ CONTAINS
 !> \param q0 ...
 !> \param dispersion_env ...
 ! **************************************************************************************************
-   SUBROUTINE get_q0_on_grid_eo_rvv10(total_rho, gradient_rho, q0, dispersion_env)
+   PURE SUBROUTINE get_q0_on_grid_eo_rvv10(total_rho, gradient_rho, q0, dispersion_env)
 
       REAL(dp), INTENT(IN)                               :: total_rho(:), gradient_rho(:, :)
       REAL(dp), INTENT(OUT)                              :: q0(:)
@@ -1271,7 +1265,7 @@ CONTAINS
                q0(i_grid) = q_min
             END IF
 
-         ENDIF
+         END IF
 
       END DO
 
@@ -1374,7 +1368,7 @@ CONTAINS
 
 !$OMP DO
       DO P_i = 1, Nx
-         !! In the Soler method, the polynomials that are interpolated are Kronecker delta funcions
+         !! In the Soler method, the polynomials that are interpolated are Kronecker delta functions
          !! at a particular q point.  So, we set all y values to 0 except the one corresponding to
          !! the particular function P_i.
          !! ----------------------------------------------------------------------------------------
@@ -1421,9 +1415,6 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: k
       REAL(dp), INTENT(out)                              :: kernel_of_k(:, :)
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'interpolate_kernel', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: k_i, Nr_points, q1_i, q2_i
       REAL(dp)                                           :: A, B, C, const, D, dk, r_max
@@ -1490,9 +1481,6 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: k
       REAL(dp), INTENT(out)                              :: dkernel_of_dk(:, :)
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'interpolate_dkernel_dk', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: k_i, Nr_points, q1_i, q2_i
       REAL(dp)                                           :: A, B, dAdk, dBdk, dCdk, dDdk, dk, dk_6

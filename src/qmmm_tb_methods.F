@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -105,8 +107,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: mm_cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix'
 
       INTEGER                                            :: blk, handle, i, iatom, ikind, jatom, &
                                                             natom, natorb, nkind
@@ -245,8 +246,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix_zero', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix_zero'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: do_dftb, do_xtb
@@ -315,8 +315,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: mm_cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix_pc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_tb_qmmm_matrix_pc'
 
       INTEGER                                            :: blk, do_ipol, ewald_type, handle, i, &
                                                             iatom, ikind, imm, imp, indmm, ipot, &
@@ -388,11 +387,13 @@ CONTAINS
 
       ! Create Ewald environments
       poisson_section => section_vals_get_subs_vals(qs_env%input, "MM%POISSON")
+      ALLOCATE (ewald_env)
       CALL ewald_env_create(ewald_env, para_env)
       CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
       ewald_section => section_vals_get_subs_vals(poisson_section, "EWALD")
       CALL read_ewald_section(ewald_env, ewald_section)
       print_section => section_vals_get_subs_vals(qs_env%input, "PRINT%GRID_INFORMATION")
+      ALLOCATE (ewald_pw)
       CALL ewald_pw_create(ewald_pw, ewald_env, mm_cell, mm_cell, print_section=print_section)
 
       CALL ewald_env_get(ewald_env, ewald_type=ewald_type, do_multipoles=do_multipoles, do_ipol=do_ipol)
@@ -566,7 +567,9 @@ CONTAINS
 
       ! Release Ewald environment
       CALL ewald_env_release(ewald_env)
+      DEALLOCATE (ewald_env)
       CALL ewald_pw_release(ewald_pw)
+      DEALLOCATE (ewald_pw)
 
       CALL dbcsr_deallocate_matrix_set(matrix_s)
 
@@ -597,8 +600,7 @@ CONTAINS
       LOGICAL, INTENT(in), OPTIONAL                      :: calc_force
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: Forces, Forces_added_charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_tb_qmmm_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_tb_qmmm_matrix'
 
       INTEGER                                            :: atom_a, blk, handle, i, iatom, ikind, &
                                                             iqm, jatom, natom, natorb, nkind, &
@@ -835,8 +837,7 @@ CONTAINS
       LOGICAL, INTENT(in), OPTIONAL                      :: calc_force
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: Forces, Forces_added_charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_tb_qmmm_matrix_pc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_tb_qmmm_matrix_pc'
 
       INTEGER :: atom_a, blk, do_ipol, ewald_type, handle, i, iatom, ikind, imm, imp, indmm, ipot, &
          iqm, jatom, natom, natorb, nkind, nmm, nspins, number_qm_atoms
@@ -935,11 +936,13 @@ CONTAINS
 
          ! Create Ewald environments
          poisson_section => section_vals_get_subs_vals(qs_env%input, "MM%POISSON")
+         ALLOCATE (ewald_env)
          CALL ewald_env_create(ewald_env, para_env)
          CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
          ewald_section => section_vals_get_subs_vals(poisson_section, "EWALD")
          CALL read_ewald_section(ewald_env, ewald_section)
          print_section => section_vals_get_subs_vals(qs_env%input, "PRINT%GRID_INFORMATION")
+         ALLOCATE (ewald_pw)
          CALL ewald_pw_create(ewald_pw, ewald_env, mm_cell, mm_cell, print_section=print_section)
 
          CALL ewald_env_get(ewald_env, ewald_type=ewald_type, do_multipoles=do_multipoles, do_ipol=do_ipol)
@@ -1222,7 +1225,9 @@ CONTAINS
 
          ! Release Ewald environment
          CALL ewald_env_release(ewald_env)
+         DEALLOCATE (ewald_env)
          CALL ewald_pw_release(ewald_pw)
+         DEALLOCATE (ewald_pw)
 
          CALL dbcsr_deallocate_matrix_set(matrix_s)
 
@@ -1262,7 +1267,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: qmmm_spherical_cutoff(2)
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles_qm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_mm_pot', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_mm_pot'
       REAL(KIND=dp), PARAMETER                           :: qsmall = 1.0e-15_dp
 
       INTEGER                                            :: handle, Imm, Imp, IndMM, Ipot
@@ -1346,7 +1351,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: qmmm_spherical_cutoff(2)
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles_qm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_mm_dpot', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_mm_dpot'
       REAL(KIND=dp), PARAMETER                           :: qsmall = 1.0e-15_dp
 
       INTEGER                                            :: handle, Imm, Imp, IndMM, Ipot

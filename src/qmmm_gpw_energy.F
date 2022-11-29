@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -49,7 +51,6 @@ MODULE qmmm_gpw_energy
                                               pw_pools_give_back_pws
    USE pw_types,                        ONLY: REALDATA3D,&
                                               REALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qmmm_gaussian_types,             ONLY: qmmm_gaussian_p_type,&
                                               qmmm_gaussian_type
@@ -98,8 +99,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
       TYPE(cell_type), POINTER                           :: mm_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_el_coupling', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'qmmm_el_coupling'
 
       INTEGER                                            :: handle, iw, iw2
       LOGICAL                                            :: mpi_io
@@ -135,7 +135,7 @@ CONTAINS
       !
       ! Initializing vectors:
       !        Zeroing v_qmmm_rspace
-      CALL pw_zero(ks_qmmm_env_loc%v_qmmm_rspace%pw)
+      CALL pw_zero(ks_qmmm_env_loc%v_qmmm_rspace)
       IF (dft_control%qs_control%semi_empirical) THEN
          ! SEMIEMPIRICAL
          SELECT CASE (qmmm_env%qmmm_coupl_type)
@@ -208,7 +208,7 @@ CONTAINS
             mpi_io = .TRUE.
             iw2 = cp_print_key_unit_nr(logger, print_section, "POTENTIAL", &
                                        extension=".qmmmLog", mpi_io=mpi_io)
-            CALL cp_pw_to_cube(ks_qmmm_env_loc%v_qmmm_rspace%pw, iw2, &
+            CALL cp_pw_to_cube(ks_qmmm_env_loc%v_qmmm_rspace, iw2, &
                                particles=particles, &
                                stride=section_get_ivals(print_section, "POTENTIAL%STRIDE"), &
                                title="QM/MM: MM ELECTROSTATIC POTENTIAL ", &
@@ -245,7 +245,7 @@ CONTAINS
                                       aug_pools, cube_info, para_env, eps_mm_rspace, pw_pools, &
                                       auxbas_grid, coarser_grid, interp_section, mm_cell)
       TYPE(qmmm_env_qm_type), POINTER                    :: qmmm_env
-      TYPE(pw_p_type), INTENT(INOUT)                     :: v_qmmm
+      TYPE(pw_type), INTENT(IN)                          :: v_qmmm
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: aug_pools
       TYPE(cube_info_type), DIMENSION(:), POINTER        :: cube_info
@@ -256,13 +256,12 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: interp_section
       TYPE(cell_type), POINTER                           :: mm_cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian'
 
       INTEGER                                            :: handle, handle2, igrid, ilevel, &
                                                             kind_interp, lb(3), ngrids, ub(3)
       LOGICAL                                            :: shells
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: grids
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
       CPASSERT(ASSOCIATED(mm_particles))
       CPASSERT(ASSOCIATED(qmmm_env%mm_atom_chrg))
@@ -274,7 +273,7 @@ CONTAINS
       ngrids = SIZE(pw_pools)
       CALL pw_pools_create_pws(aug_pools, grids, use_data=REALDATA3D, in_space=REALSPACE)
       DO igrid = 1, ngrids
-         CALL pw_zero(grids(igrid)%pw)
+         CALL pw_zero(grids(igrid))
       END DO
 
       shells = .FALSE.
@@ -294,7 +293,7 @@ CONTAINS
                                           cube_info, para_env, eps_mm_rspace, qmmm_env%added_charges%pgfs, auxbas_grid, &
                                           coarser_grid, qmmm_env%added_charges%potentials, &
                                           mm_cell=mm_cell, dOmmOqm=qmmm_env%dOmmOqm, periodic=qmmm_env%periodic, &
-                                          per_potentials=qmmm_env%per_potentials, par_scheme=qmmm_env%par_scheme, &
+                                          per_potentials=qmmm_env%added_charges%per_potentials, par_scheme=qmmm_env%par_scheme, &
                                           qmmm_spherical_cutoff=qmmm_env%spherical_cutoff, shells=shells)
       END IF
       IF (qmmm_env%added_shells%num_mm_atoms .GT. 0) THEN
@@ -312,7 +311,7 @@ CONTAINS
       ! Sumup all contributions according the parallelization scheme
       IF (qmmm_env%par_scheme == do_par_atom) THEN
          DO ilevel = 1, SIZE(grids)
-            CALL mp_sum(grids(ilevel)%pw%cr3d, para_env%group)
+            CALL mp_sum(grids(ilevel)%cr3d, para_env%group)
          END DO
       END IF
       ! RealSpace Interpolation
@@ -323,8 +322,8 @@ CONTAINS
          CALL mp_sync(para_env%group)
          CALL timeset(TRIM(routineN)//":spline3Int", handle2)
          DO Ilevel = coarser_grid, auxbas_grid + 1, -1
-            CALL pw_prolongate_s3(grids(Ilevel)%pw, &
-                                  grids(Ilevel - 1)%pw, &
+            CALL pw_prolongate_s3(grids(Ilevel), &
+                                  grids(Ilevel - 1), &
                                   aug_pools(Ilevel)%pool, &
                                   param_section=interp_section)
          END DO
@@ -332,12 +331,12 @@ CONTAINS
       CASE DEFAULT
          CPABORT("")
       END SELECT
-      lb = v_qmmm%pw%pw_grid%bounds_local(1, :)
-      ub = v_qmmm%pw%pw_grid%bounds_local(2, :)
+      lb = v_qmmm%pw_grid%bounds_local(1, :)
+      ub = v_qmmm%pw_grid%bounds_local(2, :)
 
-      v_qmmm%pw%cr3d = grids(auxbas_grid)%pw%cr3d(lb(1):ub(1), &
-                                                  lb(2):ub(2), &
-                                                  lb(3):ub(3))
+      v_qmmm%cr3d = grids(auxbas_grid)%cr3d(lb(1):ub(1), &
+                                            lb(2):ub(2), &
+                                            lb(3):ub(3))
 
       CALL pw_pools_give_back_pws(aug_pools, grids)
 
@@ -374,7 +373,7 @@ CONTAINS
                                           eps_mm_rspace, pgfs, auxbas_grid, coarser_grid, &
                                           potentials, mm_cell, dOmmOqm, periodic, per_potentials, par_scheme, &
                                           qmmm_spherical_cutoff, shells)
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: tmp_grid
+      TYPE(pw_type), DIMENSION(:), INTENT(IN)            :: tmp_grid
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
@@ -393,7 +392,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shells
 
       CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian_low', &
-         routineNb = 'qmmm_elec_gaussian_low', routineP = moduleN//':'//routineN
+         routineNb = 'qmmm_elec_gaussian_low'
 
       INTEGER                                            :: handle, handle2, IGauss, ilevel, Imm, &
                                                             IndMM, IRadTyp, LIndMM, myind, &
@@ -409,7 +408,7 @@ CONTAINS
       NULLIFY (pgf, pot, per_pot, xdat, ydat, zdat)
       CALL timeset(routineN, handle)
       CALL timeset(routineNb//"_G", handle2)
-      bo2 = tmp_grid(auxbas_grid)%pw%pw_grid%bounds
+      bo2 = tmp_grid(auxbas_grid)%pw_grid%bounds
       ALLOCATE (xdat(bo2(1, 1):bo2(2, 1)))
       ALLOCATE (ydat(bo2(1, 2):bo2(2, 2)))
       ALLOCATE (zdat(bo2(1, 3):bo2(2, 3)))
@@ -450,7 +449,7 @@ CONTAINS
                                               rp=ra, &
                                               scale=-1.0_dp, &
                                               W=W, &
-                                              pwgrid=tmp_grid(ilevel)%pw, &
+                                              pwgrid=tmp_grid(ilevel), &
                                               cube_info=cube_info(ilevel), &
                                               eps_mm_rspace=eps_mm_rspace, &
                                               xdat=xdat, &
@@ -464,19 +463,19 @@ CONTAINS
       END DO Radius
       IF (ASSOCIATED(xdat)) THEN
          DEALLOCATE (xdat)
-      ENDIF
+      END IF
       IF (ASSOCIATED(ydat)) THEN
          DEALLOCATE (ydat)
-      ENDIF
+      END IF
       IF (ASSOCIATED(zdat)) THEN
          DEALLOCATE (zdat)
-      ENDIF
+      END IF
       CALL timestop(handle2)
       CALL timeset(routineNb//"_R", handle2)
       IF (periodic) THEN
          ! Long Range Part of the QM/MM Potential with Gaussians With Periodic Boundary Conditions
          CALL qmmm_elec_with_gaussian_LG(pgfs=pgfs, &
-                                         cgrid=tmp_grid(coarser_grid)%pw, &
+                                         cgrid=tmp_grid(coarser_grid), &
                                          mm_charges=mm_charges, &
                                          mm_atom_index=mm_atom_index, &
                                          mm_particles=mm_particles, &
@@ -490,7 +489,7 @@ CONTAINS
       ELSE
          ! Long Range Part of the QM/MM Potential with Gaussians
          CALL qmmm_elec_with_gaussian_LR(pgfs=pgfs, &
-                                         grid=tmp_grid(coarser_grid)%pw, &
+                                         grid=tmp_grid(coarser_grid), &
                                          mm_charges=mm_charges, &
                                          mm_atom_index=mm_atom_index, &
                                          mm_particles=mm_particles, &
@@ -535,7 +534,7 @@ CONTAINS
                                          mm_particles, para_env, per_potentials, &
                                          mm_cell, dOmmOqm, par_scheme, qmmm_spherical_cutoff, shells)
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
-      TYPE(pw_type), POINTER                             :: cgrid
+      TYPE(pw_type), INTENT(IN)                          :: cgrid
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
@@ -547,8 +546,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian_LG', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian_LG'
 
       INTEGER                                            :: handle, i, ii1, ii2, ii3, ii4, ij1, ij2, &
                                                             ij3, ij4, ik1, ik2, ik3, ik4, Imm, &
@@ -582,9 +580,20 @@ CONTAINS
          dr2 = pw%pw_grid%dr(2)
          dr3 = pw%pw_grid%dr(3)
          grid => pw%cr3d(:, :, :)
+         !$OMP PARALLEL DO DEFAULT(NONE) &
+         !$OMP SHARED(bo, gbo, grid, grid2, pw, npts, per_pot, mm_atom_index) &
+         !$OMP SHARED(dr1, dr2, dr3, dr1c, dr2c, dr3c, par_scheme, mm_charges, mm_particles) &
+         !$OMP SHARED(mm_cell, dOmmOqm, shells, para_env, IRadTyp, qmmm_spherical_cutoff) &
+         !$OMP PRIVATE(Imm, LIndMM, IndMM, qt, sph_chrg_factor, ra, myind) &
+         !$OMP PRIVATE(rt1, rt2, rt3, k, vec, ivec, xd1, xd2, xd3, ik1, ik2, ik3, ik4) &
+         !$OMP PRIVATE(ij1, ij2, ij3, ij4, ii1, ii2, ii3, ii4, my_k, my_j, xs1, xs2, xs3) &
+         !$OMP PRIVATE(p1, p2, p3, q1, q2, q3, r1, r2, r3, v1, v2, v3, v4, e1, e2, e3) &
+         !$OMP PRIVATE(f1, f2, f3, g1, g2, g3, h1, h2, h3, s1, s2, s3, s4, a1, a2, a3) &
+         !$OMP PRIVATE(b1, b2, b3, c1, c2, c3, d1, d2, d3, t1, t2, t3, t4, u1, u2, u3, val) &
+         !$OMP PRIVATE(rv1, rv2, rv3, abc_X, abc_X_Y)
          Atoms: DO Imm = 1, SIZE(per_pot%mm_atom_index)
             IF (par_scheme == do_par_atom) THEN
-               myind = myind + 1
+               myind = Imm + (IRadTyp - 1)*SIZE(per_pot%mm_atom_index)
                IF (MOD(myind, para_env%num_pe) /= para_env%mepos) CYCLE
             END IF
             LIndMM = per_pot%mm_atom_index(Imm)
@@ -712,14 +721,16 @@ CONTAINS
                      abc_X_Y(4) = abc_X(1, 4)*t1 + abc_X(2, 4)*t2 + abc_X(3, 4)*t3 + abc_X(4, 4)*t4
 
                      val = abc_X_Y(1)*s1 + abc_X_Y(2)*s2 + abc_X_Y(3)*s3 + abc_X_Y(4)*s4
-
+                     !$OMP ATOMIC
                      grid2(i, j, k) = grid2(i, j, k) - val*qt
+                     !$OMP END ATOMIC
                      xs1 = xs1 + dr1c
                   END DO
                   xs2 = xs2 + dr2c
                END DO
             END DO LoopOnGrid
          END DO Atoms
+         !$OMP END PARALLEL DO
       END DO Radius
       CALL timestop(handle)
    END SUBROUTINE qmmm_elec_with_gaussian_LG
@@ -748,7 +759,7 @@ CONTAINS
                                          mm_particles, para_env, potentials, &
                                          mm_cell, dOmmOqm, par_scheme, qmmm_spherical_cutoff, shells)
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: pgfs
-      TYPE(pw_type), POINTER                             :: grid
+      TYPE(pw_type), INTENT(IN)                          :: grid
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
       TYPE(particle_type), DIMENSION(:), POINTER         :: mm_particles
@@ -760,8 +771,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: qmmm_spherical_cutoff
       LOGICAL                                            :: shells
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian_LR', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_elec_with_gaussian_LR'
 
       INTEGER                                            :: handle, i, Imm, IndMM, IRadTyp, ix, j, &
                                                             k, LIndMM, my_j, my_k, myind, n1, n2, &
@@ -790,9 +800,14 @@ CONTAINS
          pot => potentials(IRadTyp)%pot
          dx = Pot%dx
          pot0_2 => Pot%pot0_2
+         !$OMP PARALLEL DO DEFAULT(NONE) &
+         !$OMP SHARED(pot, par_scheme, para_env, mm_atom_index, mm_particles, dOmmOqm, mm_cell, qmmm_spherical_cutoff) &
+         !$OMP SHARED(bo, gbo, dr1, dr2, dr3, grid2, shells, pot0_2, dx, mm_charges, IRadTyp) &
+         !$OMP PRIVATE(myind, Imm, LIndMM, IndMM, ra, qt, sph_chrg_factor, rt1, rt2, rt3, my_k, my_j) &
+         !$OMP PRIVATE(rv1, rv2, rv3, rx2, rx3, r, r2, rx, Term, xs1, xs2, xs3, i, j, k, ix)
          Atoms: DO Imm = 1, SIZE(pot%mm_atom_index)
             IF (par_scheme == do_par_atom) THEN
-               myind = myind + 1
+               myind = Imm + (IRadTyp - 1)*SIZE(pot%mm_atom_index)
                IF (MOD(myind, para_env%num_pe) /= para_env%mepos) CYCLE
             END IF
             LIndMM = pot%mm_atom_index(Imm)
@@ -831,13 +846,16 @@ CONTAINS
                             + pot0_2(2, ix)*(rx - 2.0_dp*rx2 + rx3) &
                             + pot0_2(1, ix + 1)*(3.0_dp*rx2 - 2.0_dp*rx3) &
                             + pot0_2(2, ix + 1)*(-rx2 + rx3)
+                     !$OMP ATOMIC
                      grid2(i, j, k) = grid2(i, j, k) - Term*qt
+                     !$OMP END ATOMIC
                      xs1 = xs1 + dr1
                   END DO
                   xs2 = xs2 + dr2
                END DO
             END DO LoopOnGrid
          END DO Atoms
+         !$OMP END PARALLEL DO
       END DO Radius
       CALL timestop(handle)
    END SUBROUTINE qmmm_elec_with_gaussian_LR

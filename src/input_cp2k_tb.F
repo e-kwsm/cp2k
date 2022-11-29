@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,7 +12,6 @@
 !> \author fawzi
 ! **************************************************************************************************
 MODULE input_cp2k_tb
-!qxtb citation
    USE bibliography,                    ONLY: Elstner1998,&
                                               Grimme2017,&
                                               Hu2007,&
@@ -20,6 +21,7 @@ MODULE input_cp2k_tb
    USE input_constants,                 ONLY: dispersion_d3,&
                                               dispersion_uff,&
                                               slater
+   USE input_cp2k_mm,                   ONLY: create_GENPOT_section
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
                                               keyword_type
@@ -50,9 +52,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_dftb_control_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dftb_control_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -125,9 +124,6 @@ CONTAINS
    SUBROUTINE create_xtb_control_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xtb_control_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -143,6 +139,10 @@ CONTAINS
       CALL section_release(subsection)
 
       CALL create_atom_parameter_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_xtb_nonbonded_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -171,9 +171,22 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="DO_NONBONDED", &
+                          description="Controls the computation of real-space "// &
+                          "(short-range) nonbonded interactions as correction to xTB.", &
+                          usage="DO_NONBONDED T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="COULOMB_INTERACTION", &
                           description="Use Coulomb interaction terms (electrostatics + TB3); for debug only", &
                           usage="COULOMB_INTERACTION T", default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_LR", &
+                          description="Use Coulomb LR (1/r) interaction terms; for debug only", &
+                          usage="COULOMB_LR T", default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -189,6 +202,12 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="OLD_COULOMB_DAMPING", &
+                          description="Only use for backward compatability. Handle with extreme caution.", &
+                          usage="OLD_COULOMB_DAMPING T", default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
    END SUBROUTINE create_xtb_control_section
 
 ! **************************************************************************************************
@@ -198,9 +217,6 @@ CONTAINS
    SUBROUTINE create_dftb_parameter_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dftb_parameter_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -298,9 +314,6 @@ CONTAINS
    SUBROUTINE create_xtb_parameter_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xtb_parameter_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -404,8 +417,56 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-   END SUBROUTINE create_xtb_parameter_section
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_CUT", &
+                          description="Maximum range of short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_CUT 20.0 ", repeats=.FALSE., &
+                          n_var=1, default_r_val=20.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_EPS", &
+                          description="Cutoff for short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_EPS 1.E-3 ", repeats=.FALSE., &
+                          n_var=1, default_r_val=1.0E-03_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_xtb_parameter_section
+! **************************************************************************************************
+!> \brief ...
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_xtb_nonbonded_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="NONBONDED", &
+                          description="This section specifies the input parameters for NON-BONDED interactions.", &
+                          n_keywords=1, n_subsections=0, repeats=.FALSE.)
+      NULLIFY (subsection)
+
+      CALL create_GENPOT_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      NULLIFY (keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="DX", &
+                          description="Parameter used for computing the derivative with the Ridders' method.", &
+                          usage="DX <REAL>", default_r_val=0.1_dp, unit_str="bohr")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ERROR_LIMIT", &
+                          description="Checks that the error in computing the derivative is not larger than "// &
+                          "the value set; in case error is larger a warning message is printed.", &
+                          usage="ERROR_LIMIT <REAL>", default_r_val=1.0E-12_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_xtb_nonbonded_section
 ! **************************************************************************************************
 !> \brief Creates the &ATOM_APRAMETER section
 !> \param section the section to create
@@ -413,9 +474,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_atom_parameter_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_atom_parameter_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

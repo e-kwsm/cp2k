@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,6 +20,7 @@ MODULE xc_adiabatic_utils
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE hfx_communication,               ONLY: scale_and_add_fock_to_ks_matrix
    USE hfx_derivatives,                 ONLY: derivatives_four_center
+   USE hfx_types,                       ONLY: hfx_type
    USE input_constants,                 ONLY: do_adiabatic_hybrid_mcy3,&
                                               do_adiabatic_model_pade
    USE input_section_types,             ONLY: section_vals_get,&
@@ -25,7 +28,7 @@ MODULE xc_adiabatic_utils
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -69,12 +72,11 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_energy_type), POINTER                      :: energy
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: v_rspace_new, v_tau_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER               :: v_rspace_new, v_tau_rspace
       REAL(dp), DIMENSION(:)                             :: hf_energy
       LOGICAL, INTENT(in)                                :: just_energy, calculate_forces, use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rescale_xc_potential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'rescale_xc_potential'
 
       INTEGER                                            :: adiabatic_functional, adiabatic_model, &
                                                             handle, n_rep_hf, nimages
@@ -87,6 +89,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao_resp
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho_xc
       TYPE(section_vals_type), POINTER                   :: adiabatic_rescaling_section, &
@@ -94,15 +97,17 @@ CONTAINS
 
       CALL timeset(routineN, handle)
       NULLIFY (para_env, dft_control, adiabatic_rescaling_section, hfx_sections, &
-               input, xc_section, rho_xc, ks_env, rho_ao, rho_ao_resp)
+               input, xc_section, rho_xc, ks_env, rho_ao, rho_ao_resp, x_data)
 
       CALL get_qs_env(qs_env, &
                       dft_control=dft_control, &
                       para_env=para_env, &
                       input=input, &
                       rho_xc=rho_xc, &
-                      ks_env=ks_env)
+                      ks_env=ks_env, &
+                      x_data=x_data)
 
+      IF (x_data(1, 1)%do_hfx_ri) CPABORT("RI-HFX not compatible with this kinf of functionals")
       nimages = dft_control%nimages
       CPASSERT(nimages == 1)
 

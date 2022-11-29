@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -73,7 +75,7 @@ CONTAINS
    SUBROUTINE eip_bazant(eip_env)
       TYPE(eip_environment_type), POINTER                :: eip_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_bazant', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eip_bazant'
 
       INTEGER                                            :: handle, i, iparticle, iparticle_kind, &
                                                             iparticle_local, iw, natom, &
@@ -239,7 +241,7 @@ CONTAINS
    SUBROUTINE eip_lenosky(eip_env)
       TYPE(eip_environment_type), POINTER                :: eip_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_lenosky', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eip_lenosky'
 
       INTEGER                                            :: handle, i, iparticle, iparticle_kind, &
                                                             iparticle_local, iw, natom, &
@@ -405,9 +407,6 @@ CONTAINS
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_energies', &
-         routineP = moduleN//':'//routineN
-
 !   ------------------------------------------------------------------------
 
       IF (output_unit > 0) THEN
@@ -430,9 +429,6 @@ CONTAINS
    SUBROUTINE eip_print_energy_var(eip_env, output_unit)
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_energy_var', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: unit_nr
 
@@ -462,9 +458,6 @@ CONTAINS
    SUBROUTINE eip_print_forces(eip_env, output_unit)
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_forces', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, natom, unit_nr
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -505,9 +498,6 @@ CONTAINS
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_coord_avg', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: unit_nr
 
 !   ------------------------------------------------------------------------
@@ -537,9 +527,6 @@ CONTAINS
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_coord_var', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: unit_nr
 
 !   ------------------------------------------------------------------------
@@ -568,9 +555,6 @@ CONTAINS
    SUBROUTINE eip_print_count(eip_env, output_unit)
       TYPE(eip_environment_type), POINTER                :: eip_env
       INTEGER, INTENT(IN)                                :: output_unit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_print_count', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: unit_nr
 
@@ -692,7 +676,7 @@ CONTAINS
                   DEALLOCATE (icell)
                   ncx = ncx*2
                   CYCLE loop_ncx_s
-               ENDIF
+               END IF
                icell(ii, l1, l2, l3) = iat
             END DO loop_iat_s
             EXIT loop_ncx_s
@@ -732,13 +716,13 @@ CONTAINS
                   DEALLOCATE (icell)
                   ncx = ncx*2
                   CYCLE loop_ncx_p
-               ENDIF
+               END IF
                icell(ii, l1, l2, l3) = iat
             END DO loop_iat_p
             EXIT loop_ncx_p
          END DO loop_ncx_p
 
-      ENDIF
+      END IF
 
 ! duplicate all atoms within boundary layer
       laymx = ncx*(2*ll1*ll2 + 2*ll1*ll3 + 2*ll2*ll3 + 4*ll1 + 4*ll2 + 4*ll3 + 8)
@@ -749,7 +733,7 @@ CONTAINS
          rxyz(1, iat) = rxyz0(1, iat)
          rxyz(2, iat) = rxyz0(2, iat)
          rxyz(3, iat) = rxyz0(3, iat)
-      ENDDO
+      END DO
       il = nat
 ! xy plane
       DO l2 = 0, ll2 - 1
@@ -766,7 +750,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, l2, ll3 - 1)
          icell(0, l1, l2, -1) = in
@@ -779,10 +763,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! yz plane
       DO l3 = 0, ll3 - 1
@@ -799,7 +783,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, l3)
          icell(0, -1, l2, l3) = in
@@ -812,10 +796,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! xz plane
       DO l3 = 0, ll3 - 1
@@ -832,7 +816,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, l3)
          icell(0, l1, -1, l3) = in
@@ -845,10 +829,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! x axis
       DO l1 = 0, ll1 - 1
@@ -864,7 +848,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, 0, ll3 - 1)
          icell(0, l1, ll2, -1) = in
@@ -877,7 +861,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, 0)
          icell(0, l1, -1, ll3) = in
@@ -890,7 +874,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, ll3 - 1)
          icell(0, l1, -1, -1) = in
@@ -903,9 +887,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! y axis
       DO l2 = 0, ll2 - 1
@@ -921,7 +905,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, 0, l2, ll3 - 1)
          icell(0, ll1, l2, -1) = in
@@ -934,7 +918,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, 0)
          icell(0, -1, l2, ll3) = in
@@ -947,7 +931,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, ll3 - 1)
          icell(0, -1, l2, -1) = in
@@ -960,9 +944,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! z axis
       DO l3 = 0, ll3 - 1
@@ -978,7 +962,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, 0, l3)
          icell(0, -1, ll2, l3) = in
@@ -991,7 +975,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, 0, ll2 - 1, l3)
          icell(0, ll1, -1, l3) = in
@@ -1004,7 +988,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, ll2 - 1, l3)
          icell(0, -1, -1, l3) = in
@@ -1017,9 +1001,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! corners
       in = icell(0, 0, 0, 0)
@@ -1033,7 +1017,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, 0, 0)
       icell(0, -1, ll2, ll3) = in
@@ -1046,7 +1030,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, ll2 - 1, 0)
       icell(0, ll1, -1, ll3) = in
@@ -1059,7 +1043,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, ll2 - 1, 0)
       icell(0, -1, -1, ll3) = in
@@ -1072,7 +1056,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, 0, ll3 - 1)
       icell(0, ll1, ll2, -1) = in
@@ -1085,7 +1069,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, 0, ll3 - 1)
       icell(0, -1, ll2, -1) = in
@@ -1098,7 +1082,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, ll2 - 1, ll3 - 1)
       icell(0, ll1, -1, -1) = in
@@ -1111,7 +1095,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, ll2 - 1, ll3 - 1)
       icell(0, -1, -1, -1) = in
@@ -1124,7 +1108,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       ALLOCATE (lsta(2, nat))
       nnbrx = 12
@@ -1210,13 +1194,13 @@ CONTAINS
             ener2 = 0.e0_dp
             coord = 0.e0_dp
             coord2 = 0.e0_dp
-         ENDIF
+         END IF
 !$OMP DO
          DO iat = 1, nat
             fxyz(1, iat) = 0.e0_dp
             fxyz(2, iat) = 0.e0_dp
             fxyz(3, iat) = 0.e0_dp
-         ENDDO
+         END DO
 !$OMP BARRIER
 
 ! Each thread treats at most lot atoms
@@ -1257,7 +1241,7 @@ CONTAINS
                           num3, sz(1, 1), sz(1, 2), sz(1, 3), sz(1, 4), sz(1, 5), sz(1, 6), numz)
          DEALLOCATE (s2, s3, sz, num2, num3, numz)
 
-      ENDIF
+      END IF
 !$OMP END PARALLEL
 
 !         write(*,*) 'ener,norm force', &
@@ -1445,7 +1429,7 @@ CONTAINS
                WRITE (*, *) 'WARNING enlarge max_nbrs'
                istop = 1
                RETURN
-            ENDIF
+            END IF
 
 ! coordination number calculated with soft cutoff between first
 ! nearest neighbor and midpoint of first and second nearest neighbor
@@ -1455,7 +1439,7 @@ CONTAINS
             ELSE
                xarg = (r - 2.36e0_dp)*(1.e0_dp/(3.12e0_dp - 2.36e0_dp))
                coord_iat = coord_iat + (2*xarg + 1.e0_dp)*(xarg - 1.e0_dp)**2
-            ENDIF
+            END IF
 
 !   RADIAL PARTS OF THREE-BODY INTERACTION r<par_b
 
@@ -1477,7 +1461,7 @@ CONTAINS
                   WRITE (*, *) 'WARNING enlarge max_nbrs'
                   istop = 1
                   RETURN
-               ENDIF
+               END IF
 
 !   COORDINATION AND NEIGHBOR FUNCTION par_c<r<par_b
 
@@ -1503,7 +1487,7 @@ CONTAINS
                         WRITE (*, *) 'WARNING enlarge max_nbrs'
                         istop = 1
                         RETURN
-                     ENDIF
+                     END IF
                   END IF
 !  r < par_C
                END IF
@@ -1750,7 +1734,7 @@ CONTAINS
             rel(4, indlst) = tt
             rel(5, indlst) = tti
             indlst = indlst + 1
-         ENDIF
+         END IF
       END DO
       END DO
       END DO
@@ -1903,7 +1887,7 @@ CONTAINS
             EXIT loop_ncx_p
          END DO loop_ncx_p
 
-      ENDIF
+      END IF
 
 ! duplicate all atoms within boundary layer
       laymx = ncx*(2*ll1*ll2 + 2*ll1*ll3 + 2*ll2*ll3 + 4*ll1 + 4*ll2 + 4*ll3 + 8)
@@ -1914,7 +1898,7 @@ CONTAINS
          rxyz(1, iat) = rxyz0(1, iat)
          rxyz(2, iat) = rxyz0(2, iat)
          rxyz(3, iat) = rxyz0(3, iat)
-      ENDDO
+      END DO
       il = nat
 ! xy plane
       DO l2 = 0, ll2 - 1
@@ -1931,7 +1915,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, l2, ll3 - 1)
          icell(0, l1, l2, -1) = in
@@ -1944,10 +1928,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! yz plane
       DO l3 = 0, ll3 - 1
@@ -1964,7 +1948,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, l3)
          icell(0, -1, l2, l3) = in
@@ -1977,10 +1961,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! xz plane
       DO l3 = 0, ll3 - 1
@@ -1997,7 +1981,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, l3)
          icell(0, l1, -1, l3) = in
@@ -2010,10 +1994,10 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
 ! x axis
       DO l1 = 0, ll1 - 1
@@ -2029,7 +2013,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, 0, ll3 - 1)
          icell(0, l1, ll2, -1) = in
@@ -2042,7 +2026,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, 0)
          icell(0, l1, -1, ll3) = in
@@ -2055,7 +2039,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, l1, ll2 - 1, ll3 - 1)
          icell(0, l1, -1, -1) = in
@@ -2068,9 +2052,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! y axis
       DO l2 = 0, ll2 - 1
@@ -2086,7 +2070,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, 0, l2, ll3 - 1)
          icell(0, ll1, l2, -1) = in
@@ -2099,7 +2083,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, 0)
          icell(0, -1, l2, ll3) = in
@@ -2112,7 +2096,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) + alat(3)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, l2, ll3 - 1)
          icell(0, -1, l2, -1) = in
@@ -2125,9 +2109,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i)
             rxyz(3, il) = rxyz(3, i) - alat(3)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! z axis
       DO l3 = 0, ll3 - 1
@@ -2143,7 +2127,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, 0, l3)
          icell(0, -1, ll2, l3) = in
@@ -2156,7 +2140,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i) + alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, 0, ll2 - 1, l3)
          icell(0, ll1, -1, l3) = in
@@ -2169,7 +2153,7 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) + alat(1)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
          in = icell(0, ll1 - 1, ll2 - 1, l3)
          icell(0, -1, -1, l3) = in
@@ -2182,9 +2166,9 @@ CONTAINS
             rxyz(1, il) = rxyz(1, i) - alat(1)
             rxyz(2, il) = rxyz(2, i) - alat(2)
             rxyz(3, il) = rxyz(3, i)
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! corners
       in = icell(0, 0, 0, 0)
@@ -2198,7 +2182,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, 0, 0)
       icell(0, -1, ll2, ll3) = in
@@ -2211,7 +2195,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, ll2 - 1, 0)
       icell(0, ll1, -1, ll3) = in
@@ -2224,7 +2208,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, ll2 - 1, 0)
       icell(0, -1, -1, ll3) = in
@@ -2237,7 +2221,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) + alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, 0, ll3 - 1)
       icell(0, ll1, ll2, -1) = in
@@ -2250,7 +2234,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, 0, ll3 - 1)
       icell(0, -1, ll2, -1) = in
@@ -2263,7 +2247,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) + alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, 0, ll2 - 1, ll3 - 1)
       icell(0, ll1, -1, -1) = in
@@ -2276,7 +2260,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) + alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       in = icell(0, ll1 - 1, ll2 - 1, ll3 - 1)
       icell(0, -1, -1, -1) = in
@@ -2289,7 +2273,7 @@ CONTAINS
          rxyz(1, il) = rxyz(1, i) - alat(1)
          rxyz(2, il) = rxyz(2, i) - alat(2)
          rxyz(3, il) = rxyz(3, i) - alat(3)
-      ENDDO
+      END DO
 
       ALLOCATE (lsta(2, nat))
       nnbrx = 36
@@ -2374,7 +2358,7 @@ CONTAINS
             ener2 = 0.e0_dp
             coord = 0.e0_dp
             coord2 = 0.e0_dp
-         ENDIF
+         END IF
 !$OMP DO
          DO iat = 1, nat
             fxyz(1, iat) = 0.e0_dp
@@ -2413,7 +2397,7 @@ CONTAINS
                           coord, coord2, nnbrx, fxyz, f2ij, npjx, f3ij, npjkx, f3ik, istopg)
          DEALLOCATE (f2ij, f3ij, f3ik)
 
-      ENDIF
+      END IF
 !$OMP END PARALLEL
 
 !         write(*,*) 'ener,norm force', &
@@ -2595,7 +2579,7 @@ CONTAINS
                WRITE (*, *) 'WARNING: enlarge npjx'
                istop = 1
                RETURN
-            ENDIF
+            END IF
 
             fxij = rel(1, jbr)
             fyij = rel(2, jbr)
@@ -2611,7 +2595,7 @@ CONTAINS
             ELSE
                xarg = (rij - 2.36e0_dp)*(1.e0_dp/(3.12e0_dp - 2.36e0_dp))
                coord_iat = coord_iat + (2*xarg + 1.e0_dp)*(xarg - 1.e0_dp)**2
-            ENDIF
+            END IF
 
 ! pairpotential term
             CALL splint(cof_phi, dof_phi, tmin_phi, tmax_phi, &
@@ -2644,7 +2628,7 @@ CONTAINS
                      WRITE (*, *) 'WARNING: enlarge npjkx', npjkx
                      istop = 1
                      RETURN
-                  ENDIF
+                  END IF
 
 ! begin unoptimized original version:
 !        fxik=rel(1,kbr)
@@ -2709,7 +2693,7 @@ CONTAINS
                         ypt2_ggg = cof4_ggg*dof_ggg_klo
                         gjik = gjik + (yt1_ggg + yt2_ggg)*h2sixth_ggg
                         gjikp = gjikp + (ypt1_ggg - ypt2_ggg)*hsixth_ggg
-                     ENDIF
+                     END IF
                   ELSE
                      fxik = rel(1, kbr)
                      tt_fff = rik - tmin_fff
@@ -2809,8 +2793,8 @@ CONTAINS
                         fik = fik + (yt1_fff + yt2_fff)*h2sixth_fff
                         gjikp = gjikp + (ypt1_ggg - ypt2_ggg)*hsixth_ggg
                         fikp = fikp + (ypt1_fff - ypt2_fff)*hsixth_fff
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
 ! end optimized version
 
                   tt = fij*fik
@@ -2827,7 +2811,7 @@ CONTAINS
                   f3ik(1, jkcnt) = fxik*t3 + (fxij - fxik*costheta)*t4
                   f3ik(2, jkcnt) = fyik*t3 + (fyij - fyik*costheta)*t4
                   f3ik(3, jkcnt) = fzik*t3 + (fzij - fzik*costheta)*t4
-               ENDIF
+               END IF
 
             END DO embed_3body
          END DO calculate
@@ -2865,7 +2849,7 @@ CONTAINS
                   txyz(1, kat) = txyz(1, kat) + ep_uuu*f3ik(1, jkcnt)
                   txyz(2, kat) = txyz(2, kat) + ep_uuu*f3ik(2, jkcnt)
                   txyz(3, kat) = txyz(3, kat) + ep_uuu*f3ik(3, jkcnt)
-               ENDIF
+               END IF
             END DO
 
          END DO loop_again
@@ -3013,7 +2997,7 @@ CONTAINS
          ypt2 = cof4*y2a_klo
          y = y + (yt1 + yt2)*h2sixth
          yp = yp + (ypt1 - ypt2)*hsixth
-      ENDIF
+      END IF
       RETURN
    END SUBROUTINE splint
 

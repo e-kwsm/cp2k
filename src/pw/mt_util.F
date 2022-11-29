@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -61,8 +63,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(in)                          :: slab_size
       TYPE(pw_grid_type), POINTER                        :: super_ref_pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'MTin_create_screen_fn', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'MTin_create_screen_fn'
 
       INTEGER                                            :: handle, ig, iz
       REAL(KIND=dp)                                      :: alpha2, g2, g3d, gxy, gz, zlength
@@ -78,11 +79,15 @@ CONTAINS
       IF (ASSOCIATED(super_ref_pw_grid)) THEN
          CALL pw_pool_create(pw_pool_aux, pw_grid=super_ref_pw_grid)
       END IF
+      NULLIFY (screen_function)
+      ALLOCATE (screen_function)
       CALL pw_pool_create_pw(pw_pool, screen_function, use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_zero(screen_function)
       SELECT CASE (method)
       CASE (MT0D)
+         NULLIFY (Vloc, Vlocg)
+         ALLOCATE (Vloc, Vlocg)
          IF (ASSOCIATED(pw_pool_aux)) THEN
             CALL pw_pool_create_pw(pw_pool_aux, Vloc, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_pool_create_pw(pw_pool_aux, Vlocg, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
@@ -100,6 +105,7 @@ CONTAINS
             CALL pw_pool_give_back_pw(pw_pool, Vloc)
             CALL pw_pool_give_back_pw(pw_pool, Vlocg)
          END IF
+         DEALLOCATE (Vloc, Vlocg)
          !
          ! Get rid of the analytical FT of the erf(a*r)/r
          !
@@ -143,7 +149,7 @@ CONTAINS
       TYPE(pw_type), POINTER                             :: Vloc
       REAL(KIND=dp), INTENT(in)                          :: alpha
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mt0din', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mt0din'
 
       INTEGER                                            :: handle, i, ii, j, jj, k, kk
       INTEGER, DIMENSION(:), POINTER                     :: glb
@@ -203,7 +209,7 @@ CONTAINS
    SUBROUTINE mt1din(screen_function)
       TYPE(pw_type), POINTER                             :: screen_function
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mt1din', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mt1din'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: dx, dy, dz, omega

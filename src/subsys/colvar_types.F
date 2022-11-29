@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -422,8 +424,6 @@ CONTAINS
       TYPE(colvar_type), POINTER                         :: colvar
       INTEGER, INTENT(in)                                :: colvar_id
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(colvar))
       ALLOCATE (colvar)
       ! Nullify all available COLVAR types
@@ -530,14 +530,11 @@ CONTAINS
 !> \author Teodoro Laino, [teo] 09.03.2006
 ! **************************************************************************************************
    SUBROUTINE colvar_setup(colvar)
-      TYPE(colvar_type), POINTER                         :: colvar
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_setup', routineP = moduleN//':'//routineN
+      TYPE(colvar_type), INTENT(INOUT)                   :: colvar
 
       INTEGER                                            :: i, idum, iend, ii, istart, j, np, stat
       INTEGER, DIMENSION(:), POINTER                     :: list
 
-      CPASSERT(ASSOCIATED(colvar))
       SELECT CASE (colvar%type_id)
       CASE (dist_colvar_id)
          np = 2
@@ -558,16 +555,16 @@ CONTAINS
          DO ii = 1, colvar%coord_param%n_atoms_from
             i = colvar%coord_param%i_at_from(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          DO ii = 1, colvar%coord_param%n_atoms_to
             i = colvar%coord_param%i_at_to(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          IF (colvar%coord_param%n_atoms_to_b /= 0) THEN
             DO ii = 1, colvar%coord_param%n_atoms_to_b
                i = colvar%coord_param%i_at_to_b(ii)
                colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-            ENDDO
+            END DO
          END IF
          ! Create a List of points...
          ALLOCATE (list(np))
@@ -576,18 +573,18 @@ CONTAINS
             idum = idum + 1
             i = colvar%coord_param%i_at_from(ii)
             list(idum) = i
-         ENDDO
+         END DO
          DO ii = 1, colvar%coord_param%n_atoms_to
             idum = idum + 1
             i = colvar%coord_param%i_at_to(ii)
             list(idum) = i
-         ENDDO
+         END DO
          IF (colvar%coord_param%n_atoms_to_b /= 0) THEN
             DO ii = 1, colvar%coord_param%n_atoms_to_b
                idum = idum + 1
                i = colvar%coord_param%i_at_to_b(ii)
                list(idum) = i
-            ENDDO
+            END DO
          END IF
          CPASSERT(idum == np)
       CASE (population_colvar_id)
@@ -597,11 +594,11 @@ CONTAINS
          DO ii = 1, colvar%population_param%n_atoms_from
             i = colvar%population_param%i_at_from(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          DO ii = 1, colvar%population_param%n_atoms_to
             i = colvar%population_param%i_at_to(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -609,12 +606,12 @@ CONTAINS
             idum = idum + 1
             i = colvar%population_param%i_at_from(ii)
             list(idum) = i
-         ENDDO
+         END DO
          DO ii = 1, colvar%population_param%n_atoms_to
             idum = idum + 1
             i = colvar%population_param%i_at_to(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (gyration_colvar_id)
          np = colvar%gyration_param%n_atoms
@@ -623,7 +620,7 @@ CONTAINS
          DO ii = 1, colvar%gyration_param%n_atoms
             i = colvar%gyration_param%i_at(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -631,7 +628,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%gyration_param%i_at(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (angle_colvar_id)
          np = 3
@@ -640,7 +637,7 @@ CONTAINS
          DO ii = 1, 3
             i = colvar%angle_param%i_at_angle(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -648,7 +645,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%angle_param%i_at_angle(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (torsion_colvar_id)
          np = 4
@@ -657,7 +654,7 @@ CONTAINS
          DO ii = 1, 4
             i = colvar%torsion_param%i_at_tors(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -665,7 +662,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%torsion_param%i_at_tors(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (plane_distance_colvar_id)
          np = 4
@@ -674,7 +671,7 @@ CONTAINS
          DO ii = 1, 3
             i = colvar%plane_distance_param%plane(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          i = colvar%plane_distance_param%point
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
          ! Create a List of points...
@@ -684,7 +681,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%plane_distance_param%plane(ii)
             list(idum) = i
-         ENDDO
+         END DO
          i = colvar%plane_distance_param%point
          list(4) = i
          idum = idum + 1
@@ -706,13 +703,13 @@ CONTAINS
             DO ii = 1, 3
                i = colvar%plane_plane_angle_param%plane1%points(ii)
                colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-            ENDDO
+            END DO
          END IF
          IF (colvar%plane_plane_angle_param%plane2%type_of_def == plane_def_atoms) THEN
             DO ii = 1, 3
                i = colvar%plane_plane_angle_param%plane2%points(ii)
                colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-            ENDDO
+            END DO
          END IF
 
          ! Create a List of points...
@@ -723,14 +720,14 @@ CONTAINS
                idum = idum + 1
                i = colvar%plane_plane_angle_param%plane1%points(ii)
                list(idum) = i
-            ENDDO
+            END DO
          END IF
          IF (colvar%plane_plane_angle_param%plane2%type_of_def == plane_def_atoms) THEN
             DO ii = 1, 3
                idum = idum + 1
                i = colvar%plane_plane_angle_param%plane2%points(ii)
                list(idum) = i
-            ENDDO
+            END DO
          END IF
          CPASSERT(idum == np)
       CASE (dfunct_colvar_id)
@@ -740,7 +737,7 @@ CONTAINS
          DO ii = 1, 4
             i = colvar%dfunct_param%i_at_dfunct(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -748,7 +745,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%dfunct_param%i_at_dfunct(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (rotation_colvar_id)
          np = 4
@@ -779,11 +776,11 @@ CONTAINS
          DO ii = 1, colvar%qparm_param%n_atoms_from
             i = colvar%qparm_param%i_at_from(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          DO ii = 1, colvar%qparm_param%n_atoms_to
             i = colvar%qparm_param%i_at_to(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -791,12 +788,12 @@ CONTAINS
             idum = idum + 1
             i = colvar%qparm_param%i_at_from(ii)
             list(idum) = i
-         ENDDO
+         END DO
          DO ii = 1, colvar%qparm_param%n_atoms_to
             idum = idum + 1
             i = colvar%qparm_param%i_at_to(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (hydronium_shell_colvar_id)
          np = colvar%hydronium_shell_param%n_oxygens + colvar%hydronium_shell_param%n_hydrogens
@@ -825,7 +822,7 @@ CONTAINS
          DO ii = 1, colvar%rmsd_param%n_atoms
             i = colvar%rmsd_param%i_rmsd(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -894,7 +891,7 @@ CONTAINS
          DO ii = 1, 3
             i = colvar%Wc%ids(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -902,7 +899,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%Wc%ids(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (HBP_colvar_id)
          np = 3*colvar%HBP%nPoints
@@ -912,8 +909,8 @@ CONTAINS
             DO ii = 1, 3
                i = colvar%HBP%ids(j, ii)
                colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -922,8 +919,8 @@ CONTAINS
                idum = idum + 1
                i = colvar%HBP%ids(j, ii)
                list(idum) = i
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          CPASSERT(idum == np)
       CASE (ring_puckering_colvar_id)
          np = colvar%ring_puckering_param%nring
@@ -932,7 +929,7 @@ CONTAINS
          DO ii = 1, colvar%ring_puckering_param%nring
             i = colvar%ring_puckering_param%atoms(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -940,7 +937,7 @@ CONTAINS
             idum = idum + 1
             i = colvar%ring_puckering_param%atoms(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (mindist_colvar_id)
          np = colvar%mindist_param%n_dist_from + &
@@ -950,15 +947,15 @@ CONTAINS
          DO ii = 1, colvar%mindist_param%n_dist_from
             i = colvar%mindist_param%i_dist_from(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          DO ii = 1, colvar%mindist_param%n_coord_from
             i = colvar%mindist_param%i_coord_from(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          DO ii = 1, colvar%mindist_param%n_coord_to
             i = colvar%mindist_param%i_coord_to(ii)
             colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-         ENDDO
+         END DO
          ! Create a List of points...
          ALLOCATE (list(np))
          idum = 0
@@ -966,17 +963,17 @@ CONTAINS
             idum = idum + 1
             i = colvar%mindist_param%i_dist_from(ii)
             list(idum) = i
-         ENDDO
+         END DO
          DO ii = 1, colvar%mindist_param%n_coord_from
             idum = idum + 1
             i = colvar%mindist_param%i_coord_from(ii)
             list(idum) = i
-         ENDDO
+         END DO
          DO ii = 1, colvar%mindist_param%n_coord_to
             idum = idum + 1
             i = colvar%mindist_param%i_coord_to(ii)
             list(idum) = i
-         ENDDO
+         END DO
          CPASSERT(idum == np)
       CASE (combine_colvar_id)
          colvar%n_atom_s = 0
@@ -1030,12 +1027,9 @@ CONTAINS
 !> \author Dorothea Golze
 ! **************************************************************************************************
    SUBROUTINE setup_hydronium_colvars(colvar, colvar_id, list)
-      TYPE(colvar_type), POINTER                         :: colvar
+      TYPE(colvar_type), INTENT(INOUT)                   :: colvar
       INTEGER, INTENT(IN)                                :: colvar_id
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: list
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_hydronium_colvars', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idum, ii, n_hydrogens, n_oxygens, np
       INTEGER, DIMENSION(:), POINTER                     :: i_hydrogens, i_oxygens
@@ -1061,11 +1055,11 @@ CONTAINS
       DO ii = 1, n_oxygens
          i = i_oxygens(ii)
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-      ENDDO
+      END DO
       DO ii = 1, n_hydrogens
          i = i_hydrogens(ii)
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-      ENDDO
+      END DO
       idum = 0
       DO ii = 1, n_oxygens
          idum = idum + 1
@@ -1073,12 +1067,12 @@ CONTAINS
          list(idum) = i
          IF (ANY(i_hydrogens == i)) &
             CPABORT("COLVAR: atoms doubled in OXYGENS and HYDROGENS list")
-      ENDDO
+      END DO
       DO ii = 1, n_hydrogens
          idum = idum + 1
          i = i_hydrogens(ii)
          list(idum) = i
-      ENDDO
+      END DO
       CPASSERT(idum == np)
       DO i = 1, np
          DO ii = i + 1, np
@@ -1087,9 +1081,9 @@ CONTAINS
                   CPABORT("atoms doubled in OXYGENS list")
                IF (i > n_oxygens) &
                   CPABORT("atoms doubled in HYDROGENS list")
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
    END SUBROUTINE setup_hydronium_colvars
 
@@ -1102,12 +1096,9 @@ CONTAINS
 !> \author Dorothea Golze
 ! **************************************************************************************************
    SUBROUTINE setup_acid_hydronium_colvars(colvar, colvar_id, list)
-      TYPE(colvar_type), POINTER                         :: colvar
+      TYPE(colvar_type), INTENT(INOUT)                   :: colvar
       INTEGER, INTENT(IN)                                :: colvar_id
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: list
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_acid_hydronium_colvars', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idum, ii, n_hydrogens, &
                                                             n_oxygens_acid, n_oxygens_water, np
@@ -1139,15 +1130,15 @@ CONTAINS
       DO ii = 1, n_oxygens_water
          i = i_oxygens_water(ii)
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-      ENDDO
+      END DO
       DO ii = 1, n_oxygens_acid
          i = i_oxygens_acid(ii)
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-      ENDDO
+      END DO
       DO ii = 1, n_hydrogens
          i = i_hydrogens(ii)
          colvar%n_atom_s = colvar%n_atom_s + COLV_SIZE(colvar, i)
-      ENDDO
+      END DO
       idum = 0
       DO ii = 1, n_oxygens_water
          idum = idum + 1
@@ -1157,19 +1148,19 @@ CONTAINS
             CPABORT("COLVAR: atoms doubled in OXYGENS_WATER and HYDROGENS list")
          IF (ANY(i_oxygens_acid == i)) &
             CPABORT("COLVAR: atoms doubled in OXYGENS_WATER and OXYGENS_ACID list")
-      ENDDO
+      END DO
       DO ii = 1, n_oxygens_acid
          idum = idum + 1
          i = i_oxygens_acid(ii)
          list(idum) = i
          IF (ANY(i_hydrogens == i)) &
             CPABORT("COLVAR: atoms doubled in OXYGENS_ACID and HYDROGENS list")
-      ENDDO
+      END DO
       DO ii = 1, n_hydrogens
          idum = idum + 1
          i = i_hydrogens(ii)
          list(idum) = i
-      ENDDO
+      END DO
       CPASSERT(idum == np)
       DO i = 1, np
          DO ii = i + 1, np
@@ -1180,9 +1171,9 @@ CONTAINS
                   CPABORT("atoms doubled in OXYGENS_ACID list")
                IF (i > n_oxygens_water + n_oxygens_acid) &
                   CPABORT("atoms doubled in HYDROGENS list")
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
    END SUBROUTINE setup_acid_hydronium_colvars
 
@@ -1194,7 +1185,7 @@ CONTAINS
 !> \author Teodoro Laino - 03.2007
 ! **************************************************************************************************
    FUNCTION colv_size(colvar, i) RESULT(my_size)
-      TYPE(colvar_type), POINTER                         :: colvar
+      TYPE(colvar_type), INTENT(IN)                      :: colvar
       INTEGER                                            :: i, my_size
 
       my_size = 1
@@ -1214,8 +1205,6 @@ CONTAINS
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE colvar_release(colvar)
       TYPE(colvar_type), POINTER                         :: colvar
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_release', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -1392,15 +1381,13 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] 04.2006
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE colvar_clone(colvar_out, colvar_in, i_atom_offset)
-      TYPE(colvar_type), POINTER                         :: colvar_out, colvar_in
+      TYPE(colvar_type), INTENT(INOUT), POINTER          :: colvar_out
+      TYPE(colvar_type), INTENT(IN)                      :: colvar_in
       INTEGER, INTENT(IN), OPTIONAL                      :: i_atom_offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_clone', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, my_offset, ndim, ndim2, stat
 
       my_offset = 0
-      CPASSERT(ASSOCIATED(colvar_in))
       CPASSERT(.NOT. ASSOCIATED(colvar_out))
       IF (PRESENT(i_atom_offset)) my_offset = i_atom_offset
       CALL colvar_create(colvar_out, colvar_in%type_id)
@@ -1806,11 +1793,9 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] 03.2007
 ! **************************************************************************************************
    SUBROUTINE colvar_clone_points(colvar_out, colvar_in, offset)
-      TYPE(colvar_type), POINTER                         :: colvar_out, colvar_in
+      TYPE(colvar_type), INTENT(INOUT)                   :: colvar_out
+      TYPE(colvar_type), INTENT(IN)                      :: colvar_in
       INTEGER, INTENT(IN)                                :: offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_clone_points', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, natoms, npoints
 
@@ -1853,9 +1838,6 @@ CONTAINS
    SUBROUTINE colvar_p_reallocate(colvar_set, lb1_new, ub1_new)
       TYPE(colvar_p_type), DIMENSION(:), POINTER         :: colvar_set
       INTEGER, INTENT(IN)                                :: lb1_new, ub1_new
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_p_reallocate', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: j, lb1, lb1_old, ub1, ub1_old
       TYPE(colvar_p_type), DIMENSION(:), POINTER         :: work
@@ -1916,7 +1898,7 @@ CONTAINS
          DO i = 1, SIZE(colvar_p)
             IF (ASSOCIATED(colvar_p(i)%colvar)) &
                CALL colvar_release(colvar_p(i)%colvar)
-         ENDDO
+         END DO
          DEALLOCATE (colvar_p)
       END IF
    END SUBROUTINE colvar_p_release
@@ -1929,8 +1911,8 @@ CONTAINS
 !> \author Teodoro Laino - 03.2007
 ! **************************************************************************************************
    SUBROUTINE eval_point_pos(point, particles, r)
-      TYPE(point_type)                                   :: point
-      TYPE(particle_type), DIMENSION(:), POINTER         :: particles
+      TYPE(point_type), INTENT(IN)                       :: point
+      TYPE(particle_type), DIMENSION(:), INTENT(IN)      :: particles
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: r
 
       INTEGER                                            :: i
@@ -1954,8 +1936,8 @@ CONTAINS
 !> \param m ...
 ! **************************************************************************************************
    SUBROUTINE eval_point_mass(point, particles, m)
-      TYPE(point_type)                                   :: point
-      TYPE(particle_type), DIMENSION(:), POINTER         :: particles
+      TYPE(point_type), INTENT(IN)                       :: point
+      TYPE(particle_type), DIMENSION(:), INTENT(IN)      :: particles
       REAL(KIND=dp), INTENT(OUT)                         :: m
 
       INTEGER                                            :: i
@@ -1981,9 +1963,9 @@ CONTAINS
 !> \author Teodoro Laino - 03.2007
 ! **************************************************************************************************
    SUBROUTINE eval_point_der(points, i, dsdr, f)
-      TYPE(point_type), DIMENSION(:), POINTER            :: points
+      TYPE(point_type), DIMENSION(:), INTENT(IN)         :: points
       INTEGER, INTENT(IN)                                :: i
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: dsdr
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: dsdr
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: f
 
       INTEGER                                            :: ind, j
@@ -2016,11 +1998,9 @@ CONTAINS
 !> \author Teodoro Laino [tlaino] - University of Zurich 10.2008
 ! **************************************************************************************************
    FUNCTION diff_colvar(colvar, b) RESULT(diff)
-      TYPE(colvar_type), POINTER                         :: colvar
+      TYPE(colvar_type), INTENT(IN)                      :: colvar
       REAL(KIND=dp), INTENT(IN)                          :: b
       REAL(KIND=dp)                                      :: diff
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'diff_colvar', routineP = moduleN//':'//routineN
 
       diff = colvar%ss - b
       IF (colvar%type_id == torsion_colvar_id) THEN

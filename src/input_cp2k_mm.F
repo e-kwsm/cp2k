@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,8 +15,8 @@
 ! **************************************************************************************************
 MODULE input_cp2k_mm
    USE bibliography,                    ONLY: &
-        Devynck2012, Dick1958, Foiles1986, Mitchell1993, QUIP_ref, Siepmann1995, Tersoff1988, &
-        Tosi1964a, Tosi1964b, Yamada2000
+        Clabaut2020, Clabaut2021, Devynck2012, Dick1958, Foiles1986, Mitchell1993, QUIP_ref, &
+        Siepmann1995, Tersoff1988, Tosi1964a, Tosi1964b, Yamada2000
    USE cp_output_handling,              ONLY: cp_print_key_section_create,&
                                               debug_print_level,&
                                               high_print_level,&
@@ -58,7 +60,7 @@ MODULE input_cp2k_mm
    PUBLIC :: create_mm_section, create_dipoles_section
    PUBLIC :: create_NONBONDED14_section, create_LJ_section, create_Williams_section, &
              create_Goodwin_section, &
-             create_GENPOT_section, create_neighbor_lists_section
+             create_GENPOT_section, create_TABPOT_section, create_neighbor_lists_section
    PUBLIC :: create_CHARGE_section
 !***
 CONTAINS
@@ -70,9 +72,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_mm_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mm_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(section_type), POINTER                        :: subsection
 
@@ -112,9 +111,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_mm_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_mm_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -212,9 +208,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_forcefield_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_forcefield_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -373,9 +366,6 @@ CONTAINS
    SUBROUTINE create_SPLINE_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_SPLINE_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -452,9 +442,6 @@ CONTAINS
    SUBROUTINE create_TORSION_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_TORSION_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -519,9 +506,6 @@ CONTAINS
    SUBROUTINE create_IMPROPER_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_IMPROPER_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -576,9 +560,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_OPBEND_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_OPBEND_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -636,9 +617,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_BEND_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_BEND_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -767,9 +745,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       CHARACTER(LEN=*), INTENT(IN)                       :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_BOND_section', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: tag
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -857,9 +832,6 @@ CONTAINS
    SUBROUTINE create_charges_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_charges_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -885,9 +857,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_charge_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_charge_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -921,9 +890,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_quadrupole_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_quadrupole_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -959,9 +925,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_dipole_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dipole_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -1000,9 +963,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_damping_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_damping_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1057,9 +1017,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_shell_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_shell_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1154,9 +1111,6 @@ CONTAINS
    SUBROUTINE create_NONBONDED14_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_NONBONDED14_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1191,9 +1145,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_NONBONDED_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_NONBONDED_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(section_type), POINTER                        :: subsection
 
@@ -1255,6 +1206,18 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_Gal_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_Gal21_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_TABPOT_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
    END SUBROUTINE create_NONBONDED_section
 
 ! **************************************************************************************************
@@ -1265,9 +1228,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_neighbor_lists_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_neighbor_lists_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1312,9 +1272,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_GENPOT_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_GENPOT_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1405,9 +1362,6 @@ CONTAINS
    SUBROUTINE create_EAM_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_EAM_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1449,9 +1403,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_QUIP_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_QUIP_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1507,9 +1458,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_LJ_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_LJ_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1573,9 +1521,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Williams_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Williams_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1646,9 +1591,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Goodwin_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Goodwin_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1733,9 +1675,6 @@ CONTAINS
    SUBROUTINE create_ipbv_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ipbv_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1784,9 +1723,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_BMHFT_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_BMHFT_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1868,23 +1804,21 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief This section specifies the input parameters for BMHFTD potential type
 !> \param section the section to create
+!> \par History
+!>      - Unused input keyword ORDER removed (18.10.2021, MK)
 !> \author Mathieu Salanne 05.2010
 ! **************************************************************************************************
    SUBROUTINE create_BMHFTD_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_BMHFTD_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="BMHFTD", &
-                          description="This section specifies the input parameters for BMHFTD potential type."// &
-                          "Functional form: V(r) = A*exp(-B*r) - f_6*(r)C/r^6 - f_8(r)*D/r^8."// &
-                          "where f_order(r)=1-exp(-BD * r) * \sum_{k=0}^order (BD * r)^k / k! ."// &
-                          "(Tang-Toennies damping function)"// &
-                          "No values available inside cp2k.", &
+                          description="This section specifies the input parameters for the BMHFTD potential type."// &
+                          "Functional form: V(r) = A*exp(-B*r) - f_6*(r)C/r^6 - f_8(r)*D/r^8 "// &
+                          "where f_order(r) = 1 - exp(-BD*r)*\sum_{k=0}^order (BD*r)^k/k! "// &
+                          "(Tang-Toennies damping function). No pre-defined parameter values are available.", &
                           citations=(/Tosi1964a, Tosi1964b/), n_keywords=1, n_subsections=0, repeats=.TRUE.)
 
       NULLIFY (keyword)
@@ -1912,44 +1846,39 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="A", &
-                          description="Defines the A parameter of the dispersion-damped Fumi-Tosi Potential", &
+                          description="Defines the A parameter of the dispersion-damped Fumi-Tosi potential", &
                           usage="A {real}", type_of_var=real_t, &
                           n_var=1, unit_str="hartree")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="B", &
-                          description="Defines the B parameter of the dispersion-damped Fumi-Tosi Potential", &
+                          description="Defines the B parameter of the dispersion-damped Fumi-Tosi potential", &
                           usage="B {real}", type_of_var=real_t, &
                           n_var=1, unit_str="angstrom^-1")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="C", &
-                          description="Defines the C parameter of the dispersion-damped Fumi-Tosi Potential", &
+                          description="Defines the C parameter of the dispersion-damped Fumi-Tosi potential", &
                           usage="C {real}", type_of_var=real_t, &
                           n_var=1, unit_str="hartree*angstrom^6")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="D", &
-                          description="Defines the D parameter of the dispersion-damped Fumi-Tosi Potential", &
+                          description="Defines the D parameter of the dispersion-damped Fumi-Tosi potential", &
                           usage="D {real}", type_of_var=real_t, &
                           n_var=1, unit_str="hartree*angstrom^8")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="BD", &
-                          description="Defines the BD parameter of the dispersion-damped Fumi-Tosi Potential", &
-                          usage="D {real}", type_of_var=real_t, &
-                          n_var=1, unit_str="angstrom^-1")
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="ORDER", &
-                          description="Defines the order for this damping.", &
-                          usage="ORDER {integer}", type_of_var=integer_t, &
-                          n_var=1, default_i_val=3)
+                          description="Defines the BD parameters of the dispersion-damped Fumi-Tosi potential. "// &
+                          "One or two parameter values are expected. If only one value is provided, then this "// &
+                          "value will be used both for the 6th and the 8th order term.", &
+                          usage="BD {real} {real}", type_of_var=real_t, &
+                          n_var=-1, unit_str="angstrom^-1")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1976,9 +1905,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Buck4r_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Buck4r_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -2091,9 +2017,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Buckmorse_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Buckmorse_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -2208,9 +2131,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Tersoff_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Tersoff_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -2343,7 +2263,7 @@ CONTAINS
                           description="Defines the cutoff parameter of the tersoff potential. "// &
                           " This parameter is in principle already defined by the values of "// &
                           " bigD and bigR. But it is necessary to define it when using the tersoff "// &
-                          " in conjuction with other potentials (for the same atomic pair) in order to have"// &
+                          " in conjunction with other potentials (for the same atomic pair) in order to have"// &
                           " the same consistent definition of RCUT for all potentials.", &
                           usage="RCUT {real}", type_of_var=real_t, &
                           n_var=1, unit_str="angstrom")
@@ -2360,9 +2280,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_Siepmann_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_Siepmann_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -2478,6 +2395,355 @@ CONTAINS
    END SUBROUTINE create_Siepmann_section
 
 ! **************************************************************************************************
+!> \brief This section specifies the input parameters for GAL19
+!>        potential type
+!>      (??)
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_Gal_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="GAL19", &
+                          description="Implementation of the GAL19 forcefield, see associated paper", &
+                          citations=(/Clabaut2020/), n_keywords=1, n_subsections=1, repeats=.TRUE.)
+
+      NULLIFY (keyword, subsection)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ATOMS", &
+                          description="Defines the atomic kind involved in the nonbond potential", &
+                          usage="ATOMS {KIND1} {KIND2}", type_of_var=char_t, &
+                          n_var=2)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="METALS", &
+                          description="Defines the two atomic kinds to be considered as part of the metallic phase in the system", &
+                          usage="METALS {KIND1} {KIND2} ..", type_of_var=char_t, &
+                          n_var=2)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="epsilon", &
+                          description="Defines the epsilon_a parameter of GAL19 potential", &
+                          usage="epsilon {real}", type_of_var=real_t, &
+                          default_r_val=cp_unit_to_cp2k(value=0.6_dp, &
+                                                        unit_str="kcalmol"), &
+                          n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="bxy", &
+                          description="Defines the b perpendicular parameter of GAL19 potential", &
+                          usage="bxy {real}", type_of_var=real_t, &
+                          default_r_val=cp_unit_to_cp2k(value=3.688388_dp, &
+                                                        unit_str="internal_cp2k"), &
+                          n_var=1, unit_str="angstrom^-2")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="bz", &
+                          description="Defines the b parallel parameter of GAL19 potential", &
+                          usage="bz {real}", type_of_var=real_t, &
+                          default_r_val=cp_unit_to_cp2k(value=9.069025_dp, &
+                                                        unit_str="internal_cp2k"), &
+                          n_var=1, unit_str="angstrom^-2")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="r", &
+                          description="Defines the R_0 parameters of GAL19 potential for the two METALS."// &
+        "This is the only parameter that is shared between the two section of the forcefield in the case of two metals (alloy)."// &
+                          "If one metal only is present, a second number should be given but won't be read", &
+                          usage="r {real} {real}", type_of_var=real_t, n_var=2, unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a1", &
+                          description="Defines the a1 parameter of GAL19 potential", &
+                          usage="a1 {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a2", &
+                          description="Defines the a2 parameter of GAL19 potential", &
+                          usage="a2 {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a3", &
+                          description="Defines the a3 parameter of GAL19 potential", &
+                          usage="a3 {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a4", &
+                          description="Defines the a4 parameter of GAL19 potential", &
+                          usage="a4 {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="A", &
+                          description="Defines the A parameter of GAL19 potential", &
+                          usage="A {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="B", &
+                          description="Defines the B parameter of GAL19 potential", &
+                          usage="B {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="angstrom^-1")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="C", &
+                          description="Defines the C parameter of GAL19 potential", &
+                          usage="C {real}", type_of_var=real_t, &
+                          default_r_val=10.0_dp, n_var=1, unit_str="angstrom^6*kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="RCUT", &
+                          description="Defines the cutoff parameter of GAL19 potential", &
+                          usage="RCUT {real}", type_of_var=real_t, &
+                          default_r_val=cp_unit_to_cp2k(value=3.2_dp, &
+                                                        unit_str="angstrom"), &
+                          n_var=1, unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="Fit_express", &
+                          description="Demands the particular output needed to a least square fit", &
+                          usage="Fit_express TRUE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      CALL create_GCN_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+   END SUBROUTINE create_Gal_section
+
+! **************************************************************************************************
+!> \brief This section specifies the input parameters for GAL21
+!>        potential type
+!>      (??)
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_Gal21_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="GAL21", &
+                          description="Implementation of the GAL21 forcefield, see associated paper", &
+                          citations=(/Clabaut2021/), n_keywords=1, n_subsections=1, repeats=.TRUE.)
+
+      NULLIFY (keyword, subsection)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ATOMS", &
+                          description="Defines the atomic kind involved in the nonbond potential", &
+                          usage="ATOMS {KIND1} {KIND2}", type_of_var=char_t, &
+                          n_var=2)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="METALS", &
+                          description="Defines the two atomic kinds to be considered as part of the metallic phase in the system", &
+                          usage="METALS {KIND1} {KIND2} ..", type_of_var=char_t, &
+                          n_var=2)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="epsilon", &
+                          description="Defines the epsilon parameter of GAL21 potential", &
+                          usage="epsilon {real} {real} {real}", type_of_var=real_t, &
+                          n_var=3, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="bxy", &
+                          description="Defines the b perpendicular parameter of GAL21 potential", &
+                          usage="bxy {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="angstrom^-2")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="bz", &
+                          description="Defines the b parallel parameter of GAL21 potential", &
+                          usage="bz {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="angstrom^-2")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="r", &
+                          description="Defines the R_0 parameters of GAL21 potential for the two METALS."// &
+        "This is the only parameter that is shared between the two section of the forcefield in the case of two metals (alloy)."// &
+                          "If one metal only is present, a second number should be given but won't be read", &
+                          usage="r {real} {real}", type_of_var=real_t, n_var=2, unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a1", &
+                          description="Defines the a1 parameter of GAL21 potential", &
+                          usage="a1 {real} {real} {real}", type_of_var=real_t, &
+                          n_var=3, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a2", &
+                          description="Defines the a2 parameter of GAL21 potential", &
+                          usage="a2 {real} {real} {real}", type_of_var=real_t, &
+                          n_var=3, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a3", &
+                          description="Defines the a3 parameter of GAL21 potential", &
+                          usage="a3 {real} {real} {real}", type_of_var=real_t, &
+                          n_var=3, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="a4", &
+                          description="Defines the a4 parameter of GAL21 potential", &
+                          usage="a4 {real} {real} {real}", type_of_var=real_t, &
+                          n_var=3, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="A", &
+                          description="Defines the A parameter of GAL21 potential", &
+                          usage="A {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="B", &
+                          description="Defines the B parameter of GAL21 potential", &
+                          usage="B {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="angstrom^-1")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="C", &
+                          description="Defines the C parameter of GAL21 potential", &
+                          usage="C {real}", type_of_var=real_t, &
+                          n_var=1, unit_str="angstrom^6*kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="AH", &
+                          description="Defines the AH parameter of GAL21 potential", &
+                          usage="AH {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="kcalmol")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="BH", &
+                          description="Defines the BH parameter of GAL21 potential", &
+                          usage="BH {real} {real}", type_of_var=real_t, &
+                          n_var=2, unit_str="angstrom^-1")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="RCUT", &
+                          description="Defines the cutoff parameter of GAL21 potential", &
+                          usage="RCUT {real}", type_of_var=real_t, &
+                          default_r_val=cp_unit_to_cp2k(value=3.2_dp, &
+                                                        unit_str="angstrom"), &
+                          n_var=1, unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="Fit_express", &
+                          description="Demands the particular output needed to a least square fit", &
+                          usage="Fit_express TRUE", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL create_GCN_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+   END SUBROUTINE create_Gal21_section
+
+! **************************************************************************************************
+!> \brief This section specifies the input parameters for TABPOT  potential type
+!> \param section the section to create
+!> \author teo, Alex Mironenko, Da Teng
+! **************************************************************************************************
+   SUBROUTINE create_TABPOT_section(section)
+
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+
+      CALL section_create(section, __LOCATION__, name="TABPOT", &
+                          description="This section specifies the input parameters for TABPOT potential type.", &
+                          n_keywords=1, n_subsections=0, repeats=.TRUE.)
+
+      NULLIFY (keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="ATOMS", &
+                          description="Defines the atomic kind involved", &
+                          usage="ATOMS {KIND1} {KIND2}", type_of_var=char_t, &
+                          n_var=2)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="PARM_FILE_NAME", &
+                          variants=(/"PARMFILE"/), &
+                          description="Specifies the filename that contains the tabulated NONBONDED potential. "// &
+                          "File structure: the third line of the potential file contains a title. "// &
+                          "The 4th line contains: 'N', number of data points, 'R', lower bound of distance, distance cutoff. "// &
+                          "Follow "// &
+                          "in order npoints lines for index, distance [A], energy [kcal/mol], and force [kcal/mol/A]", &
+                          usage="PARM_FILE_NAME {FILENAME}", default_lc_val="")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_TABPOT_section
+
+! **************************************************************************************************
+!> \brief This section specifies the input parameters for the subsection GCN of GAL19 and GAL21
+!>        potential type
+!>      (??)
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_GCN_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="GCN", &
+                          description="Allow to specify the generalized coordination number of the atoms."// &
+                          "Those numbers msust be generated by another program ", &
+                          n_keywords=1, n_subsections=0, repeats=.FALSE.)
+
+      NULLIFY (keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="_DEFAULT_KEYWORD_", &
+                          description="Value of the GCN for the individual atom. Order MUST reflect"// &
+                          " the one specified for the geometry.", repeats=.TRUE., usage="{Real}", &
+                          default_r_val=0.0_dp, type_of_var=real_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_GCN_section
+
+! **************************************************************************************************
 !> \brief creates the input section for the qs part
 !> \param print_key ...
 !> \param label ...
@@ -2488,9 +2754,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: print_key
       CHARACTER(LEN=*), INTENT(IN)                       :: label
       INTEGER, INTENT(IN)                                :: print_level
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dipoles_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -12,9 +14,11 @@
 MODULE mp2_grids
    USE cp_fm_types,                     ONLY: cp_fm_get_info,&
                                               cp_fm_type
-   USE cp_para_env,                     ONLY: cp_para_env_create,&
-                                              cp_para_env_release
+   USE cp_para_env,                     ONLY: cp_para_env_release,&
+                                              cp_para_env_split
    USE cp_para_types,                   ONLY: cp_para_env_type
+   USE input_section_types,             ONLY: section_vals_type,&
+                                              section_vals_val_set
    USE kinds,                           ONLY: dp
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_env_type,&
@@ -22,13 +26,12 @@ MODULE mp2_grids
    USE machine,                         ONLY: m_flush
    USE mathconstants,                   ONLY: pi
    USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_comm_split_direct,&
+                                              mp_max,&
                                               mp_sum
    USE minimax_exp,                     ONLY: get_exp_minimax_coeff
    USE minimax_exp_gw,                  ONLY: get_exp_minimax_coeff_gw
    USE minimax_rpa,                     ONLY: get_rpa_minimax_coeff,&
                                               get_rpa_minimax_coeff_larger_grid
-   USE mp2_types,                       ONLY: mp2_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
@@ -51,8 +54,7 @@ CONTAINS
 !> \param unit_nr ...
 !> \param homo ...
 !> \param Eigenval ...
-!> \param num_time_points ...
-!> \param num_freq_points ...
+!> \param num_integ_points ...
 !> \param do_im_time ...
 !> \param do_ri_sos_laplace_mp2 ...
 !> \param do_print ...
@@ -61,133 +63,127 @@ CONTAINS
 !> \param qs_env ...
 !> \param do_gw_im_time ...
 !> \param do_kpoints_cubic_RPA ...
-!> \param a_scaling ...
 !> \param e_fermi ...
 !> \param tj ...
 !> \param wj ...
-!> \param mp2_env ...
 !> \param weights_cos_tf_t_to_w ...
 !> \param weights_cos_tf_w_to_t ...
 !> \param weights_sin_tf_t_to_w ...
-!> \param homo_beta ...
-!> \param dimen_ia_beta ...
-!> \param Eigenval_beta ...
-!> \param do_mixed_minimax_clenshaw ...
 ! **************************************************************************************************
-   SUBROUTINE get_minimax_grid(para_env, unit_nr, homo, Eigenval, num_time_points, num_freq_points, &
+   SUBROUTINE get_minimax_grid(para_env, unit_nr, homo, Eigenval, num_integ_points, &
                                do_im_time, do_ri_sos_laplace_mp2, do_print, tau_tj, tau_wj, qs_env, do_gw_im_time, &
-                               do_kpoints_cubic_RPA, a_scaling, e_fermi, tj, wj, mp2_env, weights_cos_tf_t_to_w, &
-                               weights_cos_tf_w_to_t, weights_sin_tf_t_to_w, &
-                               homo_beta, dimen_ia_beta, Eigenval_beta, do_mixed_minimax_clenshaw)
+                               do_kpoints_cubic_RPA, e_fermi, tj, wj, weights_cos_tf_t_to_w, &
+                               weights_cos_tf_w_to_t, weights_sin_tf_t_to_w)
 
-      TYPE(cp_para_env_type), POINTER                    :: para_env
-      INTEGER, INTENT(IN)                                :: unit_nr, homo
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
-      INTEGER, INTENT(IN)                                :: num_time_points, num_freq_points
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
+      INTEGER, INTENT(IN)                                :: unit_nr
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: homo
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: Eigenval
+      INTEGER, INTENT(IN)                                :: num_integ_points
       LOGICAL, INTENT(IN)                                :: do_im_time, do_ri_sos_laplace_mp2, &
                                                             do_print
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(OUT)                                     :: tau_tj, tau_wj
-      TYPE(qs_environment_type), OPTIONAL, POINTER       :: qs_env
-      LOGICAL, INTENT(IN), OPTIONAL                      :: do_gw_im_time, do_kpoints_cubic_RPA
-      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: a_scaling
-      REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: e_fermi
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL, INTENT(IN)                                :: do_gw_im_time, do_kpoints_cubic_RPA
+      REAL(KIND=dp), INTENT(OUT)                         :: e_fermi
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
-         INTENT(INOUT), OPTIONAL                         :: tj, wj
-      TYPE(mp2_type), OPTIONAL, POINTER                  :: mp2_env
+         INTENT(INOUT)                                   :: tj, wj
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :), &
-         INTENT(OUT), OPTIONAL                           :: weights_cos_tf_t_to_w, &
+         INTENT(OUT)                                     :: weights_cos_tf_t_to_w, &
                                                             weights_cos_tf_w_to_t, &
                                                             weights_sin_tf_t_to_w
-      INTEGER, INTENT(IN), OPTIONAL                      :: homo_beta, dimen_ia_beta
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: Eigenval_beta
-      LOGICAL, INTENT(IN), OPTIONAL                      :: do_mixed_minimax_clenshaw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_minimax_grid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'get_minimax_grid'
       INTEGER, PARAMETER                                 :: num_points_per_magnitude = 200
 
-      INTEGER                                            :: handle, ierr, jquad, num_integ_points
-      LOGICAL                                            :: my_do_kpoints, &
-                                                            my_do_mixed_minimax_clenshaw, &
-                                                            my_open_shell
-      REAL(KIND=dp)                                      :: E_Range, Emax, Emax_beta, Emin, &
-                                                            Emin_beta, max_error_min, scaling
+      INTEGER                                            :: handle, ierr, ispin, jquad, nspins
+      LOGICAL                                            :: my_do_kpoints, my_open_shell
+      REAL(KIND=dp)                                      :: Emax, Emin, max_error_min, my_E_Range, &
+                                                            scaling
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: x_tw
+      TYPE(section_vals_type), POINTER                   :: input
 
       CALL timeset(routineN, handle)
 
       ! Test for spin unrestricted
-      my_open_shell = .FALSE.
-      IF (PRESENT(homo_beta) .AND. PRESENT(dimen_ia_beta) .AND. PRESENT(Eigenval_beta)) THEN
-         my_open_shell = .TRUE.
-      END IF
+      nspins = SIZE(homo)
+      my_open_shell = (nspins == 2)
 
       ! Test whether all necessary variables are available
       my_do_kpoints = .FALSE.
       IF (.NOT. do_ri_sos_laplace_mp2) THEN
-         IF (.NOT. (PRESENT(do_gw_im_time) .AND. PRESENT(do_kpoints_cubic_RPA) .AND. PRESENT(a_scaling) &
-                    .AND. PRESENT(e_fermi) .AND. PRESENT(tj) .AND. PRESENT(wj) .AND. PRESENT(weights_cos_tf_t_to_w) .AND. &
-                    PRESENT(weights_cos_tf_w_to_t) .AND. PRESENT(weights_sin_tf_t_to_w) .AND. PRESENT(mp2_env))) THEN
-            CPABORT("Need more parameters without SOS-MP2")
-         END IF
          my_do_kpoints = do_kpoints_cubic_RPA
-      END IF
-
-      my_do_mixed_minimax_clenshaw = .FALSE.
-      IF (PRESENT(do_mixed_minimax_clenshaw)) THEN
-         my_do_mixed_minimax_clenshaw = do_mixed_minimax_clenshaw
       END IF
 
       IF (my_do_kpoints) THEN
          CALL gap_and_max_eig_diff_kpoints(qs_env, para_env, Emin, Emax, e_fermi)
-         E_Range = Emax/Emin
+         my_E_Range = Emax/Emin
       ELSE
-         Emin = Eigenval(homo + 1) - Eigenval(homo)
-         Emax = MAXVAL(Eigenval) - MINVAL(Eigenval)
-         IF (my_open_shell) THEN
-            IF (homo_beta > 0) THEN
-               Emin_beta = Eigenval_beta(homo_beta + 1) - Eigenval_beta(homo_beta)
-               Emax_beta = MAXVAL(Eigenval_beta) - MINVAL(Eigenval_beta)
-               Emin = MIN(Emin, Emin_beta)
-               Emax = MAX(Emax, Emax_beta)
-            END IF
+         IF (qs_env%mp2_env%E_range <= 1.0_dp .OR. qs_env%mp2_env%E_gap <= 0.0_dp) THEN
+            Emin = HUGE(dp)
+            Emax = 0.0_dp
+            DO ispin = 1, nspins
+               IF (homo(ispin) > 0) THEN
+                  Emin = MIN(Emin, Eigenval(homo(ispin) + 1, 1, ispin) - Eigenval(homo(ispin), 1, ispin))
+                  Emax = MAX(Emax, MAXVAL(Eigenval(:, :, ispin)) - MINVAL(Eigenval(:, :, ispin)))
+               END IF
+            END DO
+            my_E_Range = Emax/Emin
+            qs_env%mp2_env%e_range = my_e_range
+            qs_env%mp2_env%e_gap = Emin
+
+            CALL get_qs_env(qs_env, input=input)
+            CALL section_vals_val_set(input, "DFT%XC%WF_CORRELATION%E_RANGE", r_val=my_e_range)
+            CALL section_vals_val_set(input, "DFT%XC%WF_CORRELATION%E_GAP", r_val=emin)
+         ELSE
+            my_E_range = qs_env%mp2_env%E_range
+            Emin = qs_env%mp2_env%E_gap
+            Emax = Emin*my_E_range
          END IF
-         E_Range = Emax/Emin
       END IF
 
-      IF (my_do_mixed_minimax_clenshaw) THEN
-         tj(:) = a_scaling/TAN(tj(:))
+      IF (num_integ_points > 20 .AND. my_E_Range < 100.0_dp) THEN
+         IF (unit_nr > 0) &
+            CALL cp_warn(__LOCATION__, &
+                         "You requested a large minimax grid (> 20 points) for a small minimax range R (R < 100). "// &
+                         "That may lead to numerical "// &
+                         "instabilities when computing minimax grid weights. You can prevent small ranges by choosing "// &
+                         "a larger basis set with higher angular momenta or alternatively using all-electron calculations.")
       END IF
 
-      IF (.NOT. do_ri_sos_laplace_mp2 .AND. (.NOT. my_do_mixed_minimax_clenshaw)) THEN
-         ALLOCATE (x_tw(2*num_freq_points))
+      IF (.NOT. do_ri_sos_laplace_mp2) THEN
+         ALLOCATE (x_tw(2*num_integ_points))
          x_tw = 0.0_dp
          ierr = 0
-         IF (num_freq_points .LE. 20) THEN
-            CALL get_rpa_minimax_coeff(num_freq_points, E_Range, x_tw, ierr)
+         IF (num_integ_points .LE. 20) THEN
+            CALL get_rpa_minimax_coeff(num_integ_points, my_E_Range, x_tw, ierr)
          ELSE
-            CALL get_rpa_minimax_coeff_larger_grid(num_freq_points, E_Range, x_tw)
+            CALL get_rpa_minimax_coeff_larger_grid(num_integ_points, my_E_Range, x_tw)
          END IF
 
-         ALLOCATE (tj(num_freq_points))
+         ALLOCATE (tj(num_integ_points))
          tj = 0.0_dp
 
-         ALLOCATE (wj(num_freq_points))
+         ALLOCATE (wj(num_integ_points))
          wj = 0.0_dp
 
-         DO jquad = 1, num_freq_points
+         DO jquad = 1, num_integ_points
             tj(jquad) = x_tw(jquad)
-            wj(jquad) = x_tw(jquad + num_freq_points)
+            wj(jquad) = x_tw(jquad + num_integ_points)
          END DO
 
          DEALLOCATE (x_tw)
 
          IF (unit_nr > 0 .AND. do_print) THEN
+            WRITE (UNIT=unit_nr, FMT="(T3,A,T75,i6)") &
+               "MINIMAX_INFO| Number of integration points:", num_integ_points
             WRITE (UNIT=unit_nr, FMT="(T3,A,T66,F15.4)") &
-               "INTEG_INFO| Range for the minimax approximation:", E_Range
-            WRITE (UNIT=unit_nr, FMT="(T3,A,T54,A,T72,A)") "INTEG_INFO| Minimax parameters:", "Weights", "Abscissas"
-            DO jquad = 1, num_freq_points
+               "MINIMAX_INFO| Gap for the minimax approximation:", Emin
+            WRITE (UNIT=unit_nr, FMT="(T3,A,T66,F15.4)") &
+               "MINIMAX_INFO| Range for the minimax approximation:", my_E_Range
+            WRITE (UNIT=unit_nr, FMT="(T3,A,T54,A,T72,A)") "MINIMAX_INFO| Minimax parameters:", "Weights", "Abscissas"
+            DO jquad = 1, num_integ_points
                WRITE (UNIT=unit_nr, FMT="(T41,F20.10,F20.10)") wj(jquad), tj(jquad)
             END DO
             CALL m_flush(unit_nr)
@@ -206,41 +202,41 @@ CONTAINS
       ! set up the minimax time grid
       IF (do_im_time .OR. do_ri_sos_laplace_mp2) THEN
 
-         ALLOCATE (x_tw(2*num_time_points))
+         ALLOCATE (x_tw(2*num_integ_points))
          x_tw = 0.0_dp
 
-         IF (num_freq_points .LE. 20) THEN
-            CALL get_exp_minimax_coeff(num_time_points, E_Range, x_tw)
+         IF (num_integ_points .LE. 20) THEN
+            CALL get_exp_minimax_coeff(num_integ_points, my_E_Range, x_tw)
          ELSE
-            CALL get_exp_minimax_coeff_gw(num_time_points, E_Range, x_tw)
+            CALL get_exp_minimax_coeff_gw(num_integ_points, my_E_Range, x_tw)
          END IF
 
          ! For RPA we include already a factor of two (see later steps)
          scaling = 2.0_dp
          IF (do_ri_sos_laplace_mp2) scaling = 1.0_dp
 
-         ALLOCATE (tau_tj(0:num_time_points))
+         ALLOCATE (tau_tj(0:num_integ_points))
          tau_tj = 0.0_dp
 
-         ALLOCATE (tau_wj(num_time_points))
+         ALLOCATE (tau_wj(num_integ_points))
          tau_wj = 0.0_dp
 
-         DO jquad = 1, num_time_points
+         DO jquad = 1, num_integ_points
             tau_tj(jquad) = x_tw(jquad)/scaling
-            tau_wj(jquad) = x_tw(jquad + num_time_points)/scaling
+            tau_wj(jquad) = x_tw(jquad + num_integ_points)/scaling
          END DO
 
          DEALLOCATE (x_tw)
 
          IF (unit_nr > 0 .AND. do_print) THEN
             WRITE (UNIT=unit_nr, FMT="(T3,A,T66,F15.4)") &
-               "INTEG_INFO| Range for the minimax approximation:", E_Range
+               "MINIMAX_INFO| Range for the minimax approximation:", my_E_Range
             ! For testing the gap
             WRITE (UNIT=unit_nr, FMT="(T3,A,T66,F15.4)") &
-               "INTEG_INFO| Gap:", Emin
+               "MINIMAX_INFO| Gap:", Emin
             WRITE (UNIT=unit_nr, FMT="(T3,A,T54,A,T72,A)") &
-               "INTEG_INFO| Minimax parameters of the time grid:", "Weights", "Abscissas"
-            DO jquad = 1, num_time_points
+               "MINIMAX_INFO| Minimax parameters of the time grid:", "Weights", "Abscissas"
+            DO jquad = 1, num_integ_points
                WRITE (UNIT=unit_nr, FMT="(T41,F20.10,F20.10)") tau_wj(jquad), tau_tj(jquad)
             END DO
             CALL m_flush(unit_nr)
@@ -251,23 +247,20 @@ CONTAINS
          tau_wj(:) = tau_wj(:)/Emin
 
          IF (.NOT. do_ri_sos_laplace_mp2) THEN
-            ALLOCATE (weights_cos_tf_t_to_w(num_freq_points, num_time_points))
+            ALLOCATE (weights_cos_tf_t_to_w(num_integ_points, num_integ_points))
             weights_cos_tf_t_to_w = 0.0_dp
 
-            CALL get_l_sq_wghts_cos_tf_t_to_w(num_freq_points, num_time_points, tau_tj, weights_cos_tf_t_to_w, tj, &
+            CALL get_l_sq_wghts_cos_tf_t_to_w(num_integ_points, tau_tj, weights_cos_tf_t_to_w, tj, &
                                               Emin, Emax, max_error_min, num_points_per_magnitude)
 
-            IF (do_gw_im_time .AND. (.NOT. my_do_mixed_minimax_clenshaw)) THEN
+            ! get the weights for the cosine transform W^c(iw) -> W^c(it)
+            ALLOCATE (weights_cos_tf_w_to_t(num_integ_points, num_integ_points))
+            weights_cos_tf_w_to_t = 0.0_dp
 
-               CPASSERT(num_freq_points == num_time_points)
-               num_integ_points = num_freq_points
+            CALL get_l_sq_wghts_cos_tf_w_to_t(num_integ_points, tau_tj, weights_cos_tf_w_to_t, tj, &
+                                              Emin, Emax, max_error_min, num_points_per_magnitude)
 
-               ! get the weights for the cosine transform W^c(iw) -> W^c(it)
-               ALLOCATE (weights_cos_tf_w_to_t(num_integ_points, num_integ_points))
-               weights_cos_tf_w_to_t = 0.0_dp
-
-               CALL get_l_sq_wghts_cos_tf_w_to_t(num_integ_points, tau_tj, weights_cos_tf_w_to_t, tj, &
-                                                 Emin, Emax, max_error_min, num_points_per_magnitude)
+            IF (do_gw_im_time) THEN
 
                ! get the weights for the sine transform Sigma^sin(it) -> Sigma^sin(iw) (PRB 94, 165109 (2016), Eq. 71)
                ALLOCATE (weights_sin_tf_t_to_w(num_integ_points, num_integ_points))
@@ -278,7 +271,7 @@ CONTAINS
 
                IF (unit_nr > 0) THEN
                   WRITE (UNIT=unit_nr, FMT="(T3,A,T66,ES15.2)") &
-                     "INTEG_INFO| Maximum deviation of the imag. time fit:", max_error_min
+                     "MINIMAX_INFO| Maximum deviation of the imag. time fit:", max_error_min
                END IF
             END IF
 
@@ -307,45 +300,33 @@ CONTAINS
 !> \param a_scaling ...
 !> \param tj ...
 !> \param wj ...
-!> \param homo_beta ...
-!> \param virtual_beta ...
-!> \param dimen_ia_beta ...
-!> \param Eigenval_beta ...
-!> \param fm_mat_S_beta ...
 ! **************************************************************************************************
    SUBROUTINE get_clenshaw_grid(para_env, para_env_RPA, unit_nr, homo, virtual, Eigenval, num_integ_points, &
                                 num_integ_group, color_rpa_group, fm_mat_S, my_do_gw, &
-                                ext_scaling, a_scaling, tj, wj, &
-                                homo_beta, virtual_beta, dimen_ia_beta, Eigenval_beta, fm_mat_S_beta)
+                                ext_scaling, a_scaling, tj, wj)
 
-      TYPE(cp_para_env_type), POINTER                    :: para_env, para_env_RPA
-      INTEGER, INTENT(IN)                                :: unit_nr, homo, virtual
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env, para_env_RPA
+      INTEGER, INTENT(IN)                                :: unit_nr
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: homo, virtual
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: Eigenval
       INTEGER, INTENT(IN)                                :: num_integ_points, num_integ_group, &
                                                             color_rpa_group
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: fm_mat_S
       LOGICAL, INTENT(IN)                                :: my_do_gw
       REAL(KIND=dp), INTENT(IN)                          :: ext_scaling
       REAL(KIND=dp), INTENT(OUT)                         :: a_scaling
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(OUT)                                     :: tj, wj
-      INTEGER, INTENT(IN), OPTIONAL                      :: homo_beta, virtual_beta, dimen_ia_beta
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: Eigenval_beta
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: fm_mat_S_beta
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_clenshaw_grid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'get_clenshaw_grid'
 
-      INTEGER                                            :: handle, jquad
+      INTEGER                                            :: handle, jquad, nspins
       LOGICAL                                            :: my_open_shell
 
       CALL timeset(routineN, handle)
 
-      my_open_shell = .FALSE.
-      IF (PRESENT(homo_beta) .AND. PRESENT(virtual_beta) .AND. PRESENT(dimen_ia_beta) .AND. PRESENT(Eigenval_beta) .AND. &
-          PRESENT(fm_mat_S_beta)) THEN
-         my_open_shell = .TRUE.
-      END IF
+      nspins = SIZE(homo)
+      my_open_shell = (nspins == 2)
 
       ! Now, start to prepare the different grid
       ALLOCATE (tj(num_integ_points))
@@ -364,17 +345,9 @@ CONTAINS
       IF (my_do_gw .AND. ext_scaling > 0.0_dp) THEN
          a_scaling = ext_scaling
       ELSE
-         a_scaling = 1.0_dp
-         IF (my_open_shell) THEN
-            CALL calc_scaling_factor(a_scaling, para_env, para_env_RPA, homo, virtual, Eigenval, &
-                                     num_integ_points, num_integ_group, color_rpa_group, &
-                                     tj, wj, fm_mat_S, &
-                                     homo_beta, virtual_beta, dimen_ia_beta, Eigenval_beta, fm_mat_S_beta)
-         ELSE
-            CALL calc_scaling_factor(a_scaling, para_env, para_env_RPA, homo, virtual, Eigenval, &
-                                     num_integ_points, num_integ_group, color_rpa_group, &
-                                     tj, wj, fm_mat_S)
-         END IF
+         CALL calc_scaling_factor(a_scaling, para_env, para_env_RPA, homo, virtual, Eigenval, &
+                                  num_integ_points, num_integ_group, color_rpa_group, &
+                                  tj, wj, fm_mat_S)
       END IF
 
       IF (unit_nr > 0) WRITE (unit_nr, '(T3,A,T56,F25.5)') 'INTEG_INFO| Scaling parameter:', a_scaling
@@ -399,49 +372,35 @@ CONTAINS
 !> \param tj_ext ...
 !> \param wj_ext ...
 !> \param fm_mat_S ...
-!> \param homo_beta ...
-!> \param virtual_beta ...
-!> \param dimen_ia_beta ...
-!> \param Eigenval_beta ...
-!> \param fm_mat_S_beta ...
 ! **************************************************************************************************
    SUBROUTINE calc_scaling_factor(a_scaling_ext, para_env, para_env_RPA, homo, virtual, Eigenval, &
                                   num_integ_points, num_integ_group, color_rpa_group, &
-                                  tj_ext, wj_ext, fm_mat_S, &
-                                  homo_beta, virtual_beta, dimen_ia_beta, Eigenval_beta, fm_mat_S_beta)
-      REAL(KIND=dp), INTENT(INOUT)                       :: a_scaling_ext
-      TYPE(cp_para_env_type), POINTER                    :: para_env, para_env_RPA
-      INTEGER, INTENT(IN)                                :: homo, virtual
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
+                                  tj_ext, wj_ext, fm_mat_S)
+      REAL(KIND=dp), INTENT(OUT)                         :: a_scaling_ext
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env, para_env_RPA
+      INTEGER, DIMENSION(:), INTENT(IN)                  :: homo, virtual
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: Eigenval
       INTEGER, INTENT(IN)                                :: num_integ_points, num_integ_group, &
                                                             color_rpa_group
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(IN)                                      :: tj_ext, wj_ext
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S
-      INTEGER, INTENT(IN), OPTIONAL                      :: homo_beta, virtual_beta, dimen_ia_beta
-      REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: Eigenval_beta
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: fm_mat_S_beta
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: fm_mat_S
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_scaling_factor', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_scaling_factor'
 
-      INTEGER                                            :: handle, icycle, jquad, nrow_local, &
-                                                            nrow_local_beta
+      INTEGER                                            :: handle, icycle, jquad, ncol_local, &
+                                                            ncol_local_beta, nspins
       LOGICAL                                            :: my_open_shell
       REAL(KIND=dp) :: a_high, a_low, a_scaling, conv_param, eps, first_deriv, left_term, &
          right_term, right_term_ref, right_term_ref_beta, step
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: cottj, D_ia, D_ia_beta, iaia_RI, &
                                                             iaia_RI_beta, M_ia, M_ia_beta
-      TYPE(cp_para_env_type), POINTER                    :: para_env_row, para_env_row_beta
+      TYPE(cp_para_env_type), POINTER                    :: para_env_col, para_env_col_beta
 
       CALL timeset(routineN, handle)
 
-      my_open_shell = .FALSE.
-      IF (PRESENT(homo_beta) .AND. &
-          PRESENT(virtual_beta) .AND. &
-          PRESENT(dimen_ia_beta) .AND. &
-          PRESENT(Eigenval_beta) .AND. &
-          PRESENT(fm_mat_S_beta)) my_open_shell = .TRUE.
+      nspins = SIZE(homo)
+      my_open_shell = (nspins == 2)
 
       eps = 1.0E-10_dp
 
@@ -452,13 +411,13 @@ CONTAINS
          cottj(jquad) = 1.0_dp/TAN(tj_ext(jquad))
       END DO
 
-      CALL calc_ia_ia_integrals(para_env_RPA, homo, virtual, nrow_local, right_term_ref, Eigenval, D_ia, iaia_RI, M_ia, fm_mat_S, &
-                                para_env_row)
+      CALL calc_ia_ia_integrals(para_env_RPA, homo(1), virtual(1), ncol_local, right_term_ref, Eigenval(:, 1, 1), &
+                                D_ia, iaia_RI, M_ia, fm_mat_S(1), para_env_col)
 
       ! In the open shell case do point 1-2-3 for the beta spin
       IF (my_open_shell) THEN
-         CALL calc_ia_ia_integrals(para_env_RPA, homo_beta, virtual_beta, nrow_local_beta, right_term_ref_beta, Eigenval_beta, &
-                                   D_ia_beta, iaia_RI_beta, M_ia_beta, fm_mat_S_beta, para_env_row_beta)
+         CALL calc_ia_ia_integrals(para_env_RPA, homo(2), virtual(2), ncol_local_beta, right_term_ref_beta, Eigenval(:, 1, 2), &
+                                   D_ia_beta, iaia_RI_beta, M_ia_beta, fm_mat_S(2), para_env_col_beta)
 
          right_term_ref = right_term_ref + right_term_ref_beta
       END IF
@@ -483,8 +442,8 @@ CONTAINS
 
          CALL calculate_objfunc(a_scaling, left_term, first_deriv, num_integ_points, my_open_shell, &
                                 M_ia, cottj, wj_ext, D_ia, D_ia_beta, M_ia_beta, &
-                                nrow_local, nrow_local_beta, num_integ_group, color_rpa_group, &
-                                para_env, para_env_row, para_env_row_beta)
+                                ncol_local, ncol_local_beta, num_integ_group, color_rpa_group, &
+                                para_env, para_env_col, para_env_col_beta)
          left_term = left_term/4.0_dp/pi*a_scaling
 
          IF (ABS(left_term) > ABS(right_term) .OR. ABS(left_term + right_term) <= conv_param) EXIT
@@ -503,8 +462,8 @@ CONTAINS
 
                CALL calculate_objfunc(a_scaling, left_term, first_deriv, num_integ_points, my_open_shell, &
                                       M_ia, cottj, wj_ext, D_ia, D_ia_beta, M_ia_beta, &
-                                      nrow_local, nrow_local_beta, num_integ_group, color_rpa_group, &
-                                      para_env, para_env_row, para_env_row_beta)
+                                      ncol_local, ncol_local_beta, num_integ_group, color_rpa_group, &
+                                      para_env, para_env_col, para_env_col_beta)
                left_term = left_term/4.0_dp/pi*a_scaling
 
                IF (ABS(left_term) > ABS(right_term)) THEN
@@ -527,13 +486,13 @@ CONTAINS
       DEALLOCATE (iaia_RI)
       DEALLOCATE (D_ia)
       DEALLOCATE (M_ia)
-      CALL cp_para_env_release(para_env_row)
+      CALL cp_para_env_release(para_env_col)
 
       IF (my_open_shell) THEN
          DEALLOCATE (iaia_RI_beta)
          DEALLOCATE (D_ia_beta)
          DEALLOCATE (M_ia_beta)
-         CALL cp_para_env_release(para_env_row_beta)
+         CALL cp_para_env_release(para_env_col_beta)
       END IF
 
       CALL timestop(handle)
@@ -545,45 +504,42 @@ CONTAINS
 !> \param para_env_RPA ...
 !> \param homo ...
 !> \param virtual ...
-!> \param nrow_local ...
+!> \param ncol_local ...
 !> \param right_term_ref ...
 !> \param Eigenval ...
 !> \param D_ia ...
 !> \param iaia_RI ...
 !> \param M_ia ...
 !> \param fm_mat_S ...
-!> \param para_env_row ...
+!> \param para_env_col ...
 ! **************************************************************************************************
-   SUBROUTINE calc_ia_ia_integrals(para_env_RPA, homo, virtual, nrow_local, right_term_ref, Eigenval, &
-                                   D_ia, iaia_RI, M_ia, fm_mat_S, para_env_row)
+   SUBROUTINE calc_ia_ia_integrals(para_env_RPA, homo, virtual, ncol_local, right_term_ref, Eigenval, &
+                                   D_ia, iaia_RI, M_ia, fm_mat_S, para_env_col)
 
-      TYPE(cp_para_env_type), POINTER                    :: para_env_RPA
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env_RPA
       INTEGER, INTENT(IN)                                :: homo, virtual
-      INTEGER, INTENT(OUT)                               :: nrow_local
+      INTEGER, INTENT(OUT)                               :: ncol_local
       REAL(KIND=dp), INTENT(OUT)                         :: right_term_ref
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(OUT)                                     :: D_ia, iaia_RI, M_ia
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S
-      TYPE(cp_para_env_type), POINTER                    :: para_env_row
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mat_S
+      TYPE(cp_para_env_type), POINTER                    :: para_env_col
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_ia_ia_integrals', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_ia_ia_integrals'
 
-      INTEGER                                            :: avirt, color_col, color_row, comm_col, &
-                                                            comm_row, handle, i_global, iiB, iocc, &
-                                                            jjB, ncol_local
+      INTEGER                                            :: avirt, color_col, color_row, handle, &
+                                                            i_global, iiB, iocc, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: eigen_diff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: iaia_RI_dp
-      TYPE(cp_para_env_type), POINTER                    :: para_env_col
+      TYPE(cp_para_env_type), POINTER                    :: para_env_row
 
       CALL timeset(routineN, handle)
 
       ! calculate the (ia|ia) RI integrals
       ! ----------------------------------
       ! 1) get info fm_mat_S
-      !XXX CALL cp_fm_to_fm(source=fm_mat_S,destination=fm_mat_G)
       CALL cp_fm_get_info(matrix=fm_mat_S, &
                           nrow_local=nrow_local, &
                           ncol_local=ncol_local, &
@@ -591,24 +547,22 @@ CONTAINS
                           col_indices=col_indices)
 
       ! allocate the local buffer of iaia_RI integrals (dp kind)
-      ALLOCATE (iaia_RI_dp(nrow_local))
+      ALLOCATE (iaia_RI_dp(ncol_local))
       iaia_RI_dp = 0.0_dp
 
       ! 2) perform the local multiplication SUM_K (ia|K)*(ia|K)
-      DO jjB = 1, ncol_local
-         DO iiB = 1, nrow_local
-            iaia_RI_dp(iiB) = iaia_RI_dp(iiB) + fm_mat_S%local_data(iiB, jjB)*fm_mat_S%local_data(iiB, jjB)
-         END DO
+      DO iiB = 1, ncol_local
+         iaia_RI_dp(iiB) = iaia_RI_dp(iiB) + DOT_PRODUCT(fm_mat_S%local_data(:, iiB), fm_mat_S%local_data(:, iiB))
       END DO
 
-      ! 3) sum the result with the processes of the RPA_group having the same rows
-      !          _______K_______               _
+      ! 3) sum the result with the processes of the RPA_group having the same columns
+      !          _______ia______               _
       !         |   |   |   |   |             | |
       !     --> | 1 | 5 | 9 | 13|   SUM -->   | |
       !         |___|__ |___|___|             |_|
       !         |   |   |   |   |             | |
       !     --> | 2 | 6 | 10| 14|   SUM -->   | |
-      !      ia |___|___|___|___|             |_|   (ia|ia)_RI
+      !       K |___|___|___|___|             |_|   (ia|ia)_RI
       !         |   |   |   |   |             | |
       !     --> | 3 | 7 | 11| 15|   SUM -->   | |
       !         |___|___|___|___|             |_|
@@ -617,16 +571,14 @@ CONTAINS
       !         |___|___|___|___|             |_|
       !
 
-      color_row = fm_mat_S%matrix_struct%context%mepos(1)
-      CALL mp_comm_split_direct(para_env_RPA%group, comm_row, color_row)
-      NULLIFY (para_env_row)
-      CALL cp_para_env_create(para_env_row, comm_row)
+      color_col = fm_mat_S%matrix_struct%context%mepos(2)
+      CALL cp_para_env_split(para_env_col, para_env_RPA, color_col)
 
-      CALL mp_sum(iaia_RI_dp, para_env_row%group)
+      CALL mp_sum(iaia_RI_dp, para_env_col%group)
 
       ! convert the iaia_RI_dp into double-double precision
-      ALLOCATE (iaia_RI(nrow_local))
-      DO iiB = 1, nrow_local
+      ALLOCATE (iaia_RI(ncol_local))
+      DO iiB = 1, ncol_local
          iaia_RI(iiB) = iaia_RI_dp(iiB)
       END DO
       DEALLOCATE (iaia_RI_dp)
@@ -634,12 +586,12 @@ CONTAINS
       ! 4) calculate the right hand term, D_ia is the matrix containing the
       ! orbital energy differences, M_ia is the diagonal of the full RPA 'excitation'
       ! matrix
-      ALLOCATE (D_ia(nrow_local))
+      ALLOCATE (D_ia(ncol_local))
 
-      ALLOCATE (M_ia(nrow_local))
+      ALLOCATE (M_ia(ncol_local))
 
-      DO iiB = 1, nrow_local
-         i_global = row_indices(iiB)
+      DO iiB = 1, ncol_local
+         i_global = col_indices(iiB)
 
          iocc = MAX(1, i_global - 1)/virtual + 1
          avirt = i_global - (iocc - 1)*virtual
@@ -648,26 +600,24 @@ CONTAINS
          D_ia(iiB) = eigen_diff
       END DO
 
-      DO iiB = 1, nrow_local
+      DO iiB = 1, ncol_local
          M_ia(iiB) = D_ia(iiB)*D_ia(iiB) + 2.0_dp*D_ia(iiB)*iaia_RI(iiB)
       END DO
 
       right_term_ref = 0.0_dp
-      DO iiB = 1, nrow_local
+      DO iiB = 1, ncol_local
          right_term_ref = right_term_ref + (SQRT(M_ia(iiB)) - D_ia(iiB) - iaia_RI(iiB))
       END DO
       right_term_ref = right_term_ref/2.0_dp
 
-      ! sum the result with the processes of the RPA_group having the same col
-      color_col = fm_mat_S%matrix_struct%context%mepos(2)
-      CALL mp_comm_split_direct(para_env_RPA%group, comm_col, color_col)
-      NULLIFY (para_env_col)
-      CALL cp_para_env_create(para_env_col, comm_col)
+      ! sum the result with the processes of the RPA_group having the same row
+      color_row = fm_mat_S%matrix_struct%context%mepos(1)
+      CALL cp_para_env_split(para_env_row, para_env_RPA, color_row)
 
-      ! allocate communication array for columns
-      CALL mp_sum(right_term_ref, para_env_col%group)
+      ! allocate communication array for rows
+      CALL mp_sum(right_term_ref, para_env_row%group)
 
-      CALL cp_para_env_release(para_env_col)
+      CALL cp_para_env_release(para_env_row)
 
       CALL timestop(handle)
 
@@ -686,18 +636,18 @@ CONTAINS
 !> \param D_ia ...
 !> \param D_ia_beta ...
 !> \param M_ia_beta ...
-!> \param nrow_local ...
-!> \param nrow_local_beta ...
+!> \param ncol_local ...
+!> \param ncol_local_beta ...
 !> \param num_integ_group ...
 !> \param color_rpa_group ...
 !> \param para_env ...
-!> \param para_env_row ...
-!> \param para_env_row_beta ...
+!> \param para_env_col ...
+!> \param para_env_col_beta ...
 ! **************************************************************************************************
    SUBROUTINE calculate_objfunc(a_scaling, left_term, first_deriv, num_integ_points, my_open_shell, &
                                 M_ia, cottj, wj, D_ia, D_ia_beta, M_ia_beta, &
-                                nrow_local, nrow_local_beta, num_integ_group, color_rpa_group, &
-                                para_env, para_env_row, para_env_row_beta)
+                                ncol_local, ncol_local_beta, num_integ_group, color_rpa_group, &
+                                para_env, para_env_col, para_env_col_beta)
       REAL(KIND=dp), INTENT(IN)                          :: a_scaling
       REAL(KIND=dp), INTENT(INOUT)                       :: left_term, first_deriv
       INTEGER, INTENT(IN)                                :: num_integ_points
@@ -705,9 +655,10 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(IN)                                      :: M_ia, cottj, wj, D_ia, D_ia_beta, &
                                                             M_ia_beta
-      INTEGER, INTENT(IN)                                :: nrow_local, nrow_local_beta, &
+      INTEGER, INTENT(IN)                                :: ncol_local, ncol_local_beta, &
                                                             num_integ_group, color_rpa_group
-      TYPE(cp_para_env_type), POINTER                    :: para_env, para_env_row, para_env_row_beta
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env, para_env_col
+      TYPE(cp_para_env_type), POINTER                    :: para_env_col_beta
 
       INTEGER                                            :: iiB, jquad
       REAL(KIND=dp)                                      :: first_deriv_beta, left_term_beta, omega
@@ -721,9 +672,9 @@ CONTAINS
          IF (MODULO(jquad, num_integ_group) /= color_rpa_group) CYCLE
          omega = a_scaling*cottj(jquad)
 
-         DO iiB = 1, nrow_local
+         DO iiB = 1, ncol_local
             ! parallelize over ia elements in the para_env_row group
-            IF (MODULO(iiB, para_env_row%num_pe) /= para_env_row%mepos) CYCLE
+            IF (MODULO(iiB, para_env_col%num_pe) /= para_env_col%mepos) CYCLE
             ! calculate left_term
             left_term = left_term + wj(jquad)* &
                         (LOG(1.0_dp + (M_ia(iiB) - D_ia(iiB)**2)/(omega**2 + D_ia(iiB)**2)) - &
@@ -733,9 +684,9 @@ CONTAINS
          END DO
 
          IF (my_open_shell) THEN
-            DO iiB = 1, nrow_local_beta
+            DO iiB = 1, ncol_local_beta
                ! parallelize over ia elements in the para_env_row group
-               IF (MODULO(iiB, para_env_row_beta%num_pe) /= para_env_row_beta%mepos) CYCLE
+               IF (MODULO(iiB, para_env_col_beta%num_pe) /= para_env_col_beta%mepos) CYCLE
                ! calculate left_term
                left_term_beta = left_term_beta + wj(jquad)* &
                                 (LOG(1.0_dp + (M_ia_beta(iiB) - D_ia_beta(iiB)**2)/(omega**2 + D_ia_beta(iiB)**2)) - &
@@ -764,8 +715,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculate integration weights for the tau grid (in dependency of the omega node)
-!> \param num_freq_points ...
-!> \param num_time_points ...
+!> \param num_integ_points ...
 !> \param tau_tj ...
 !> \param weights_cos_tf_t_to_w ...
 !> \param omega_tj ...
@@ -774,10 +724,10 @@ CONTAINS
 !> \param max_error ...
 !> \param num_points_per_magnitude ...
 ! **************************************************************************************************
-   SUBROUTINE get_l_sq_wghts_cos_tf_t_to_w(num_freq_points, num_time_points, tau_tj, weights_cos_tf_t_to_w, omega_tj, &
+   SUBROUTINE get_l_sq_wghts_cos_tf_t_to_w(num_integ_points, tau_tj, weights_cos_tf_t_to_w, omega_tj, &
                                            E_min, E_max, max_error, num_points_per_magnitude)
 
-      INTEGER, INTENT(IN)                                :: num_freq_points, num_time_points
+      INTEGER, INTENT(IN)                                :: num_integ_points
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(IN)                                      :: tau_tj
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :), &
@@ -788,8 +738,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: max_error
       INTEGER, INTENT(IN)                                :: num_points_per_magnitude
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_cos_tf_t_to_w', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_cos_tf_t_to_w'
 
       INTEGER                                            :: handle, iii, info, jjj, jquad, lwork, &
                                                             num_x_nodes
@@ -807,30 +756,30 @@ CONTAINS
 
       ! take at least as many x points as integration points to have clear
       ! input for the singular value decomposition
-      num_x_nodes = MAX(num_x_nodes, num_freq_points)
+      num_x_nodes = MAX(num_x_nodes, num_integ_points)
 
       ALLOCATE (x_values(num_x_nodes))
       x_values = 0.0_dp
       ALLOCATE (y_values(num_x_nodes))
       y_values = 0.0_dp
-      ALLOCATE (mat_A(num_x_nodes, num_time_points))
+      ALLOCATE (mat_A(num_x_nodes, num_integ_points))
       mat_A = 0.0_dp
-      ALLOCATE (tau_wj_work(num_time_points))
+      ALLOCATE (tau_wj_work(num_integ_points))
       tau_wj_work = 0.0_dp
-      ALLOCATE (sing_values(num_time_points))
+      ALLOCATE (sing_values(num_integ_points))
       sing_values = 0.0_dp
       ALLOCATE (mat_U(num_x_nodes, num_x_nodes))
       mat_U = 0.0_dp
-      ALLOCATE (mat_SinvVSinvT(num_x_nodes, num_time_points))
+      ALLOCATE (mat_SinvVSinvT(num_x_nodes, num_integ_points))
 
       mat_SinvVSinvT = 0.0_dp
       ! double the value nessary for 'A' to achieve good performance
-      lwork = 8*num_time_points*num_time_points + 12*num_time_points + 2*num_x_nodes
+      lwork = 8*num_integ_points*num_integ_points + 12*num_integ_points + 2*num_x_nodes
       ALLOCATE (work(lwork))
       work = 0.0_dp
-      ALLOCATE (iwork(8*num_time_points))
+      ALLOCATE (iwork(8*num_integ_points))
       iwork = 0
-      ALLOCATE (mat_SinvVSinvSigma(num_time_points, num_x_nodes))
+      ALLOCATE (mat_SinvVSinvSigma(num_integ_points, num_x_nodes))
       mat_SinvVSinvSigma = 0.0_dp
       ALLOCATE (vec_UTy(num_x_nodes))
       vec_UTy = 0.0_dp
@@ -838,7 +787,7 @@ CONTAINS
       max_error = 0.0_dp
 
       ! loop over all omega frequency points
-      DO jquad = 1, num_freq_points
+      DO jquad = 1, num_integ_points
 
          ! set the x-values logarithmically in the interval [Emin,Emax]
          multiplicator = (E_max/E_min)**(1.0_dp/(REAL(num_x_nodes, KIND=dp) - 1.0_dp))
@@ -854,22 +803,22 @@ CONTAINS
          END DO
 
          ! calculate mat_A
-         DO jjj = 1, num_time_points
+         DO jjj = 1, num_integ_points
             DO iii = 1, num_x_nodes
                mat_A(iii, jjj) = COS(omega*tau_tj(jjj))*EXP(-x_values(iii)*tau_tj(jjj))
             END DO
          END DO
 
          ! Singular value decomposition of mat_A
-         CALL DGESDD('A', num_x_nodes, num_time_points, mat_A, num_x_nodes, sing_values, mat_U, num_x_nodes, &
+         CALL DGESDD('A', num_x_nodes, num_integ_points, mat_A, num_x_nodes, sing_values, mat_U, num_x_nodes, &
                      mat_SinvVSinvT, num_x_nodes, work, lwork, iwork, info)
 
          CPASSERT(info == 0)
 
          ! integration weights = V Sigma U^T y
          ! 1) V*Sigma
-         DO jjj = 1, num_time_points
-            DO iii = 1, num_time_points
+         DO jjj = 1, num_integ_points
+            DO iii = 1, num_integ_points
                mat_SinvVSinvSigma(iii, jjj) = mat_SinvVSinvT(jjj, iii)/sing_values(jjj)
             END DO
          END DO
@@ -879,13 +828,13 @@ CONTAINS
                     0.0_dp, vec_UTy, num_x_nodes)
 
          ! 3) (V*Sigma) * (U^T y)
-         CALL DGEMM('N', 'N', num_time_points, 1, num_x_nodes, 1.0_dp, mat_SinvVSinvSigma, num_time_points, vec_UTy, &
-                    num_x_nodes, 0.0_dp, tau_wj_work, num_time_points)
+         CALL DGEMM('N', 'N', num_integ_points, 1, num_x_nodes, 1.0_dp, mat_SinvVSinvSigma, num_integ_points, vec_UTy, &
+                    num_x_nodes, 0.0_dp, tau_wj_work, num_integ_points)
 
          weights_cos_tf_t_to_w(jquad, :) = tau_wj_work(:)
 
          CALL calc_max_error_fit_tau_grid_with_cosine(max_error, omega, tau_tj, tau_wj_work, x_values, &
-                                                      y_values, num_time_points, num_x_nodes)
+                                                      y_values, num_integ_points, num_x_nodes)
 
       END DO ! jquad
 
@@ -921,8 +870,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: max_error
       INTEGER, INTENT(IN)                                :: num_points_per_magnitude
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_sin_tf_t_to_w', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_sin_tf_t_to_w'
 
       INTEGER                                            :: handle, iii, info, jjj, jquad, lwork, &
                                                             num_x_nodes
@@ -1053,9 +1001,6 @@ CONTAINS
          INTENT(IN)                                      :: tau_tj, tau_wj_work, x_values, y_values
       INTEGER, INTENT(IN)                                :: num_integ_points, num_x_nodes
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_max_error_fit_tau_grid_with_cosine', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: kkk
       REAL(KIND=dp)                                      :: func_val, func_val_temp, max_error_tmp
 
@@ -1100,9 +1045,6 @@ CONTAINS
          INTENT(IN)                                      :: tau_tj, tau_wj_work
       REAL(KIND=dp), INTENT(IN)                          :: omega
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_fit_func_tau_grid_cosine', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iii
 
       func_val = 0.0_dp
@@ -1133,9 +1075,6 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(IN)                                      :: tau_tj, tau_wj_work
       REAL(KIND=dp), INTENT(IN)                          :: omega
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_fit_func_tau_grid_sine', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iii
 
@@ -1168,9 +1107,6 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
          INTENT(IN)                                      :: tau_tj, tau_wj_work, x_values, y_values
       INTEGER, INTENT(IN)                                :: num_integ_points, num_x_nodes
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_max_error_fit_tau_grid_with_sine', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: kkk
       REAL(KIND=dp)                                      :: func_val, func_val_temp, max_error_tmp
@@ -1252,7 +1188,7 @@ CONTAINS
                tau_wj(jquad) = x_tw(jquad + num_integ_points)/2.0_dp
             END DO
 
-            CALL get_l_sq_wghts_cos_tf_t_to_w(num_integ_points, num_integ_points, tau_tj, &
+            CALL get_l_sq_wghts_cos_tf_t_to_w(num_integ_points, tau_tj, &
                                               weights_cos_tf_t_to_w, tj, 1.0_dp, Rc, max_error, 200)
 
             IF (iw > 0) THEN
@@ -1292,8 +1228,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: max_error
       INTEGER, INTENT(IN)                                :: num_points_per_magnitude
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_cos_tf_w_to_t', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_l_sq_wghts_cos_tf_w_to_t'
 
       INTEGER                                            :: handle, iii, info, jjj, jquad, lwork, &
                                                             num_x_nodes
@@ -1428,8 +1363,7 @@ CONTAINS
                                                             y_values
       INTEGER, INTENT(IN)                                :: num_integ_points, num_x_nodes
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_max_error_fit_omega_grid_with_cosine', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_max_error_fit_omega_grid_with_cosine'
 
       INTEGER                                            :: handle, kkk
       REAL(KIND=dp)                                      :: func_val, func_val_temp, max_error_tmp
@@ -1478,9 +1412,6 @@ CONTAINS
          INTENT(IN)                                      :: omega_tj, omega_wj_work
       REAL(KIND=dp), INTENT(IN)                          :: tau
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_fit_func_omega_grid_cosine', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iii
       REAL(KIND=dp)                                      :: omega
 
@@ -1507,18 +1438,16 @@ CONTAINS
    SUBROUTINE gap_and_max_eig_diff_kpoints(qs_env, para_env, gap, max_eig_diff, e_fermi)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
       REAL(KIND=dp), INTENT(OUT)                         :: gap, max_eig_diff, e_fermi
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gap_and_max_eig_diff_kpoints', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'gap_and_max_eig_diff_kpoints'
 
       INTEGER                                            :: handle, homo, ikpgr, ispin, kplocal, &
                                                             nmo, nspin
       INTEGER, DIMENSION(2)                              :: kp_range
       REAL(KIND=dp)                                      :: e_homo, e_homo_temp, e_lumo, e_lumo_temp
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: e_homo_array, e_lumo_array, &
-                                                            max_eig_diff_array
+      REAL(KIND=dp), DIMENSION(3)                        :: tmp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(kpoint_type), POINTER                         :: kpoint
@@ -1529,7 +1458,7 @@ CONTAINS
       CALL get_qs_env(qs_env, &
                       kpoints=kpoint)
 
-      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)%mo_set
+      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)
       CALL get_mo_set(mo_set, nmo=nmo)
 
       CALL get_kpoint_info(kpoint, kp_range=kp_range)
@@ -1544,7 +1473,7 @@ CONTAINS
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          nspin = SIZE(kp%mos, 2)
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             CALL get_mo_set(mo_set, eigenvalues=eigenvalues, homo=homo)
             e_homo_temp = eigenvalues(homo)
             e_lumo_temp = eigenvalues(homo + 1)
@@ -1556,31 +1485,16 @@ CONTAINS
          END DO
       END DO
 
-      ALLOCATE (e_homo_array(0:para_env%num_pe - 1))
-      e_homo_array = 0.0_dp
-      e_homo_array(para_env%mepos) = e_homo
+      ! Collect all three numbers in an array
+      ! Reverse sign of lumo to reduce number of MPI calls
+      tmp(1) = e_homo
+      tmp(2) = -e_lumo
+      tmp(3) = max_eig_diff
+      CALL mp_max(tmp, para_env%group)
 
-      ALLOCATE (e_lumo_array(0:para_env%num_pe - 1))
-      e_lumo_array = 0.0_dp
-      e_lumo_array(para_env%mepos) = e_lumo
-
-      ALLOCATE (max_eig_diff_array(0:para_env%num_pe - 1))
-      max_eig_diff_array = 0.0_dp
-      max_eig_diff_array(para_env%mepos) = max_eig_diff
-
-      CALL mp_sum(e_homo_array, para_env%group)
-
-      CALL mp_sum(e_lumo_array, para_env%group)
-
-      CALL mp_sum(max_eig_diff_array, para_env%group)
-
-      gap = MINVAL(e_lumo_array) - MAXVAL(e_homo_array)
-
-      e_fermi = (MAXVAL(e_homo_array) + MINVAL(e_lumo_array))/2.0_dp
-
-      max_eig_diff = MAXVAL(max_eig_diff_array)
-
-      DEALLOCATE (max_eig_diff_array, e_homo_array, e_lumo_array)
+      gap = -tmp(2) - tmp(1)
+      e_fermi = (tmp(1) - tmp(2))*0.5_dp
+      max_eig_diff = tmp(3)
 
       CALL timestop(handle)
 

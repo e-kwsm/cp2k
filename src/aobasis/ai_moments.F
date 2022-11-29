@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,8 +46,113 @@ MODULE ai_moments
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'ai_moments'
 
    PUBLIC :: cossin, moment, diffop, diff_momop, contract_cossin, dipole_force
+   PUBLIC :: diff_momop2
 
 CONTAINS
+
+! *****************************************************************************
+!> \brief This returns the derivative of the moment integrals [a|\mu|b], with respect
+!>       to the position of the primitive on the  left and right, i.e.
+!>   [da/dR_ai|\mu|b] + [a|\mu|d/dR_bi]
+!>       [da/dR_ai|\mu|b] =  2*zeta*[a+1i|\mu|b] - Ni(a)[a-1i|\mu|b]
+!>       [a|\mu|d/dR_bi] =  2*zetb*[a|\mu|b+1i] - Ni(b)[a|\mu|b-1i]
+!>       order indicates the max order of the moment operator to be calculated
+!>       1: dipole
+!>       2: quadrupole
+!>       ...
+!> \param la_max ...
+!> \param npgfa ...
+!> \param zeta ...
+!> \param rpgfa ...
+!> \param la_min ...
+!> \param lb_max ...
+!> \param npgfb ...
+!> \param zetb ...
+!> \param rpgfb ...
+!> \param lb_min ...
+!> \param order ...
+!> \param rac ...
+!> \param rbc ...
+!> \param difmab ...
+!> \param mab_ext ...
+!> \param deltaR needed for weighted derivative
+!> \param iatom ...
+!> \param jatom ...
+!> SL August 2015, ED 2021
+! **************************************************************************************************
+   SUBROUTINE diff_momop2(la_max, npgfa, zeta, rpgfa, la_min, &
+                          lb_max, npgfb, zetb, rpgfb, lb_min, &
+                          order, rac, rbc, difmab, mab_ext, deltaR, iatom, jatom)
+
+      INTEGER, INTENT(IN)                                :: la_max, npgfa
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: zeta, rpgfa
+      INTEGER, INTENT(IN)                                :: la_min, lb_max, npgfb
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: zetb, rpgfb
+      INTEGER, INTENT(IN)                                :: lb_min, order
+      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rac, rbc
+      REAL(KIND=dp), DIMENSION(:, :, :, :), INTENT(OUT)  :: difmab
+      REAL(KIND=dp), DIMENSION(:, :, :), OPTIONAL, &
+         POINTER                                         :: mab_ext
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
+         OPTIONAL, POINTER                               :: deltaR
+      INTEGER, INTENT(IN), OPTIONAL                      :: iatom, jatom
+
+      INTEGER                                            :: imom, lda, lda_min, ldb, ldb_min
+      REAL(KIND=dp)                                      :: dab, rab(3)
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: difmab_tmp
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: mab
+
+      rab = rbc - rac
+      dab = SQRT(SUM(rab**2))
+
+      lda_min = MAX(0, la_min - 1)
+      ldb_min = MAX(0, lb_min - 1)
+      lda = ncoset(la_max)*npgfa
+      ldb = ncoset(lb_max)*npgfb
+      ALLOCATE (difmab_tmp(lda, ldb, 3))
+
+      IF (PRESENT(mab_ext)) THEN
+         mab => mab_ext
+      ELSE
+         ALLOCATE (mab(npgfa*ncoset(la_max + 1), npgfb*ncoset(lb_max + 1), &
+                       ncoset(order) - 1))
+         mab = 0.0_dp
+!     *** Calculate the primitive moment integrals ***
+         CALL moment(la_max + 1, npgfa, zeta, rpgfa, lda_min, &
+                     lb_max + 1, npgfb, zetb, rpgfb, &
+                     order, rac, rbc, mab)
+      END IF
+      DO imom = 1, ncoset(order) - 1
+         difmab(:, :, imom, :) = 0.0_dp
+
+         difmab_tmp = 0.0_dp
+         CALL adbdr(la_max, npgfa, rpgfa, la_min, &
+                    lb_max, npgfb, zetb, rpgfb, lb_min, &
+                    dab, mab(:, :, imom), difmab_tmp(:, :, 1), &
+                    difmab_tmp(:, :, 2), difmab_tmp(:, :, 3))
+
+         difmab(:, :, imom, 1) = difmab_tmp(:, :, 1)*deltaR(1, jatom)
+         difmab(:, :, imom, 2) = difmab_tmp(:, :, 2)*deltaR(2, jatom)
+         difmab(:, :, imom, 3) = difmab_tmp(:, :, 3)*deltaR(3, jatom)
+
+         difmab_tmp = 0.0_dp
+         CALL dabdr(la_max, npgfa, zeta, rpgfa, la_min, &
+                    lb_max, npgfb, rpgfb, lb_min, &
+                    dab, mab(:, :, imom), difmab_tmp(:, :, 1), &
+                    difmab_tmp(:, :, 2), difmab_tmp(:, :, 3))
+
+         difmab(:, :, imom, 1) = difmab(:, :, imom, 1) + difmab_tmp(:, :, 1)*deltaR(1, iatom)
+         difmab(:, :, imom, 2) = difmab(:, :, imom, 2) + difmab_tmp(:, :, 2)*deltaR(2, iatom)
+         difmab(:, :, imom, 3) = difmab(:, :, imom, 3) + difmab_tmp(:, :, 3)*deltaR(3, iatom)
+      END DO
+
+      IF (PRESENT(mab_ext)) THEN
+         NULLIFY (mab)
+      ELSE
+         DEALLOCATE (mab)
+      END IF
+      DEALLOCATE (difmab_tmp)
+   END SUBROUTINE diff_momop2
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1489,14 +1596,13 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: pab
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: forcea, forceb
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dipole_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imom, ipgf, j, jpgf, lda, lda_min, &
                                                             ldb, ldb_min, lmax, na, nb
       REAL(KIND=dp)                                      :: dab, rab(3), rab2
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: difmab, mab
 
       CPASSERT(order == 1)
+      MARK_USED(order)
 
       rab = rbc - rac
       rab2 = SUM(rab**2)

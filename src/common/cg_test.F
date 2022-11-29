@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -38,8 +40,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE clebsch_gordon_test()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'clebsch_gordon_test', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: l = 7
 
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: a1, a2, a3

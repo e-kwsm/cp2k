@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -92,8 +94,7 @@ CONTAINS
 
       TYPE(cdft_opt_type), POINTER                       :: cdft_opt_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_create'
 
       INTEGER                                            :: handle
 
@@ -133,9 +134,6 @@ CONTAINS
 
       TYPE(cdft_opt_type), POINTER                       :: cdft_opt_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(cdft_opt_control)) THEN
          IF (ASSOCIATED(cdft_opt_control%jacobian_vector)) &
             DEALLOCATE (cdft_opt_control%jacobian_vector)
@@ -162,8 +160,7 @@ CONTAINS
       TYPE(cdft_opt_type), POINTER                       :: cdft_opt_control
       TYPE(section_vals_type), POINTER                   :: inp_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_read', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_read'
 
       INTEGER                                            :: handle
       INTEGER, DIMENSION(:), POINTER                     :: tmplist
@@ -235,9 +232,6 @@ CONTAINS
       TYPE(cdft_opt_type), POINTER                       :: cdft_opt_control
       INTEGER                                            :: optimizer, output_unit
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_write', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(cdft_opt_control))
 
       SELECT CASE (optimizer)
@@ -306,8 +300,7 @@ CONTAINS
 
       TYPE(cdft_opt_type), POINTER                       :: new, old
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_copy', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cdft_opt_type_copy'
 
       INTEGER                                            :: handle
 

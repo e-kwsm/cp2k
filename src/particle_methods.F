@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,7 +24,8 @@ MODULE particle_methods
                                               real_to_scaled,&
                                               set_cell_param
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
-                                              cp_logger_type
+                                              cp_logger_type,&
+                                              cp_to_string
    USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
                                               cp_print_key_unit_nr
    USE cp_units,                        ONLY: cp_unit_from_cp2k
@@ -98,9 +101,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(INOUT), OPTIONAL     :: first_sgf, last_sgf, nsgf, nmao
       TYPE(gto_basis_set_p_type), DIMENSION(:), OPTIONAL :: basis
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_particle_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind, iparticle, isgf, nparticle, ns
 
       CPASSERT(ASSOCIATED(particle_set))
@@ -124,7 +124,11 @@ CONTAINS
          DO iparticle = 1, nparticle
             CALL get_atomic_kind(particle_set(iparticle)%atomic_kind, kind_number=ikind)
             IF (PRESENT(basis)) THEN
-               CALL get_gto_basis_set(gto_basis_set=basis(ikind)%gto_basis_set, nsgf=ns)
+               IF (ASSOCIATED(basis(ikind)%gto_basis_set)) THEN
+                  CALL get_gto_basis_set(gto_basis_set=basis(ikind)%gto_basis_set, nsgf=ns)
+               ELSE
+                  ns = 0
+               END IF
             ELSE
                CALL get_qs_kind(qs_kind_set(ikind), nsgf=ns)
             END IF
@@ -167,6 +171,7 @@ CONTAINS
 !> \param charge_occup ...
 !> \param charge_beta ...
 !> \param charge_extended ...
+!> \param print_kind ...
 !> \date    14.01.2002
 !> \author  MK
 !> \version 1.0
@@ -174,7 +179,7 @@ CONTAINS
    SUBROUTINE write_particle_coordinates(particle_set, iunit, output_format, &
                                          content, title, cell, array, unit_conv, &
                                          charge_occup, charge_beta, &
-                                         charge_extended)
+                                         charge_extended, print_kind)
 
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER                                            :: iunit, output_format
@@ -183,10 +188,9 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: array
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: unit_conv
       LOGICAL, INTENT(IN), OPTIONAL                      :: charge_occup, charge_beta, &
-                                                            charge_extended
+                                                            charge_extended, print_kind
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_particle_coordinates', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_particle_coordinates'
 
       CHARACTER(LEN=120)                                 :: line
       CHARACTER(LEN=2)                                   :: element_symbol
@@ -194,7 +198,8 @@ CONTAINS
       CHARACTER(LEN=default_string_length)               :: atm_name, my_format
       INTEGER                                            :: handle, iatom, natom
       LOGICAL                                            :: dummy, my_charge_beta, &
-                                                            my_charge_extended, my_charge_occup
+                                                            my_charge_extended, my_charge_occup, &
+                                                            my_print_kind
       REAL(KIND=dp)                                      :: angle_alpha, angle_beta, angle_gamma, &
                                                             factor, qeff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: arr
@@ -220,20 +225,22 @@ CONTAINS
       END IF
       SELECT CASE (output_format)
       CASE (dump_xmol)
+         my_print_kind = .FALSE.
+         IF (PRESENT(print_kind)) my_print_kind = print_kind
          WRITE (iunit, "(I8)") natom
          WRITE (iunit, "(A)") TRIM(title)
          DO iatom = 1, natom
             CALL get_atomic_kind(atomic_kind=particle_set(iatom)%atomic_kind, &
                                  element_symbol=element_symbol)
-            IF (LEN_TRIM(element_symbol) == 0) THEN
+            IF (LEN_TRIM(element_symbol) == 0 .OR. my_print_kind) THEN
                CALL get_atomic_kind(atomic_kind=particle_set(iatom)%atomic_kind, &
                                     name=atm_name)
                dummy = qmmm_ff_precond_only_qm(id1=atm_name)
-               my_format = "(A4,"
-               name = TRIM(atm_name)
+               my_format = "(A,"
+               atm_name = TRIM(atm_name)
             ELSE
                my_format = "(T2,A2,"
-               name = TRIM(element_symbol)
+               atm_name = TRIM(element_symbol)
             END IF
             SELECT CASE (TRIM(content))
             CASE ("POS")
@@ -242,28 +249,28 @@ CONTAINS
                ELSE
                   r(:) = particle_set(iatom)%r(:)
                END IF
-               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(name), r(1:3)*factor
+               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(atm_name), r(1:3)*factor
             CASE ("VEL")
                IF (PRESENT(array)) THEN
                   v(1:3) = get_particle_pos_or_vel(iatom, particle_set, array)
                ELSE
                   v(:) = particle_set(iatom)%v(:)
                END IF
-               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(name), v(1:3)*factor
+               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(atm_name), v(1:3)*factor
             CASE ("FORCE")
                IF (PRESENT(array)) THEN
                   f(:) = array((iatom - 1)*3 + 1:(iatom - 1)*3 + 3)
                ELSE
                   f(:) = particle_set(iatom)%f(:)
                END IF
-               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(name), f(1:3)*factor
+               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(atm_name), f(1:3)*factor
             CASE ("FORCE_MIXING_LABELS")
                IF (PRESENT(array)) THEN
                   f(:) = array((iatom - 1)*3 + 1:(iatom - 1)*3 + 3)
                ELSE
                   f(:) = particle_set(iatom)%f(:)
                END IF
-               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(name), f(1:3)*factor
+               WRITE (iunit, TRIM(my_format)//"1X,3F20.10)") TRIM(atm_name), f(1:3)*factor
             END SELECT
          END DO
       CASE (dump_atomic)
@@ -473,14 +480,10 @@ CONTAINS
 !> \author  MK
 !> \version 1.0
 ! **************************************************************************************************
-   SUBROUTINE write_fist_particle_coordinates(particle_set, subsys_section, &
-                                              charges)
+   SUBROUTINE write_fist_particle_coordinates(particle_set, subsys_section, charges)
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: subsys_section
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_fist_particle_coordinates', &
-         routineP = moduleN//':'//routineN
+      REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: charges
 
       CHARACTER(LEN=default_string_length)               :: name, unit_str
       INTEGER                                            :: iatom, ikind, iw, natom
@@ -500,10 +503,9 @@ CONTAINS
       CALL uppercase(unit_str)
       IF (iw > 0) THEN
          WRITE (UNIT=iw, FMT="(/,/,T2,A)") &
-            "MODULE FIST:  ATOMIC COORDINATES IN "//TRIM(unit_str)
-         WRITE (UNIT=iw, &
-                FMT="(/,T3,A,7X,2(A1,11X),A1,8X,A8,5X,A6,/)") &
-            "Atom  Kind  ATM_TYP", "X", "Y", "Z", "  q(eff)", "  Mass"
+            "MODULE FIST: ATOMIC COORDINATES IN "//TRIM(unit_str)
+         WRITE (UNIT=iw, FMT="(/,T4,A,T30,A,T44,A,T58,A,T66,A,T77,A)") &
+            "Atom Kind Name", "X", "Y", "Z", "q(eff)", "Mass"
          natom = SIZE(particle_set)
          DO iatom = 1, natom
             CALL get_atomic_kind(atomic_kind=particle_set(iatom)%atomic_kind, &
@@ -512,19 +514,17 @@ CONTAINS
                                  mass=mass, &
                                  qeff=qeff, &
                                  shell=shell_kind)
-            IF (ASSOCIATED(charges)) qeff = charges(iatom)
+            IF (PRESENT(charges)) qeff = charges(iatom)
             IF (ASSOCIATED(shell_kind)) THEN
                CALL get_shell(shell=shell_kind, &
                               charge_core=qcore, &
                               charge_shell=qshell)
                qeff = qcore + qshell
             END IF
-            WRITE (UNIT=iw, &
-                   FMT="(T2,I5,1X,I4,3X,A4,3X,3F12.6,4X,F6.2,2X,F11.4)") &
-               iatom, ikind, name, &
-               particle_set(iatom)%r(1:3)*conv, qeff, mass/massunit
+            WRITE (UNIT=iw, FMT="(T2,I6,1X,I4,1X,A7,3(1X,F13.6),2(1X,F8.4))") &
+               iatom, ikind, name, particle_set(iatom)%r(1:3)*conv, qeff, mass/massunit
          END DO
-         WRITE (iw, '(/)')
+         WRITE (iw, "(A)") ""
       END IF
 
       CALL cp_print_key_finished_output(iw, logger, subsys_section, &
@@ -549,8 +549,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: subsys_section
       CHARACTER(LEN=*), INTENT(IN)                       :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_qs_particle_coordinates', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_qs_particle_coordinates'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: unit_str
@@ -567,13 +566,12 @@ CONTAINS
 
       CALL section_vals_val_get(subsys_section, "PRINT%ATOMIC_COORDINATES%UNIT", c_val=unit_str)
       conv = cp_unit_from_cp2k(1.0_dp, TRIM(unit_str))
+      CALL uppercase(unit_str)
       IF (iw > 0) THEN
          WRITE (UNIT=iw, FMT="(/,/,T2,A)") &
-            "MODULE "//TRIM(label)//":  ATOMIC COORDINATES IN "//TRIM(unit_str)
-         WRITE (UNIT=iw, &
-                FMT="(/,T3,A,7X,2(A1,11X),A1,8X,A8,5X,A6,/)") &
-            "Atom  Kind  Element", "X", "Y", "Z", "  Z(eff)", "  Mass"
-
+            "MODULE "//TRIM(label)//": ATOMIC COORDINATES IN "//TRIM(unit_str)
+         WRITE (UNIT=iw, FMT="(/,T4,A,T30,A,T44,A,T58,A,T66,A,T77,A)") &
+            "Atom Kind Element", "X", "Y", "Z", "Z(eff)", "Mass"
          natom = SIZE(particle_set)
          DO iatom = 1, natom
             CALL get_atomic_kind(atomic_kind=particle_set(iatom)%atomic_kind, &
@@ -582,12 +580,10 @@ CONTAINS
                                  mass=mass, &
                                  z=z)
             CALL get_qs_kind(qs_kind_set(ikind), zeff=zeff)
-            WRITE (UNIT=iw, &
-                   FMT="(T2,I7,1X,I5,1X,A2,1X,I3,3F12.6,4X,F8.4,2X,F11.4)") &
-               iatom, ikind, element_symbol, z, &
-               particle_set(iatom)%r(1:3)*conv, zeff, mass/massunit
+            WRITE (UNIT=iw, FMT="(T2,I6,1X,I4,1X,A2,1X,I4,3(1X,F13.6),2(1X,F8.4))") &
+               iatom, ikind, element_symbol, z, particle_set(iatom)%r(1:3)*conv, zeff, mass/massunit
          END DO
-         WRITE (iw, '(/)')
+         WRITE (iw, "(A)") ""
       END IF
 
       CALL cp_print_key_finished_output(iw, logger, subsys_section, &
@@ -612,18 +608,22 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_particle_distances', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_particle_distances'
 
       CHARACTER(LEN=default_string_length)               :: unit_str
       INTEGER                                            :: handle, iatom, iw, jatom, natom
       INTEGER, DIMENSION(3)                              :: periodic
-      REAL(KIND=dp)                                      :: conv, dab
+      LOGICAL                                            :: explicit
+      REAL(KIND=dp)                                      :: conv, dab, dab_abort, dab_min, dab_warn
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: distance_matrix
       REAL(KIND=dp), DIMENSION(3)                        :: rab
       TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL timeset(routineN, handle)
+
+      CPASSERT(ASSOCIATED(particle_set))
+      CPASSERT(ASSOCIATED(cell))
+      CPASSERT(ASSOCIATED(subsys_section))
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -632,30 +632,72 @@ CONTAINS
 
       CALL section_vals_val_get(subsys_section, "PRINT%INTERATOMIC_DISTANCES%UNIT", c_val=unit_str)
       conv = cp_unit_from_cp2k(1.0_dp, TRIM(unit_str))
-      IF (iw > 0) THEN
+      CALL section_vals_val_get(subsys_section, "PRINT%INTERATOMIC_DISTANCES%CHECK_INTERATOMIC_DISTANCES", &
+                                r_val=dab_min, explicit=explicit)
+
+      dab_abort = 0.0_dp
+      dab_warn = 0.0_dp
+      natom = SIZE(particle_set)
+
+      ! Compute interatomic distances only if their printout or check is explicitly requested
+      ! Disable the default check for systems with more than 3000 atoms
+      IF (explicit .OR. (iw > 0) .OR. (natom <= 2000)) THEN
+         IF (dab_min > 0.0_dp) THEN
+            dab_warn = dab_min*conv
+         ELSE IF (dab_min < 0.0_dp) THEN
+            dab_abort = ABS(dab_min)*conv
+         END IF
+      END IF
+
+      IF ((iw > 0) .OR. (dab_abort > 0.0_dp) .OR. (dab_warn > 0.0_dp)) THEN
          CALL get_cell(cell=cell, periodic=periodic)
-         natom = SIZE(particle_set)
-         ALLOCATE (distance_matrix(natom, natom))
-         distance_matrix(:, :) = 0.0_dp
+         IF (iw > 0) THEN
+            ALLOCATE (distance_matrix(natom, natom))
+            distance_matrix(:, :) = 0.0_dp
+         END IF
          DO iatom = 1, natom
             DO jatom = iatom + 1, natom
                rab(:) = pbc(particle_set(iatom)%r(:), &
                             particle_set(jatom)%r(:), cell)
-               dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))
-               distance_matrix(iatom, jatom) = dab*conv
-               distance_matrix(jatom, iatom) = distance_matrix(iatom, jatom)
+               dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))*conv
+               IF (dab_abort > 0.0_dp) THEN
+                  ! Stop the run for interatomic distances smaller than the requested threshold
+                  IF (dab < dab_abort) THEN
+                     CALL cp_abort(__LOCATION__, "The distance between the atoms "// &
+                                   TRIM(ADJUSTL(cp_to_string(iatom, fmt="(I8)")))//" and "// &
+                                   TRIM(ADJUSTL(cp_to_string(jatom, fmt="(I8)")))//" is only "// &
+                                   TRIM(ADJUSTL(cp_to_string(dab, fmt="(F6.3)")))//" "// &
+                                   TRIM(ADJUSTL(unit_str))//" and thus smaller than the requested threshold of "// &
+                                   TRIM(ADJUSTL(cp_to_string(dab_abort, fmt="(F6.3)")))//" "// &
+                                   TRIM(ADJUSTL(unit_str)))
+                  END IF
+               END IF
+               IF (dab < dab_warn) THEN
+                  ! Print warning for interatomic distances smaller than the requested threshold
+                  CALL cp_warn(__LOCATION__, "The distance between the atoms "// &
+                               TRIM(ADJUSTL(cp_to_string(iatom, fmt="(I8)")))//" and "// &
+                               TRIM(ADJUSTL(cp_to_string(jatom, fmt="(I8)")))//" is only "// &
+                               TRIM(ADJUSTL(cp_to_string(dab, fmt="(F6.3)")))//" "// &
+                               TRIM(ADJUSTL(unit_str))//" and thus smaller than the threshold of "// &
+                               TRIM(ADJUSTL(cp_to_string(dab_warn, fmt="(F6.3)")))//" "// &
+                               TRIM(ADJUSTL(unit_str)))
+               END IF
+               IF (iw > 0) THEN
+                  distance_matrix(iatom, jatom) = dab
+                  distance_matrix(jatom, iatom) = distance_matrix(iatom, jatom)
+               END IF
             END DO
          END DO
-
-         ! Print the distance matrix
-         WRITE (UNIT=iw, FMT="(/,/,T2,A)") &
-            "INTERATOMIC DISTANCES IN "//TRIM(unit_str)
-
-         CALL write_particle_matrix(distance_matrix, particle_set, iw)
+         IF (iw > 0) THEN
+            ! Print the distance matrix
+            WRITE (UNIT=iw, FMT="(/,/,T2,A)") &
+               "INTERATOMIC DISTANCES IN "//TRIM(unit_str)
+            CALL write_particle_matrix(distance_matrix, particle_set, iw)
+            IF (ALLOCATED(distance_matrix)) DEALLOCATE (distance_matrix)
+         END IF
+         CALL cp_print_key_finished_output(iw, logger, subsys_section, &
+                                           "PRINT%INTERATOMIC_DISTANCES")
       END IF
-
-      CALL cp_print_key_finished_output(iw, logger, subsys_section, &
-                                        "PRINT%INTERATOMIC_DISTANCES")
 
       CALL timestop(handle)
 
@@ -721,7 +763,9 @@ CONTAINS
                (matrix(iatom, icol), icol=from, to)
          END DO
       END DO
+
       DEALLOCATE (my_list)
+
    END SUBROUTINE write_particle_matrix
 
 ! **************************************************************************************************
@@ -743,8 +787,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: input_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_structure_data', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_structure_data'
 
       CHARACTER(LEN=default_string_length)               :: string, unit_str
       INTEGER                                            :: handle, i, i_rep, iw, n, n_rep, n_vals, &

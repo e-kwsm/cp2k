@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,6 +21,7 @@ MODULE ps_wavelet_methods
                                               mp_max
    USE ps_wavelet_kernel,               ONLY: createKernel
    USE ps_wavelet_types,                ONLY: WAVELET0D,&
+                                              ps_wavelet_release,&
                                               ps_wavelet_type
    USE ps_wavelet_util,                 ONLY: F_FFT_dimensions,&
                                               PSolver,&
@@ -58,8 +61,7 @@ CONTAINS
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ps_wavelet_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ps_wavelet_create'
 
       INTEGER                                            :: handle, iproc, nproc, nx, ny, nz
       REAL(KIND=dp)                                      :: hx, hy, hz
@@ -68,6 +70,11 @@ CONTAINS
 
       CALL cite_reference(Genovese2006)
       CALL cite_reference(Genovese2007)
+
+      IF (ASSOCIATED(wavelet)) THEN
+         CALL ps_wavelet_release(wavelet)
+         NULLIFY (wavelet)
+      END IF
 
       ALLOCATE (wavelet)
 
@@ -113,8 +120,7 @@ CONTAINS
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'RS_z_slice_distribution', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'RS_z_slice_distribution'
 
       CHARACTER(LEN=1)                                   :: geocode
       INTEGER                                            :: handle, iproc, m1, m2, m3, md1, md2, &
@@ -147,7 +153,7 @@ CONTAINS
       wavelet%PS_grid(2) = md3
       wavelet%PS_grid(3) = md2
       z_dim = md2/nproc
-      !!!!!!!!!      indicies y and z are interchanged    !!!!!!!
+      !!!!!!!!!      indices y and z are interchanged    !!!!!!!
       ALLOCATE (wavelet%rho_z_sliced(md1, md3, z_dim))
 
       CALL createKernel(geocode, nx, ny, nz, hx, hy, hz, wavelet%itype_scf, iproc, nproc, wavelet%karray, &
@@ -164,12 +170,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp2k_distribution_to_z_slices(density, wavelet, pw_grid)
 
-      TYPE(pw_type), POINTER                             :: density
+      TYPE(pw_type), INTENT(IN)                          :: density
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp2k_distribution_to_z_slices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp2k_distribution_to_z_slices'
 
       INTEGER                                            :: dest, handle, i, ii, iproc, j, k, l, &
                                                             local_z_dim, loz, m, m2, md2, nproc, &
@@ -325,12 +330,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE z_slices_to_cp2k_distribution(density, wavelet, pw_grid)
 
-      TYPE(pw_type), POINTER                             :: density
+      TYPE(pw_type), INTENT(IN)                          :: density
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
       TYPE(pw_grid_type), POINTER                        :: pw_grid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'z_slices_to_cp2k_distribution', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: dest, i, ii, iproc, j, k, l, &
                                                             local_z_dim, loz, m, m2, md2, nproc
@@ -456,8 +458,7 @@ CONTAINS
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ps_wavelet_solve', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ps_wavelet_solve'
 
       CHARACTER(LEN=1)                                   :: geocode
       INTEGER                                            :: handle, iproc, nproc, nx, ny, nz

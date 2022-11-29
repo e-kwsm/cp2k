@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,6 +16,7 @@
 ! **************************************************************************************************
 
 MODULE pexsi_types
+   USE ISO_C_BINDING,                   ONLY: C_INTPTR_T
    USE bibliography,                    ONLY: Lin2009,&
                                               Lin2013,&
                                               cite_reference
@@ -24,8 +27,7 @@ MODULE pexsi_types
                                               dbcsr_p_type,&
                                               dbcsr_scale,&
                                               dbcsr_type
-   USE kinds,                           ONLY: dp,&
-                                              int_8
+   USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_dims_create,&
                                               mp_environ
    USE pexsi_interface,                 ONLY: cp_pexsi_get_options,&
@@ -83,22 +85,20 @@ MODULE pexsi_types
 !> \author Patrick Seewald
 ! **************************************************************************************************
    TYPE lib_pexsi_env
-      TYPE(dbcsr_type)                      :: dbcsr_template_matrix_sym, &
-                                               dbcsr_template_matrix_nonsym
-      TYPE(dbcsr_csr_type)                           :: csr_mat_p, csr_mat_ks, csr_mat_s, &
-                                                        csr_mat_E, csr_mat_F
+      TYPE(dbcsr_type)                         :: dbcsr_template_matrix_sym, &
+                                                  dbcsr_template_matrix_nonsym
+      TYPE(dbcsr_csr_type)                     :: csr_mat_p, csr_mat_ks, csr_mat_s, &
+                                                  csr_mat_E, csr_mat_F
       TYPE(cp_pexsi_options)                   :: options
       REAL(KIND=dp), DIMENSION(:), POINTER     :: kTS => NULL()
-
       TYPE(dbcsr_p_type), DIMENSION(:), &
-         POINTER                                :: matrix_w => NULL()
-
-      INTEGER(kind=int_8)                      :: plan
+         POINTER                               :: matrix_w => NULL()
+      INTEGER(KIND=C_INTPTR_T)                 :: plan
       INTEGER                                  :: nspin, num_ranks_per_pole, mp_group
 
       TYPE(dbcsr_type), DIMENSION(:), &
-         POINTER                                :: max_ev_vector
-      TYPE(dbcsr_type)                      :: csr_sparsity
+         POINTER                               :: max_ev_vector
+      TYPE(dbcsr_type)                         :: csr_sparsity
       INTEGER, DIMENSION(2)                    :: mp_dims
 
       LOGICAL                                  :: csr_screening, do_adaptive_tol_nel
@@ -121,7 +121,7 @@ CONTAINS
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
       INTEGER, INTENT(IN)                                :: mp_group, nspin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lib_pexsi_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'lib_pexsi_init'
 
       INTEGER                                            :: handle, ispin, mynode, npSymbFact, &
                                                             numnodes, unit_nr
@@ -132,7 +132,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL timeset(routineN, handle)
 
@@ -147,20 +147,20 @@ CONTAINS
       IF ((pexsi_env%num_ranks_per_pole .GT. numnodes) &
           .OR. (pexsi_env%num_ranks_per_pole .EQ. 0)) THEN
          pexsi_env%num_ranks_per_pole = numnodes
-      ENDIF
+      END IF
 
       ! Find num_ranks_per_pole from user input MIN_RANKS_PER_POLE s.t. num_ranks_per_pole
       ! is the smallest number greater or equal to min_ranks_per_pole that divides
       ! MPI size without remainder.
       DO WHILE (MOD(numnodes, pexsi_env%num_ranks_per_pole) .NE. 0)
          pexsi_env%num_ranks_per_pole = pexsi_env%num_ranks_per_pole + 1
-      ENDDO
+      END DO
 
       CALL cp_pexsi_get_options(pexsi_env%options, npSymbFact=npSymbFact)
       IF ((npSymbFact .GT. pexsi_env%num_ranks_per_pole) .OR. (npSymbFact .EQ. 0)) THEN
          ! Use maximum possible number of ranks for symbolic factorization
          CALL cp_pexsi_set_options(pexsi_env%options, npSymbFact=pexsi_env%num_ranks_per_pole)
-      ENDIF
+      END IF
 
       ! Create dimensions for MPI cartesian grid for PEXSI
       pexsi_env%mp_dims = 0
@@ -174,7 +174,7 @@ CONTAINS
       ALLOCATE (pexsi_env%matrix_w(nspin))
       DO ispin = 1, pexsi_env%nspin
          ALLOCATE (pexsi_env%matrix_w(ispin)%matrix)
-      ENDDO
+      END DO
 
       ! Initialize PEXSI
       pexsi_env%plan = cp_pexsi_plan_initialize(pexsi_env%mp_group, pexsi_env%mp_dims(1), &
@@ -198,8 +198,7 @@ CONTAINS
    SUBROUTINE lib_pexsi_finalize(pexsi_env)
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lib_pexsi_finalize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'lib_pexsi_finalize'
 
       INTEGER                                            :: handle, ispin
 
@@ -209,7 +208,7 @@ CONTAINS
       DEALLOCATE (pexsi_env%max_ev_vector)
       DO ispin = 1, pexsi_env%nspin
          DEALLOCATE (pexsi_env%matrix_w(ispin)%matrix)
-      ENDDO
+      END DO
       DEALLOCATE (pexsi_env%matrix_w)
       CALL timestop(handle)
    END SUBROUTINE lib_pexsi_finalize
@@ -234,8 +233,7 @@ CONTAINS
       TYPE(dbcsr_p_type), INTENT(INOUT), OPTIONAL        :: matrix_w
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: kTS
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'convert_nspin_cp2k_pexsi', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'convert_nspin_cp2k_pexsi'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: scaling

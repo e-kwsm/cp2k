@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,7 +20,7 @@ MODULE libint_wrapper
 #endif
 
 ! maximum angular momentum to be supported in CP2K-LIBINT interface
-#:set libint_max_am_supported = 8
+   #:set libint_max_am_supported = 8
 
    USE ISO_C_BINDING, ONLY: C_F_POINTER, &
                             C_F_PROCPOINTER, &
@@ -30,8 +32,9 @@ MODULE libint_wrapper
       libint2_build, libint2_build_eri, libint2_build_eri1, libint2_cleanup_eri, &
       libint2_cleanup_eri1, libint2_init_eri, libint2_init_eri1, libint2_static_cleanup, &
       libint2_static_init, libint_t, libint2_max_am_eri, libint2_init_3eri, libint2_cleanup_3eri, &
-      libint2_init_2eri, libint2_cleanup_2eri!,&
-   !libint2_build_3eri
+      libint2_init_2eri, libint2_cleanup_2eri, &
+      libint2_build_2eri, libint2_build_3eri, libint2_build_3eri1, libint2_cleanup_3eri1, libint2_init_3eri1, &
+      libint2_build_2eri1, libint2_cleanup_2eri1, libint2_init_2eri1
 #endif
    USE orbital_pointers, ONLY: nco
 #include "./base/base_uses.f90"
@@ -45,7 +48,9 @@ MODULE libint_wrapper
              get_ssss_f_val, cp_libint_set_contrdepth, cp_libint_set_params_eri_screen, &
              cp_libint_set_params_eri, cp_libint_set_params_eri_deriv, &
              cp_libint_init_3eri, cp_libint_cleanup_3eri, cp_libint_get_3eris, &
-             cp_libint_init_2eri, cp_libint_cleanup_2eri, cp_libint_get_2eris
+             cp_libint_init_2eri, cp_libint_cleanup_2eri, cp_libint_get_2eris, &
+             cp_libint_get_3eri_derivs, cp_libint_init_3eri1, cp_libint_cleanup_3eri1, &
+             cp_libint_get_2eri_derivs, cp_libint_init_2eri1, cp_libint_cleanup_2eri1
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'libint_wrapper'
 
@@ -70,17 +75,6 @@ MODULE libint_wrapper
       INTEGER :: unused = -1
 #endif
    END TYPE
-
-#if(__LIBINT)
-   !Fortran 2-center and 3-center integrals are bugged in libint 2.5. More specifically, the
-   !dimensions of the following array are mixed up. This should be fixed from libint 2.6 on.
-   !Then, one will be able to simply USE libint2_build_3eri & libint2_build_2eri, as currently
-   !commented above
-   TYPE(C_FUNPTR), DIMENSION(0:LIBINT2_MAX_AM, 0:LIBINT2_MAX_AM, 0:LIBINT2_MAX_AM_3eri), &
-      BIND(C) :: libint2_build_3eri
-   TYPE(C_FUNPTR), DIMENSION(0:LIBINT2_MAX_AM_2eri, 0:LIBINT2_MAX_AM_2eri), &
-      BIND(C) :: libint2_build_2eri
-#endif
 
 CONTAINS
 
@@ -122,14 +116,14 @@ CONTAINS
       libint%prv(1)%roz(1) = Rho*ZetaInv
       libint%prv(1)%roe(1) = Rho*EtaInv
 
-#:for m_max in range(0, 4*libint_max_am_supported)
+      #:for m_max in range(0, 4*libint_max_am_supported)
 #if 4*LIBINT2_MAX_AM_eri > ${m_max}$ - 1
-      IF (${m_max}$ .LE. m_max) &
-         libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) &
-         = F(${m_max}$+1)
+         IF (${m_max}$ .LE. m_max) &
+            libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) &
+            = F(${m_max}$+1)
 
 #endif
-#:endfor
+      #:endfor
 
 #else
       MARK_USED(libint)
@@ -217,13 +211,13 @@ CONTAINS
       libint%prv(1)%roz(1) = Rho*ZetaInv
       libint%prv(1)%roe(1) = Rho*EtaInv
 
-#:for m_max in range(0, 4*libint_max_am_supported)
+      #:for m_max in range(0, 4*libint_max_am_supported)
 #if 4*LIBINT2_MAX_AM_eri > ${m_max}$ - 1
-      IF (${m_max}$ .LE. m_max) &
-         libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) & ! ERROR: __LIBINT_MAX_AM is too large
-         = F(${m_max}$+1)
+         IF (${m_max}$ .LE. m_max) &
+            libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) & ! ERROR: __LIBINT_MAX_AM is too large
+            = F(${m_max}$+1)
 #endif
-#:endfor
+      #:endfor
 
 #else
       MARK_USED(libint)
@@ -288,14 +282,14 @@ CONTAINS
       libint%prv(1)%roz(1) = Rho*ZetaInv
       libint%prv(1)%roe(1) = Rho*EtaInv
 
-#:for m_max in range(0, 4*libint_max_am_supported)
+      #:for m_max in range(0, 4*libint_max_am_supported)
 #if 4*LIBINT2_MAX_AM_eri > ${m_max}$ - 1
 
-      IF (${m_max}$ .LE. m_max) &
-         libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) & ! ERROR: __LIBINT_MAX_AM is too large
-         = F(${m_max}$+1)
+         IF (${m_max}$ .LE. m_max) &
+            libint%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_${m_max}$ (1) & ! ERROR: __LIBINT_MAX_AM is too large
+            = F(${m_max}$+1)
 #endif
-#:endfor
+      #:endfor
 
 #else
       MARK_USED(libint)
@@ -395,6 +389,91 @@ CONTAINS
 !> \param p_work ...
 !> \param a_mysize ...
 ! **************************************************************************************************
+   SUBROUTINE cp_libint_get_3eri_derivs(n_c, n_b, n_a, lib, p_work, a_mysize)
+      INTEGER, INTENT(IN)                                :: n_c, n_b, n_a
+      TYPE(cp_libint_t)                                  :: lib
+      INTEGER                                            :: a_mysize(1)
+      REAL(dp), DIMENSION(:, :), POINTER                    :: p_work
+
+#if(__LIBINT)
+      REAL(dp), DIMENSION(:), POINTER                    :: p_work_tmp
+      PROCEDURE(libint2_build), POINTER                  :: pbuild
+      INTEGER :: i
+
+      CALL C_F_PROCPOINTER(libint2_build_3eri1(n_c, n_b, n_a), pbuild)
+      CALL pbuild(lib%prv)
+
+      ALLOCATE (p_work(a_mysize(1), 9))
+
+      !Derivatives 1-3 can be obtained using translational invariance
+      DO i = 4, 9
+         NULLIFY (p_work_tmp)
+         CALL C_F_POINTER(lib%prv(1)%targets(i), p_work_tmp, SHAPE=a_mysize)
+         p_work(:, i) = p_work_tmp
+      END DO
+#else
+      MARK_USED(n_c)
+      MARK_USED(n_b)
+      MARK_USED(n_a)
+      MARK_USED(lib)
+      MARK_USED(p_work)
+      MARK_USED(a_mysize)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+
+   END SUBROUTINE cp_libint_get_3eri_derivs
+
+! **************************************************************************************************
+!> \brief ...
+!> \param n_c ...
+!> \param n_b ...
+!> \param n_a ...
+!> \param lib ...
+!> \param p_work ...
+!> \param a_mysize ...
+! **************************************************************************************************
+   SUBROUTINE cp_libint_get_2eri_derivs(n_b, n_a, lib, p_work, a_mysize)
+      INTEGER, INTENT(IN)                                :: n_b, n_a
+      TYPE(cp_libint_t)                                  :: lib
+      INTEGER                                            :: a_mysize(1)
+      REAL(dp), DIMENSION(:, :), POINTER                 :: p_work
+
+#if(__LIBINT)
+      REAL(dp), DIMENSION(:), POINTER                    :: p_work_tmp
+      PROCEDURE(libint2_build), POINTER                  :: pbuild
+      INTEGER :: i
+
+      CALL C_F_PROCPOINTER(libint2_build_2eri1(n_b, n_a), pbuild)
+      CALL pbuild(lib%prv)
+
+      ALLOCATE (p_work(a_mysize(1), 6))
+
+      !Derivatives 1-3 can be obtained using translational invariance
+      DO i = 4, 6
+         NULLIFY (p_work_tmp)
+         CALL C_F_POINTER(lib%prv(1)%targets(i), p_work_tmp, SHAPE=a_mysize)
+         p_work(:, i) = p_work_tmp
+      END DO
+#else
+      MARK_USED(n_b)
+      MARK_USED(n_a)
+      MARK_USED(lib)
+      MARK_USED(p_work)
+      MARK_USED(a_mysize)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+
+   END SUBROUTINE cp_libint_get_2eri_derivs
+
+! **************************************************************************************************
+!> \brief ...
+!> \param n_c ...
+!> \param n_b ...
+!> \param n_a ...
+!> \param lib ...
+!> \param p_work ...
+!> \param a_mysize ...
+! **************************************************************************************************
    SUBROUTINE cp_libint_get_2eris(n_b, n_a, lib, p_work, a_mysize)
       INTEGER, INTENT(IN)                                :: n_b, n_a
       TYPE(cp_libint_t)                                  :: lib
@@ -452,8 +531,8 @@ CONTAINS
          CALL C_F_POINTER(lib%prv(1)%targets(k), p_work, SHAPE=a_mysize)
          DO i = 1, a_mysize(1)
             work_forces(i, k) = p_work(i)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 #else
       MARK_USED(n_d)
       MARK_USED(n_c)
@@ -477,7 +556,7 @@ CONTAINS
       get_ssss_f_val = lib%prv(1)%f_aB_s___0__s___1___TwoPRep_s___0__s___1___Ab__up_0(1)
 #else
       MARK_USED(lib)
-      MARK_USED(get_ssss_f_val)
+      get_ssss_f_val = 0.0_dp
       CPABORT("This CP2K executable has not been linked against the required library libint.")
 #endif
 
@@ -537,6 +616,30 @@ CONTAINS
 #endif
    END SUBROUTINE
 
+   SUBROUTINE cp_libint_init_3eri1(lib, max_am)
+      TYPE(cp_libint_t)               :: lib
+      INTEGER                         :: max_am
+#if(__LIBINT)
+      CALL libint2_init_3eri1(lib%prv, max_am, C_NULL_PTR)
+#else
+      MARK_USED(lib)
+      MARK_USED(max_am)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+   END SUBROUTINE
+
+   SUBROUTINE cp_libint_init_2eri1(lib, max_am)
+      TYPE(cp_libint_t)               :: lib
+      INTEGER                         :: max_am
+#if(__LIBINT)
+      CALL libint2_init_2eri1(lib%prv, max_am, C_NULL_PTR)
+#else
+      MARK_USED(lib)
+      MARK_USED(max_am)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+   END SUBROUTINE
+
    SUBROUTINE cp_libint_init_2eri(lib, max_am)
       TYPE(cp_libint_t)               :: lib
       INTEGER                         :: max_am
@@ -573,6 +676,26 @@ CONTAINS
       TYPE(cp_libint_t)               :: lib
 #if(__LIBINT)
       CALL libint2_cleanup_3eri(lib%prv)
+#else
+      MARK_USED(lib)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+   END SUBROUTINE
+
+   SUBROUTINE cp_libint_cleanup_3eri1(lib)
+      TYPE(cp_libint_t)               :: lib
+#if(__LIBINT)
+      CALL libint2_cleanup_3eri1(lib%prv)
+#else
+      MARK_USED(lib)
+      CPABORT("This CP2K executable has not been linked against the required library libint.")
+#endif
+   END SUBROUTINE
+
+   SUBROUTINE cp_libint_cleanup_2eri1(lib)
+      TYPE(cp_libint_t)               :: lib
+#if(__LIBINT)
+      CALL libint2_cleanup_2eri1(lib%prv)
 #else
       MARK_USED(lib)
       CPABORT("This CP2K executable has not been linked against the required library libint.")

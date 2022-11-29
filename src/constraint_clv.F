@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -20,7 +22,6 @@ MODULE constraint_clv
                                               section_vals_val_get,&
                                               section_vals_val_set
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE molecule_kind_types,             ONLY: colvar_constraint_type,&
                                               fixd_constraint_type,&
                                               get_molecule_kind,&
@@ -79,8 +80,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: imass
       REAL(KIND=dp), INTENT(INOUT)                       :: max_sigma
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_colv_int', routineP = moduleN//':'//routineN
-
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(local_colvar_constraint_type), POINTER        :: lcolv(:)
@@ -109,9 +108,6 @@ CONTAINS
       TYPE(molecule_type), POINTER                       :: molecule
       REAL(kind=dp), INTENT(in)                          :: dt
       TYPE(section_vals_type), POINTER                   :: motion_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_update_colv_int', &
-         routineP = moduleN//':'//routineN
 
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind
@@ -290,8 +286,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: imass
       REAL(KIND=dp), INTENT(INOUT)                       :: max_sigma
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_colv_ext', routineP = moduleN//':'//routineN
-
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(local_colvar_constraint_type), POINTER        :: lcolv(:)
@@ -318,9 +312,6 @@ CONTAINS
       TYPE(global_constraint_type), POINTER              :: gci
       REAL(kind=dp), INTENT(in)                          :: dt
       TYPE(section_vals_type), POINTER                   :: motion_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_update_colv_ext', &
-         routineP = moduleN//':'//routineN
 
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
 
@@ -494,8 +485,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: imass
       REAL(KIND=dp), INTENT(INOUT)                       :: max_sigma
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_colv_low', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iconst
       REAL(KIND=dp)                                      :: del_lam, dtby2, dtsqby2, fdotf_sum
 
@@ -560,9 +549,6 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: dt
       TYPE(section_vals_type), POINTER                   :: motion_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'shake_update_colv_low', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iconst, irep, n_rep
       LOGICAL                                            :: do_update_colvar, explicit
       REAL(KIND=dp)                                      :: clv_target, limit, new_clv_target, value
@@ -599,7 +585,7 @@ CONTAINS
                      ELSE IF (new_clv_target <= limit) THEN
                         new_clv_target = limit
                      END IF
-                  ENDIF
+                  END IF
                END IF
                IF (do_update_colvar) THEN
                   CALL section_vals_val_set(collective_sections, "TARGET", r_val=new_clv_target, &
@@ -881,9 +867,6 @@ CONTAINS
          OPTIONAL                                        :: rmat
       REAL(KIND=dp), DIMENSION(:)                        :: imass
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'update_con_colv', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatm, ind
       LOGICAL                                            :: my_roll
       REAL(KIND=dp), DIMENSION(3)                        :: f_roll
@@ -900,7 +883,7 @@ CONTAINS
          !
          IF (my_roll) THEN
             ! If ROLL rotate forces
-            CALL matvec_3x3(f_roll, rmat, lcolv%colvar_old%dsdr(:, iatm))
+            f_roll = MATMUL(rmat, lcolv%colvar_old%dsdr(:, iatm))
          ELSE
             f_roll = lcolv%colvar_old%dsdr(:, iatm)
          END IF
@@ -928,9 +911,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: imass
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eval_Jac_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iatom
       LOGICAL                                            :: my_roll
       REAL(KIND=dp), DIMENSION(3)                        :: tmp1, tmp2, tmp3
@@ -949,7 +929,7 @@ CONTAINS
          tmp1 = colvar%dsdr(1:3, i)
          IF (my_roll) THEN
             tmp3 = colvar_old%dsdr(1:3, i)
-            CALL matvec_3x3(tmp2, rmat, tmp3)
+            tmp2 = MATMUL(rmat, tmp3)
          ELSE
             tmp2 = colvar_old%dsdr(1:3, i)
          END IF
@@ -981,12 +961,8 @@ CONTAINS
          POINTER                                         :: particles
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rattle_con_eval', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatm, ind
       LOGICAL                                            :: my_roll
-      REAL(KIND=dp)                                      :: tmp(3)
       REAL(KIND=dp), DIMENSION(3)                        :: f_roll, pos, v_roll
 
       my_roll = .FALSE.
@@ -1003,9 +979,8 @@ CONTAINS
          ind = colvar%i_atom(iatm)
          IF (my_roll) THEN
             pos = particles(ind)%r
-            CALL matvec_3x3(f_roll, rmat, colvar%dsdr(:, iatm))
-            CALL matvec_3x3(tmp, veps, pos)
-            v_roll = vel(:, ind) + tmp
+            f_roll = MATMUL(rmat, colvar%dsdr(:, iatm))
+            v_roll = vel(:, ind) + MATMUL(veps, pos)
          ELSE
             f_roll = colvar%dsdr(:, iatm)
             v_roll = vel(:, ind)

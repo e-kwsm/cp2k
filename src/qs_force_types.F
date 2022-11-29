@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,9 +12,11 @@
 ! **************************************************************************************************
 MODULE qs_force_types
 
-   !USE cp_control_types,                ONLY: qs_control_type
    USE atomic_kind_types,               ONLY: atomic_kind_type,&
                                               get_atomic_kind
+   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
+                                              cp_logger_get_default_io_unit,&
+                                              cp_logger_type
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_sum
@@ -45,7 +49,6 @@ MODULE qs_force_types
                                                  ehrenfest, &
                                                  efield, &
                                                  eev, &
-                                                 mp2_sep, &
                                                  mp2_non_sep, &
                                                  total
    END TYPE qs_force_type
@@ -60,7 +63,8 @@ MODULE qs_force_types
              get_qs_force, &
              put_qs_force, &
              total_qs_force, &
-             zero_qs_force
+             zero_qs_force, &
+             write_forces_debug
 
 CONTAINS
 
@@ -76,9 +80,6 @@ CONTAINS
 
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
       INTEGER, DIMENSION(:), INTENT(IN)                  :: natom_of_kind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_qs_force', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, n, nkind
 
@@ -114,7 +115,6 @@ CONTAINS
          ! Always initialize ch_pulay to zero..
          qs_force(ikind)%ch_pulay = 0.0_dp
          ALLOCATE (qs_force(ikind)%fock_4c(3, n))
-         ALLOCATE (qs_force(ikind)%mp2_sep(3, n))
          ALLOCATE (qs_force(ikind)%mp2_non_sep(3, n))
          ALLOCATE (qs_force(ikind)%total(3, n))
       END DO
@@ -131,9 +131,6 @@ CONTAINS
    SUBROUTINE deallocate_qs_force(qs_force)
 
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_qs_force', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, nkind
 
@@ -222,10 +219,6 @@ CONTAINS
             DEALLOCATE (qs_force(ikind)%fock_4c)
          END IF
 
-         IF (ASSOCIATED(qs_force(ikind)%mp2_sep)) THEN
-            DEALLOCATE (qs_force(ikind)%mp2_sep)
-         END IF
-
          IF (ASSOCIATED(qs_force(ikind)%mp2_non_sep)) THEN
             DEALLOCATE (qs_force(ikind)%mp2_non_sep)
          END IF
@@ -258,8 +251,6 @@ CONTAINS
 
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'zero_qs_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       CPASSERT(ASSOCIATED(qs_force))
@@ -287,7 +278,6 @@ CONTAINS
          qs_force(ikind)%efield(:, :) = 0.0_dp
          qs_force(ikind)%eev(:, :) = 0.0_dp
          qs_force(ikind)%mp2_non_sep(:, :) = 0.0_dp
-         qs_force(ikind)%mp2_sep(:, :) = 0.0_dp
          qs_force(ikind)%total(:, :) = 0.0_dp
       END DO
 
@@ -302,8 +292,6 @@ CONTAINS
    SUBROUTINE sum_qs_force(qs_force_out, qs_force_in)
 
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force_out, qs_force_in
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'sum_qs_force', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind
 
@@ -355,8 +343,6 @@ CONTAINS
                                          qs_force_in(ikind)%eev(:, :)
          qs_force_out(ikind)%mp2_non_sep(:, :) = qs_force_out(ikind)%mp2_non_sep(:, :) + &
                                                  qs_force_in(ikind)%mp2_non_sep(:, :)
-         qs_force_out(ikind)%mp2_sep(:, :) = qs_force_out(ikind)%mp2_sep(:, :) + &
-                                             qs_force_in(ikind)%mp2_sep(:, :)
          qs_force_out(ikind)%total(:, :) = qs_force_out(ikind)%total(:, :) + &
                                            qs_force_in(ikind)%total(:, :)
       END DO
@@ -375,9 +361,6 @@ CONTAINS
 
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'replicate_qs_force', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind
 
@@ -398,7 +381,6 @@ CONTAINS
          CALL mp_sum(qs_force(ikind)%g0s_Vh_elec, para_env%group)
          CALL mp_sum(qs_force(ikind)%fock_4c, para_env%group)
          CALL mp_sum(qs_force(ikind)%mp2_non_sep, para_env%group)
-         CALL mp_sum(qs_force(ikind)%mp2_sep, para_env%group)
          CALL mp_sum(qs_force(ikind)%repulsive, para_env%group)
          CALL mp_sum(qs_force(ikind)%dispersion, para_env%group)
          CALL mp_sum(qs_force(ikind)%gcp, para_env%group)
@@ -420,7 +402,6 @@ CONTAINS
                                        qs_force(ikind)%g0s_Vh_elec(:, :) + &
                                        qs_force(ikind)%fock_4c(:, :) + &
                                        qs_force(ikind)%mp2_non_sep(:, :) + &
-                                       qs_force(ikind)%mp2_sep(:, :) + &
                                        qs_force(ikind)%repulsive(:, :) + &
                                        qs_force(ikind)%dispersion(:, :) + &
                                        qs_force(ikind)%gcp(:, :) + &
@@ -447,8 +428,6 @@ CONTAINS
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
       CHARACTER(LEN=*), INTENT(IN)                       :: forcetype
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_qs_force', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, iatom, ikind, natom_kind
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
@@ -490,8 +469,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: forcetype
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'put_qs_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, iatom, ikind, natom_kind
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
 
@@ -530,8 +507,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: forcetype
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_qs_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, iatom, ikind, natom_kind
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
 
@@ -568,8 +543,6 @@ CONTAINS
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'total_qs_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, iatom, ikind, natom_kind
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
 
@@ -596,7 +569,6 @@ CONTAINS
                               qs_force(ikind)%g0s_Vh_elec(:, ia) + &
                               qs_force(ikind)%fock_4c(:, ia) + &
                               qs_force(ikind)%mp2_non_sep(:, ia) + &
-                              qs_force(ikind)%mp2_sep(:, ia) + &
                               qs_force(ikind)%repulsive(:, ia) + &
                               qs_force(ikind)%dispersion(:, ia) + &
                               qs_force(ikind)%gcp(:, ia) + &
@@ -607,5 +579,82 @@ CONTAINS
       END DO
 
    END SUBROUTINE total_qs_force
+
+! **************************************************************************************************
+!> \brief Write a Quickstep force data for 1 atom
+!> \param qs_force ...
+!> \param ikind ...
+!> \param iatom ...
+!> \param iunit ...
+!> \date    05.06.2002
+!> \author  MK/JGH
+!> \version 1.0
+! **************************************************************************************************
+   SUBROUTINE write_forces_debug(qs_force, ikind, iatom, iunit)
+
+      TYPE(qs_force_type), DIMENSION(:), POINTER         :: qs_force
+      INTEGER, INTENT(IN), OPTIONAL                      :: ikind, iatom, iunit
+
+      CHARACTER(LEN=35)                                  :: fmtstr2
+      CHARACTER(LEN=48)                                  :: fmtstr1
+      INTEGER                                            :: iounit, jatom, jkind
+      REAL(KIND=dp), DIMENSION(3)                        :: total
+      TYPE(cp_logger_type), POINTER                      :: logger
+
+      IF (PRESENT(iunit)) THEN
+         iounit = iunit
+      ELSE
+         NULLIFY (logger)
+         logger => cp_get_default_logger()
+         iounit = cp_logger_get_default_io_unit(logger)
+      END IF
+      IF (PRESENT(ikind)) THEN
+         jkind = ikind
+      ELSE
+         jkind = 1
+      END IF
+      IF (PRESENT(iatom)) THEN
+         jatom = iatom
+      ELSE
+         jatom = 1
+      END IF
+
+      IF (iounit > 0) THEN
+
+         fmtstr1 = "(/,T2,A,/,T3,A,T11,A,T23,A,T40,A1,2(17X,A1))"
+         fmtstr2 = "((T2,I5,4X,I4,T18,A,T34,3F18.12))"
+
+         WRITE (UNIT=iounit, FMT=fmtstr1) &
+            "FORCES [a.u.]", "Atom", "Kind", "Component", "X", "Y", "Z"
+
+         total(1:3) = qs_force(jkind)%overlap(1:3, jatom) &
+                      + qs_force(jkind)%overlap_admm(1:3, jatom) &
+                      + qs_force(jkind)%kinetic(1:3, jatom) &
+                      + qs_force(jkind)%gth_ppl(1:3, jatom) &
+                      + qs_force(jkind)%gth_ppnl(1:3, jatom) &
+                      + qs_force(jkind)%core_overlap(1:3, jatom) &
+                      + qs_force(jkind)%rho_core(1:3, jatom) &
+                      + qs_force(jkind)%rho_elec(1:3, jatom) &
+                      + qs_force(jkind)%dispersion(1:3, jatom) &
+                      + qs_force(jkind)%fock_4c(1:3, jatom) &
+                      + qs_force(jkind)%mp2_non_sep(1:3, jatom)
+
+         WRITE (UNIT=iounit, FMT=fmtstr2) &
+            jatom, jkind, "       overlap", qs_force(jkind)%overlap(1:3, jatom), &
+            jatom, jkind, "  overlap_admm", qs_force(jkind)%overlap_admm(1:3, jatom), &
+            jatom, jkind, "       kinetic", qs_force(jkind)%kinetic(1:3, jatom), &
+            jatom, jkind, "       gth_ppl", qs_force(jkind)%gth_ppl(1:3, jatom), &
+            jatom, jkind, "      gth_ppnl", qs_force(jkind)%gth_ppnl(1:3, jatom), &
+            jatom, jkind, "  core_overlap", qs_force(jkind)%core_overlap(1:3, jatom), &
+            jatom, jkind, "      rho_core", qs_force(jkind)%rho_core(1:3, jatom), &
+            jatom, jkind, "      rho_elec", qs_force(jkind)%rho_elec(1:3, jatom), &
+            jatom, jkind, "    dispersion", qs_force(jkind)%dispersion(1:3, jatom), &
+            jatom, jkind, "       fock_4c", qs_force(jkind)%fock_4c(1:3, jatom), &
+            jatom, jkind, "   mp2_non_sep", qs_force(jkind)%mp2_non_sep(1:3, jatom), &
+            jatom, jkind, "         total", total(1:3)
+
+      END IF
+
+   END SUBROUTINE write_forces_debug
 
 END MODULE qs_force_types

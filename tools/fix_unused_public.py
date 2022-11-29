@@ -1,9 +1,9 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # author: Ole Schuett
 
-import re, sys
+import re
+import sys
 from os import path
 from os.path import dirname, basename, normpath
 import os
@@ -56,7 +56,7 @@ def main():
 
 # =============================================================================
 def clean_publics(fn, unused):
-    content = open(fn).read()
+    content = open(fn, encoding="utf8").read()
     new_content = ""
     active = False
     protected = False
@@ -108,18 +108,18 @@ def clean_publics(fn, unused):
 
     if new_content != content:
         print("Fixed: ", fn)
-        f = open(fn, "w")
+        f = open(fn, "w", encoding="utf8")
         f.write(new_content)
 
 
 # =============================================================================
 def parse_file(fn):
     # print("parsing "+fn)
-    content = open(fn).read()
+    content = open(fn, encoding="utf8").read()
     # re.IGNORECASE is horribly expensive. Converting to lower-case upfront
     content = content.lower()
     content = re.sub("!.*\n", "\n", content)
-    content = re.sub("&\s*\n", "", content)
+    content = re.sub("&\\s*\n", "", content)
     content = re.sub("&", " ", content)
 
     mods = re_module.findall(content)
@@ -128,7 +128,10 @@ def parse_file(fn):
     matches = re_use.findall(content)
     for m in matches:
         uses.append((m.strip(), ("*",)))
-        if m.strip() not in ("iso_c_binding", "f77_blas",):
+        if m.strip() not in (
+            "iso_c_binding",
+            "f77_blas",
+        ):
             print("missing ONLY-clause: ", fn, m)
 
     matches = re_useonly.findall(content)

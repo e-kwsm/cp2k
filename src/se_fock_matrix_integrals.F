@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,7 +29,7 @@ MODULE se_fock_matrix_integrals
                                    semi_empirical_type
 #include "./base/base_uses.f90"
 
-#:include "ewalds_multipole_sr.fypp"
+   #:include "ewalds_multipole_sr.fypp"
 
    IMPLICIT NONE
    PRIVATE
@@ -74,8 +76,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2_1el', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i1L, i2, j1, j1L
       REAL(KIND=dp), DIMENSION(45)                       :: e1b, e2a
@@ -154,8 +154,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: force
       REAL(KIND=dp), INTENT(IN)                          :: delta
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfock2_1el', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i1, i1L, i2, j1, j1L
       REAL(KIND=dp)                                      :: tmp
       REAL(KIND=dp), DIMENSION(3, 45)                    :: de1b, de2a
@@ -224,8 +222,6 @@ CONTAINS
          INTENT(IN)                                      :: p_mat
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: f_mat
       REAL(KIND=dp), INTENT(IN)                          :: factor
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock1_2el', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ijw, ikw, iL, im, j, jL, jlw, jm, k, &
                                                             kL, klw, l, lL
@@ -303,8 +299,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2_1el_ew', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i1, i1L, i2, j1, j1L, n
       REAL(KIND=dp), DIMENSION(45)                       :: e1b, e2a
 
@@ -360,8 +354,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2C_ew', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, j, jL, k, kL, kr, l, lL, natorb
       REAL(KIND=dp)                                      :: a, aa, bb
@@ -435,8 +427,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2C', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, j, jL, k, kL, kr, l, lL, natorb(2)
       REAL(KIND=dp)                                      :: a, aa, bb, irij(3)
@@ -525,8 +515,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: force
       REAL(KIND=dp), INTENT(IN)                          :: delta
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfock2C', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, j, jL, k, kL, kr, l, lL, natorb(2)
       REAL(KIND=dp)                                      :: aa, bb, tmp
@@ -618,8 +606,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2E', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iL, j, jL, k, kL, kr, l, lL, natorb(2)
       REAL(KIND=dp)                                      :: a, aa, bb, irij(3)
       REAL(KIND=dp), DIMENSION(2025)                     :: w
@@ -703,8 +689,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: force
       REAL(KIND=dp), INTENT(IN)                          :: delta
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfock2E', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, j, jL, k, kL, kr, l, lL, natorb(2)
       REAL(KIND=dp)                                      :: aa, bb, tmp, tmp1, tmp2, tmp3, tmp4
@@ -804,8 +788,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2), INTENT(INOUT)         :: ecore
       REAL(KIND=dp), INTENT(IN)                          :: rp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2_1el_r3', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i1, i1L, i2
 
 !
@@ -855,8 +837,6 @@ CONTAINS
          DIMENSION(sepj%natorb, sepj%natorb), INTENT(IN) :: pj_block
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: force
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: e1b, e2a
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfock2_1el_r3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i1L, i2
       REAL(KIND=dp)                                      :: tmp
@@ -916,8 +896,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: factor
       REAL(KIND=dp), DIMENSION(81), INTENT(IN)           :: w
       REAL(KIND=dp), INTENT(IN)                          :: rp
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fock2C_r3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, ind, j, k, kL, kr, natorb(2)
       REAL(KIND=dp)                                      :: a, w_l(81)
@@ -985,8 +963,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(81), INTENT(IN)           :: w
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: drp
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: force
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfock2C_r3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iL, ind, j, k, kL, kr, natorb(2)
       REAL(KIND=dp)                                      :: a(3), tmp, w_l(81)
@@ -1084,9 +1060,6 @@ CONTAINS
                                                             ptens22, ptens23, ptens31, ptens32, &
                                                             ptens33
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'se_coulomb_ij_interaction', &
-                                     routineP = moduleN//':'//routineN
-
       INTEGER                                            :: a, b, c, d, e, i, j, k
       LOGICAL                                            :: do_efield0, do_efield1, do_efield2, &
                                                             force_eval
@@ -1129,7 +1102,7 @@ CONTAINS
       fac_ij = 1.0_dp
       IF (atom_a == atom_b) fac_ij = 0.5_dp
 
-$: ewalds_multipole_sr_macro(mode="PURE_COULOMB")
+      $: ewalds_multipole_sr_macro(mode="PURE_COULOMB")
 
       IF (PRESENT(integral_value)) THEN
          integral_value = eloc

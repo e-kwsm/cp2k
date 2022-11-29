@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -70,7 +72,7 @@ CONTAINS
       DO i = 1, ngrid_levels
          gridlevel_info%cutoff(i) = cutoff(i)
          gridlevel_info%count(i) = 0
-      ENDDO
+      END DO
       gridlevel_info%print_section => print_section
       CALL section_vals_retain(print_section)
    END SUBROUTINE init_gaussian_gridlevel
@@ -84,47 +86,51 @@ CONTAINS
       TYPE(gridlevel_info_type)                          :: gridlevel_info
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'destroy_gaussian_gridlevel', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: group, i, output_unit
+      LOGICAL                                            :: do_io
       TYPE(cp_logger_type), POINTER                      :: logger
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
       IF (PRESENT(para_env)) THEN
          group = para_env%group
+         do_io = .FALSE. !subgroups completely mess up the output file
       ELSE
          group = logger%para_env%group
+         do_io = .TRUE.
       END IF
-      output_unit = cp_print_key_unit_nr(logger, gridlevel_info%print_section, &
-                                         "", extension=".Log")
 
-      CALL mp_sum(gridlevel_info%total_count, group)
-      CALL mp_sum(gridlevel_info%count, group)
-      IF (output_unit > 0) THEN
-         WRITE (output_unit, '(/,T2,A,A)') "----------------------------------------", &
-            "---------------------------------------"
-         WRITE (output_unit, '(T2,A,T35,A,T77,A)') "----", "MULTIGRID INFO", "----"
-         WRITE (output_unit, '(T2,A,A)') "----------------------------------------", &
-            "---------------------------------------"
-         IF (gridlevel_info%ngrid_levels > 1) THEN
-            DO i = 1, gridlevel_info%ngrid_levels
-               WRITE (output_unit, '(T2,A,I4,A,I14,9x,A,F12.2)') "count for grid     ", i, ": ", &
-                  gridlevel_info%count(i), " cutoff [a.u.]    ", gridlevel_info%cutoff(i)
-            END DO
-            WRITE (output_unit, '(T2,A,I14)') "total gridlevel count  : ", &
-               gridlevel_info%total_count
-         ELSE
-            WRITE (output_unit, '(T2,A,I14,T51,A,F12.2)') "total grid count     :", &
-               gridlevel_info%count(1), " cutoff [a.u.]    ", gridlevel_info%cutoff(1)
+      IF (do_io) THEN
+
+         CALL mp_sum(gridlevel_info%total_count, group)
+         CALL mp_sum(gridlevel_info%count, group)
+
+         output_unit = cp_print_key_unit_nr(logger, gridlevel_info%print_section, &
+                                            "", extension=".Log")
+
+         IF (output_unit > 0) THEN
+            WRITE (output_unit, '(/,T2,A,A)') "----------------------------------------", &
+               "---------------------------------------"
+            WRITE (output_unit, '(T2,A,T35,A,T77,A)') "----", "MULTIGRID INFO", "----"
+            WRITE (output_unit, '(T2,A,A)') "----------------------------------------", &
+               "---------------------------------------"
+            IF (gridlevel_info%ngrid_levels > 1) THEN
+               DO i = 1, gridlevel_info%ngrid_levels
+                  WRITE (output_unit, '(T2,A,I4,A,I14,9x,A,F12.2)') "count for grid     ", i, ": ", &
+                     gridlevel_info%count(i), " cutoff [a.u.]    ", gridlevel_info%cutoff(i)
+               END DO
+               WRITE (output_unit, '(T2,A,I14)') "total gridlevel count  : ", &
+                  gridlevel_info%total_count
+            ELSE
+               WRITE (output_unit, '(T2,A,I14,T51,A,F12.2)') "total grid count     :", &
+                  gridlevel_info%count(1), " cutoff [a.u.]    ", gridlevel_info%cutoff(1)
+            END IF
          END IF
+
+         CALL cp_print_key_finished_output(output_unit, logger, gridlevel_info%print_section, "")
       END IF
 
       DEALLOCATE (gridlevel_info%cutoff)
-
-      CALL cp_print_key_finished_output(output_unit, logger, gridlevel_info%print_section, &
-                                        "")
 
       CALL section_vals_release(gridlevel_info%print_section)
 
@@ -151,10 +157,12 @@ CONTAINS
       DO i = 1, gridlevel_info%ngrid_levels
          IF ((gridlevel_info%cutoff(i) + 1E-6_dp) .GE. needed_cutoff) THEN
             gridlevel = i
-         ENDIF
-      ENDDO
+         END IF
+      END DO
+      !$OMP CRITICAL(add_counts)
       gridlevel_info%total_count = gridlevel_info%total_count + 1
       gridlevel_info%count(gridlevel) = gridlevel_info%count(gridlevel) + 1
+      !$OMP END CRITICAL(add_counts)
 
    END FUNCTION gaussian_gridlevel
 

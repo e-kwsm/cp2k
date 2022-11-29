@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -54,8 +56,6 @@ MODULE scf_control_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'scf_control_types'
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
 
-   INTEGER, SAVE :: last_scf_c_id_nr = 0
-
    ! Public data types
 
    PUBLIC :: scf_control_type, &
@@ -66,7 +66,6 @@ MODULE scf_control_types
    PUBLIC :: scf_c_create, &
              scf_c_read_parameters, &
              scf_c_release, &
-             scf_c_retain, &
              scf_c_write_parameters
 
 ! **************************************************************************************************
@@ -81,8 +80,6 @@ MODULE scf_control_types
 !> \param max_iter_lumus maxumum number of iterations used to calculate
 !>        the lumos at the end of the scf
 !> \param max_scf max scf iterations
-!> \param id_nr unique number to identify an scf control
-!> \param ref_count reference count (see cp2k/doc/ReferenceCounting.html)
 !> \param added_mos additional number of MOs that might be used in the SCF
 !> \param step_size the optimizer step size
 !> \param cdft_opt_control settings for optimizers that work only together with CDFT constraints
@@ -135,7 +132,6 @@ MODULE scf_control_types
                                                maxl, nkind
       LOGICAL                               :: do_diag_sub, &
                                                use_cholesky, use_ot, use_diag, do_outer_scf_reortho, stop_higher_iter_level
-      INTEGER                               :: ref_count, id_nr
       INTEGER, DIMENSION(2)                 :: added_mos
       INTEGER                               :: roks_scheme
       REAL(KIND=dp)                         :: roks_f
@@ -154,15 +150,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE scf_c_create(scf_control)
 
-      TYPE(scf_control_type), POINTER                    :: scf_control
+      TYPE(scf_control_type), INTENT(OUT)                :: scf_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_create', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'scf_c_create'
 
       INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
-
-      ALLOCATE (scf_control)
 
       ! Load the default values
 
@@ -185,8 +179,6 @@ CONTAINS
       scf_control%do_outer_scf_reortho = .TRUE.
       scf_control%max_diis = 4
       scf_control%eps_diis = 0.1_dp
-      scf_control%ref_count = 1
-      scf_control%id_nr = last_scf_c_id_nr
       scf_control%added_mos(:) = 0
       scf_control%max_scf_hist = 0
 
@@ -261,31 +253,9 @@ CONTAINS
 
       NULLIFY (scf_control%smear)
 
-      last_scf_c_id_nr = last_scf_c_id_nr + 1
-
       CALL timestop(handle)
 
    END SUBROUTINE scf_c_create
-
-! **************************************************************************************************
-!> \brief retains the given scf_control (see cp2k/doc/ReferenceCounting.html)
-!> \param scf_control the object to retain
-!> \par History
-!>      09.2002 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE scf_c_retain(scf_control)
-
-      TYPE(scf_control_type), POINTER                    :: scf_control
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(scf_control))
-
-      CPASSERT(scf_control%ref_count > 0)
-      scf_control%ref_count = scf_control%ref_count + 1
-
-   END SUBROUTINE scf_c_retain
 
 ! **************************************************************************************************
 !> \brief releases the given scf_control (see cp2k/doc/ReferenceCounting.html)
@@ -298,32 +268,20 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE scf_c_release(scf_control)
 
-      TYPE(scf_control_type), POINTER                    :: scf_control
+      TYPE(scf_control_type), INTENT(INOUT)              :: scf_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_release', routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(scf_control)) THEN
-         CPASSERT(scf_control%ref_count > 0)
-         scf_control%ref_count = scf_control%ref_count - 1
-         IF (scf_control%ref_count < 1) THEN
-            IF (ASSOCIATED(scf_control%smear%list)) THEN
-               DEALLOCATE (scf_control%smear%list)
-            ENDIF
-            DEALLOCATE (scf_control%smear)
-
-            IF (ASSOCIATED(scf_control%outer_scf%cdft_opt_control)) &
-               CALL cdft_opt_type_release(scf_control%outer_scf%cdft_opt_control)
-
-            ! Maximum overlap method orbital indices lists
-            ! mom_deoccA, mom_deoccB, mom_occA, mom_occB
-            ! points to memory allocated by input file parser,
-            ! so they do not have to be deallocated
-
-            DEALLOCATE (scf_control)
-         END IF
+      IF (ASSOCIATED(scf_control%smear%list)) THEN
+         DEALLOCATE (scf_control%smear%list)
       END IF
+      DEALLOCATE (scf_control%smear)
 
-      NULLIFY (scf_control)
+      IF (ASSOCIATED(scf_control%outer_scf%cdft_opt_control)) &
+         CALL cdft_opt_type_release(scf_control%outer_scf%cdft_opt_control)
+
+      ! Maximum overlap method orbital indices lists
+      ! mom_deoccA, mom_deoccB, mom_occA, mom_occB
+      ! points to memory allocated by input file parser,
+      ! so they do not have to be deallocated
 
    END SUBROUTINE scf_c_release
 
@@ -338,11 +296,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE scf_c_read_parameters(scf_control, inp_section)
 
-      TYPE(scf_control_type), POINTER                    :: scf_control
+      TYPE(scf_control_type), INTENT(INOUT)              :: scf_control
       TYPE(section_vals_type), POINTER                   :: inp_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_read_parameters', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_read_parameters'
 
       INTEGER                                            :: cholesky_flag, handle, ialgo
       INTEGER, DIMENSION(:), POINTER                     :: added_mos
@@ -353,8 +310,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(scf_control))
-      CPASSERT(scf_control%ref_count > 0)
       scf_section => section_vals_get_subs_vals(inp_section, "SCF")
       CALL section_vals_val_get(scf_section, "DIAGONALIZATION%_SECTION_PARAMETERS_", &
                                 l_val=scf_control%use_diag)
@@ -504,8 +459,6 @@ CONTAINS
    SUBROUTINE init_smear(smear)
       TYPE(smear_type), POINTER                          :: smear
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_smear', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(smear))
       ALLOCATE (smear)
       smear%do_smear = .FALSE.
@@ -525,9 +478,6 @@ CONTAINS
    SUBROUTINE read_smear_section(smear, smear_section)
       TYPE(smear_type), POINTER                          :: smear
       TYPE(section_vals_type), POINTER                   :: smear_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_smear_section', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp), DIMENSION(:), POINTER               :: r_vals
 
@@ -567,11 +517,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE scf_c_write_parameters(scf_control, dft_section)
 
-      TYPE(scf_control_type), POINTER                    :: scf_control
+      TYPE(scf_control_type), INTENT(IN)                 :: scf_control
       TYPE(section_vals_type), POINTER                   :: dft_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_write_parameters', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'scf_c_write_parameters'
 
       INTEGER                                            :: handle, output_unit, roks_scheme
       LOGICAL                                            :: roks
@@ -590,9 +539,6 @@ CONTAINS
       NULLIFY (scf_section)
       NULLIFY (section)
 
-      CPASSERT(ASSOCIATED(scf_control))
-      CPASSERT(scf_control%ref_count > 0)
-
       scf_section => section_vals_get_subs_vals(dft_section, "SCF")
       output_unit = cp_print_key_unit_nr(logger, scf_section, "PRINT%PROGRAM_RUN_INFO", &
                                          extension=".scfLog")
@@ -609,7 +555,7 @@ CONTAINS
             WRITE (UNIT=output_unit, &
                    FMT="(/,/,T2,A,T25,A,T51,A30,/,T25,56('-'),3(/,T25,A,T76,I5),/,"// &
                    "T25,56('-'),4(/,T25,A,T72,ES9.2),/,T25,56('-'),"// &
-                   "1(/,T25,A,T76,F5.2))") &
+                   "1(/,T25,A,T71,F10.6))") &
                "SCF PARAMETERS", &
                "Density guess:     ", ADJUSTR(TRIM(enum_i2c(enum, scf_control%density_guess))), &
                "max_scf:           ", scf_control%max_scf, &
@@ -620,7 +566,7 @@ CONTAINS
                "eps_diis:          ", scf_control%eps_diis, &
                "eps_eigval:        ", scf_control%eps_eigval, &
                "level_shift [a.u.]:", scf_control%level_shift
-            IF (SUM(scf_control%added_mos) > 0) THEN
+            IF (SUM(ABS(scf_control%added_mos)) > 0) THEN
                WRITE (UNIT=output_unit, FMT="(T25,A,T71,2I5)") &
                   "added MOs          ", scf_control%added_mos
             END IF
@@ -628,7 +574,7 @@ CONTAINS
             IF (scf_control%diagonalization%mom) THEN
                ! TODO extend the output with further parameters
                WRITE (UNIT=output_unit, FMT="(T25,A)") "MOM enabled"
-            ENDIF
+            END IF
 
             IF (scf_control%mixing_method > 0 .AND. .NOT. scf_control%use_ot) THEN
                keyword => section_get_keyword(section, "MIXING%METHOD")
@@ -756,8 +702,7 @@ CONTAINS
       TYPE(qs_ot_settings_type)                          :: settings
       TYPE(section_vals_type), POINTER                   :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ot_diag_read_input', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'ot_diag_read_input'
 
       INTEGER                                            :: handle, output_unit
       LOGICAL                                            :: explicit

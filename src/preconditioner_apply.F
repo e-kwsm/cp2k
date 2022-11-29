@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,7 +18,6 @@ MODULE preconditioner_apply
                                               cp_fm_get_info,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE dbcsr_api,                       ONLY: &
         dbcsr_copy, dbcsr_iterator_blocks_left, dbcsr_iterator_next_block, dbcsr_iterator_start, &
         dbcsr_iterator_stop, dbcsr_iterator_type, dbcsr_multiply, dbcsr_release, dbcsr_type
@@ -29,6 +30,7 @@ MODULE preconditioner_apply
                                               ot_precond_solver_inv_chol,&
                                               ot_precond_solver_update
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE preconditioner_types,            ONLY: preconditioner_type
 #include "./base/base_uses.f90"
 
@@ -50,10 +52,9 @@ CONTAINS
    SUBROUTINE apply_preconditioner_fm(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_preconditioner_fm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'apply_preconditioner_fm'
 
       INTEGER                                            :: handle
 
@@ -94,8 +95,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type)                                   :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_preconditioner_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'apply_preconditioner_dbcsr'
 
       INTEGER                                            :: handle
 
@@ -135,18 +135,17 @@ CONTAINS
    SUBROUTINE apply_full_single(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_full_single', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_single'
 
       INTEGER                                            :: handle, k, n
 
       CALL timeset(routineN, handle)
 
       CALL cp_fm_get_info(matrix_in, nrow_global=n, ncol_global=k)
-      CALL cp_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_in, 0.0_dp, matrix_out)
+      CALL parallel_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_in, 0.0_dp, matrix_out)
       CALL timestop(handle)
 
    END SUBROUTINE apply_full_single
@@ -162,7 +161,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type)                                   :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_single', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_single'
 
       INTEGER                                            :: handle
 
@@ -187,13 +186,12 @@ CONTAINS
    SUBROUTINE apply_full_direct(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_full_direct', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_direct'
 
       INTEGER                                            :: handle, k, n
-      TYPE(cp_fm_type), POINTER                          :: work
+      TYPE(cp_fm_type)                                   :: work
 
       CALL timeset(routineN, handle)
 
@@ -219,16 +217,17 @@ CONTAINS
    SUBROUTINE apply_full_all(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_full_all', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_all'
 
       INTEGER                                            :: handle, i, j, k, n, ncol_local, &
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: dum
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
-      TYPE(cp_fm_type), POINTER                          :: matrix_tmp
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
+      TYPE(cp_fm_type)                                   :: matrix_tmp
 
       CALL timeset(routineN, handle)
 
@@ -239,8 +238,8 @@ CONTAINS
                           row_indices=row_indices, col_indices=col_indices, local_data=local_data)
 
       !
-      CALL cp_gemm('T', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_in, 0.0_dp, matrix_tmp)
+      CALL parallel_gemm('T', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_in, 0.0_dp, matrix_tmp)
 
       ! do the right scaling
       DO j = 1, ncol_local
@@ -248,12 +247,12 @@ CONTAINS
          dum = 1.0_dp/MAX(preconditioner_env%energy_gap, &
                           preconditioner_env%full_evals(row_indices(i)) - preconditioner_env%occ_evals(col_indices(j)))
          local_data(i, j) = local_data(i, j)*dum
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
       ! mult back
-      CALL cp_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_tmp, 0.0_dp, matrix_out)
+      CALL parallel_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_tmp, 0.0_dp, matrix_out)
 
       CALL cp_fm_release(matrix_tmp)
 
@@ -272,7 +271,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type)                                   :: matrix_in, matrix_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_all', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_all'
 
       INTEGER                                            :: col, col_offset, col_size, handle, i, j, &
                                                             row, row_offset, row_size
@@ -298,9 +297,9 @@ CONTAINS
                              preconditioner_env%full_evals(row_offset + i - 1) &
                              - preconditioner_env%occ_evals(col_offset + j - 1))
             DATA(i, j) = DATA(i, j)*dum
-         ENDDO
-         ENDDO
-      ENDDO
+         END DO
+         END DO
+      END DO
       CALL dbcsr_iterator_stop(iter)
 
       ! mult back

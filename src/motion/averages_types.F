@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -25,9 +27,8 @@ MODULE averages_types
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE md_ener_types,                   ONLY: md_ener_type
-   USE virial_types,                    ONLY: virial_create,&
-                                              virial_release,&
-                                              virial_type
+   USE virial_types,                    ONLY: virial_type,&
+                                              zero_virial
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -36,7 +37,7 @@ MODULE averages_types
 
 ! **************************************************************************************************
    TYPE average_quantities_type
-      INTEGER                                       :: id_nr, ref_count, itimes_start
+      INTEGER                                       :: ref_count, itimes_start
       LOGICAL                                       :: do_averages
       TYPE(section_vals_type), POINTER              :: averages_section
       ! Real Scalar Quantities
@@ -64,7 +65,6 @@ MODULE averages_types
 
 ! *** Global parameters ***
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'averages_types'
-   INTEGER, SAVE, PRIVATE :: last_avg_env_id = 0
 
 CONTAINS
 
@@ -82,9 +82,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: virial_avg
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_averages', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, nint
       LOGICAL                                            :: do_colvars
 
@@ -95,8 +92,6 @@ CONTAINS
       ! Point to the averages section
       averages%averages_section => averages_section
       ! Initialize averages
-      last_avg_env_id = last_avg_env_id + 1
-      averages%id_nr = last_avg_env_id
       averages%ref_count = 1
       averages%itimes_start = -1
       averages%avetemp = 0.0_dp
@@ -123,7 +118,10 @@ CONTAINS
       IF (averages%do_averages) THEN
          ! Setup Virial if requested
          IF (PRESENT(virial_avg)) THEN
-            IF (virial_avg) CALL virial_create(averages%virial)
+            IF (virial_avg) THEN
+               ALLOCATE (averages%virial)
+               CALL zero_virial(averages%virial)
+            END IF
          END IF
          CALL section_vals_val_get(averages_section, "AVERAGE_COLVAR", l_val=do_colvars)
          ! Total number of COLVARs
@@ -148,9 +146,6 @@ CONTAINS
    SUBROUTINE retain_averages(averages)
       TYPE(average_quantities_type), POINTER             :: averages
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'retain_averages', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(averages))
       CPASSERT(averages%ref_count > 0)
       averages%ref_count = averages%ref_count + 1
@@ -164,16 +159,13 @@ CONTAINS
    SUBROUTINE release_averages(averages)
       TYPE(average_quantities_type), POINTER             :: averages
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_averages', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_vals_type), POINTER                   :: work_section
 
       IF (ASSOCIATED(averages)) THEN
          CPASSERT(averages%ref_count > 0)
          averages%ref_count = averages%ref_count - 1
          IF (averages%ref_count == 0) THEN
-            CALL virial_release(averages%virial)
+            IF (ASSOCIATED(averages%virial)) DEALLOCATE (averages%virial)
             IF (ASSOCIATED(averages%avecolvar)) THEN
                DEALLOCATE (averages%avecolvar)
             END IF
@@ -227,8 +219,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: time
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: my_pos, my_act
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_averages', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_averages'
 
       CHARACTER(LEN=default_string_length)               :: ctmp
       INTEGER                                            :: delta_t, handle, i, nint, output_unit
@@ -449,9 +440,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: add
       INTEGER, INTENT(IN)                                :: delta_t
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_averages_rs', &
-         routineP = moduleN//':'//routineN
-
       avg = (avg*REAL(delta_t - 1, dp) + add)/REAL(delta_t, dp)
    END SUBROUTINE get_averages_rs
 
@@ -466,9 +454,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: avg
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: add
       INTEGER, INTENT(IN)                                :: delta_t
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_averages_rv', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: check
@@ -491,9 +476,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: avg
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: add
       INTEGER, INTENT(IN)                                :: delta_t
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_averages_rm', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       LOGICAL                                            :: check

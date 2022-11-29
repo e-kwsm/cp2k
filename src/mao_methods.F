@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -64,11 +66,11 @@ MODULE mao_methods
 
    TYPE mblocks
       INTEGER                                        :: n, ma
-      REAL(KIND=dp), DIMENSION(:, :), POINTER         :: mat
+      REAL(KIND=dp), DIMENSION(:, :), POINTER        :: mat
       REAL(KIND=dp), DIMENSION(:), POINTER           :: eig
    END TYPE mblocks
 
-   PUBLIC ::  mao_initialization, mao_function, mao_function_gradient, mao_orthogonalization, &
+   PUBLIC :: mao_initialization, mao_function, mao_function_gradient, mao_orthogonalization, &
              mao_project_gradient, mao_scalar_product, mao_build_q, mao_basis_analysis, &
              mao_reference_basis, calculate_p_gamma
 
@@ -82,17 +84,18 @@ CONTAINS
 !> \param pmat ...
 !> \param smat ...
 !> \param eps1 ...
+!> \param iolevel ...
+!> \param iw ...
 ! **************************************************************************************************
-   SUBROUTINE mao_initialization(mao_coef, pmat, smat, eps1)
+   SUBROUTINE mao_initialization(mao_coef, pmat, smat, eps1, iolevel, iw)
       TYPE(dbcsr_type)                                   :: mao_coef, pmat, smat
       REAL(KIND=dp), INTENT(IN)                          :: eps1
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_initialization', &
-         routineP = moduleN//':'//routineN
+      INTEGER, INTENT(IN)                                :: iolevel, iw
 
       INTEGER                                            :: group, i, iatom, info, jatom, lwork, m, &
                                                             n, nblk
-      INTEGER, DIMENSION(:), POINTER                     :: mao_blk, row_blk, row_blk_sizes
+      INTEGER, DIMENSION(:), POINTER                     :: col_blk_sizes, mao_blk, row_blk, &
+                                                            row_blk_sizes
       LOGICAL                                            :: found
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: w, work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: amat, bmat
@@ -177,6 +180,26 @@ CONTAINS
          !
       END IF
 
+      IF (iolevel > 2) THEN
+         CALL dbcsr_get_info(mao_coef, col_blk_size=col_blk_sizes, &
+                             row_blk_size=row_blk_sizes, group=group)
+         DO iatom = 1, nblk
+            n = row_blk_sizes(iatom)
+            m = col_blk_sizes(iatom)
+            ALLOCATE (w(n))
+            w(1:n) = 0._dp
+            IF (ASSOCIATED(mbl(iatom)%mat)) THEN
+               w(1:n) = mbl(iatom)%eig(1:n)
+            END IF
+            CALL mp_sum(w, group)
+            IF (iw > 0) THEN
+               WRITE (iw, '(A,i2,20F8.4)', ADVANCE="NO") " Spectrum/Gap  ", iatom, w(1:m)
+               WRITE (iw, '(A,F8.4)') " || ", w(m + 1)
+            END IF
+            DEALLOCATE (w)
+         END DO
+      END IF
+
       CALL mao_orthogonalization(mao_coef, smat)
 
       DO i = 1, nblk
@@ -205,8 +228,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: fval
       TYPE(dbcsr_type)                                   :: qmat, smat, binv
       LOGICAL, INTENT(IN)                                :: reuse
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_function', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: convergence, threshold
       TYPE(dbcsr_type)                                   :: bmat, scmat, tmat
@@ -250,9 +271,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: fval
       TYPE(dbcsr_type)                                   :: mao_grad, qmat, smat, binv
       LOGICAL, INTENT(IN)                                :: reuse
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_function_gradient', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: convergence, threshold
       TYPE(dbcsr_type)                                   :: bmat, scmat, t2mat, tmat
@@ -301,9 +319,6 @@ CONTAINS
    SUBROUTINE mao_orthogonalization(mao_coef, smat)
       TYPE(dbcsr_type)                                   :: mao_coef, smat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_orthogonalization', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iatom, info, jatom, lwork, m, n
       LOGICAL                                            :: found
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: w, work
@@ -349,9 +364,6 @@ CONTAINS
    SUBROUTINE mao_project_gradient(mao_coef, mao_grad, smat)
       TYPE(dbcsr_type)                                   :: mao_coef, mao_grad, smat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_project_gradient', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatom, jatom, m, n
       LOGICAL                                            :: found
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: amat
@@ -388,9 +400,6 @@ CONTAINS
    FUNCTION mao_scalar_product(fmat1, fmat2) RESULT(spro)
       TYPE(dbcsr_type)                                   :: fmat1, fmat2
       REAL(KIND=dp)                                      :: spro
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_scalar_product', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: group, iatom, jatom, m, n
       LOGICAL                                            :: found
@@ -434,14 +443,11 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nmos
       REAL(KIND=dp), INTENT(IN)                          :: occ
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_p_gamma', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: norb
       REAL(KIND=dp)                                      :: de
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: fmksmat, fmsmat, fmvec, fmwork
+      TYPE(cp_fm_type)                                   :: fmksmat, fmsmat, fmvec, fmwork
       TYPE(dbcsr_type)                                   :: tempmat
 
       ! FM matrices
@@ -503,9 +509,6 @@ CONTAINS
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: mao_basis_set_list, orb_basis_set_list
       INTEGER, INTENT(IN), OPTIONAL                      :: iunit
       LOGICAL, INTENT(IN), OPTIONAL                      :: print_basis
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_reference_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, nbas, nkind, unit_nr
       REAL(KIND=dp)                                      :: eps_pgf_orb
@@ -619,9 +622,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: unit_nr
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_basis_analysis', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=2)                                   :: element_symbol
       INTEGER                                            :: ia, iab, iatom, ikind, iset, ishell, &
                                                             ispin, l, lmax, lshell, m, ma, na, &
@@ -723,8 +723,6 @@ CONTAINS
          POINTER                                         :: matrix_ks
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: sab_orb
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_build_q', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: im, ispin, nim, nocc, norb, nspin
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index

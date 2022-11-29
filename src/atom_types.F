@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -375,8 +377,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: zval
       CHARACTER(LEN=2)                                   :: btyp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_atom_basis', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: nua = 40, nup = 16
       REAL(KIND=dp), DIMENSION(nua), PARAMETER :: ugbs = (/0.007299_dp, 0.013705_dp, 0.025733_dp, &
          0.048316_dp, 0.090718_dp, 0.170333_dp, 0.319819_dp, 0.600496_dp, 1.127497_dp, 2.117000_dp,&
@@ -434,7 +434,7 @@ CONTAINS
                nu = nup
             ELSE
                nu = nua
-            ENDIF
+            END IF
             basis%nbas = nu
             basis%nprim = nu
             ALLOCATE (basis%am(nu, 0:lmat))
@@ -524,7 +524,7 @@ CONTAINS
             ELSE
                ! use the Clementi extra large basis
                CALL Clementi_geobas(zval, cval, aval, basis%nbas, starti)
-            ENDIF
+            END IF
             basis%nprim = basis%nbas
          ELSE
             basis%nbas = 0
@@ -706,8 +706,6 @@ CONTAINS
    SUBROUTINE init_atom_basis_default_pp(basis)
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_atom_basis_default_pp', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: nua = 40, nup = 20
       REAL(KIND=dp), DIMENSION(nua), PARAMETER :: ugbs = (/0.007299_dp, 0.013705_dp, 0.025733_dp, &
          0.048316_dp, 0.090718_dp, 0.170333_dp, 0.319819_dp, 0.600496_dp, 1.127497_dp, 2.117000_dp,&
@@ -780,9 +778,6 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(IN)                  :: basis
       TYPE(atom_basis_type), INTENT(INOUT)               :: gbasis
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: r, rab
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_basis_gridrep', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k, l, m, n1, n2, n3, ngp, nl, nr, &
                                                             quadtype
@@ -914,9 +909,6 @@ CONTAINS
    SUBROUTINE release_atom_basis(basis)
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_atom_basis', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(basis%am)) THEN
          DEALLOCATE (basis%am)
       END IF
@@ -951,9 +943,6 @@ CONTAINS
    SUBROUTINE create_atom_type(atom)
       TYPE(atom_type), POINTER                           :: atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_atom_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(atom))
 
       ALLOCATE (atom)
@@ -977,9 +966,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_atom_type(atom)
       TYPE(atom_type), POINTER                           :: atom
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_atom_type', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(atom))
 
@@ -1033,8 +1019,6 @@ CONTAINS
                                                             exchange_integral_type
       TYPE(opmat_type), OPTIONAL, POINTER                :: fmat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_atom', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(atom))
 
       IF (PRESENT(basis)) atom%basis => basis
@@ -1057,7 +1041,7 @@ CONTAINS
       IF (PRESENT(fmat)) THEN
          IF (ASSOCIATED(atom%fmat)) CALL release_opmat(atom%fmat)
          atom%fmat => fmat
-      ENDIF
+      END IF
 
    END SUBROUTINE set_atom
 
@@ -1070,9 +1054,6 @@ CONTAINS
    SUBROUTINE create_atom_orbs(orbs, mbas, mo)
       TYPE(atom_orbitals), POINTER                       :: orbs
       INTEGER, INTENT(IN)                                :: mbas, mo
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_atom_orbs', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(.NOT. ASSOCIATED(orbs))
 
@@ -1121,9 +1102,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_atom_orbs(orbs)
       TYPE(atom_orbitals), POINTER                       :: orbs
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_atom_orbs', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(orbs))
 
@@ -1194,9 +1172,6 @@ CONTAINS
       TYPE(atom_type), INTENT(IN), POINTER               :: atom
       TYPE(section_vals_type), POINTER                   :: xc_section
       INTEGER, INTENT(IN)                                :: extype
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_hf_section', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, nr, nu, pot_type
       REAL(KIND=dp)                                      :: scale_coulomb, scale_longrange
@@ -1366,8 +1341,6 @@ CONTAINS
       INTEGER, DIMENSION(0:lmat), INTENT(IN)             :: n
       INTEGER, INTENT(IN), OPTIONAL                      :: lmax
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_opmat', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: lm, m
 
       m = MAXVAL(n)
@@ -1394,8 +1367,6 @@ CONTAINS
    SUBROUTINE release_opmat(opmat)
       TYPE(opmat_type), POINTER                          :: opmat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_opmat', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(opmat))
 
       opmat%n = 0
@@ -1413,8 +1384,6 @@ CONTAINS
    SUBROUTINE create_opgrid(opgrid, grid)
       TYPE(opgrid_type), POINTER                         :: opgrid
       TYPE(grid_atom_type), POINTER                      :: grid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_opgrid', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nr
 
@@ -1438,8 +1407,6 @@ CONTAINS
    SUBROUTINE release_opgrid(opgrid)
       TYPE(opgrid_type), POINTER                         :: opgrid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_opgrid', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(opgrid))
 
       NULLIFY (opgrid%grid)
@@ -1461,9 +1428,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: zval
       REAL(dp), INTENT(OUT)                              :: cval, aval
       INTEGER, DIMENSION(0:lmat), INTENT(OUT)            :: ngto, ival
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Clementi_geobas', &
-         routineP = moduleN//':'//routineN
 
       ngto = 0
       ival = 0
@@ -2225,7 +2189,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: basis_set_name, basis_set_file
       TYPE(section_vals_type), POINTER                   :: basis_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_basis_set', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: maxpri = 40, maxset = 20
 
       CHARACTER(len=20*default_string_length)            :: line_att
@@ -2244,7 +2207,6 @@ CONTAINS
       REAL(dp)                                           :: expzet, gcca, prefac, zeta
       REAL(dp), DIMENSION(maxpri, maxpri, maxset)        :: gcc
       REAL(dp), DIMENSION(maxpri, maxset)                :: zet
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(cp_sll_val_type), POINTER                     :: list
       TYPE(val_type), POINTER                            :: val
 
@@ -2305,65 +2267,67 @@ CONTAINS
             END DO
          END DO
       ELSE
-         NULLIFY (parser)
-         CALL parser_create(parser, basis_set_file)
-         ! Search for the requested basis set in the basis set file
-         ! until the basis set is found or the end of file is reached
-         search_loop: DO
-            CALL parser_search_string(parser, TRIM(bsname), .TRUE., found, line)
-            IF (found) THEN
-               CALL uppercase(symbol)
-               CALL uppercase(bsname)
-               match = .FALSE.
-               CALL uppercase(line)
-               ! Check both the element symbol and the basis set name
-               line2 = " "//line//" "
-               symbol2 = " "//TRIM(symbol)//" "
-               bsname2 = " "//TRIM(bsname)//" "
-               strlen1 = LEN_TRIM(symbol2) + 1
-               strlen2 = LEN_TRIM(bsname2) + 1
+         BLOCK
+            TYPE(cp_parser_type)                      :: parser
+            CALL parser_create(parser, basis_set_file)
+            ! Search for the requested basis set in the basis set file
+            ! until the basis set is found or the end of file is reached
+            search_loop: DO
+               CALL parser_search_string(parser, TRIM(bsname), .TRUE., found, line)
+               IF (found) THEN
+                  CALL uppercase(symbol)
+                  CALL uppercase(bsname)
+                  match = .FALSE.
+                  CALL uppercase(line)
+                  ! Check both the element symbol and the basis set name
+                  line2 = " "//line//" "
+                  symbol2 = " "//TRIM(symbol)//" "
+                  bsname2 = " "//TRIM(bsname)//" "
+                  strlen1 = LEN_TRIM(symbol2) + 1
+                  strlen2 = LEN_TRIM(bsname2) + 1
 
-               IF ((INDEX(line2, symbol2(:strlen1)) > 0) .AND. &
-                   (INDEX(line2, bsname2(:strlen2)) > 0)) match = .TRUE.
+                  IF ((INDEX(line2, symbol2(:strlen1)) > 0) .AND. &
+                      (INDEX(line2, bsname2(:strlen2)) > 0)) match = .TRUE.
 
-               IF (match) THEN
-                  ! Read the basis set information
-                  CALL parser_get_object(parser, nset, newline=.TRUE.)
-                  CPASSERT(nset <= maxset)
-                  DO iset = 1, nset
-                     CALL parser_get_object(parser, n(iset), newline=.TRUE.)
-                     CALL parser_get_object(parser, lmin(iset))
-                     CALL parser_get_object(parser, lmax(iset))
-                     CALL parser_get_object(parser, npgf(iset))
-                     CPASSERT(npgf(iset) <= maxpri)
-                     nshell(iset) = 0
-                     DO lshell = lmin(iset), lmax(iset)
-                        nmin = n(iset) + lshell - lmin(iset)
-                        CALL parser_get_object(parser, ishell)
-                        nshell(iset) = nshell(iset) + ishell
-                        DO i = 1, ishell
-                           l(nshell(iset) - ishell + i, iset) = lshell
+                  IF (match) THEN
+                     ! Read the basis set information
+                     CALL parser_get_object(parser, nset, newline=.TRUE.)
+                     CPASSERT(nset <= maxset)
+                     DO iset = 1, nset
+                        CALL parser_get_object(parser, n(iset), newline=.TRUE.)
+                        CALL parser_get_object(parser, lmin(iset))
+                        CALL parser_get_object(parser, lmax(iset))
+                        CALL parser_get_object(parser, npgf(iset))
+                        CPASSERT(npgf(iset) <= maxpri)
+                        nshell(iset) = 0
+                        DO lshell = lmin(iset), lmax(iset)
+                           nmin = n(iset) + lshell - lmin(iset)
+                           CALL parser_get_object(parser, ishell)
+                           nshell(iset) = nshell(iset) + ishell
+                           DO i = 1, ishell
+                              l(nshell(iset) - ishell + i, iset) = lshell
+                           END DO
+                        END DO
+                        DO ipgf = 1, npgf(iset)
+                           CALL parser_get_object(parser, zet(ipgf, iset), newline=.TRUE.)
+                           DO ishell = 1, nshell(iset)
+                              CALL parser_get_object(parser, gcc(ipgf, ishell, iset))
+                           END DO
                         END DO
                      END DO
-                     DO ipgf = 1, npgf(iset)
-                        CALL parser_get_object(parser, zet(ipgf, iset), newline=.TRUE.)
-                        DO ishell = 1, nshell(iset)
-                           CALL parser_get_object(parser, gcc(ipgf, ishell, iset))
-                        END DO
-                     END DO
-                  END DO
 
-                  EXIT search_loop
+                     EXIT search_loop
 
+                  END IF
+               ELSE
+                  ! Stop program, if the end of file is reached
+                  CPABORT("")
                END IF
-            ELSE
-               ! Stop program, if the end of file is reached
-               CPABORT("")
-            END IF
 
-         END DO search_loop
+            END DO search_loop
 
-         CALL parser_release(parser)
+            CALL parser_release(parser)
+         END BLOCK
       END IF
 
       ! fill in the basis data structures
@@ -2431,9 +2395,6 @@ CONTAINS
       TYPE(atom_optimization_type), INTENT(INOUT)        :: optimization
       TYPE(section_vals_type), POINTER                   :: opt_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_atom_opt_section', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: miter, ndiis
       REAL(KIND=dp)                                      :: damp, eps_diis, eps_scf
 
@@ -2460,9 +2421,6 @@ CONTAINS
       TYPE(atom_potential_type), INTENT(INOUT)           :: potential
       TYPE(section_vals_type), POINTER                   :: potential_section
       INTEGER, INTENT(IN)                                :: zval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_atom_potential', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: pseudo_fn, pseudo_name
       INTEGER                                            :: ic
@@ -2562,9 +2520,6 @@ CONTAINS
    SUBROUTINE release_atom_potential(potential)
       TYPE(atom_potential_type), INTENT(INOUT)           :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_atom_potential', &
-         routineP = moduleN//':'//routineN
-
       potential%confinement = .FALSE.
 
       CALL atom_release_upf(potential%upf_pot)
@@ -2586,9 +2541,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: pseudo_name, pseudo_file
       TYPE(section_vals_type), POINTER                   :: potential_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_gth_potential', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(LEN=242)                                 :: line2
       CHARACTER(len=5*default_string_length)             :: line_att
@@ -2600,7 +2552,6 @@ CONTAINS
                                                             strlen2
       INTEGER, DIMENSION(0:lmat)                         :: elec_conf
       LOGICAL                                            :: found, is_ok, match, read_from_input
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(cp_sll_val_type), POINTER                     :: list
       TYPE(val_type), POINTER                            :: val
 
@@ -2756,122 +2707,124 @@ CONTAINS
             END DO
          END IF
       ELSE
-         NULLIFY (parser)
-         CALL parser_create(parser, pseudo_file)
+         BLOCK
+            TYPE(cp_parser_type)                      :: parser
+            CALL parser_create(parser, pseudo_file)
 
-         search_loop: DO
-            CALL parser_search_string(parser, TRIM(apname), .TRUE., found, line)
-            IF (found) THEN
-               CALL uppercase(symbol)
-               CALL uppercase(apname)
-               ! Check both the element symbol and the atomic potential name
-               match = .FALSE.
-               CALL uppercase(line)
-               line2 = " "//line//" "
-               symbol2 = " "//TRIM(symbol)//" "
-               apname2 = " "//TRIM(apname)//" "
-               strlen1 = LEN_TRIM(symbol2) + 1
-               strlen2 = LEN_TRIM(apname2) + 1
+            search_loop: DO
+               CALL parser_search_string(parser, TRIM(apname), .TRUE., found, line)
+               IF (found) THEN
+                  CALL uppercase(symbol)
+                  CALL uppercase(apname)
+                  ! Check both the element symbol and the atomic potential name
+                  match = .FALSE.
+                  CALL uppercase(line)
+                  line2 = " "//line//" "
+                  symbol2 = " "//TRIM(symbol)//" "
+                  apname2 = " "//TRIM(apname)//" "
+                  strlen1 = LEN_TRIM(symbol2) + 1
+                  strlen2 = LEN_TRIM(apname2) + 1
 
-               IF ((INDEX(line2, symbol2(:strlen1)) > 0) .AND. &
-                   (INDEX(line2, apname2(:strlen2)) > 0)) match = .TRUE.
+                  IF ((INDEX(line2, symbol2(:strlen1)) > 0) .AND. &
+                      (INDEX(line2, apname2(:strlen2)) > 0)) match = .TRUE.
 
-               IF (match) THEN
-                  ! Read the electronic configuration
-                  l = 0
-                  CALL parser_get_object(parser, elec_conf(l), newline=.TRUE.)
-                  DO WHILE (parser_test_next_token(parser) == "INT")
-                     l = l + 1
-                     CALL parser_get_object(parser, elec_conf(l))
-                  END DO
-                  potential%econf(0:lmat) = elec_conf(0:lmat)
-                  potential%zion = REAL(SUM(elec_conf), dp)
-                  ! Read r(loc) to define the exponent of the core charge
-                  CALL parser_get_object(parser, potential%rc, newline=.TRUE.)
-                  ! Read the parameters for the local part of the GTH pseudopotential (ppl)
-                  CALL parser_get_object(parser, potential%ncl)
-                  DO i = 1, potential%ncl
-                     CALL parser_get_object(parser, potential%cl(i))
-                  END DO
-                  ! Extended type input
-                  DO
-                     CALL parser_get_next_line(parser, 1)
-                     IF (parser_test_next_token(parser) == "INT") THEN
-                        EXIT
-                     ELSEIF (parser_test_next_token(parser) == "STR") THEN
-                        CALL parser_get_object(parser, line)
-                        IF (INDEX(LINE, "LPOT") /= 0) THEN
-                           ! local potential
-                           potential%lpotextended = .TRUE.
-                           CALL parser_get_object(parser, potential%nexp_lpot)
-                           DO ipot = 1, potential%nexp_lpot
-                              CALL parser_get_object(parser, potential%alpha_lpot(ipot), newline=.TRUE.)
-                              CALL parser_get_object(parser, potential%nct_lpot(ipot))
-                              DO ic = 1, potential%nct_lpot(ipot)
-                                 CALL parser_get_object(parser, potential%cval_lpot(ic, ipot))
+                  IF (match) THEN
+                     ! Read the electronic configuration
+                     l = 0
+                     CALL parser_get_object(parser, elec_conf(l), newline=.TRUE.)
+                     DO WHILE (parser_test_next_token(parser) == "INT")
+                        l = l + 1
+                        CALL parser_get_object(parser, elec_conf(l))
+                     END DO
+                     potential%econf(0:lmat) = elec_conf(0:lmat)
+                     potential%zion = REAL(SUM(elec_conf), dp)
+                     ! Read r(loc) to define the exponent of the core charge
+                     CALL parser_get_object(parser, potential%rc, newline=.TRUE.)
+                     ! Read the parameters for the local part of the GTH pseudopotential (ppl)
+                     CALL parser_get_object(parser, potential%ncl)
+                     DO i = 1, potential%ncl
+                        CALL parser_get_object(parser, potential%cl(i))
+                     END DO
+                     ! Extended type input
+                     DO
+                        CALL parser_get_next_line(parser, 1)
+                        IF (parser_test_next_token(parser) == "INT") THEN
+                           EXIT
+                        ELSEIF (parser_test_next_token(parser) == "STR") THEN
+                           CALL parser_get_object(parser, line)
+                           IF (INDEX(LINE, "LPOT") /= 0) THEN
+                              ! local potential
+                              potential%lpotextended = .TRUE.
+                              CALL parser_get_object(parser, potential%nexp_lpot)
+                              DO ipot = 1, potential%nexp_lpot
+                                 CALL parser_get_object(parser, potential%alpha_lpot(ipot), newline=.TRUE.)
+                                 CALL parser_get_object(parser, potential%nct_lpot(ipot))
+                                 DO ic = 1, potential%nct_lpot(ipot)
+                                    CALL parser_get_object(parser, potential%cval_lpot(ic, ipot))
+                                 END DO
                               END DO
-                           END DO
-                        ELSEIF (INDEX(LINE, "NLCC") /= 0) THEN
-                           ! NLCC
-                           potential%nlcc = .TRUE.
-                           CALL parser_get_object(parser, potential%nexp_nlcc)
-                           DO ipot = 1, potential%nexp_nlcc
-                              CALL parser_get_object(parser, potential%alpha_nlcc(ipot), newline=.TRUE.)
-                              CALL parser_get_object(parser, potential%nct_nlcc(ipot))
-                              DO ic = 1, potential%nct_nlcc(ipot)
-                                 CALL parser_get_object(parser, potential%cval_nlcc(ic, ipot))
-                                 !make cp2k compatible with bigdft
-                                 potential%cval_nlcc(ic, ipot) = potential%cval_nlcc(ic, ipot)/(4.0_dp*pi)
+                           ELSEIF (INDEX(LINE, "NLCC") /= 0) THEN
+                              ! NLCC
+                              potential%nlcc = .TRUE.
+                              CALL parser_get_object(parser, potential%nexp_nlcc)
+                              DO ipot = 1, potential%nexp_nlcc
+                                 CALL parser_get_object(parser, potential%alpha_nlcc(ipot), newline=.TRUE.)
+                                 CALL parser_get_object(parser, potential%nct_nlcc(ipot))
+                                 DO ic = 1, potential%nct_nlcc(ipot)
+                                    CALL parser_get_object(parser, potential%cval_nlcc(ic, ipot))
+                                    !make cp2k compatible with bigdft
+                                    potential%cval_nlcc(ic, ipot) = potential%cval_nlcc(ic, ipot)/(4.0_dp*pi)
+                                 END DO
                               END DO
-                           END DO
-                        ELSEIF (INDEX(LINE, "LSD") /= 0) THEN
-                           ! LSD potential
-                           potential%lsdpot = .TRUE.
-                           CALL parser_get_object(parser, potential%nexp_lsd)
-                           DO ipot = 1, potential%nexp_lsd
-                              CALL parser_get_object(parser, potential%alpha_lsd(ipot), newline=.TRUE.)
-                              CALL parser_get_object(parser, potential%nct_lsd(ipot))
-                              DO ic = 1, potential%nct_lsd(ipot)
-                                 CALL parser_get_object(parser, potential%cval_lsd(ic, ipot))
+                           ELSEIF (INDEX(LINE, "LSD") /= 0) THEN
+                              ! LSD potential
+                              potential%lsdpot = .TRUE.
+                              CALL parser_get_object(parser, potential%nexp_lsd)
+                              DO ipot = 1, potential%nexp_lsd
+                                 CALL parser_get_object(parser, potential%alpha_lsd(ipot), newline=.TRUE.)
+                                 CALL parser_get_object(parser, potential%nct_lsd(ipot))
+                                 DO ic = 1, potential%nct_lsd(ipot)
+                                    CALL parser_get_object(parser, potential%cval_lsd(ic, ipot))
+                                 END DO
                               END DO
-                           END DO
+                           ELSE
+                              CPABORT("")
+                           END IF
                         ELSE
                            CPABORT("")
                         END IF
-                     ELSE
-                        CPABORT("")
-                     END IF
-                  END DO
-                  ! Read the parameters for the non-local part of the GTH pseudopotential (ppnl)
-                  CALL parser_get_object(parser, nlmax)
-                  IF (nlmax > 0) THEN
-                     ! Load the parameter for n non-local projectors
-                     DO l = 0, nlmax - 1
-                        CALL parser_get_object(parser, potential%rcnl(l), newline=.TRUE.)
-                        CALL parser_get_object(parser, potential%nl(l))
-                        DO i = 1, potential%nl(l)
-                           IF (i == 1) THEN
-                              CALL parser_get_object(parser, potential%hnl(i, i, l))
-                           ELSE
-                              CALL parser_get_object(parser, potential%hnl(i, i, l), newline=.TRUE.)
-                           END IF
-                           DO j = i + 1, potential%nl(l)
-                              CALL parser_get_object(parser, potential%hnl(i, j, l))
-                              potential%hnl(j, i, l) = potential%hnl(i, j, l)
+                     END DO
+                     ! Read the parameters for the non-local part of the GTH pseudopotential (ppnl)
+                     CALL parser_get_object(parser, nlmax)
+                     IF (nlmax > 0) THEN
+                        ! Load the parameter for n non-local projectors
+                        DO l = 0, nlmax - 1
+                           CALL parser_get_object(parser, potential%rcnl(l), newline=.TRUE.)
+                           CALL parser_get_object(parser, potential%nl(l))
+                           DO i = 1, potential%nl(l)
+                              IF (i == 1) THEN
+                                 CALL parser_get_object(parser, potential%hnl(i, i, l))
+                              ELSE
+                                 CALL parser_get_object(parser, potential%hnl(i, i, l), newline=.TRUE.)
+                              END IF
+                              DO j = i + 1, potential%nl(l)
+                                 CALL parser_get_object(parser, potential%hnl(i, j, l))
+                                 potential%hnl(j, i, l) = potential%hnl(i, j, l)
+                              END DO
                            END DO
                         END DO
-                     END DO
+                     END IF
+                     EXIT search_loop
                   END IF
-                  EXIT search_loop
+               ELSE
+                  ! Stop program, if the end of file is reached
+                  CPABORT("")
                END IF
-            ELSE
-               ! Stop program, if the end of file is reached
-               CPABORT("")
-            END IF
 
-         END DO search_loop
+            END DO search_loop
 
-         CALL parser_release(parser)
+            CALL parser_release(parser)
+         END BLOCK
       END IF
 
    END SUBROUTINE read_gth_potential
@@ -2891,16 +2844,12 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: pseudo_name, pseudo_file
       TYPE(section_vals_type), POINTER                   :: potential_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_ecp_potential', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(len=5*default_string_length)             :: line_att
       CHARACTER(LEN=LEN(element_symbol))                 :: symbol
       CHARACTER(LEN=LEN(pseudo_name))                    :: apname
       INTEGER                                            :: i, ic, l, ncore, nel
       LOGICAL                                            :: found, is_ok, read_from_input
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(cp_sll_val_type), POINTER                     :: list
       TYPE(val_type), POINTER                            :: val
 
@@ -2965,64 +2914,65 @@ CONTAINS
          END DO
 
       ELSE
+         BLOCK
+            TYPE(cp_parser_type)                      :: parser
+            CALL parser_create(parser, pseudo_file)
 
-         NULLIFY (parser)
-         CALL parser_create(parser, pseudo_file)
-
-         search_loop: DO
-            CALL parser_search_string(parser, TRIM(apname), .TRUE., found, line)
-            IF (found) THEN
-               match_loop: DO
-                  CALL parser_get_object(parser, line, newline=.TRUE.)
-                  IF (TRIM(line) == element_symbol) THEN
-                     CALL parser_get_object(parser, line, lower_to_upper=.TRUE.)
-                     CPASSERT(TRIM(line) == "NELEC")
-                     ! read number of electrons
-                     CALL parser_get_object(parser, nel)
-                     potential%zion = REAL(ncore - nel, KIND=dp)
-                     ! read local potential flag line "<XX> ul"
+            search_loop: DO
+               CALL parser_search_string(parser, TRIM(apname), .TRUE., found, line)
+               IF (found) THEN
+                  match_loop: DO
                      CALL parser_get_object(parser, line, newline=.TRUE.)
-                     ! read local potential
-                     DO i = 1, 10
-                        CALL parser_read_line(parser, 1)
-                        IF (parser_test_next_token(parser) == "STR") EXIT
-                        potential%nloc = potential%nloc + 1
-                        ic = potential%nloc
-                        CALL parser_get_object(parser, potential%nrloc(ic))
-                        CALL parser_get_object(parser, potential%bloc(ic))
-                        CALL parser_get_object(parser, potential%aloc(ic))
-                     END DO
-                     ! read potentials (start with l loop)
-                     DO l = 0, 10
-                        CALL parser_get_object(parser, symbol)
-                        IF (symbol == element_symbol) THEN
-                           ! new l block
-                           potential%lmax = potential%lmax + 1
-                           DO i = 1, 10
-                              CALL parser_read_line(parser, 1)
-                              IF (parser_test_next_token(parser) == "STR") EXIT
-                              potential%npot(l) = potential%npot(l) + 1
-                              ic = potential%npot(l)
-                              CALL parser_get_object(parser, potential%nrpot(ic, l))
-                              CALL parser_get_object(parser, potential%bpot(ic, l))
-                              CALL parser_get_object(parser, potential%apot(ic, l))
-                           END DO
-                        ELSE
-                           EXIT
-                        END IF
-                     END DO
-                     EXIT search_loop
-                  ELSE IF (line == "END") THEN
-                     CPABORT("Element not found in ECP library")
-                  END IF
-               END DO match_loop
-            ELSE
-               CPABORT("ECP type not found in library")
-            END IF
+                     IF (TRIM(line) == element_symbol) THEN
+                        CALL parser_get_object(parser, line, lower_to_upper=.TRUE.)
+                        CPASSERT(TRIM(line) == "NELEC")
+                        ! read number of electrons
+                        CALL parser_get_object(parser, nel)
+                        potential%zion = REAL(ncore - nel, KIND=dp)
+                        ! read local potential flag line "<XX> ul"
+                        CALL parser_get_object(parser, line, newline=.TRUE.)
+                        ! read local potential
+                        DO i = 1, 10
+                           CALL parser_read_line(parser, 1)
+                           IF (parser_test_next_token(parser) == "STR") EXIT
+                           potential%nloc = potential%nloc + 1
+                           ic = potential%nloc
+                           CALL parser_get_object(parser, potential%nrloc(ic))
+                           CALL parser_get_object(parser, potential%bloc(ic))
+                           CALL parser_get_object(parser, potential%aloc(ic))
+                        END DO
+                        ! read potentials (start with l loop)
+                        DO l = 0, 10
+                           CALL parser_get_object(parser, symbol)
+                           IF (symbol == element_symbol) THEN
+                              ! new l block
+                              potential%lmax = potential%lmax + 1
+                              DO i = 1, 10
+                                 CALL parser_read_line(parser, 1)
+                                 IF (parser_test_next_token(parser) == "STR") EXIT
+                                 potential%npot(l) = potential%npot(l) + 1
+                                 ic = potential%npot(l)
+                                 CALL parser_get_object(parser, potential%nrpot(ic, l))
+                                 CALL parser_get_object(parser, potential%bpot(ic, l))
+                                 CALL parser_get_object(parser, potential%apot(ic, l))
+                              END DO
+                           ELSE
+                              EXIT
+                           END IF
+                        END DO
+                        EXIT search_loop
+                     ELSE IF (line == "END") THEN
+                        CPABORT("Element not found in ECP library")
+                     END IF
+                  END DO match_loop
+               ELSE
+                  CPABORT("ECP type not found in library")
+               END IF
 
-         END DO search_loop
+            END DO search_loop
 
-         CALL parser_release(parser)
+            CALL parser_release(parser)
+         END BLOCK
       END IF
 
       ! set up econf

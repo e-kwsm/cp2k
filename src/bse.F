@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Rountines for GW + Bethe-Salpeter for computing electronic excitations
+!> \brief Routines for GW + Bethe-Salpeter for computing electronic excitations
 !> \par History
 !>      04.2017 created [Jan Wilhelm]
 ! **************************************************************************************************
@@ -18,7 +20,6 @@ MODULE bse
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE group_dist_types,                ONLY: get_group_dist,&
                                               group_dist_d1_type
@@ -26,6 +27,7 @@ MODULE bse
    USE message_passing,                 ONLY: mp_alltoall,&
                                               mp_sum
    USE mp2_types,                       ONLY: integ_mat_buffer_type
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE rpa_communication,               ONLY: communicate_buffer
 #include "./base/base_uses.f90"
 
@@ -62,10 +64,9 @@ CONTAINS
       INTEGER                                            :: homo, virtual, num_Z_vectors, max_iter
       REAL(KIND=dp)                                      :: threshold_min_trans
       REAL(KIND=dp), DIMENSION(:)                        :: Eigenval
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_subspace_iterations', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_subspace_iterations'
 
       INTEGER                                            :: handle, i_iter, local_RI_size
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: M_ia_tmp, M_ji_tmp, RI_vector
@@ -138,9 +139,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :)                     :: M_ji_tmp, RI_vector
       INTEGER                                            :: homo, virtual, num_Z_vectors, &
                                                             local_RI_size
-      TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_BZ', routineP = moduleN//':'//routineN
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
       INTEGER                                            :: i_Z_vector, LLL
 
@@ -194,9 +193,9 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: Eigenval
       INTEGER                                            :: homo, virtual, num_Z_vectors, &
                                                             local_RI_size
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_AZ', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'compute_AZ'
 
       INTEGER                                            :: a_virt, handle, i_occ, i_Z_vector, LLL
       REAL(KIND=dp)                                      :: eigen_diff
@@ -257,13 +256,12 @@ CONTAINS
    SUBROUTINE compute_v_ia_jb_part(AZ, Z_vectors, B_iaQ_bse_local, RI_vector, local_RI_size, &
                                    num_Z_vectors, homo, virtual)
 
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: AZ, Z_vectors, B_iaQ_bse_local
-      REAL(KIND=dp), DIMENSION(:, :)                     :: RI_vector
-      INTEGER                                            :: local_RI_size, num_Z_vectors, homo, &
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT)   :: AZ, Z_vectors, B_iaQ_bse_local
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: RI_vector
+      INTEGER, INTENT(IN)                                :: local_RI_size, num_Z_vectors, homo, &
                                                             virtual
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_v_ia_jb_part', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_v_ia_jb_part'
 
       INTEGER                                            :: a_virt, handle, i_occ, i_Z_vector, LLL
 
@@ -315,12 +313,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE initial_guess_Z_vectors(Z_vectors, Eigenval, num_Z_vectors, homo, virtual)
 
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: Z_vectors
-      REAL(KIND=dp), DIMENSION(:)                        :: Eigenval
-      INTEGER                                            :: num_Z_vectors, homo, virtual
+      REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT)   :: Z_vectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
+      INTEGER, INTENT(IN)                                :: num_Z_vectors, homo, virtual
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'initial_guess_Z_vectors', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'initial_guess_Z_vectors'
 
       INTEGER                                            :: a_virt, handle, i_occ, i_Z_vector, &
                                                             min_loc(2)
@@ -377,23 +374,23 @@ CONTAINS
                                                      B_iaQ_bse_local, dimen_RI, homo, virtual, dimen_ia, &
                                                      gd_array, color_sub, para_env)
 
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S_ij_bse, fm_mat_S_ab_bse, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mat_S_ij_bse, fm_mat_S_ab_bse, &
                                                             fm_mat_S, fm_mat_Q_static_bse, &
                                                             fm_mat_Q_static_bse_gemm
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: B_bar_ijQ_bse_local, B_abQ_bse_local, &
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :), &
+         INTENT(OUT)                                     :: B_bar_ijQ_bse_local, B_abQ_bse_local, &
                                                             B_bar_iaQ_bse_local, B_iaQ_bse_local
-      INTEGER                                            :: dimen_RI, homo, virtual, dimen_ia
-      TYPE(group_dist_d1_type)                           :: gd_array
-      INTEGER                                            :: color_sub
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER, INTENT(IN)                                :: dimen_RI, homo, virtual, dimen_ia
+      TYPE(group_dist_d1_type), INTENT(IN)               :: gd_array
+      INTEGER, INTENT(IN)                                :: color_sub
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mult_B_with_W_and_fill_local_3c_arrays', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'mult_B_with_W_and_fill_local_3c_arrays'
 
       INTEGER                                            :: handle, i_global, iiB, info_chol, &
                                                             j_global, jjB, ncol_local, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S_bar_ia_bse, &
+      TYPE(cp_fm_type)                                   :: fm_mat_S_bar_ia_bse, &
                                                             fm_mat_S_bar_ij_bse, fm_mat_work
 
       CALL timeset(routineN, handle)
@@ -436,15 +433,15 @@ CONTAINS
       ! symmetrize the result
       CALL cp_fm_upper_to_full(fm_mat_Q_static_bse_gemm, fm_mat_work)
 
-      CALL cp_gemm(transa="N", transb="N", m=homo**2, n=dimen_RI, k=dimen_RI, alpha=1.0_dp, &
-                   matrix_a=fm_mat_S_ij_bse, matrix_b=fm_mat_Q_static_bse, beta=0.0_dp, &
-                   matrix_c=fm_mat_S_bar_ij_bse)
+      CALL parallel_gemm(transa="N", transb="N", m=dimen_RI, n=homo**2, k=dimen_RI, alpha=1.0_dp, &
+                         matrix_a=fm_mat_Q_static_bse, matrix_b=fm_mat_S_ij_bse, beta=0.0_dp, &
+                         matrix_c=fm_mat_S_bar_ij_bse)
 
       ! fm_mat_S_bar_ia_bse has a different blacs_env as fm_mat_S_ij_bse since we take
       ! fm_mat_S from RPA. Therefore, we also need a different fm_mat_Q_static_bse_gemm
-      CALL cp_gemm(transa="N", transb="N", m=dimen_ia, n=dimen_RI, k=dimen_RI, alpha=1.0_dp, &
-                   matrix_a=fm_mat_S, matrix_b=fm_mat_Q_static_bse_gemm, beta=0.0_dp, &
-                   matrix_c=fm_mat_S_bar_ia_bse)
+      CALL parallel_gemm(transa="N", transb="N", m=dimen_RI, n=dimen_ia, k=dimen_RI, alpha=1.0_dp, &
+                         matrix_a=fm_mat_Q_static_bse_gemm, matrix_b=fm_mat_S, beta=0.0_dp, &
+                         matrix_c=fm_mat_S_bar_ia_bse)
 
       CALL allocate_and_fill_local_array(B_iaQ_bse_local, fm_mat_S, gd_array, color_sub, homo, virtual, dimen_RI, para_env)
 
@@ -479,14 +476,14 @@ CONTAINS
    SUBROUTINE allocate_and_fill_local_array(B_local, fm_mat_S, gd_array, &
                                             color_sub, small_size, big_size, dimen_RI, para_env)
 
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: B_local
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S
-      TYPE(group_dist_d1_type)                           :: gd_array
-      INTEGER                                            :: color_sub, small_size, big_size, dimen_RI
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :), &
+         INTENT(OUT)                                     :: B_local
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mat_S
+      TYPE(group_dist_d1_type), INTENT(IN)               :: gd_array
+      INTEGER, INTENT(IN)                                :: color_sub, small_size, big_size, dimen_RI
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_and_fill_local_array', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_and_fill_local_array'
 
       INTEGER :: combi_index, end_RI, handle, handle1, i_comm, i_entry, iiB, imepos, jjB, &
          level_big_size, level_small_size, ncol_local, nrow_local, num_comm_cycles, RI_index, &
@@ -540,15 +537,15 @@ CONTAINS
          num_entries_rec = 0
 
          ! loop over RI index to get the number of sent entries
-         DO jjB = 1, ncol_local
+         DO jjB = 1, nrow_local
 
-            RI_index = col_indices(jjB)
+            RI_index = row_indices(jjB)
 
             IF (MODULO(RI_index, num_comm_cycles) /= i_comm) CYCLE
 
             imepos = mepos_from_RI_index(RI_index)
 
-            num_entries_send(imepos) = num_entries_send(imepos) + nrow_local
+            num_entries_send(imepos) = num_entries_send(imepos) + ncol_local
 
          END DO
 
@@ -577,23 +574,23 @@ CONTAINS
          entry_counter(:) = 0
 
          ! loop over RI index for filling the send-buffer
-         DO jjB = 1, ncol_local
+         DO jjB = 1, nrow_local
 
-            RI_index = col_indices(jjB)
+            RI_index = row_indices(jjB)
 
             IF (MODULO(RI_index, num_comm_cycles) /= i_comm) CYCLE
 
             imepos = mepos_from_RI_index(RI_index)
 
-            DO iiB = 1, nrow_local
+            DO iiB = 1, ncol_local
 
-               combi_index = row_indices(iiB)
+               combi_index = col_indices(iiB)
                level_small_size = MAX(1, combi_index - 1)/big_size + 1
                level_big_size = combi_index - (level_small_size - 1)*big_size
 
                entry_counter(imepos) = entry_counter(imepos) + 1
 
-               buffer_send(imepos)%msg(entry_counter(imepos)) = fm_mat_S%local_data(iiB, jjB)
+               buffer_send(imepos)%msg(entry_counter(imepos)) = fm_mat_S%local_data(jjB, iiB)
 
                buffer_send(imepos)%indx(entry_counter(imepos), 1) = RI_index
                buffer_send(imepos)%indx(entry_counter(imepos), 2) = level_small_size

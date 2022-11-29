@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -11,6 +13,7 @@
 !>      02.2005 Update to the new version 2.4 and deleting the blas part of
 !>              the code (Teodoro Laino)
 !>      11.2012 New version 3.0 converted to Fortran 90 (Matthias Krack)
+!>      12.2020 Implementation of Space Group Symmetry (Pierre-André Cazade)
 !> \author Fawzi Mohamed (first version)
 ! **************************************************************************************************
 MODULE cp_lbfgs
@@ -19,6 +22,9 @@ MODULE cp_lbfgs
    USE cp_files,                        ONLY: open_file
    USE kinds,                           ONLY: dp
    USE machine,                         ONLY: m_walltime
+   USE space_groups,                    ONLY: spgr_apply_rotations_coord,&
+                                              spgr_apply_rotations_force
+   USE space_groups_types,              ONLY: spgr_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -164,6 +170,9 @@ CONTAINS
 !>                 dsave(15) = the slope of the line search function at the starting point of the line search;
 !>                 dsave(16) = the square of the 2-norm of the line search direction vector.
 !> \param trust_radius ...
+!> \param spgr ...
+!> \par History
+!>      12.2020 Implementation of Space Group Symmetry [pcazade]
 !> \author         NEOS, November 1994. (Latest revision June 1996.)
 !>                 Optimization Technology Center.
 !>                 Argonne National Laboratory and Northwestern University.
@@ -172,7 +181,7 @@ CONTAINS
 !>                 in collaboration with R.H. Byrd, P. Lu-Chen and J. Nocedal.
 ! **************************************************************************************************
    SUBROUTINE setulb(n, m, x, lower_bound, upper_bound, nbd, f, g, factr, pgtol, wa, iwa, &
-                     task, iprint, csave, lsave, isave, dsave, trust_radius)
+                     task, iprint, csave, lsave, isave, dsave, trust_radius, spgr)
 
       INTEGER, INTENT(in)                                :: n, m
       REAL(KIND=dp), INTENT(inout)                       :: x(n)
@@ -189,6 +198,7 @@ CONTAINS
       INTEGER                                            :: isave(44)
       REAL(KIND=dp)                                      :: dsave(29)
       REAL(KIND=dp), INTENT(in)                          :: trust_radius
+      TYPE(spgr_type), OPTIONAL, POINTER                 :: spgr
 
       INTEGER                                            :: i, ld, lr, lsnd, lss, lsy, lt, lwa, lwn, &
                                                             lws, lwt, lwy, lxp, lz
@@ -265,14 +275,15 @@ CONTAINS
             upper_bound(i) = x(i) + trust_radius
             nbd(i) = 2
          END DO
-      ENDIF
+      END IF
 
+      ! passes spgr to mainlb
       CALL mainlb(n, m, x, lower_bound, upper_bound, nbd, f, g, factr, pgtol, &
                   wa(lws), wa(lwy), wa(lsy), wa(lss), wa(lwt), &
                   wa(lwn), wa(lsnd), wa(lz), wa(lr), wa(ld), wa(lt), wa(lxp), &
                   wa(lwa), &
                   iwa(1), iwa(n + 1), iwa(2*n + 1), task, iprint, &
-                  csave, lsave, isave(22), dsave)
+                  csave, lsave, isave(22), dsave, spgr=spgr)
 
       RETURN
 
@@ -366,6 +377,9 @@ CONTAINS
 !> \param lsave  lsave is a logical working array
 !> \param isave  isave is an integer working array
 !> \param dsave  is a double precision working array
+!> \param spgr ...
+!> \par History
+!>      12.2020 Implementation of Space Group Symmetry [pcazade]
 !> \author       NEOS, November 1994. (Latest revision June 1996.)
 !>               Optimization Technology Center.
 !>               Argonne National Laboratory and Northwestern University.
@@ -376,7 +390,7 @@ CONTAINS
    SUBROUTINE mainlb(n, m, x, lower_bound, upper_bound, nbd, f, g, factr, pgtol, ws, wy, &
                      sy, ss, wt, wn, snd, z, r, d, t, xp, wa, &
                      index, iwhere, indx2, task, &
-                     iprint, csave, lsave, isave, dsave)
+                     iprint, csave, lsave, isave, dsave, spgr)
       INTEGER, INTENT(in)                                :: n, m
       REAL(KIND=dp), INTENT(inout)                       :: x(n)
       REAL(KIND=dp), INTENT(in)                          :: lower_bound(n), upper_bound(n)
@@ -390,6 +404,7 @@ CONTAINS
       LOGICAL                                            :: lsave(4)
       INTEGER                                            :: isave(23)
       REAL(KIND=dp)                                      :: dsave(29)
+      TYPE(spgr_type), OPTIONAL, POINTER                 :: spgr
 
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
@@ -398,7 +413,8 @@ CONTAINS
                                                             itail, iter, itfile, iupdat, iword, k, &
                                                             nact, nenter, nfgv, nfree, nintol, &
                                                             nseg, nskip
-      LOGICAL                                            :: boxed, constrained, first, updatd, wrk, &
+      LOGICAL                                            :: boxed, constrained, first, &
+                                                            keep_space_group, updatd, wrk, &
                                                             x_projected
       REAL(KIND=dp) :: cachyt, cpu1, cpu2, ddot, ddum, dnorm, dr, dtd, epsmch, fold, g_inf_norm, &
          gd, gdold, lnscht, rr, sbtime, step_max, stp, theta, time, time1, time2, tol, xstep
@@ -422,6 +438,11 @@ CONTAINS
 !        ftp to eecs.nwu.edu in the directory pub/lbfgs/lbfgs_bcm.)
 !
 !                           *  *  *
+
+      keep_space_group = .FALSE.
+      IF (PRESENT(spgr)) THEN
+         IF (ASSOCIATED(spgr)) keep_space_group = spgr%keep_space_group
+      END IF
 
       IF (task == 'START') THEN
 
@@ -497,6 +518,10 @@ CONTAINS
 !        Initialize iwhere & project x onto the feasible set.
 
          CALL active(n, lower_bound, upper_bound, nbd, x, iwhere, iprint, x_projected, constrained, boxed)
+         ! applies rotation matrices to coordinates
+         IF (keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x)
+         END IF
 
 !        The end of the initialization.
          task = 'FG_START'
@@ -506,6 +531,12 @@ CONTAINS
                          cpu1, cachyt, sbtime, lnscht, time1, gd, step_max, g_inf_norm, stp, gdold, dtd)
          RETURN
       ELSE
+         ! applies rotation matrices to coordinates
+         IF (keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x)
+            CALL spgr_apply_rotations_force(spgr, g)
+         END IF
+
 !          restore local variables.
 
          x_projected = lsave(1)
@@ -625,6 +656,10 @@ CONTAINS
                         m, wy, ws, sy, wt, theta, col, head, &
                         wa(1), wa(2*m + 1), wa(4*m + 1), wa(6*m + 1), nseg, &
                         iprint, g_inf_norm, info, epsmch)
+            ! applies rotation matrices to coordinates
+            IF (keep_space_group) THEN
+               CALL spgr_apply_rotations_coord(spgr, z)
+            END IF
             IF (info /= 0) THEN
 !            singular triangular system detected; refresh the lbfgs memory.
                IF (iprint >= 1) WRITE (*, 1005)
@@ -650,7 +685,7 @@ CONTAINS
                        iwhere, wrk, updatd, constrained, iprint, iter)
             nact = n - nfree
 
-         ENDIF
+         END IF
 
 !     If there are no free variables or B=theta*I, then
 !                                        skip the subspace minimization.
@@ -693,12 +728,21 @@ CONTAINS
 !                                                   from 'cauchy').
             CALL cmprlb(n, m, x, g, ws, wy, sy, wt, z, r, wa, index, &
                         theta, col, head, nfree, constrained, info)
+            ! applies rotation matrices to coordinates
+            IF (keep_space_group) THEN
+               CALL spgr_apply_rotations_force(spgr, r)
+            END IF
             IF (info == 0) THEN
 
 !     call the direct method.
 
                CALL subsm(n, m, nfree, index, lower_bound, upper_bound, nbd, z, r, xp, ws, wy, &
                           theta, x, g, col, head, iword, wa, wn, iprint, info)
+               ! applies rotation matrices to coordinates
+               IF (keep_space_group) THEN
+                  CALL spgr_apply_rotations_coord(spgr, z)
+                  CALL spgr_apply_rotations_force(spgr, r)
+               END IF
             END IF
             IF (info /= 0) THEN
 !          singular triangular system detected;
@@ -727,16 +771,33 @@ CONTAINS
 !ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 !     Generate the search direction d:=z-x.
-
+         ! applies rotation matrices to coordinates
+         IF (keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x)
+            CALL spgr_apply_rotations_coord(spgr, z)
+         END IF
          DO i = 1, n
             d(i) = z(i) - x(i)
          END DO
          CALL timer(cpu1)
-      ENDIF
+      END IF
       IF (.NOT. first .OR. .NOT. (task(1:5) == 'NEW_X')) THEN
+         ! applies rotation matrices to coordinates
+         IF (keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x)
+            CALL spgr_apply_rotations_coord(spgr, z)
+            CALL spgr_apply_rotations_force(spgr, d)
+            CALL spgr_apply_rotations_force(spgr, g)
+            CALL spgr_apply_rotations_force(spgr, r)
+         END IF
          CALL lnsrlb(n, lower_bound, upper_bound, nbd, x, f, fold, gd, gdold, g, d, r, t, z, stp, dnorm, &
                      dtd, xstep, step_max, iter, ifun, iback, nfgv, info, task, &
                      boxed, constrained, csave, isave(22), dsave(17))
+         ! applies rotation matrices to coordinates
+         IF (keep_space_group) THEN
+            CALL spgr_apply_rotations_coord(spgr, x)
+            CALL spgr_apply_rotations_force(spgr, g)
+         END IF
          IF (info /= 0 .OR. iback >= 20) THEN
 !          restore the previous iterate.
             CALL dcopy(n, t, 1, x, 1)
@@ -804,7 +865,7 @@ CONTAINS
                             cpu1, cachyt, sbtime, lnscht, time1, gd, step_max, g_inf_norm, stp, gdold, dtd)
             RETURN
          END IF
-      ENDIF
+      END IF
 
 !     Test for termination.
 
@@ -842,7 +903,10 @@ CONTAINS
       END IF
 
 !     Compute d=newx-oldx, r=newg-oldg, rr=y'y and dr=y's.
-
+      IF (keep_space_group) THEN
+         CALL spgr_apply_rotations_force(spgr, g)
+         CALL spgr_apply_rotations_force(spgr, r)
+      END IF
       DO i = 1, n
          r(i) = g(i) - r(i)
       END DO
@@ -907,23 +971,23 @@ CONTAINS
       END DO
 
 1001  FORMAT(//, 'ITERATION ', i5)
-1002  FORMAT                                                            &
-      &  (/, 'At iterate', i5, 4x, 'f= ', 1p, d12.5, 4x, '|proj g|= ', 1p, d12.5)
+1002  FORMAT &
+         (/, 'At iterate', i5, 4x, 'f= ', 1p, d12.5, 4x, '|proj g|= ', 1p, d12.5)
 1003  FORMAT(2(1x, i4), 5x, '-', 5x, '-', 3x, '-', 5x, '-', 5x, '-', 8x, '-', 3x, &
              1p, 2(1x, d10.3))
 1004  FORMAT('  ys=', 1p, e10.3, '  -gs=', 1p, e10.3, ' BFGS update SKIPPED')
-1005  FORMAT(/,                                                        &
-      &' Singular triangular system detected;', /,                        &
-      &'   refresh the lbfgs memory and restart the iteration.')
-1006  FORMAT(/,                                                        &
-      &' Nonpositive definiteness in Cholesky factorization in formk;', /,&
-      &'   refresh the lbfgs memory and restart the iteration.')
-1007  FORMAT(/,                                                        &
-      &' Nonpositive definiteness in Cholesky factorization in formt;', /,&
-      &'   refresh the lbfgs memory and restart the iteration.')
-1008  FORMAT(/,                                                        &
-      &' Bad direction in the line search;', /,                           &
-      &'   refresh the lbfgs memory and restart the iteration.')
+1005  FORMAT(/, &
+              ' Singular triangular system detected;', /, &
+              '   refresh the lbfgs memory and restart the iteration.')
+1006  FORMAT(/, &
+              ' Nonpositive definiteness in Cholesky factorization in formk;', /, &
+              '   refresh the lbfgs memory and restart the iteration.')
+1007  FORMAT(/, &
+              ' Nonpositive definiteness in Cholesky factorization in formt;', /, &
+              '   refresh the lbfgs memory and restart the iteration.')
+1008  FORMAT(/, &
+              ' Bad direction in the line search;', /, &
+              '   refresh the lbfgs memory and restart the iteration.')
 
       RETURN
 
@@ -2322,7 +2386,7 @@ CONTAINS
          ifun = 0
          iback = 0
          csave = 'START'
-      ENDIF
+      END IF
       gd = ddot(n, g, 1, d, 1)
       IF (ifun == 0) THEN
          gdold = gd
@@ -2493,24 +2557,24 @@ CONTAINS
       END IF
 
 1004  FORMAT(/, a4, 1p, 6(1x, d11.4), /, (4x, 1p, 6(1x, d11.4)))
-2001  FORMAT('RUNNING THE L-BFGS-B CODE', /, /,                          &
-      & 'it    = iteration number', /,                                    &
-      & 'nf    = number of function evaluations', /,                      &
-      & 'nseg  = number of segments explored during the Cauchy search', /,&
-      & 'nact  = number of active bounds at the generalized Cauchy point'&
-      & , /,                                                              &
-      & 'sub   = manner in which the subspace minimization terminated:'  &
-      & , /, '        con = converged, bnd = a bound was reached', /,       &
-      & 'itls  = number of iterations performed in the line search', /,   &
-      & 'stepl = step length used', /,                                    &
-      & 'tstep = norm of the displacement (total step)', /,               &
-      & 'projg = norm of the projected gradient', /,                      &
-      & 'f     = function value', /, /,                                    &
-      & '           * * *', /, /,                                          &
-      & 'Machine precision =', 1p, d10.3)
-7001  FORMAT('RUNNING THE L-BFGS-B CODE', /, /,                          &
-      & '           * * *', /, /,                                          &
-      & 'Machine precision =', 1p, d10.3)
+2001  FORMAT('RUNNING THE L-BFGS-B CODE', /, /, &
+             'it    = iteration number', /, &
+             'nf    = number of function evaluations', /, &
+             'nseg  = number of segments explored during the Cauchy search', /, &
+             'nact  = number of active bounds at the generalized Cauchy point' &
+             , /, &
+             'sub   = manner in which the subspace minimization terminated:' &
+             , /, '        con = converged, bnd = a bound was reached', /, &
+             'itls  = number of iterations performed in the line search', /, &
+             'stepl = step length used', /, &
+             'tstep = norm of the displacement (total step)', /, &
+             'projg = norm of the projected gradient', /, &
+             'f     = function value', /, /, &
+             '           * * *', /, /, &
+             'Machine precision =', 1p, d10.3)
+7001  FORMAT('RUNNING THE L-BFGS-B CODE', /, /, &
+             '           * * *', /, /, &
+             'Machine precision =', 1p, d10.3)
 9001  FORMAT(/, 3x, 'it', 3x, 'nf', 2x, 'nseg', 2x, 'nact', 2x, 'sub', 2x, 'itls', &
               2x, 'stepl', 4x, 'tstep', 5x, 'projg', 8x, 'f')
 
@@ -2586,8 +2650,8 @@ CONTAINS
          iter, nfgv, nseg, nact, word, iback, stp, xstep, g_inf_norm, f
 
 1004  FORMAT(/, a4, 1p, 6(1x, d11.4), /, (4x, 1p, 6(1x, d11.4)))
-2001  FORMAT                                                            &
-      &  (/, 'At iterate', i5, 4x, 'f= ', 1p, d12.5, 4x, '|proj g|= ', 1p, d12.5)
+2001  FORMAT &
+         (/, 'At iterate', i5, 4x, 'f= ', 1p, d12.5, 4x, '|proj g|= ', 1p, d12.5)
 3001  FORMAT(2(1x, i4), 2(1x, i5), 2x, a3, 1x, i4, 1p, 2(2x, d7.1), 1p, 2(1x, d10.3))
 
       RETURN
@@ -2694,47 +2758,47 @@ CONTAINS
 
 1004  FORMAT(/, a4, 1p, 6(1x, d11.4), /, (4x, 1p, 6(1x, d11.4)))
 3002  FORMAT(2(1x, i4), 2(1x, i5), 2x, a3, 1x, i4, 1p, 2(2x, d7.1), 6x, '-', 10x, '-')
-3003  FORMAT(/,                                                        &
-      & '           * * *', /, /,                                          &
-      & 'Tit   = total number of iterations', /,                          &
-      & 'Tnf   = total number of function evaluations', /,                &
-      & 'Tnint = total number of segments explored during',              &
-      &           ' Cauchy searches', /,                                  &
-      & 'Skip  = number of BFGS updates skipped', /,                      &
-      & 'Nact  = number of active bounds at final generalized',          &
-      &          ' Cauchy point', /,                                      &
-      & 'Projg = norm of the final projected gradient', /,                &
-      & 'F     = final function value', /, /,                              &
-      & '           * * *')
-3004  FORMAT(/, 3x, 'N', 4x, 'Tit', 5x, 'Tnf', 2x, 'Tnint', 2x,                 &
-      &       'Skip', 2x, 'Nact', 5x, 'Projg', 8x, 'F')
+3003  FORMAT(/, &
+              '           * * *', /, /, &
+              'Tit   = total number of iterations', /, &
+              'Tnf   = total number of function evaluations', /, &
+              'Tnint = total number of segments explored during', &
+              ' Cauchy searches', /, &
+              'Skip  = number of BFGS updates skipped', /, &
+              'Nact  = number of active bounds at final generalized', &
+              ' Cauchy point', /, &
+              'Projg = norm of the final projected gradient', /, &
+              'F     = final function value', /, /, &
+              '           * * *')
+3004  FORMAT(/, 3x, 'N', 4x, 'Tit', 5x, 'Tnf', 2x, 'Tnint', 2x, &
+              'Skip', 2x, 'Nact', 5x, 'Projg', 8x, 'F')
 3005  FORMAT(i5, 2(1x, i6), (1x, i6), (2x, i4), (1x, i5), 1p, 2(2x, d10.3))
-3007  FORMAT(/, ' Cauchy                time', 1p, e10.3, ' seconds.', /    &
-      &        ' Subspace minimization time', 1p, e10.3, ' seconds.', /      &
-      &        ' Line search           time', 1p, e10.3, ' seconds.')
+3007  FORMAT(/, ' Cauchy                time', 1p, e10.3, ' seconds.', / &
+              ' Subspace minimization time', 1p, e10.3, ' seconds.', / &
+              ' Line search           time', 1p, e10.3, ' seconds.')
 3008  FORMAT(/, ' Total User time', 1p, e10.3, ' seconds.',/)
 3009  FORMAT(/, a60)
-9011  FORMAT(/,                                                        &
-      &' Matrix in 1st Cholesky factorization in formk is not Pos. Def.')
-9012  FORMAT(/,                                                        &
-      &' Matrix in 2st Cholesky factorization in formk is not Pos. Def.')
-9013  FORMAT(/,                                                        &
-      &' Matrix in the Cholesky factorization in formt is not Pos. Def.')
-9014  FORMAT(/,                                                        &
-      &' Derivative >= 0, backtracking line search impossible.', /,       &
-      &'   Previous x, f and g restored.', /,                             &
-      &' Possible causes: 1 error in function or gradient evaluation;', /,&
-      &'                  2 rounding errors dominate computation.')
-9015  FORMAT(/,                                                        &
-      &' Warning:  more than 10 function and gradient', /,                &
-      &'   evaluations in the last line search.  Termination', /,         &
-      &'   may possibly be caused by a bad search direction.')
+9011  FORMAT(/, &
+              ' Matrix in 1st Cholesky factorization in formk is not Pos. Def.')
+9012  FORMAT(/, &
+              ' Matrix in 2st Cholesky factorization in formk is not Pos. Def.')
+9013  FORMAT(/, &
+              ' Matrix in the Cholesky factorization in formt is not Pos. Def.')
+9014  FORMAT(/, &
+              ' Derivative >= 0, backtracking line search impossible.', /, &
+              '   Previous x, f and g restored.', /, &
+              ' Possible causes: 1 error in function or gradient evaluation;', /, &
+              '                  2 rounding errors dominate computation.')
+9015  FORMAT(/, &
+              ' Warning:  more than 10 function and gradient', /, &
+              '   evaluations in the last line search.  Termination', /, &
+              '   may possibly be caused by a bad search direction.')
 9018  FORMAT(/, ' The triangular system is singular.')
-9019  FORMAT(/,                                                        &
-      &' Line search cannot locate an adequate point after 20 function', /&
-      &, '  and gradient evaluations.  Previous x, f and g restored.', /,  &
-      &' Possible causes: 1 error in function or gradient evaluation;', /,&
-      &'                  2 rounding error dominate computation.')
+9019  FORMAT(/, &
+              ' Line search cannot locate an adequate point after 20 function', /, &
+              '  and gradient evaluations.  Previous x, f and g restored.', /, &
+              ' Possible causes: 1 error in function or gradient evaluation;', /, &
+              '                  2 rounding error dominate computation.')
 
       RETURN
 
@@ -3361,8 +3425,8 @@ CONTAINS
 
             task = 'FG'
 
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
 !     Save local variables.
 
@@ -3709,8 +3773,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: job
       INTEGER, INTENT(out)                               :: info
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dtrsl', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: CASE, j, jj
       REAL(KIND=dp)                                      :: ddot, temp
 
@@ -3907,7 +3969,7 @@ CONTAINS
 !> \author Samuel Andermatt (01.15)
 ! **************************************************************************************************
 
-      SUBROUTINE save_local(lsave,isave,dsave,x_projected,constrained,boxed,updatd,nintol,itfile,iback,nskip,head,col,itail,&
+   SUBROUTINE save_local(lsave,isave,dsave,x_projected,constrained,boxed,updatd,nintol,itfile,iback,nskip,head,col,itail,&
                   iter, iupdat, nseg, nfgv, info, ifun, iword, nfree, nact, ileave, nenter, theta, fold, tol, dnorm, epsmch, cpu1, &
                          cachyt, sbtime, lnscht, time1, gd, step_max, g_inf_norm, stp, gdold, dtd)
       LOGICAL, INTENT(out)                               :: lsave(4)

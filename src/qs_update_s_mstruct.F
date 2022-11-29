@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! *****************************************************************************
@@ -19,8 +21,8 @@ MODULE qs_update_s_mstruct
                                               kg_tnadd_embed,&
                                               kg_tnadd_embed_ri
    USE pw_methods,                      ONLY: pw_transfer
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_ppl_grid,&
                                               calculate_rho_core,&
                                               calculate_rho_nlcc
@@ -30,7 +32,6 @@ MODULE qs_update_s_mstruct
                                               qs_ks_did_change,&
                                               qs_ks_env_type,&
                                               set_ks_env
-   USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_rho_methods,                  ONLY: qs_rho_rebuild
    USE qs_rho_types,                    ONLY: qs_rho_type
    USE qs_scf_types,                    ONLY: scf_env_did_change
@@ -63,13 +64,12 @@ CONTAINS
    SUBROUTINE qs_env_update_s_mstruct(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_env_update_s_mstruct', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_env_update_s_mstruct'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: do_ppl
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(pw_p_type), POINTER                           :: rho_core, rho_nlcc, rho_nlcc_g, vppl
+      TYPE(pw_type), POINTER                             :: rho_core, rho_nlcc, rho_nlcc_g, vppl
 
       CALL timeset(routineN, handle)
 
@@ -90,10 +90,10 @@ CONTAINS
                                     qs_env%qs_charges%total_rho_core_rspace, qs_env, only_nopaw=.TRUE.)
          ELSE
             IF (ASSOCIATED(rho_core)) THEN
-               CALL pw_release(rho_core%pw)
+               CALL pw_release(rho_core)
                DEALLOCATE (rho_core)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
          ! force analytic ppl calculation
          dft_control%qs_control%do_ppl_method = do_ppl_analytic
       ELSE IF (dft_control%qs_control%semi_empirical) THEN
@@ -122,8 +122,8 @@ CONTAINS
       CALL get_qs_env(qs_env, rho_nlcc=rho_nlcc, rho_nlcc_g=rho_nlcc_g)
       IF (ASSOCIATED(rho_nlcc)) THEN
          CALL calculate_rho_nlcc(rho_nlcc, qs_env)
-         CALL pw_transfer(rho_nlcc%pw, rho_nlcc_g%pw)
-      ENDIF
+         CALL pw_transfer(rho_nlcc, rho_nlcc_g)
+      END IF
 
       ! allocates and creates the task_list
       CALL qs_create_task_list(qs_env)
@@ -131,6 +131,7 @@ CONTAINS
       ! *** environment for ddapc ***
       IF (ASSOCIATED(qs_env%cp_ddapc_env)) THEN
          CALL cp_ddapc_release(qs_env%cp_ddapc_env)
+         DEALLOCATE (qs_env%cp_ddapc_env)
       END IF
       CALL cp_ddapc_init(qs_env)
 
@@ -156,14 +157,11 @@ CONTAINS
    SUBROUTINE qs_create_task_list(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_create_task_list', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_create_task_list'
 
       INTEGER                                            :: handle, isub
       LOGICAL                                            :: skip_load_balance_distributed, soft_valid
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: sab_orb
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(task_list_type), POINTER                      :: task_list
 
@@ -181,36 +179,22 @@ CONTAINS
             IF (.NOT. ASSOCIATED(task_list)) THEN
                CALL allocate_task_list(task_list)
                CALL set_ks_env(ks_env, task_list=task_list)
-            ENDIF
+            END IF
             CALL generate_qs_task_list(ks_env, task_list, &
                                        reorder_rs_grid_ranks=.TRUE., soft_valid=.FALSE., &
                                        skip_load_balance_distributed=skip_load_balance_distributed)
-         ENDIF
+         END IF
          ! generate the soft task list
          IF (dft_control%qs_control%gapw .OR. dft_control%qs_control%gapw_xc) THEN
             CALL get_ks_env(ks_env, task_list_soft=task_list)
             IF (.NOT. ASSOCIATED(task_list)) THEN
                CALL allocate_task_list(task_list)
                CALL set_ks_env(ks_env, task_list_soft=task_list)
-            ENDIF
+            END IF
             CALL generate_qs_task_list(ks_env, task_list, &
                                        reorder_rs_grid_ranks=.TRUE., soft_valid=.TRUE., &
                                        skip_load_balance_distributed=skip_load_balance_distributed)
-         ENDIF
-      ENDIF
-
-      IF (dft_control%do_admm) THEN
-         ! generate the aux_fit task list
-         CALL get_ks_env(ks_env, task_list_aux_fit=task_list)
-         IF (.NOT. ASSOCIATED(task_list)) THEN
-            CALL allocate_task_list(task_list)
-            CALL set_ks_env(ks_env, task_list_aux_fit=task_list)
-         ENDIF
-         CALL get_ks_env(ks_env, sab_aux_fit=sab_orb)
-         CALL generate_qs_task_list(ks_env, task_list, &
-                                    reorder_rs_grid_ranks=.FALSE., soft_valid=.FALSE., basis_type="AUX_FIT", &
-                                    skip_load_balance_distributed=skip_load_balance_distributed, &
-                                    sab_orb_external=sab_orb)
+         END IF
       END IF
 
       IF (dft_control%qs_control%do_kg) THEN
@@ -265,14 +249,12 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(in), OPTIONAL                      :: rebuild_ao, rebuild_grids
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_env_rebuild_rho', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_env_rebuild_rho'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: do_admm, gapw_xc
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(qs_rho_type), POINTER                         :: rho, rho_aux_fit, rho_aux_fit_buffer, &
-                                                            rho_external, rho_xc
+      TYPE(qs_rho_type), POINTER                         :: rho, rho_external, rho_xc
 
       NULLIFY (rho)
       CALL timeset(routineN, handle)
@@ -281,8 +263,6 @@ CONTAINS
                       dft_control=dft_control, &
                       rho=rho, &
                       rho_xc=rho_xc, &
-                      rho_aux_fit=rho_aux_fit, &
-                      rho_aux_fit_buffer=rho_aux_fit_buffer, &
                       rho_external=rho_external)
 
       gapw_xc = dft_control%qs_control%gapw_xc
@@ -294,20 +274,13 @@ CONTAINS
          CALL qs_rho_rebuild(rho_xc, qs_env=qs_env, &
                              rebuild_ao=rebuild_ao, rebuild_grids=rebuild_grids)
       END IF
-      IF (do_admm) THEN
-         CALL qs_rho_rebuild(rho_aux_fit, qs_env=qs_env, &
-                             rebuild_ao=rebuild_ao, rebuild_grids=rebuild_grids, &
-                             admm=.TRUE.)
-         CALL qs_rho_rebuild(rho_aux_fit_buffer, qs_env=qs_env, &
-                             rebuild_ao=rebuild_ao, rebuild_grids=rebuild_grids, &
-                             admm=.TRUE.)
-      END IF
+
 ! ZMP rebuilding external density
       IF (dft_control%apply_external_density) THEN
          CALL qs_rho_rebuild(rho_external, qs_env=qs_env, &
                              rebuild_grids=rebuild_grids)
          dft_control%read_external_density = .TRUE.
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 

@@ -1,21 +1,23 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright (C) 2000 - 2020  CP2K developers group                                              !
+#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!                                                                                                 !
+#!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
 #:mute
 
-#:set lmax_unroll = 4
+   #:set lmax_unroll = 4
 
-#:def i_pow(k)
-#:if k%4==0
-(1.0_dp, 0.0_dp)
-#:elif k%4==1
-(0.0_dp, 1.0_dp)
-#:elif k%4==2
-(-1.0_dp, 0.0_dp)
-#:elif k%4==3
-(0.0_dp, -1.0_dp)
-#:endif
-#:enddef
+   #:def i_pow(k)
+      #:if k%4==0
+         (1.0_dp, 0.0_dp)
+      #:elif k%4==1
+         (0.0_dp, 1.0_dp)
+      #:elif k%4==2
+         (-1.0_dp, 0.0_dp)
+      #:elif k%4==3
+         (0.0_dp, -1.0_dp)
+      #:endif
+   #:enddef
 
 #:endmute

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,7 +15,8 @@
 MODULE auto_basis
    USE aux_basis_set,                   ONLY: create_aux_basis
    USE basis_set_types,                 ONLY: get_gto_basis_set,&
-                                              gto_basis_set_type
+                                              gto_basis_set_type,&
+                                              sort_gto_basis_set
    USE bibliography,                    ONLY: Stoychev2016,&
                                               cite_reference
    USE kinds,                           ONLY: default_string_length,&
@@ -58,9 +61,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: basis_type
       INTEGER, INTENT(IN), OPTIONAL                      :: basis_sort
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_aux_basis_set', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: bsname
       INTEGER                                            :: i, j, jj, l, laux, linc, lmax, lval, lx, &
@@ -90,7 +90,7 @@ CONTAINS
          CALL get_qs_kind(qs_kind, basis_set=orb_basis_set, basis_type="ORB")
       ELSE
          CALL get_qs_kind(qs_kind, basis_set=orb_basis_set, basis_type=basis_type)
-      ENDIF
+      END IF
       IF (ASSOCIATED(orb_basis_set)) THEN
          CALL get_basis_keyfigures(orb_basis_set, lmax, zmin, zmax, zeff)
          !Note: RI basis coud require lmax up to 2*orb_lmax. This ensures that all orbital pointers
@@ -201,9 +201,12 @@ CONTAINS
          !
          CALL create_aux_basis(ri_aux_basis_set, bsname, nsets, ls1, ls2, nl, npgf, zet)
 
-         IF (PRESENT(basis_sort)) ri_aux_basis_set%sort = basis_sort
-
          DEALLOCATE (zet)
+
+         IF (PRESENT(basis_sort)) THEN
+            CALL sort_gto_basis_set(ri_aux_basis_set, basis_sort)
+         END IF
+
       END IF
 
    END SUBROUTINE create_ri_aux_basis_set
@@ -221,9 +224,6 @@ CONTAINS
       TYPE(qs_kind_type), INTENT(IN)                     :: qs_kind
       INTEGER, INTENT(IN)                                :: basis_cntrl
       LOGICAL, INTENT(IN)                                :: exact_1c_terms
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_lri_aux_basis_set', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: bsname
@@ -364,9 +364,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: aux_fit_basis
       TYPE(qs_kind_type), INTENT(IN)                     :: qs_kind
       INTEGER, INTENT(IN)                                :: basis_cntrl
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_aux_fit_basis_set', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: bsname
@@ -582,9 +579,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: lmax
       REAL(KIND=dp), DIMENSION(0:9), INTENT(OUT)         :: zmin, zmax, zeff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_basis_keyfigures', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ipgf, iset, ishell, j, l, nset
       INTEGER, DIMENSION(:), POINTER                     :: lm, npgf, nshell
       INTEGER, DIMENSION(:, :), POINTER                  :: lshell
@@ -659,9 +653,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:9), INTENT(IN)          :: zmin, zmax, zeff
       REAL(KIND=dp), DIMENSION(0:18), INTENT(OUT)        :: pmin, pmax, peff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_basis_products', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: l1, l2, la
 
       pmin = HUGE(0.0_dp)
@@ -699,9 +690,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: afit
       REAL(KIND=dp), INTENT(IN)                          :: amet
       REAL(KIND=dp), INTENT(OUT)                         :: eval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_maximum', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ia, ib, info
       REAL(KIND=dp)                                      :: fij, fxij, intab, p, xij
@@ -777,8 +765,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), INTENT(INOUT)                       :: eval
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_potential', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       DO i = 2, n
@@ -803,9 +789,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: np, nf
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: zval
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: gcval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_basis_functions', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iset, ishell, j1, j2, jf, jp, l, nset
       INTEGER, DIMENSION(:), POINTER                     :: lm, npgf, nshell

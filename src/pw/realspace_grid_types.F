@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -26,6 +28,9 @@ MODULE realspace_grid_types
    USE message_passing,                 ONLY: &
         mp_comm_dup, mp_comm_free, mp_environ, mp_irecv, mp_isend, mp_isendrecv, mp_max, mp_min, &
         mp_request_null, mp_sum, mp_sync, mp_waitall, mp_waitany
+   USE offload_api,                     ONLY: offload_buffer_type,&
+                                              offload_create_buffer,&
+                                              offload_free_buffer
    USE pw_grid_types,                   ONLY: PW_MODE_LOCAL,&
                                               pw_grid_type
    USE pw_grids,                        ONLY: pw_grid_release,&
@@ -54,7 +59,6 @@ MODULE realspace_grid_types
              rs_grid_set_box, &
              rs_grid_create, &
              rs_grid_create_descriptor, &
-             rs_grid_retain, &
              rs_grid_retain_descriptor, &
              rs_grid_release, &
              rs_grid_release_descriptor, &
@@ -62,7 +66,8 @@ MODULE realspace_grid_types
              rs_grid_print, &
              rs_grid_locate_rank, &
              rs_grid_max_ngpts, &
-             rs_grid_mult_and_add
+             rs_grid_mult_and_add, &
+             map_gaussian_here
 
    INTEGER, PARAMETER, PUBLIC               :: rsgrid_distributed = 0, &
                                                rsgrid_replicated = 1, &
@@ -70,8 +75,6 @@ MODULE realspace_grid_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .FALSE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'realspace_grid_types'
-   INTEGER, SAVE, PRIVATE :: last_rs_id = 0
-   INTEGER, SAVE, PRIVATE :: allocated_rs_grid_count = 0
    INTEGER, PARAMETER, PUBLIC :: rs2pw = 11, pw2rs = 12
 
 ! **************************************************************************************************
@@ -86,8 +89,6 @@ MODULE realspace_grid_types
 
 ! **************************************************************************************************
    TYPE realspace_grid_desc_type
-      INTEGER :: grid_id ! tag of the pw_grid
-
       TYPE(pw_grid_type), POINTER   :: pw ! the pw grid
 
       INTEGER :: ref_count ! reference count
@@ -106,7 +107,7 @@ MODULE realspace_grid_types
 
       LOGICAL :: parallel ! whether the corresponding pw grid is distributed
       LOGICAL :: distributed ! whether the rs grid is distributed
-      ! these MPI related quantities are only meaningful depending on how the grid has been layed out
+      ! these MPI related quantities are only meaningful depending on how the grid has been laid out
       ! they are most useful for fully distributed grids, where they reflect the topology of the grid
       INTEGER :: group
       INTEGER :: my_pos
@@ -136,20 +137,18 @@ MODULE realspace_grid_types
 
    TYPE realspace_grid_type
 
-      TYPE(realspace_grid_desc_type), POINTER :: desc
+      TYPE(realspace_grid_desc_type), POINTER :: desc => NULL()
 
-      INTEGER :: id_nr ! unique identifier of rs
-      INTEGER :: ref_count ! reference count
+      INTEGER :: ngpts_local = -1 ! local dimensions
+      INTEGER, DIMENSION(3) :: npts_local = -1
+      INTEGER, DIMENSION(3) :: lb_local = -1
+      INTEGER, DIMENSION(3) :: ub_local = -1
+      INTEGER, DIMENSION(3) :: lb_real = -1 ! lower bounds of the real local data
+      INTEGER, DIMENSION(3) :: ub_real = -1 ! upper bounds of the real local data
 
-      INTEGER :: ngpts_local ! local dimensions
-      INTEGER, DIMENSION(3) :: npts_local
-      INTEGER, DIMENSION(3) :: lb_local
-      INTEGER, DIMENSION(3) :: ub_local
-      INTEGER, DIMENSION(3) :: lb_real ! lower bounds of the real local data
-      INTEGER, DIMENSION(3) :: ub_real ! upper bounds of the real local data
-
-      INTEGER, DIMENSION(:), POINTER :: px, py, pz ! index translators
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: r ! the grid
+      INTEGER, DIMENSION(:), POINTER             :: px => NULL(), py => NULL(), pz => NULL() ! index translators
+      TYPE(offload_buffer_type)                  :: buffer ! owner of the grid's memory
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: r => NULL() ! the grid (pointer to buffer%host_buffer)
 
    END TYPE realspace_grid_type
 
@@ -173,7 +172,7 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
    FUNCTION rs_grid_locate_rank(rs_desc, rank_in, shift) RESULT(rank_out)
-      TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
+      TYPE(realspace_grid_desc_type), INTENT(IN)         :: rs_desc
       INTEGER, INTENT(IN)                                :: rank_in
       INTEGER, DIMENSION(3), INTENT(IN)                  :: shift
       INTEGER                                            :: rank_out
@@ -207,12 +206,11 @@ CONTAINS
       TYPE(realspace_grid_input_type), INTENT(IN)        :: input_settings
       INTEGER, INTENT(IN), OPTIONAL                      :: border_points
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_create_descriptor', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_create_descriptor'
 
       INTEGER                                            :: border_size, dir, handle, i, j, k, l, &
-                                                            lb(2), n_slices(3), n_slices_tmp(3), &
-                                                            neighbours(3), nmin
+                                                            lb(2), min_npts_real, n_slices(3), &
+                                                            n_slices_tmp(3), nmin
       LOGICAL                                            :: overlap
       REAL(KIND=dp)                                      :: ratio, ratio_best, volume, volume_dist
 
@@ -238,12 +236,11 @@ CONTAINS
       desc%dh = pw_grid%dh
       desc%dh_inv = pw_grid%dh_inv
       desc%orthorhombic = pw_grid%orthorhombic
-      desc%grid_id = pw_grid%id_nr
       desc%ref_count = 1
 
       IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
          ! The corresponding group has dimension 1
-         ! All operations will be done localy
+         ! All operations will be done locally
          desc%npts = pw_grid%npts
          desc%ngpts = PRODUCT(INT(desc%npts, KIND=int_8))
          desc%lb = pw_grid%bounds(1, :)
@@ -310,23 +307,17 @@ CONTAINS
                                   (/-1, -1, -1/) /= input_settings%distribution_layout) &
                              )) CYCLE
 
-               ! we currently can not work with a grid that has borders that overlaps with the local data of the grid itself
+               ! We can not work with a grid that has more local than global grid points.
+               ! This can happen when a halo region wraps around and overlaps with the other halo.
                overlap = .FALSE.
                DO dir = 1, 3
                   IF (n_slices_tmp(dir) > 1) THEN
-                     neighbours(dir) = HUGE(0)
                      DO l = 0, n_slices_tmp(dir) - 1
                         lb = get_limit(desc%npts(dir), n_slices_tmp(dir), l)
-                        neighbours(dir) = MIN(lb(2) - lb(1) + 1, neighbours(dir))
-                     ENDDO
-                     desc%neighbours(dir) = (nmin + neighbours(dir) - 1)/neighbours(dir)
-                     IF (desc%neighbours(dir) .GE. n_slices_tmp(dir)) overlap = .TRUE.
-                  ELSE
-                     neighbours(dir) = 0
-                  ENDIF
-               ENDDO
-               ! XXXXXXX I think the overlap criterion / neighbour calculation is too conservative
-               ! write(*,*) n_slices_tmp,desc % neighbours, overlap
+                        IF (lb(2) - lb(1) + 1 + 2*nmin > desc%npts(dir)) overlap = .TRUE.
+                     END DO
+                  END IF
+               END DO
                IF (overlap) CYCLE
 
                ! a heuristic optimisation to reduce the memory usage
@@ -339,10 +330,10 @@ CONTAINS
                IF (ratio > ratio_best) THEN
                   ratio_best = ratio
                   n_slices = n_slices_tmp
-               ENDIF
+               END IF
 
-            ENDDO
-            ENDDO
+            END DO
+            END DO
 
             ! if automatic we can still decide this is a replicated grid
             ! if the memory gain (or the gain is messages) is too small.
@@ -430,9 +421,9 @@ CONTAINS
                      lb = get_limit(desc%npts(dir), desc%group_dim(dir), desc%rank2coord(dir, i))
                      desc%lb_global(dir, i) = lb(1) + desc%lb(dir) - 1
                      desc%ub_global(dir, i) = lb(2) + desc%lb(dir) - 1
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
 
             ! map a grid point to a CPU coord
             DO dir = 1, 3
@@ -443,7 +434,7 @@ CONTAINS
                   ELSE
                      lb(1) = desc%lb(dir)
                      lb(2) = desc%ub(dir)
-                  ENDIF
+                  END IF
                   SELECT CASE (dir)
                   CASE (1)
                      desc%x2coord(lb(1):lb(2)) = l
@@ -452,19 +443,19 @@ CONTAINS
                   CASE (3)
                      desc%z2coord(lb(1):lb(2)) = l
                   END SELECT
-               ENDDO
-            ENDDO
+               END DO
+            END DO
 
             ! an upper bound for the number of neighbours the border is overlapping with
             DO dir = 1, 3
                desc%neighbours(dir) = 0
                IF ((n_slices(dir) > 1) .OR. (border_size > 0)) THEN
-                  neighbours(dir) = HUGE(0)
+                  min_npts_real = HUGE(0)
                   DO l = 0, n_slices(dir) - 1
                      lb = get_limit(desc%npts(dir), n_slices(dir), l)
-                     neighbours(dir) = MIN(lb(2) - lb(1) + 1, neighbours(dir))
+                     min_npts_real = MIN(lb(2) - lb(1) + 1, min_npts_real)
                   END DO
-                  desc%neighbours(dir) = (desc%border + neighbours(dir) - 1)/neighbours(dir)
+                  desc%neighbours(dir) = (desc%border + min_npts_real - 1)/min_npts_real
                END IF
             END DO
 
@@ -492,20 +483,15 @@ CONTAINS
 !> \param desc ...
 ! **************************************************************************************************
    SUBROUTINE rs_grid_create(rs, desc)
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(OUT)             :: rs
       TYPE(realspace_grid_desc_type), POINTER            :: desc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_create', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rs_grid_create'
 
       INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
 
-      ALLOCATE (rs)
-
-      last_rs_id = last_rs_id + 1
-      rs%id_nr = last_rs_id
-      rs%ref_count = 1
       rs%desc => desc
       CALL rs_grid_retain_descriptor(rs%desc)
 
@@ -540,11 +526,11 @@ CONTAINS
          rs%ngpts_local = PRODUCT(rs%npts_local)
       END IF
 
-      allocated_rs_grid_count = allocated_rs_grid_count + 1
+      CALL offload_create_buffer(rs%ngpts_local, rs%buffer)
+      rs%r(rs%lb_local(1):rs%ub_local(1), &
+           rs%lb_local(2):rs%ub_local(2), &
+           rs%lb_local(3):rs%ub_local(3)) => rs%buffer%host_buffer
 
-      ALLOCATE (rs%r(rs%lb_local(1):rs%ub_local(1), &
-                     rs%lb_local(2):rs%ub_local(2), &
-                     rs%lb_local(3):rs%ub_local(3)))
       ALLOCATE (rs%px(desc%npts(1)))
       ALLOCATE (rs%py(desc%npts(2)))
       ALLOCATE (rs%pz(desc%npts(3)))
@@ -556,7 +542,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Defines a new ordering of ranks on this realspace grid, recalculating
 !>        the data bounds and reallocating the grid.  As a result, each MPI process
-!>        now has a real rank (i.e. it's rank in the MPI communicator from the pw grid)
+!>        now has a real rank (i.e., its rank in the MPI communicator from the pw grid)
 !>        and a virtual rank (the rank of the process where the data now owned by this
 !>        process would reside in an ordinary cartesian distribution).
 !>        NB. Since the grid size required may change, the caller should be sure to release
@@ -569,17 +555,12 @@ CONTAINS
 !>        04-2009 created [Iain Bethune]
 !>          (c) The Numerical Algorithms Group (NAG) Ltd, 2009 on behalf of the HECToR project
 ! **************************************************************************************************
-   SUBROUTINE rs_grid_reorder_ranks(desc, real2virtual)
+   PURE SUBROUTINE rs_grid_reorder_ranks(desc, real2virtual)
 
-      TYPE(realspace_grid_desc_type), POINTER            :: desc
+      TYPE(realspace_grid_desc_type), INTENT(INOUT)      :: desc
       INTEGER, DIMENSION(:), INTENT(IN)                  :: real2virtual
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_reorder_ranks', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle, i
-
-      CALL timeset(routineN, handle)
+      INTEGER                                            :: i
 
       desc%real2virtual(:) = real2virtual
 
@@ -593,8 +574,6 @@ CONTAINS
          desc%virtual_group_coor(:) = desc%rank2coord(:, desc%my_virtual_pos)
       END IF
 
-      CALL timestop(handle)
-
    END SUBROUTINE
 
 ! **************************************************************************************************
@@ -604,10 +583,8 @@ CONTAINS
 !> \author JGH (17-May-2007)
 ! **************************************************************************************************
    SUBROUTINE rs_grid_print(rs, iounit)
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
       INTEGER, INTENT(in)                                :: iounit
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_print', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: dir, i, nn
       REAL(KIND=dp)                                      :: pp(3)
@@ -615,7 +592,7 @@ CONTAINS
       IF (rs%desc%parallel) THEN
          IF (iounit > 0) THEN
             WRITE (iounit, '(/,A,T71,I10)') &
-               " RS_GRID| Information for grid number ", rs%desc%grid_id
+               " RS_GRID| Information for grid number ", rs%desc%pw%id_nr
             DO i = 1, 3
                WRITE (iounit, '(A,I3,T30,2I8,T62,A,T71,I10)') " RS_GRID|   Bounds ", &
                   i, rs%desc%lb(i), rs%desc%ub(i), "Points:", rs%desc%npts(i)
@@ -662,13 +639,13 @@ CONTAINS
       ELSE
          IF (iounit > 0) THEN
             WRITE (iounit, '(/,A,T71,I10)') &
-               " RS_GRID| Information for grid number ", rs%desc%grid_id
+               " RS_GRID| Information for grid number ", rs%desc%pw%id_nr
             DO i = 1, 3
                WRITE (iounit, '(A,I3,T30,2I8,T62,A,T71,I10)') " RS_GRID|   Bounds ", &
                   i, rs%desc%lb(i), rs%desc%ub(i), "Points:", rs%desc%npts(i)
             END DO
 !         WRITE ( iounit, '(/)' )
-         ENDIF
+         END IF
       END IF
 
    END SUBROUTINE rs_grid_print
@@ -687,11 +664,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer(rs, pw, dir)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_pw_transfer', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_pw_transfer'
 
       CHARACTER(LEN=5)                                   :: dirname
       INTEGER                                            :: handle, handle2, i, im, j, jm, k, km
@@ -702,7 +679,7 @@ CONTAINS
       CALL timeset(routineN//"_"//TRIM(dirname)//"_"//TRIM(ADJUSTL( &
                                                            cp_to_string(CEILING(pw%pw_grid%cutoff/10)*10))), handle)
 
-      IF (rs%desc%grid_id /= pw%pw_grid%id_nr) &
+      IF (.NOT. ASSOCIATED(rs%desc%pw, pw%pw_grid)) &
          CPABORT("Different rs and pw indentifiers")
       IF ((pw%in_use .NE. REALDATA3D) .AND. (pw%in_use .NE. COMPLEXDATA3D)) &
          CPABORT("Need REALDATA3D or COMPLEXDATA3D")
@@ -839,12 +816,9 @@ CONTAINS
 !>      pw2rs will scatter all pw data to the rs grids
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer_replicated(rs, pw, dir)
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_pw_transfer_replicated', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: dest, group, i, ii, im, ip, ix, iy, iz, &
                                                             j, jm, k, km, mepos, nma, nn, np, &
@@ -904,7 +878,7 @@ CONTAINS
             swapptr => sendbuf
             sendbuf => recvbuf
             recvbuf => swapptr
-         ENDDO
+         END DO
          nn = rcount(mepos)
          IF (pw%in_use == REALDATA3D) THEN
             CALL dcopy(nn, sendbuf, 1, pw%cr3d, 1)
@@ -918,7 +892,7 @@ CONTAINS
          IF (pw%in_use == REALDATA3D) THEN
             CALL dcopy(nn, pw%cr3d, 1, sendbuf, 1)
          ELSEIF (pw%in_use == COMPLEXDATA3D) THEN
-            CALL dcopy(nn, pw%cc3d, 2, sendbuf, 1)
+            CALL dcopy(nn, TRANSFER(pw%cc3d, sendbuf), 2, sendbuf, 1)
          ELSE
             CPABORT("PW type not compatible")
          END IF
@@ -931,7 +905,7 @@ CONTAINS
             IF (ip .NE. np - 1) THEN
                CALL mp_isendrecv(sendbuf, dest, recvbuf, source, &
                                  group, req(1), req(2), 13)
-            ENDIF
+            END IF
             lb = pbo(1, :) + bo(1, :, MODULO(mepos - ip, np) + 1) - 1
             ub = pbo(1, :) + bo(2, :, MODULO(mepos - ip, np) + 1) - 1
             ii = 0
@@ -952,7 +926,7 @@ CONTAINS
             END DO
             IF (ip .NE. np - 1) THEN
                CALL mp_waitall(req)
-            ENDIF
+            END IF
             swapptr => sendbuf
             sendbuf => recvbuf
             recvbuf => swapptr
@@ -1023,12 +997,9 @@ CONTAINS
 !>       with the central domain of several CPUs (i.e. next nearest neighbors)
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer_distributed(rs, pw, dir)
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_pw_transfer_distributed', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=200)                                 :: error_string
       INTEGER :: completed, dest_down, dest_up, i, idir, j, k, lb, my_id, my_pw_rank, my_rs_rank, &
@@ -1056,7 +1027,7 @@ CONTAINS
          IF (debug_this_module) THEN
             rs_sum = accurate_sum(rs%r)*ABS(det_3x3(rs%desc%dh))
             CALL mp_sum(rs_sum, rs%desc%group)
-         ENDIF
+         END IF
 
          halo_swapped = .FALSE.
          ! We don't need to send the 'edges' of the halos that have already been sent
@@ -1110,7 +1081,7 @@ CONTAINS
                      ub_send_down(idir) = -1
                      lb_recv_down(idir) = 0
                      ub_recv_down(idir) = -1
-                  ENDIF
+                  END IF
 
                   DO i = 1, 3
                      IF (halo_swapped(i)) THEN
@@ -1118,10 +1089,10 @@ CONTAINS
                         ub_send_down(i) = rs%ub_real(i)
                         lb_recv_down(i) = rs%lb_real(i)
                         ub_recv_down(i) = rs%ub_real(i)
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
 
-                  ! post the recieve
+                  ! post the receive
                   ALLOCATE (recv_buf_3d_down(lb_recv_down(1):ub_recv_down(1), &
                                              lb_recv_down(2):ub_recv_down(2), lb_recv_down(3):ub_recv_down(3)))
                   CALL mp_irecv(recv_buf_3d_down, source_down, rs%desc%group, req(1))
@@ -1170,7 +1141,7 @@ CONTAINS
                      ub_send_up(idir) = -1
                      lb_recv_up(idir) = 0
                      ub_recv_up(idir) = -1
-                  ENDIF
+                  END IF
 
                   DO i = 1, 3
                      IF (halo_swapped(i)) THEN
@@ -1178,10 +1149,10 @@ CONTAINS
                         ub_send_up(i) = rs%ub_real(i)
                         lb_recv_up(i) = rs%lb_real(i)
                         ub_recv_up(i) = rs%ub_real(i)
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
 
-                  ! post the recieve
+                  ! post the receive
                   ALLOCATE (recv_buf_3d_up(lb_recv_up(1):ub_recv_up(1), &
                                            lb_recv_up(2):ub_recv_up(2), lb_recv_up(3):ub_recv_up(3)))
                   CALL mp_irecv(recv_buf_3d_up, source_up, rs%desc%group, req(2))
@@ -1290,7 +1261,7 @@ CONTAINS
             bounds(i, 3:4) = pw%pw_grid%para%bo(1:2, 2, i, 1)
             bounds(i, 1:2) = bounds(i, 1:2) - pw%pw_grid%npts(1)/2 - 1
             bounds(i, 3:4) = bounds(i, 3:4) - pw%pw_grid%npts(2)/2 - 1
-         ENDDO
+         END DO
 
          ALLOCATE (send_tasks(0:pw%pw_grid%para%group_size - 1, 1:6))
          ALLOCATE (send_sizes(0:pw%pw_grid%para%group_size - 1))
@@ -1329,7 +1300,7 @@ CONTAINS
                pos(:) = pos(:) - rs%desc%npts(idir)/2 - 1
                lb_send(idir) = pos(1)
                ub_send(idir) = pos(2)
-            ENDDO
+            END DO
 
             IF (lb_send(1) .GT. bounds(my_rs_rank, 2)) CYCLE
             IF (ub_send(1) .LT. bounds(my_rs_rank, 1)) CYCLE
@@ -1345,7 +1316,7 @@ CONTAINS
             recv_sizes(i) = (recv_tasks(i, 2) - recv_tasks(i, 1) + 1)* &
                             (recv_tasks(i, 4) - recv_tasks(i, 3) + 1)*(recv_tasks(i, 6) - recv_tasks(i, 5) + 1)
 
-         ENDDO
+         END DO
 !$OMP END PARALLEL DO
 
          coords(:) = rs%desc%rank2coord(:, rs%desc%real2virtual(my_rs_rank))
@@ -1354,7 +1325,7 @@ CONTAINS
             pos(:) = pos(:) - rs%desc%npts(idir)/2 - 1
             lb_send(idir) = pos(1)
             ub_send(idir) = pos(2)
-         ENDDO
+         END DO
 
          lb_recv(:) = lb_send(:)
          ub_recv(:) = ub_send(:)
@@ -1384,7 +1355,7 @@ CONTAINS
          DO i = 1, pw%pw_grid%para%group_size - 1
             send_disps(i) = send_disps(i - 1) + send_sizes(i - 1)
             recv_disps(i) = recv_disps(i - 1) + recv_sizes(i - 1)
-         ENDDO
+         END DO
 
          CPASSERT(SUM(send_sizes) == PRODUCT(ub_recv - lb_recv + 1))
 
@@ -1424,10 +1395,10 @@ CONTAINS
                   DO x = send_tasks(i, 1), send_tasks(i, 2)
                      k = k + 1
                      send_bufs(i)%array(k) = rs%r(x, y, z)
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
+                  END DO
+               END DO
+            END DO
+         END DO
 !$OMP END PARALLEL DO
 
          ALLOCATE (send_reqs(0:rs%desc%group_size - 1))
@@ -1451,10 +1422,10 @@ CONTAINS
                   DO x = recv_tasks(completed - 1, 1), recv_tasks(completed - 1, 2)
                      k = k + 1
                      pw%cr3d(x, y, z) = recv_bufs(completed - 1)%array(k)
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
+                  END DO
+               END DO
+            END DO
+         END DO
 
          CALL mp_waitall(send_reqs)
 
@@ -1488,8 +1459,8 @@ CONTAINS
                CALL cp_abort(__LOCATION__, &
                              error_string//" Please report this bug ... quick workaround: use "// &
                              "DISTRIBUTION_TYPE REPLICATED")
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
       ELSE
 
@@ -1506,7 +1477,7 @@ CONTAINS
             bounds(i, 3:4) = pw%pw_grid%para%bo(1:2, 2, i, 1)
             bounds(i, 1:2) = bounds(i, 1:2) - pw%pw_grid%npts(1)/2 - 1
             bounds(i, 3:4) = bounds(i, 3:4) - pw%pw_grid%npts(2)/2 - 1
-         ENDDO
+         END DO
 
          ALLOCATE (send_tasks(0:pw%pw_grid%para%group_size - 1, 1:6))
          ALLOCATE (send_sizes(0:pw%pw_grid%para%group_size - 1))
@@ -1557,7 +1528,7 @@ CONTAINS
                pos(:) = pos(:) - rs%desc%npts(idir)/2 - 1
                lb_send(idir) = pos(1)
                ub_send(idir) = pos(2)
-            ENDDO
+            END DO
 
             IF (ub_send(1) .LT. bounds(my_rs_rank, 1)) CYCLE
             IF (lb_send(1) .GT. bounds(my_rs_rank, 2)) CYCLE
@@ -1573,7 +1544,7 @@ CONTAINS
             send_sizes(i) = (send_tasks(i, 2) - send_tasks(i, 1) + 1)* &
                             (send_tasks(i, 4) - send_tasks(i, 3) + 1)*(send_tasks(i, 6) - send_tasks(i, 5) + 1)
 
-         ENDDO
+         END DO
 !$OMP END PARALLEL DO
 
          coords(:) = rs%desc%rank2coord(:, rs%desc%real2virtual(my_rs_rank))
@@ -1582,7 +1553,7 @@ CONTAINS
             pos(:) = pos(:) - rs%desc%npts(idir)/2 - 1
             lb_send(idir) = pos(1)
             ub_send(idir) = pos(2)
-         ENDDO
+         END DO
 
          lb_recv(:) = lb_send(:)
          ub_recv(:) = ub_send(:)
@@ -1605,7 +1576,7 @@ CONTAINS
             recv_sizes(j) = (recv_tasks(j, 2) - recv_tasks(j, 1) + 1)* &
                             (recv_tasks(j, 4) - recv_tasks(j, 3) + 1)*(recv_tasks(j, 6) - recv_tasks(j, 5) + 1)
 
-         ENDDO
+         END DO
 !$OMP END PARALLEL DO
 
          send_disps(0) = 0
@@ -1613,7 +1584,7 @@ CONTAINS
          DO i = 1, pw%pw_grid%para%group_size - 1
             send_disps(i) = send_disps(i - 1) + send_sizes(i - 1)
             recv_disps(i) = recv_disps(i - 1) + recv_sizes(i - 1)
-         ENDDO
+         END DO
 
          CPASSERT(SUM(recv_sizes) == PRODUCT(ub_recv - lb_recv + 1))
 
@@ -1653,10 +1624,10 @@ CONTAINS
                   DO x = send_tasks(i, 1), send_tasks(i, 2)
                      k = k + 1
                      send_bufs(i)%array(k) = pw%cr3d(x, y, z)
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
+                  END DO
+               END DO
+            END DO
+         END DO
 !$OMP END PARALLEL DO
 
          ALLOCATE (send_reqs(0:rs%desc%group_size - 1))
@@ -1681,10 +1652,10 @@ CONTAINS
                   DO x = recv_tasks(completed - 1, 1), recv_tasks(completed - 1, 2)
                      k = k + 1
                      rs%r(x, y, z) = recv_bufs(completed - 1)%array(k)
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDDO
+                  END DO
+               END DO
+            END DO
+         END DO
 
          CALL mp_waitall(send_reqs)
 
@@ -1758,7 +1729,7 @@ CONTAINS
                      ub_send_down(idir) = -1
                      lb_recv_down(idir) = 0
                      ub_recv_down(idir) = -1
-                  ENDIF
+                  END IF
 
                   DO i = 1, 3
                      IF (.NOT. (halo_swapped(i) .OR. i .EQ. idir)) THEN
@@ -1766,15 +1737,15 @@ CONTAINS
                         ub_send_down(i) = rs%ub_real(i)
                         lb_recv_down(i) = rs%lb_real(i)
                         ub_recv_down(i) = rs%ub_real(i)
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
 
                   ! allocate the recv buffer
                   nn = PRODUCT(ub_recv_down - lb_recv_down + 1)
                   ALLOCATE (recv_buf_3d_down(lb_recv_down(1):ub_recv_down(1), &
                                              lb_recv_down(2):ub_recv_down(2), lb_recv_down(3):ub_recv_down(3)))
 
-                  ! recv buffer is now ready, so post the recieve
+                  ! recv buffer is now ready, so post the receive
                   CALL mp_irecv(recv_buf_3d_down, source_down, rs%desc%group, req(1))
 
                   ! now allocate,pack and send the send buffer
@@ -1821,7 +1792,7 @@ CONTAINS
                      ub_send_up(idir) = -1
                      lb_recv_up(idir) = 0
                      ub_recv_up(idir) = -1
-                  ENDIF
+                  END IF
 
                   DO i = 1, 3
                      IF (.NOT. (halo_swapped(i) .OR. i .EQ. idir)) THEN
@@ -1829,15 +1800,15 @@ CONTAINS
                         ub_send_up(i) = rs%ub_real(i)
                         lb_recv_up(i) = rs%lb_real(i)
                         ub_recv_up(i) = rs%ub_real(i)
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
 
                   ! allocate the recv buffer
                   nn = PRODUCT(ub_recv_up - lb_recv_up + 1)
                   ALLOCATE (recv_buf_3d_up(lb_recv_up(1):ub_recv_up(1), &
                                            lb_recv_up(2):ub_recv_up(2), lb_recv_up(3):ub_recv_up(3)))
 
-                  ! recv buffer is now ready, so post the recieve
+                  ! recv buffer is now ready, so post the receive
 
                   CALL mp_irecv(recv_buf_3d_up, source_up, rs%desc%group, req(2))
 
@@ -1942,9 +1913,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_zero(rs)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_zero', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_grid_zero'
 
       INTEGER                                            :: handle, i, j, k, l(3), u(3)
 
@@ -1958,9 +1929,9 @@ CONTAINS
       DO j = l(2), u(2)
       DO i = l(1), u(1)
          rs%r(i, j, k) = 0.0_dp
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 !$OMP END PARALLEL DO
       CALL timestop(handle)
 
@@ -1978,11 +1949,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_mult_and_add(rs1, rs2, rs3, scalar)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs1, rs2, rs3
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs1, rs2, rs3
       REAL(dp), INTENT(IN)                               :: scalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_mult_and_add', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_mult_and_add'
 
       INTEGER                                            :: handle, i, j, k, l(3), u(3)
 
@@ -1999,11 +1969,11 @@ CONTAINS
          DO j = l(2), u(2)
          DO i = l(1), u(1)
             rs1%r(i, j, k) = rs1%r(i, j, k) + scalar*rs2%r(i, j, k)*rs3%r(i, j, k)
-         ENDDO
-         ENDDO
-         ENDDO
+         END DO
+         END DO
+         END DO
 !$OMP END PARALLEL DO
-      ENDIF
+      END IF
       CALL timestop(handle)
    END SUBROUTINE rs_grid_mult_and_add
 
@@ -2018,36 +1988,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_set_box(pw_grid, rs)
 
-      TYPE(pw_grid_type), POINTER                        :: pw_grid
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(pw_grid_type), INTENT(IN), TARGET             :: pw_grid
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_set_box', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pw_grid))
-      CPASSERT(ASSOCIATED(rs))
-      CPASSERT(rs%desc%grid_id == pw_grid%id_nr)
+      CPASSERT(ASSOCIATED(rs%desc%pw, pw_grid))
       rs%desc%dh = pw_grid%dh
       rs%desc%dh_inv = pw_grid%dh_inv
 
    END SUBROUTINE rs_grid_set_box
-
-! **************************************************************************************************
-!> \brief retains the given rs grid (see doc/ReferenceCounting.html)
-!> \param rs_grid the grid to retain
-!> \par History
-!>      03.2003 created [fawzi]
-!> \author fawzi
-! **************************************************************************************************
-   SUBROUTINE rs_grid_retain(rs_grid)
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(rs_grid))
-      CPASSERT(rs_grid%ref_count > 0)
-      rs_grid%ref_count = rs_grid%ref_count + 1
-   END SUBROUTINE rs_grid_retain
 
 ! **************************************************************************************************
 !> \brief retains the given rs grid descriptor (see doc/ReferenceCounting.html)
@@ -2058,9 +2006,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_retain_descriptor(rs_desc)
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_retain_descriptor', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(rs_desc))
       CPASSERT(rs_desc%ref_count > 0)
@@ -2075,26 +2020,16 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE rs_grid_release(rs_grid)
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: rs_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_release', &
-         routineP = moduleN//':'//routineN
+      CALL rs_grid_release_descriptor(rs_grid%desc)
 
-      IF (ASSOCIATED(rs_grid)) THEN
-         CPASSERT(rs_grid%ref_count > 0)
-         rs_grid%ref_count = rs_grid%ref_count - 1
-         IF (rs_grid%ref_count == 0) THEN
+      CALL offload_free_buffer(rs_grid%buffer)
+      NULLIFY (rs_grid%r)
 
-            CALL rs_grid_release_descriptor(rs_grid%desc)
-
-            allocated_rs_grid_count = allocated_rs_grid_count - 1
-            DEALLOCATE (rs_grid%r)
-            DEALLOCATE (rs_grid%px)
-            DEALLOCATE (rs_grid%py)
-            DEALLOCATE (rs_grid%pz)
-            DEALLOCATE (rs_grid)
-         END IF
-      END IF
+      IF (ASSOCIATED(rs_grid%px)) DEALLOCATE (rs_grid%px)
+      IF (ASSOCIATED(rs_grid%py)) DEALLOCATE (rs_grid%py)
+      IF (ASSOCIATED(rs_grid%pz)) DEALLOCATE (rs_grid%pz)
    END SUBROUTINE rs_grid_release
 
 ! **************************************************************************************************
@@ -2106,9 +2041,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_release_descriptor(rs_desc)
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_release_descriptor', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(rs_desc)) THEN
          CPASSERT(rs_desc%ref_count > 0)
@@ -2133,7 +2065,7 @@ CONTAINS
                DEALLOCATE (rs_desc%x2coord)
                DEALLOCATE (rs_desc%y2coord)
                DEALLOCATE (rs_desc%z2coord)
-            ENDIF
+            END IF
 
             DEALLOCATE (rs_desc)
          END IF
@@ -2152,13 +2084,11 @@ CONTAINS
 !>      04.2009 created [Iain Bethune]
 !>        (c) The Numerical Algorithms Group (NAG) Ltd, 2009 on behalf of the HECToR project
 ! **************************************************************************************************
-   SUBROUTINE cart_shift(rs_grid, dir, disp, source, dest)
+   PURE SUBROUTINE cart_shift(rs_grid, dir, disp, source, dest)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs_grid
       INTEGER, INTENT(IN)                                :: dir, disp
       INTEGER, INTENT(OUT)                               :: source, dest
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cart_shift', routineP = moduleN//':'//routineN
 
       INTEGER, DIMENSION(3)                              :: shift_coords
 
@@ -2180,11 +2110,10 @@ CONTAINS
 !>      10.2011 created [Iain Bethune]
 ! **************************************************************************************************
    FUNCTION rs_grid_max_ngpts(desc) RESULT(max_ngpts)
-      TYPE(realspace_grid_desc_type), POINTER            :: desc
+      TYPE(realspace_grid_desc_type), INTENT(IN)         :: desc
       INTEGER                                            :: max_ngpts
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_max_ngpts', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_grid_max_ngpts'
 
       INTEGER                                            :: handle, i
       INTEGER, DIMENSION(3)                              :: lb, ub
@@ -2210,5 +2139,52 @@ CONTAINS
       CALL timestop(handle)
 
    END FUNCTION rs_grid_max_ngpts
+
+! **************************************************************************************************
+!> \brief ...
+!> \param rs_grid ...
+!> \param h_inv ...
+!> \param ra ...
+!> \param offset ...
+!> \param group_size ...
+!> \param my_pos ...
+!> \return ...
+! **************************************************************************************************
+   PURE LOGICAL FUNCTION map_gaussian_here(rs_grid, h_inv, ra, offset, group_size, my_pos) RESULT(res)
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs_grid
+      REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: h_inv
+      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: ra
+      INTEGER, INTENT(IN), OPTIONAL                      :: offset, group_size, my_pos
+
+      INTEGER                                            :: dir, lb(3), location(3), tp(3), ub(3)
+
+      res = .FALSE.
+
+      IF (.NOT. ALL(rs_grid%desc%perd == 1)) THEN
+         DO dir = 1, 3
+            ! bounds of local grid (i.e. removing the 'wings'), if periodic
+            tp(dir) = FLOOR(DOT_PRODUCT(h_inv(dir, :), ra)*rs_grid%desc%npts(dir))
+            tp(dir) = MODULO(tp(dir), rs_grid%desc%npts(dir))
+            IF (rs_grid%desc%perd(dir) .NE. 1) THEN
+               lb(dir) = rs_grid%lb_local(dir) + rs_grid%desc%border
+               ub(dir) = rs_grid%ub_local(dir) - rs_grid%desc%border
+            ELSE
+               lb(dir) = rs_grid%lb_local(dir)
+               ub(dir) = rs_grid%ub_local(dir)
+            END IF
+            ! distributed grid, only map if it is local to the grid
+            location(dir) = tp(dir) + rs_grid%desc%lb(dir)
+         END DO
+         IF (ALL(lb(:) <= location(:)) .AND. ALL(location(:) <= ub(:))) THEN
+            res = .TRUE.
+         END IF
+      ELSE
+         IF (PRESENT(offset) .AND. PRESENT(group_size) .AND. PRESENT(my_pos)) THEN
+            ! not distributed, just a round-robin distribution over the full set of CPUs
+            IF (MODULO(offset, group_size) == my_pos) res = .TRUE.
+         END IF
+      END IF
+
+   END FUNCTION map_gaussian_here
 
 END MODULE realspace_grid_types

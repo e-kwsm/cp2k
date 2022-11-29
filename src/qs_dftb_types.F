@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -81,9 +83,6 @@ CONTAINS
       TYPE(qs_dftb_pairpot_type), DIMENSION(:, :), &
          POINTER                                         :: pairpot
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dftb_pairpot_init', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
 
       IF (ASSOCIATED(pairpot)) THEN
@@ -108,9 +107,6 @@ CONTAINS
       TYPE(qs_dftb_pairpot_type)                         :: pairpot
       INTEGER, INTENT(IN)                                :: ngrd, llm, spdim
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dftb_pairpot_create', &
-         routineP = moduleN//':'//routineN
-
       pairpot%ngrd = ngrd
       pairpot%spdim = spdim
       pairpot%llm = llm
@@ -134,9 +130,6 @@ CONTAINS
    SUBROUTINE qs_dftb_pairpot_release(pairpot)
       TYPE(qs_dftb_pairpot_type), DIMENSION(:, :), &
          POINTER                                         :: pairpot
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dftb_pairpot_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, n1, n2
 

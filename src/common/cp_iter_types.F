@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,7 +25,6 @@ MODULE cp_iter_types
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_iter_types'
    LOGICAL, PRIVATE, PARAMETER          :: debug_this_module = .FALSE.
-   INTEGER, SAVE, PRIVATE               :: last_it_info_id = 0
 
    ! When adding a new iteration level PLEASE update the following list with the proper name!
    CHARACTER(LEN=default_path_length), PARAMETER, PUBLIC, DIMENSION(18) :: each_possible_labels = (/ &
@@ -72,7 +73,7 @@ MODULE cp_iter_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE cp_iteration_info_type
-      INTEGER                              :: ref_count, id_nr
+      INTEGER                              :: ref_count
       INTEGER                              :: print_level, n_rlevel
       INTEGER, DIMENSION(:), POINTER       :: iteration
       LOGICAL, DIMENSION(:), POINTER       :: last_iter
@@ -102,8 +103,6 @@ CONTAINS
       IF (stat /= 0) &
          CPABORT(routineP//" could not allocate iteration_info")
 
-      last_it_info_id = last_it_info_id + 1
-      iteration_info%id_nr = last_it_info_id
       iteration_info%ref_count = 1
       iteration_info%print_level = 2
       iteration_info%n_rlevel = 1

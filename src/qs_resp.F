@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -79,7 +81,6 @@ MODULE qs_resp
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_release,&
                                               pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_resp_all,&
@@ -139,7 +140,7 @@ CONTAINS
    SUBROUTINE resp_fit(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'resp_fit', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'resp_fit'
 
       INTEGER                                            :: handle, info, my_per, natom, nvar, &
                                                             output_unit
@@ -211,7 +212,7 @@ CONTAINS
             WRITE (output_unit, '(T3,A,T69,I12)') "Number of fitting points "// &
                "found: ", resp_env%npoints
             WRITE (output_unit, '()')
-         ENDIF
+         END IF
 
          !adding restraints and constraints
          CALL add_restraints_and_constraints(qs_env, resp_env, rest_section, &
@@ -236,7 +237,7 @@ CONTAINS
             ALLOCATE (rhs_to_save(SIZE(resp_env%rhs)))
             rhs_to_save = resp_env%rhs
             CALL set_qs_env(qs_env, rhs=rhs_to_save)
-         ENDIF
+         END IF
 
          DEALLOCATE (ipiv)
          CALL resp_dealloc(resp_env, rep_sys)
@@ -257,9 +258,6 @@ CONTAINS
    SUBROUTINE create_resp_type(resp_env, rep_sys)
       TYPE(resp_type), POINTER                           :: resp_env
       TYPE(resp_p_type), DIMENSION(:), POINTER           :: rep_sys
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_resp_type', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(resp_env)) CALL resp_dealloc(resp_env, rep_sys)
       ALLOCATE (resp_env)
@@ -300,17 +298,15 @@ CONTAINS
       TYPE(resp_type), POINTER                           :: resp_env
       INTEGER, INTENT(IN)                                :: natom, nvar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'resp_allocate', routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(resp_env%matrix)) THEN
          ALLOCATE (resp_env%matrix(nvar, nvar))
-      ENDIF
+      END IF
       IF (.NOT. ASSOCIATED(resp_env%rhs)) THEN
          ALLOCATE (resp_env%rhs(nvar))
-      ENDIF
+      END IF
       IF (.NOT. ASSOCIATED(resp_env%sum_vpot)) THEN
          ALLOCATE (resp_env%sum_vpot(natom))
-      ENDIF
+      END IF
       resp_env%matrix = 0.0_dp
       resp_env%rhs = 0.0_dp
       resp_env%sum_vpot = 0.0_dp
@@ -326,43 +322,41 @@ CONTAINS
       TYPE(resp_type), POINTER                           :: resp_env
       TYPE(resp_p_type), DIMENSION(:), POINTER           :: rep_sys
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'resp_dealloc', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(resp_env)) THEN
          IF (ASSOCIATED(resp_env%matrix)) THEN
             DEALLOCATE (resp_env%matrix)
-         ENDIF
+         END IF
          IF (ASSOCIATED(resp_env%rhs)) THEN
             DEALLOCATE (resp_env%rhs)
-         ENDIF
+         END IF
          IF (ASSOCIATED(resp_env%sum_vpot)) THEN
             DEALLOCATE (resp_env%sum_vpot)
-         ENDIF
+         END IF
          IF (ASSOCIATED(resp_env%fitpoints)) THEN
             DEALLOCATE (resp_env%fitpoints)
-         ENDIF
+         END IF
          IF (ASSOCIATED(resp_env%rmin_kind)) THEN
             DEALLOCATE (resp_env%rmin_kind)
-         ENDIF
+         END IF
          IF (ASSOCIATED(resp_env%rmax_kind)) THEN
             DEALLOCATE (resp_env%rmax_kind)
-         ENDIF
+         END IF
          DEALLOCATE (resp_env)
-      ENDIF
+      END IF
       IF (ASSOCIATED(rep_sys)) THEN
          DO i = 1, SIZE(rep_sys)
             DEALLOCATE (rep_sys(i)%p_resp%atom_surf_list)
             DEALLOCATE (rep_sys(i)%p_resp)
-         ENDDO
+         END DO
          DEALLOCATE (rep_sys)
-      ENDIF
+      END IF
 
    END SUBROUTINE resp_dealloc
 
 ! **************************************************************************************************
-!> \brief intializes the resp fit. Getting the parameters
+!> \brief initializes the resp fit. Getting the parameters
 !> \param resp_env the resp environment
 !> \param rep_sys structure for repeating input sections defining fit points
 !> \param subsys ...
@@ -382,7 +376,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: resp_section, cons_section, rest_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_resp', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'init_resp'
 
       INTEGER                                            :: handle, i, nrep
       INTEGER, DIMENSION(:), POINTER                     :: atom_list_cons, my_stride
@@ -409,7 +403,7 @@ CONTAINS
       IF (resp_env%rheavies) THEN
          CALL section_vals_val_get(resp_section, "RESTRAIN_HEAVIES_STRENGTH", &
                                    r_val=resp_env%rheavies_strength)
-      ENDIF
+      END IF
       CALL section_vals_val_get(resp_section, "STRIDE", i_vals=my_stride)
       IF (SIZE(my_stride) /= 1 .AND. SIZE(my_stride) /= 3) &
          CALL cp_abort(__LOCATION__, "STRIDE keyword can accept only 1 (the same for X,Y,Z) "// &
@@ -444,7 +438,7 @@ CONTAINS
             CALL cp_abort(__LOCATION__, &
                           "You can only use either SPHERE_SAMPLING or SLAB_SAMPLING, but "// &
                           "not both.")
-         ENDIF
+         END IF
          ALLOCATE (rep_sys(nrep))
          DO i = 1, nrep
             ALLOCATE (rep_sys(i)%p_resp)
@@ -461,7 +455,7 @@ CONTAINS
             IF (rep_sys(i)%p_resp%length <= EPSILON(0.0_dp)) THEN
                CPABORT("Parameter LENGTH in SLAB_SAMPLING has to be larger than zero.")
             END IF
-            !list of atoms specifing the surface
+            !list of atoms specifying the surface
             CALL build_atom_list(slab_section, subsys, rep_sys(i)%p_resp%atom_surf_list, rep=i)
          END DO
       END IF
@@ -506,9 +500,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: sphere_section
       TYPE(cell_type), POINTER                           :: cell
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_parameter_molecular_sys', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: symbol
       CHARACTER(LEN=default_string_length)               :: missing_rmax, missing_rmin
@@ -703,8 +694,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: atom_list
       INTEGER, INTENT(IN), OPTIONAL                      :: rep
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_atom_list', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_atom_list'
 
       INTEGER                                            :: atom_a, atom_b, handle, i, irep, j, &
                                                             max_index, n_var, num_atom
@@ -724,7 +714,7 @@ CONTAINS
          CALL section_vals_val_get(section, "ATOM_LIST", i_rep_section=irep, &
                                    i_rep_val=i, i_vals=indexes)
          num_atom = num_atom + SIZE(indexes)
-      ENDDO
+      END DO
       ALLOCATE (atom_list(num_atom))
       atom_list = 0
       num_atom = 1
@@ -733,7 +723,7 @@ CONTAINS
                                    i_rep_val=i, i_vals=indexes)
          atom_list(num_atom:num_atom + SIZE(indexes) - 1) = indexes(:)
          num_atom = num_atom + SIZE(indexes)
-      ENDDO
+      END DO
       !check atom list
       num_atom = num_atom - 1
       CALL qs_subsys_get(subsys, nparticle=max_index)
@@ -747,8 +737,8 @@ CONTAINS
             atom_b = atom_list(j)
             IF (atom_a == atom_b) &
                CPABORT("There are atoms doubled in atom list for RESP.")
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       CALL timestop(handle)
 
@@ -777,8 +767,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: rhs
       INTEGER, INTENT(IN)                                :: natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_resp_matrix_nonper', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_resp_matrix_nonper'
 
       INTEGER                                            :: bo(2, 3), gbo(2, 3), handle, i, ikind, &
                                                             jx, jy, jz, k, kind_number, l, m, &
@@ -807,11 +796,11 @@ CONTAINS
          CALL cp_abort(__LOCATION__, &
                        "Nonperiodic solution for RESP charges (i.e. nonperiodic"// &
                        " Poisson solver) can only be used with section SPHERE_SAMPLING")
-      ENDIF
+      END IF
       IF (resp_env%use_repeat_method) THEN
          CALL cp_abort(__LOCATION__, &
                        "REPEAT method only reasonable for periodic RESP fitting")
-      ENDIF
+      END IF
       CALL get_qs_env(qs_env, particle_set=particle_set, v_hartree_rspace=v_hartree_pw)
 
       bo = v_hartree_pw%pw_grid%bounds_local
@@ -863,11 +852,11 @@ CONTAINS
                   rmin = resp_env%rmin_kind(ikind)
                   rmax = resp_env%rmax_kind(ikind)
                   EXIT
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             IF (dist(i) < rmin + delta) not_in_range(i, 1) = .TRUE.
             IF (dist(i) > rmax - delta) not_in_range(i, 2) = .TRUE.
-         ENDDO
+         END DO
          ! check if the point is sufficiently close and  far. if OK, we can use
          ! the point for fitting, add/subtract 1.0E-13 to get rid of rounding errors when shifting atoms
          IF (ANY(not_in_range(:, 1)) .OR. ALL(not_in_range(:, 2))) CYCLE
@@ -875,14 +864,14 @@ CONTAINS
          IF (resp_env%npoints_proc > now) THEN
             now = 2*now
             CALL reallocate(resp_env%fitpoints, 1, 3, 1, now)
-         ENDIF
+         END IF
          resp_env%fitpoints(1, resp_env%npoints_proc) = jx
          resp_env%fitpoints(2, resp_env%npoints_proc) = jy
          resp_env%fitpoints(3, resp_env%npoints_proc) = jz
          ! correct for the fact that v_hartree is scaled by dvol, and has the opposite sign
          IF (qs_env%qmmm) THEN
             ! If it's a QM/MM run let's remove the contribution of the MM potential out of the Hartree pot
-            vj = -v_hartree_pw%cr3d(jx, jy, jz)/dvol + qs_env%ks_qmmm_env%v_qmmm_rspace%pw%cr3d(jx, jy, jz)
+            vj = -v_hartree_pw%cr3d(jx, jy, jz)/dvol + qs_env%ks_qmmm_env%v_qmmm_rspace%cr3d(jx, jy, jz)
          ELSE
             vj = -v_hartree_pw%cr3d(jx, jy, jz)/dvol
          END IF
@@ -891,12 +880,12 @@ CONTAINS
          DO i = 1, natom
             DO m = 1, natom
                matrix(m, i) = matrix(m, i) + 2.0_dp*dist(i)*dist(m)
-            ENDDO
+            END DO
             rhs(i) = rhs(i) + 2.0_dp*vj*dist(i)
-         ENDDO
-      ENDDO
-      ENDDO
-      ENDDO
+         END DO
+      END DO
+      END DO
+      END DO
 
       resp_env%npoints = resp_env%npoints_proc
       CALL mp_sum(resp_env%npoints, v_hartree_pw%pw_grid%para%group)
@@ -932,8 +921,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       INTEGER, INTENT(IN)                                :: natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_resp_matrix_periodic', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_resp_matrix_periodic'
 
       INTEGER                                            :: handle, i, ip, j, jx, jy, jz
       INTEGER, DIMENSION(3)                              :: periodic
@@ -941,9 +929,9 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: vpot
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: rho_ga, va_gspace, va_rspace
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rho_ga, va_gspace, va_rspace
 
       CALL timeset(routineN, handle)
 
@@ -955,22 +943,22 @@ CONTAINS
          CALL cp_abort(__LOCATION__, &
                        "Periodic solution for RESP (with periodic Poisson solver)"// &
                        " can only be obtained with a cell that has XYZ periodicity")
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env, pw_env=pw_env, para_env=para_env)
 
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                       poisson_env=poisson_env)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             rho_ga%pw, &
+                             rho_ga, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             va_gspace%pw, &
+                             va_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             va_rspace%pw, &
+                             va_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
@@ -982,34 +970,34 @@ CONTAINS
 
       DO i = 1, natom
          !collocate gaussian for each atom
-         CALL pw_zero(rho_ga%pw)
+         CALL pw_zero(rho_ga)
          CALL calculate_rho_resp_single(rho_ga, qs_env, resp_env%eta, i)
          !calculate potential va and store the part needed for fitting in vpot
-         CALL pw_zero(va_gspace%pw)
-         CALL pw_poisson_solve(poisson_env, rho_ga%pw, vhartree=va_gspace%pw)
-         CALL pw_zero(va_rspace%pw)
-         CALL pw_transfer(va_gspace%pw, va_rspace%pw)
-         CALL pw_scale(va_rspace%pw, normalize_factor)
+         CALL pw_zero(va_gspace)
+         CALL pw_poisson_solve(poisson_env, rho_ga, vhartree=va_gspace)
+         CALL pw_zero(va_rspace)
+         CALL pw_transfer(va_gspace, va_rspace)
+         CALL pw_scale(va_rspace, normalize_factor)
          DO ip = 1, resp_env%npoints_proc
             jx = resp_env%fitpoints(1, ip)
             jy = resp_env%fitpoints(2, ip)
             jz = resp_env%fitpoints(3, ip)
-            vpot(ip, i) = va_rspace%pw%cr3d(jx, jy, jz)
+            vpot(ip, i) = va_rspace%cr3d(jx, jy, jz)
          END DO
-      ENDDO
+      END DO
 
-      CALL pw_release(va_gspace%pw)
-      CALL pw_release(va_rspace%pw)
-      CALL pw_release(rho_ga%pw)
+      CALL pw_release(va_gspace)
+      CALL pw_release(va_rspace)
+      CALL pw_release(rho_ga)
 
       DO i = 1, natom
          DO j = 1, natom
             ! calculate matrix
             resp_env%matrix(i, j) = resp_env%matrix(i, j) + 2.0_dp*SUM(vpot(:, i)*vpot(:, j))
-         ENDDO
+         END DO
          ! calculate vector resp_env%rhs
          CALL calculate_rhs(qs_env, resp_env, resp_env%rhs(i), vpot(:, i))
-      ENDDO
+      END DO
 
       CALL mp_sum(resp_env%matrix, para_env%group)
       CALL mp_sum(resp_env%rhs, para_env%group)
@@ -1022,11 +1010,11 @@ CONTAINS
          ! sum over selected points of single Gaussian potential vpot
          DO i = 1, natom
             resp_env%sum_vpot(i) = 2.0_dp*accurate_sum(vpot(:, i))/resp_env%npoints
-         ENDDO
+         END DO
          CALL mp_sum(resp_env%sum_vpot, para_env%group)
          CALL mp_sum(resp_env%sum_vhartree, para_env%group)
          resp_env%sum_vhartree = 2.0_dp*resp_env%sum_vhartree/resp_env%npoints
-      ENDIF
+      END IF
 
       DEALLOCATE (vpot)
       CALL timestop(handle)
@@ -1049,8 +1037,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_fitting_points', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_fitting_points'
 
       INTEGER                                            :: bo(2, 3), gbo(2, 3), handle, i, iatom, &
                                                             ikind, in_x, in_y, in_z, jx, jy, jz, &
@@ -1118,11 +1105,11 @@ CONTAINS
                            rmin = resp_env%rmin_kind(ikind)
                            rmax = resp_env%rmax_kind(ikind)
                            EXIT
-                        ENDIF
-                     ENDDO
+                        END IF
+                     END DO
                      IF (dist(m) < rmin + delta) not_in_range(m, 1) = .TRUE.
                      IF (dist(m) > rmax - delta) not_in_range(m, 2) = .TRUE.
-                  ENDDO
+                  END DO
                   IF (ANY(not_in_range(:, 1)) .OR. ALL(not_in_range(:, 2))) CYCLE
                ELSE
                   DO i = 1, SIZE(rep_sys)
@@ -1156,22 +1143,22 @@ CONTAINS
                            IF (ABS(vec_pbc(1)) < rep_sys(i)%p_resp%length - delta) in_x = 1
                         END SELECT
                         IF (in_z*in_y*in_x == 1) EXIT
-                     ENDDO
+                     END DO
                      IF (in_z*in_y*in_x == 1) EXIT
-                  ENDDO
+                  END DO
                   IF (in_z*in_y*in_x == 0) CYCLE
-               ENDIF
+               END IF
                resp_env%npoints_proc = resp_env%npoints_proc + 1
                IF (resp_env%npoints_proc > now) THEN
                   now = 2*now
                   CALL reallocate(resp_env%fitpoints, 1, 3, 1, now)
-               ENDIF
+               END IF
                resp_env%fitpoints(1, resp_env%npoints_proc) = jx
                resp_env%fitpoints(2, resp_env%npoints_proc) = jy
                resp_env%fitpoints(3, resp_env%npoints_proc) = jz
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
 
       resp_env%npoints = resp_env%npoints_proc
       CALL mp_sum(resp_env%npoints, para_env%group)
@@ -1197,7 +1184,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: rhs
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: vpot
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_rhs', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'calculate_rhs'
 
       INTEGER                                            :: handle, ip, jx, jy, jz
       REAL(KIND=dp)                                      :: dvol
@@ -1221,14 +1208,14 @@ CONTAINS
          vhartree(ip) = -v_hartree_pw%cr3d(jx, jy, jz)/dvol
          IF (qs_env%qmmm) THEN
             !taking into account that v_qmmm has also opposite sign
-            vhartree(ip) = vhartree(ip) + qs_env%ks_qmmm_env%v_qmmm_rspace%pw%cr3d(jx, jy, jz)
-         ENDIF
+            vhartree(ip) = vhartree(ip) + qs_env%ks_qmmm_env%v_qmmm_rspace%cr3d(jx, jy, jz)
+         END IF
          rhs = rhs + 2.0_dp*vhartree(ip)*vpot(ip)
-      ENDDO
+      END DO
 
       IF (resp_env%use_repeat_method) THEN
          resp_env%sum_vhartree = accurate_sum(vhartree)
-      ENDIF
+      END IF
 
       DEALLOCATE (vhartree)
 
@@ -1247,8 +1234,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(resp_type), POINTER                           :: resp_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_fitting_points', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_fitting_points'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_path_length)                 :: filename
@@ -1299,7 +1285,7 @@ CONTAINS
                                     element_symbol=element_symbol)
                WRITE (UNIT=output_unit, FMT="(A,1X,3F10.5)") element_symbol, &
                   particle_set(iatom)%r(1:3)*conv
-            ENDDO
+            END DO
             !printing points of proc which is doing the output (should be proc 0)
             DO ip = 1, resp_env%npoints_proc
                jx = resp_env%fitpoints(1, ip)
@@ -1313,8 +1299,8 @@ CONTAINS
                r(1) = p*dh(1, 3) + k*dh(1, 2) + l*dh(1, 1)
                r(:) = r(:)*conv
                WRITE (UNIT=output_unit, FMT="(A,2X,3F10.5)") "X", r(1), r(2), r(3)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
          ALLOCATE (tmp_size(1))
          ALLOCATE (tmp_npoints(1))
@@ -1346,9 +1332,9 @@ CONTAINS
                   r(1) = p*dh(1, 3) + k*dh(1, 2) + l*dh(1, 1)
                   r(:) = r(:)*conv
                   WRITE (UNIT=output_unit, FMT="(A,2X,3F10.5)") "X", r(1), r(2), r(3)
-               ENDDO
+               END DO
                DEALLOCATE (tmp_points)
-            ENDDO
+            END DO
          ELSE
             tmp_size(1) = SIZE(resp_env%fitpoints, 2)
             !para_env%source should be 0
@@ -1362,11 +1348,11 @@ CONTAINS
             CALL mp_isend(msgin=tmp_npoints, dest=para_env%source, comm=para_env%group, &
                           request=req(6))
             CALL mp_wait(req(6))
-         ENDIF
+         END IF
 
          DEALLOCATE (tmp_size)
          DEALLOCATE (tmp_npoints)
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(output_unit, logger, resp_section, &
                                         "PRINT%COORD_FIT_POINTS")
@@ -1396,8 +1382,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: cons_section
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_restraints_and_constraints', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'add_restraints_and_constraints'
 
       INTEGER                                            :: handle, i, k, m, ncons_v, z
       INTEGER, DIMENSION(:), POINTER                     :: atom_list_cons, atom_list_res
@@ -1421,14 +1406,14 @@ CONTAINS
          IF (explicit_coeff) THEN
             CALL section_vals_val_get(rest_section, "ATOM_COEF", i_rep_section=i, r_vals=atom_coef)
             CPASSERT(SIZE(atom_list_res) == SIZE(atom_coef))
-         ENDIF
+         END IF
          DO m = 1, SIZE(atom_list_res)
             IF (explicit_coeff) THEN
                DO k = 1, SIZE(atom_list_res)
                   resp_env%matrix(atom_list_res(m), atom_list_res(k)) = &
                      resp_env%matrix(atom_list_res(m), atom_list_res(k)) + &
                      atom_coef(m)*atom_coef(k)*2.0_dp*strength
-               ENDDO
+               END DO
                resp_env%rhs(atom_list_res(m)) = resp_env%rhs(atom_list_res(m)) + &
                                                 2.0_dp*TARGET*strength*atom_coef(m)
             ELSE
@@ -1437,10 +1422,10 @@ CONTAINS
                   2.0_dp*strength
                resp_env%rhs(atom_list_res(m)) = resp_env%rhs(atom_list_res(m)) + &
                                                 2.0_dp*TARGET*strength
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          DEALLOCATE (atom_list_res)
-      ENDDO
+      END DO
 
       ! if heavies are restrained to zero, add these as well
       IF (resp_env%rheavies) THEN
@@ -1448,9 +1433,9 @@ CONTAINS
             CALL get_atomic_kind(atomic_kind=particle_set(i)%atomic_kind, z=z)
             IF (z .NE. 1) THEN
                resp_env%matrix(i, i) = resp_env%matrix(i, i) + 2.0_dp*resp_env%rheavies_strength
-            ENDIF
-         ENDDO
-      ENDIF
+            END IF
+         END DO
+      END IF
 
       !*** add the constraints
       ncons_v = 0
@@ -1463,7 +1448,7 @@ CONTAINS
          resp_env%matrix(ncons_v, 1:natom) = resp_env%sum_vpot(1:natom)
          resp_env%matrix(ncons_v, ncons_v) = 2.0_dp
          resp_env%rhs(ncons_v) = resp_env%sum_vhartree
-      ENDIF
+      END IF
 
       ! total charge constraint
       IF (resp_env%itc) THEN
@@ -1471,9 +1456,9 @@ CONTAINS
          resp_env%matrix(1:natom, ncons_v) = 1.0_dp
          resp_env%matrix(ncons_v, 1:natom) = 1.0_dp
          resp_env%rhs(ncons_v) = dft_control%charge
-      ENDIF
+      END IF
 
-      ! explict constraints
+      ! explicit constraints
       DO i = 1, resp_env%ncons_sec
          CALL build_atom_list(cons_section, subsys, atom_list_cons, i)
          IF (.NOT. resp_env%equal_charges) THEN
@@ -1484,7 +1469,7 @@ CONTAINS
             DO m = 1, SIZE(atom_list_cons)
                resp_env%matrix(atom_list_cons(m), ncons_v) = atom_coef(m)
                resp_env%matrix(ncons_v, atom_list_cons(m)) = atom_coef(m)
-            ENDDO
+            END DO
             resp_env%rhs(ncons_v) = TARGET
          ELSE
             my_atom_coef(1) = 1.0_dp
@@ -1496,10 +1481,10 @@ CONTAINS
                resp_env%matrix(atom_list_cons(k), ncons_v) = my_atom_coef(2)
                resp_env%matrix(ncons_v, atom_list_cons(k)) = my_atom_coef(2)
                resp_env%rhs(ncons_v) = 0.0_dp
-            ENDDO
-         ENDIF
+            END DO
+         END IF
          DEALLOCATE (atom_list_cons)
-      ENDDO
+      END DO
       CALL timestop(handle)
 
    END SUBROUTINE add_restraints_and_constraints
@@ -1518,8 +1503,7 @@ CONTAINS
       TYPE(resp_p_type), DIMENSION(:), POINTER           :: rep_sys
       INTEGER, INTENT(IN)                                :: my_per
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_resp_parameter_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_resp_parameter_info'
 
       CHARACTER(len=2)                                   :: symbol
       INTEGER                                            :: handle, i, ikind, kind_number, nkinds, &
@@ -1544,14 +1528,14 @@ CONTAINS
       conv = cp_unit_from_cp2k(1.0_dp, "angstrom")
       IF (.NOT. my_per == use_perd_none) THEN
          eta_conv = cp_unit_from_cp2k(resp_env%eta, "angstrom", power=-2)
-      ENDIF
+      END IF
 
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(/,1X,A,/)') "STARTING RESP FIT"
          IF (resp_env%use_repeat_method) THEN
             WRITE (output_unit, '(T3,A)') &
                "Fit the variance of the potential (REPEAT method)."
-         ENDIF
+         END IF
          IF (.NOT. resp_env%equal_charges) THEN
             WRITE (output_unit, '(T3,A,T75,I6)') "Number of explicit constraints: ", resp_env%ncons_sec
          ELSE
@@ -1559,15 +1543,15 @@ CONTAINS
                WRITE (output_unit, '(T3,A,T75,I6)') "Number of explicit constraints: ", resp_env%ncons - 1
             ELSE
                WRITE (output_unit, '(T3,A,T75,I6)') "Number of explicit constraints: ", resp_env%ncons
-            ENDIF
-         ENDIF
+            END IF
+         END IF
          WRITE (output_unit, '(T3,A,T75,I6)') "Number of explicit restraints: ", resp_env%nrest_sec
          WRITE (output_unit, '(T3,A,T80,A)') "Constrain total charge ", MERGE("T", "F", resp_env%itc)
          WRITE (output_unit, '(T3,A,T80,A)') "Restrain heavy atoms ", MERGE("T", "F", resp_env%rheavies)
          IF (resp_env%rheavies) THEN
             WRITE (output_unit, '(T3,A,T71,F10.6)') "Heavy atom restraint strength: ", &
                resp_env%rheavies_strength
-         ENDIF
+         END IF
          WRITE (output_unit, '(T3,A,T66,3I5)') "Stride: ", resp_env%stride
          IF (resp_env%molecular_sys) THEN
             WRITE (output_unit, '(T3,A)') &
@@ -1598,27 +1582,27 @@ CONTAINS
             DO i = 1, SIZE(rep_sys)
                IF (i > 1 .AND. ALL(rep_sys(i)%p_resp%atom_surf_list == rep_sys(1)%p_resp%atom_surf_list)) EXIT
                WRITE (output_unit, '(7X,10I6)') rep_sys(i)%p_resp%atom_surf_list
-            ENDDO
+            END DO
             DO i = 1, SIZE(rep_sys)
                IF (i > 1 .AND. ALL(rep_sys(i)%p_resp%range_surf == rep_sys(1)%p_resp%range_surf)) EXIT
                WRITE (output_unit, '(T3,A,T61,2F10.5)') &
                   "Range for sampling above the surface [angstrom]:", &
                   rep_sys(i)%p_resp%range_surf(1:2)*conv
-            ENDDO
+            END DO
             DO i = 1, SIZE(rep_sys)
                IF (i > 1 .AND. rep_sys(i)%p_resp%length == rep_sys(1)%p_resp%length) EXIT
                WRITE (output_unit, '(T3,A,T71,F10.5)') "Length of sampling box above each"// &
                   " surface atom [angstrom]: ", rep_sys(i)%p_resp%length*conv
-            ENDDO
+            END DO
             WRITE (output_unit, '(T3,A)') &
                "------------------------------------------------------------------------------"
-         ENDIF
+         END IF
          IF (.NOT. my_per == use_perd_none) THEN
             WRITE (output_unit, '(T3,A,T71,F10.5)') "Width of Gaussian charge"// &
                " distribution [angstrom^-2]: ", eta_conv
-         ENDIF
+         END IF
          CALL m_flush(output_unit)
-      ENDIF
+      END IF
       CALL cp_print_key_finished_output(output_unit, logger, resp_section, &
                                         "PRINT%PROGRAM_RUN_INFO")
 
@@ -1639,8 +1623,7 @@ CONTAINS
       TYPE(resp_type), POINTER                           :: resp_env
       INTEGER, INTENT(IN)                                :: output_runinfo, natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_resp_charges', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_resp_charges'
 
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER                                            :: handle, output_file
@@ -1677,14 +1660,14 @@ CONTAINS
             CALL print_atomic_charges(particle_set, qs_kind_set, output_file, title="RESP charges:", &
                                       atomic_charges=resp_env%rhs(1:natom))
             IF (output_runinfo > 0) WRITE (output_runinfo, '(2X,A,/)') "PRINTED RESP CHARGES TO FILE"
-         ENDIF
+         END IF
 
          CALL cp_print_key_finished_output(output_file, logger, resp_section, &
                                            "PRINT%RESP_CHARGES_TO_FILE")
       ELSE
          CALL print_atomic_charges(particle_set, qs_kind_set, output_runinfo, title="RESP charges:", &
                                    atomic_charges=resp_env%rhs(1:natom))
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1705,8 +1688,7 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       INTEGER, INTENT(IN)                                :: natom, output_runinfo
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_pot_from_resp_charges', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_pot_from_resp_charges'
 
       CHARACTER(LEN=default_path_length)                 :: my_pos_cube
       INTEGER                                            :: handle, ip, jx, jy, jz, unit_nr
@@ -1716,10 +1698,10 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: aux_r, rho_resp, v_resp_gspace, &
-                                                            v_resp_rspace
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: aux_r, rho_resp, v_resp_gspace, &
+                                                            v_resp_rspace
       TYPE(pw_type), POINTER                             :: v_hartree_rspace
       TYPE(section_vals_type), POINTER                   :: input, print_key, resp_section
 
@@ -1743,41 +1725,41 @@ CONTAINS
                       poisson_env=poisson_env)
 
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             rho_resp%pw, &
+                             rho_resp, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_resp_gspace%pw, &
+                             v_resp_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_resp_rspace%pw, &
+                             v_resp_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
-      CALL pw_zero(rho_resp%pw)
+      CALL pw_zero(rho_resp)
       CALL calculate_rho_resp_all(rho_resp, resp_env%rhs, natom, &
                                   resp_env%eta, qs_env)
-      CALL pw_zero(v_resp_gspace%pw)
-      CALL pw_poisson_solve(poisson_env, rho_resp%pw, &
-                            vhartree=v_resp_gspace%pw)
-      CALL pw_zero(v_resp_rspace%pw)
-      CALL pw_transfer(v_resp_gspace%pw, v_resp_rspace%pw)
-      dvol = v_resp_rspace%pw%pw_grid%dvol
-      CALL pw_scale(v_resp_rspace%pw, dvol)
-      CALL pw_scale(v_resp_rspace%pw, -normalize_factor)
+      CALL pw_zero(v_resp_gspace)
+      CALL pw_poisson_solve(poisson_env, rho_resp, &
+                            vhartree=v_resp_gspace)
+      CALL pw_zero(v_resp_rspace)
+      CALL pw_transfer(v_resp_gspace, v_resp_rspace)
+      dvol = v_resp_rspace%pw_grid%dvol
+      CALL pw_scale(v_resp_rspace, dvol)
+      CALL pw_scale(v_resp_rspace, -normalize_factor)
       ! REPEAT: correct for offset, take into account that potentials have reverse sign
       ! and are scaled by dvol
       IF (resp_env%use_repeat_method) THEN
-         v_resp_rspace%pw%cr3d(:, :, :) = v_resp_rspace%pw%cr3d(:, :, :) - resp_env%offset*dvol
-      ENDIF
-      CALL pw_release(v_resp_gspace%pw)
-      CALL pw_release(rho_resp%pw)
+         v_resp_rspace%cr3d(:, :, :) = v_resp_rspace%cr3d(:, :, :) - resp_env%offset*dvol
+      END IF
+      CALL pw_release(v_resp_gspace)
+      CALL pw_release(rho_resp)
 
       !***now print the v_resp_rspace%pw to a cube file if requested
       IF (BTEST(cp_print_key_should_output(logger%iter_info, resp_section, &
                                            "PRINT%V_RESP_CUBE"), cp_p_file)) THEN
-         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, aux_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
          append_cube = section_get_lval(resp_section, "PRINT%V_RESP_CUBE%APPEND")
@@ -1792,16 +1774,16 @@ CONTAINS
                                         file_position=my_pos_cube, &
                                         mpi_io=mpi_io)
          udvol = 1.0_dp/dvol
-         CALL pw_copy(v_resp_rspace%pw, aux_r%pw)
-         CALL pw_scale(aux_r%pw, udvol)
-         CALL cp_pw_to_cube(aux_r%pw, unit_nr, "RESP POTENTIAL", particles=particles, &
+         CALL pw_copy(v_resp_rspace, aux_r)
+         CALL pw_scale(aux_r, udvol)
+         CALL cp_pw_to_cube(aux_r, unit_nr, "RESP POTENTIAL", particles=particles, &
                             stride=section_get_ivals(resp_section, &
                                                      "PRINT%V_RESP_CUBE%STRIDE"), &
                             mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_nr, logger, resp_section, &
                                            "PRINT%V_RESP_CUBE", mpi_io=mpi_io)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r%pw)
-      ENDIF
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, aux_r)
+      END IF
 
       !*** RMS and RRMS
       sum_diff = 0.0_dp
@@ -1813,9 +1795,9 @@ CONTAINS
          jy = resp_env%fitpoints(2, ip)
          jz = resp_env%fitpoints(3, ip)
          sum_diff = sum_diff + (v_hartree_rspace%cr3d(jx, jy, jz) - &
-                                v_resp_rspace%pw%cr3d(jx, jy, jz))**2
+                                v_resp_rspace%cr3d(jx, jy, jz))**2
          sum_hartree = sum_hartree + v_hartree_rspace%cr3d(jx, jy, jz)**2
-      ENDDO
+      END DO
       CALL mp_sum(sum_diff, para_env%group)
       CALL mp_sum(sum_hartree, para_env%group)
       rms = SQRT(sum_diff/resp_env%npoints)
@@ -1825,9 +1807,9 @@ CONTAINS
             "error of RESP fit:", rms
          WRITE (output_runinfo, '(2X,A,T69,ES12.5,/)') "Relative root-mean-square "// &
             "(RRMS) error of RESP fit:", rrms
-      ENDIF
+      END IF
 
-      CALL pw_release(v_resp_rspace%pw)
+      CALL pw_release(v_resp_rspace)
 
       CALL timestop(handle)
 

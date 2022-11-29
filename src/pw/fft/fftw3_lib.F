@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 #define XFFTW_PLAN_WITH_NTHREADS dfftw_plan_with_nthreads
 #define XFFTW_PLAN_DFT_3D dfftw_plan_dft_3d
@@ -10,12 +12,12 @@
 
 MODULE fftw3_lib
 
-   USE ISO_C_BINDING,                   ONLY: C_CHAR,&
+   USE ISO_C_BINDING,                   ONLY: C_ASSOCIATED,&
+                                              C_CHAR,&
                                               C_INT,&
-                                              C_INTPTR_T
+                                              C_PTR
    USE cp_files,                        ONLY: get_unit_number
-   USE fft_kinds,                       ONLY: dp,&
-                                              integer8_kind
+   USE fft_kinds,                       ONLY: dp
    USE fft_plan,                        ONLY: fft_plan_type
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_get_num_threads
@@ -57,8 +59,8 @@ CONTAINS
          IF (istat == 0) THEN
             CALL fftw_export_wisdom_to_file(iunit)
             CLOSE (iunit)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL fftw_cleanup()
 #else
@@ -114,8 +116,8 @@ CONTAINS
             CALL fftw_import_wisdom_from_file(isuccess, iunit)
             ! write(*,*) "FFTW3 import wisdom from file ....",MERGE((/"OK    "/),(/"NOT OK"/),(/isuccess==1/))
             CLOSE (iunit)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Now check if we have a real FFTW3 library, or are using MKL wrappers
 
@@ -143,8 +145,8 @@ CONTAINS
 !$             "rebuild CP2K, linking against FFTW 3 from "// &
 !$             "www.fftw.org or a newer version of MKL. "// &
 !$             "Now exiting..."
-!$       ENDIF
-!$    ENDIF
+!$       END IF
+!$    END IF
 #else
       MARK_USED(wisdom_file)
 #endif
@@ -327,11 +329,11 @@ CONTAINS
             i = i + 1
             DO WHILE (iarr(i) < a)
                i = i + 1
-            ENDDO
+            END DO
             j = j - 1
             DO WHILE (iarr(j) > a)
                j = j - 1
-            ENDDO
+            END DO
             IF (j < i) EXIT
             temp = iarr(i)
             iarr(i) = iarr(j)
@@ -339,7 +341,7 @@ CONTAINS
             itemp = INDEX(i)
             INDEX(i) = INDEX(j)
             INDEX(j) = itemp
-         ENDDO
+         END DO
          iarr(l) = iarr(j)
          iarr(j) = a
          INDEX(l) = INDEX(j)
@@ -357,7 +359,7 @@ CONTAINS
          END IF
       END IF
 
-      ENDDO
+      END DO
 
    END SUBROUTINE sortint
 
@@ -388,7 +390,7 @@ CONTAINS
 
       IMPLICIT NONE
 
-      INTEGER(KIND=integer8_kind), INTENT(INOUT)      :: plan
+      TYPE(C_PTR), INTENT(INOUT)                         :: plan
       COMPLEX(KIND=dp), DIMENSION(*), INTENT(IN)         :: zin
       COMPLEX(KIND=dp), DIMENSION(*), INTENT(IN)         :: zout
       INTEGER, INTENT(IN) :: dim_n(2), dim_istride(2), dim_ostride(2), &
@@ -404,11 +406,7 @@ CONTAINS
                                zin, zout, &
                                fft_direction, fftw_plan_type)
 
-      IF (plan .EQ. 0) THEN
-         valid = .FALSE.
-      ELSE
-         valid = .TRUE.
-      ENDIF
+      valid = C_ASSOCIATED(plan)
 
 #else
       MARK_USED(plan)
@@ -423,7 +421,7 @@ CONTAINS
       MARK_USED(fft_direction)
       MARK_USED(fftw_plan_type)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
       valid = .FALSE.
 
 #endif
@@ -445,7 +443,7 @@ CONTAINS
       LOGICAL :: guru_supported
       INTEGER :: dim_n(2), dim_istride(2), dim_ostride(2), &
                  howmany_n(2), howmany_istride(2), howmany_ostride(2)
-      INTEGER(KIND=integer8_kind) :: test_plan
+      TYPE(C_PTR)                          :: test_plan
       COMPLEX(KIND=dp), DIMENSION(1, 1, 1) :: zin
 
 #include "fftw3.f"
@@ -473,7 +471,7 @@ CONTAINS
          is_mkl = .FALSE.
       ELSE
          is_mkl = .TRUE.
-      ENDIF
+      END IF
 
 #else
       is_mkl = .FALSE.
@@ -509,7 +507,7 @@ CONTAINS
          rows_per_thread_r = nrows/nt
          th_planA = MOD(nrows, nt)
          th_planB = nt - th_planA
-      ENDIF
+      END IF
 
    END SUBROUTINE
 
@@ -538,7 +536,7 @@ CONTAINS
                                     fft_direction, fftw_plan_type, rows_per_th, &
                                     rows_per_th_r)
 
-      INTEGER(KIND=integer8_kind), INTENT(INOUT)         :: plan, plan_r
+      TYPE(C_PTR), INTENT(INOUT)                         :: plan, plan_r
       INTEGER, INTENT(INOUT)                             :: dim_n(2), dim_istride(2), &
                                                             dim_ostride(2), hm_n(2), &
                                                             hm_istride(2), hm_ostride(2)
@@ -559,7 +557,7 @@ CONTAINS
 
       IF (.NOT. valid) THEN
          CPABORT("fftw3_create_plan")
-      ENDIF
+      END IF
 
       !!!! Remainder
       hm_n(2) = rows_per_th_r
@@ -570,7 +568,7 @@ CONTAINS
                                   fft_direction, fftw_plan_type, valid)
       IF (.NOT. valid) THEN
          CPABORT("fftw3_create_plan (remaining)")
-      ENDIF
+      END IF
 
    END SUBROUTINE
 
@@ -653,7 +651,7 @@ CONTAINS
             CALL XFFTW_PLAN_DFT_3D(plan%fftw_plan, n1, n2, n3, zin, zin, fft_direction, fftw_plan_type)
          ELSE
             CALL XFFTW_PLAN_DFT_3D(plan%fftw_plan, n1, n2, n3, zin, zout, fft_direction, fftw_plan_type)
-         ENDIF
+         END IF
       ELSE
          ALLOCATE (tmp(n1*n2*n3))
          ! ************************* PLANS WITH TRANSPOSITIONS ****************************
@@ -672,7 +670,7 @@ CONTAINS
          !  DO loop to do the final transposition performed better than directly transposing the output.
          !  However, this might vary depending on the compiler/platform, so a potential tuning spot
          !  is to perform the final transposition within the fftw library rather than using the external loop
-         !  See comments below in Z-FFT for how to tranpose the output to avoid the final DO loop.
+         !  See comments below in Z-FFT for how to transpose the output to avoid the final DO loop.
          !
          !  Doc. for the Guru interface is in http://www.fftw.org/doc/Guru-Interface.html
          !
@@ -743,13 +741,13 @@ CONTAINS
          plan%separated_plans = .TRUE.
 
          DEALLOCATE (tmp)
-      ENDIF
+      END IF
 
 #else
       MARK_USED(plan)
       MARK_USED(plan_style)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
 #endif
 
    END SUBROUTINE fftw3_create_plan_3d
@@ -774,7 +772,7 @@ CONTAINS
       INTEGER, INTENT(IN)                           :: split_dim, nt, tid
       INTEGER, INTENT(IN)                           :: istride, ostride
       COMPLEX(KIND=dp), DIMENSION(*), INTENT(INOUT) :: input, output
-      INTEGER(KIND=integer8_kind)                :: plan, plan_r
+      TYPE(C_PTR)                                   :: plan, plan_r
 #if defined (__FFTW3)
       INTEGER                                     :: i_off, o_off
       INTEGER                                     :: th_planA, th_planB
@@ -791,7 +789,7 @@ CONTAINS
             IF (rows_per_thread .GT. 0) THEN
                CALL XFFTW_EXECUTE_DFT(plan, input(i_off), &
                                       output(o_off))
-            ENDIF
+            END IF
          ELSE IF ((tid - th_planA) < th_planB) THEN
 
             i_off = (th_planA)*istride*(rows_per_thread) + &
@@ -801,7 +799,7 @@ CONTAINS
 
             CALL XFFTW_EXECUTE_DFT(plan_r, input(i_off), &
                                    output(o_off))
-         ENDIF
+         END IF
 
       ELSE
          i_off = (tid)*(istride*(rows_per_thread)) + 1
@@ -810,7 +808,7 @@ CONTAINS
          CALL XFFTW_EXECUTE_DFT(plan, input(i_off), &
                                 output(o_off))
 
-      ENDIF
+      END IF
 #else
       MARK_USED(plan)
       MARK_USED(plan_r)
@@ -820,7 +818,7 @@ CONTAINS
       MARK_USED(istride)
       MARK_USED(ostride)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(input(1)) > ABS(output(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(input(1)) > ABS(output(1))) EXIT; END DO; END IF
 #endif
 
    END SUBROUTINE
@@ -864,7 +862,7 @@ CONTAINS
          xout => zin(:n1*n2*n3)
       ELSE
          xout => zout(:n1*n2*n3)
-      ENDIF
+      END IF
 
       ! Either compute the full 3D FFT using a multithreaded plan
       IF (.NOT. plan%separated_plans) THEN
@@ -898,9 +896,9 @@ CONTAINS
                DO k = 1, n3
                   xout((i - 1) + (j - 1)*n1 + (k - 1)*n1*n2 + 1) = &
                      tmp1((k - 1) + (j - 1)*n3 + (i - 1)*n3*n2 + 1)
-               ENDDO
-            ENDDO
-         ENDDO
+               END DO
+            END DO
+         END DO
          !$OMP END DO
 
          !$OMP END PARALLEL
@@ -914,7 +912,7 @@ CONTAINS
       MARK_USED(plan)
       MARK_USED(scale)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
       stat = 0
 
 #endif
@@ -975,12 +973,12 @@ CONTAINS
 !$    IF (plan%m < num_threads) THEN
 !$       num_rows = 1
 !$       plan%num_threads_needed = plan%m
-!$    ENDIF
+!$    END IF
 
 ! Check for total number of rows not divisible by num_threads
 !$    IF (num_rows*plan%num_threads_needed .NE. plan%m) THEN
 !$       plan%need_alt_plan = .TRUE.
-!$    ENDIF
+!$    END IF
 
 !$    plan%num_rows = num_rows
       ii = 1
@@ -1018,7 +1016,7 @@ CONTAINS
       MARK_USED(plan)
       MARK_USED(plan_style)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
 #endif
 
    END SUBROUTINE fftw3_create_plan_1dm
@@ -1047,7 +1045,7 @@ CONTAINS
          CALL XFFTW_DESTROY_PLAN(plan%fftw_plan_nx_r)
          CALL XFFTW_DESTROY_PLAN(plan%fftw_plan_ny_r)
          CALL XFFTW_DESTROY_PLAN(plan%fftw_plan_nz_r)
-      ENDIF
+      END IF
 
 #else
       MARK_USED(plan)
@@ -1071,10 +1069,9 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: scale
       INTEGER, INTENT(OUT)                               :: stat
 
-      COMPLEX(KIND=dp), POINTER                          :: zin_ptr, zout_ptr, zscal_ptr
       INTEGER                                            :: in_offset, my_id, num_rows, out_offset, &
                                                             scal_offset
-      INTEGER(KIND=C_INTPTR_T)                           :: fftw_plan
+      TYPE(C_PTR)                                        :: fftw_plan
 
 !------------------------------------------------------------------------------
 
@@ -1082,7 +1079,7 @@ CONTAINS
       num_rows = plan%m
 
 !$OMP PARALLEL DEFAULT(NONE), &
-!$OMP          PRIVATE(my_id,num_rows,zin_ptr,zout_ptr,zscal_ptr,in_offset,out_offset,scal_offset,fftw_plan), &
+!$OMP          PRIVATE(my_id,num_rows,in_offset,out_offset,scal_offset,fftw_plan), &
 !$OMP          SHARED(zin,zout), &
 !$OMP          SHARED(plan,scale,stat)
 !$    my_id = omp_get_thread_num()
@@ -1101,36 +1098,32 @@ CONTAINS
 !$          in_offset = 1 + plan%num_rows*my_id
 !$       ELSEIF (plan%fsign == -1 .AND. plan%trans) THEN
 !$          out_offset = 1 + plan%num_rows*my_id
-!$       ENDIF
+!$       END IF
 !$       scal_offset = 1 + plan%n*plan%num_rows*my_id
 !$       IF (plan%need_alt_plan .AND. my_id .EQ. plan%num_threads_needed - 1) THEN
 !$          num_rows = plan%alt_num_rows
 !$          fftw_plan = plan%alt_fftw_plan
 !$       ELSE
 !$          num_rows = plan%num_rows
-!$       ENDIF
-
-         zin_ptr => zin(in_offset)
-         zout_ptr => zout(out_offset)
-         zscal_ptr => zout(scal_offset)
+!$       END IF
 
 #if defined ( __FFTW3 )
 !$OMP MASTER
          stat = 1
 !$OMP END MASTER
-         CALL dfftw_execute_dft(fftw_plan, zin_ptr, zout_ptr)
-!$    endif
+         CALL dfftw_execute_dft(fftw_plan, zin(in_offset:in_offset), zout(out_offset:out_offset))
+!$    end if
 ! all theads need to meet at this barrier
 !$OMP BARRIER
 !$    if (my_id < plan%num_threads_needed) then
-         IF (scale /= 1.0_dp) CALL zdscal(plan%n*num_rows, scale, zscal_ptr, 1)
-!$    endif
+         IF (scale /= 1.0_dp) CALL zdscal(plan%n*num_rows, scale, zout(scal_offset:scal_offset), 1)
+!$    end if
 
 #else
       MARK_USED(plan)
       MARK_USED(scale)
       !MARK_USED does not work with assumed size arguments
-      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; ENDDO; ENDIF
+      IF (.FALSE.) THEN; DO; IF (ABS(zin(1)) > ABS(zout(1))) EXIT; END DO; END IF
       stat = 0
 
 !$    else
@@ -1226,7 +1219,7 @@ CONTAINS
             ic = ICHAR(buf(ibuf:ibuf))
             ibuf = ibuf + 1
             RETURN
-         ENDIF
+         END IF
          READ (iunit, 123, END=666) buf
          ic = ICHAR(buf(1:1))
          ibuf = 2
@@ -1253,4 +1246,3 @@ CONTAINS
       END SUBROUTINE
 
    END MODULE
-

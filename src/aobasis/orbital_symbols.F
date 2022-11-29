@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,6 @@ CONTAINS
       INTEGER, DIMENSION(3), INTENT(IN)                  :: lxyz
       CHARACTER(LEN=12)                                  :: symbol
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cgf_symbol', routineP = moduleN//':'//routineN
       CHARACTER(LEN=1), DIMENSION(3), PARAMETER          :: xyz = (/"x", "y", "z"/)
 
       INTEGER                                            :: i, ipos, l
@@ -106,7 +107,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: n, l, m
       CHARACTER(LEN=6)                                   :: symbol
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'sgf_symbol', routineP = moduleN//':'//routineN
       CHARACTER(LEN=1), DIMENSION(-1:1), PARAMETER       :: yzx = (/"y", "z", "x"/)
 
       INTEGER                                            :: i

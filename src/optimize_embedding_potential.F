@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE optimize_embedding_potential
@@ -28,7 +30,6 @@ MODULE optimize_embedding_potential
    USE cp_fm_types,                     ONLY: &
         cp_fm_copy_general, cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_release, &
         cp_fm_set_all, cp_fm_to_fm, cp_fm_to_fm_submat, cp_fm_type, cp_fm_write_unformatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_p_file,&
@@ -59,6 +60,7 @@ MODULE optimize_embedding_potential
                                               mp_max,&
                                               mp_sum
    USE mixed_environment_utils,         ONLY: get_subsys_map_index
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -75,7 +77,6 @@ MODULE optimize_embedding_potential
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_release,&
                                               pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_resp_all,&
@@ -89,7 +90,7 @@ MODULE optimize_embedding_potential
    USE qs_kinetic,                      ONLY: build_kinetic_matrix
    USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
@@ -155,7 +156,7 @@ CONTAINS
             all_spins(:, i_force_eval) = nelectron_spin
             nspins = dft_control%nspins
             all_nspins(i_force_eval) = nspins
-         ENDDO
+         END DO
 
          ! Find out whether we need a spin-dependend embedding potential
          IF (.NOT. ((all_nspins(1) .EQ. 1) .AND. (all_nspins(2) .EQ. 1) .AND. (all_nspins(3) .EQ. 1))) &
@@ -168,17 +169,17 @@ CONTAINS
                total_spin = 0
             ELSE
                total_spin = all_spins(1, 3) - all_spins(2, 3)
-            ENDIF
+            END IF
             IF (all_nspins(1) .EQ. 1) THEN
                sub_spin_1 = 0
             ELSE
                sub_spin_1 = all_spins(1, 1) - all_spins(2, 1)
-            ENDIF
+            END IF
             IF (all_nspins(2) .EQ. 1) THEN
                sub_spin_2 = 0
             ELSE
                sub_spin_2 = all_spins(1, 2) - all_spins(2, 2)
-            ENDIF
+            END IF
             IF ((sub_spin_1 + sub_spin_2) .EQ. total_spin) THEN
                change_spin = .FALSE.
             ELSE
@@ -186,13 +187,13 @@ CONTAINS
                   change_spin = .TRUE.
                ELSE
                   CPABORT("Spin states of subsystems are not compatible.")
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
-         ENDIF ! not open_shell
+         END IF ! not open_shell
       ELSE
          CPABORT("Reference subsystem must be the third FORCE_EVAL.")
-      ENDIF
+      END IF
 
    END SUBROUTINE understand_spin_states
 
@@ -212,24 +213,24 @@ CONTAINS
    SUBROUTINE init_embed_pot(qs_env, embed_pot, add_const_pot, Fermi_Amaldi, const_pot, open_shell_embed, &
                              spin_embed_pot, pot_diff, Coulomb_guess, grid_opt)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot
+      TYPE(pw_type), POINTER                             :: embed_pot
       LOGICAL                                            :: add_const_pot, Fermi_Amaldi
-      TYPE(pw_p_type), POINTER                           :: const_pot
+      TYPE(pw_type), POINTER                             :: const_pot
       LOGICAL                                            :: open_shell_embed
-      TYPE(pw_p_type), POINTER                           :: spin_embed_pot, pot_diff
+      TYPE(pw_type), POINTER                             :: spin_embed_pot, pot_diff
       LOGICAL                                            :: Coulomb_guess, grid_opt
 
       INTEGER                                            :: nelectrons
       INTEGER, DIMENSION(2)                              :: nelectron_spin
       REAL(KIND=dp)                                      :: factor
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_hartree_r_space
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), POINTER                             :: v_hartree_r_space
 
       ! Extract  plane waves environment
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, &
                       nelectron_spin=nelectron_spin, &
-                      v_hartree_rspace=v_hartree_r_space%pw)
+                      v_hartree_rspace=v_hartree_r_space)
 
       ! Prepare plane-waves pool
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
@@ -237,67 +238,62 @@ CONTAINS
       ! Create embedding potential and set to zero
       NULLIFY (embed_pot)
       ALLOCATE (embed_pot)
-      NULLIFY (embed_pot%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool, embed_pot%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, embed_pot, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
-      CALL pw_zero(embed_pot%pw)
+      CALL pw_zero(embed_pot)
 
       ! Spin embedding potential if asked
       IF (open_shell_embed) THEN
          NULLIFY (spin_embed_pot)
          ALLOCATE (spin_embed_pot)
-         NULLIFY (spin_embed_pot%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, spin_embed_pot%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, spin_embed_pot, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(spin_embed_pot%pw)
-      ENDIF
+         CALL pw_zero(spin_embed_pot)
+      END IF
 
       ! Coulomb guess/constant potential
       IF (Coulomb_guess) THEN
          NULLIFY (pot_diff)
          ALLOCATE (pot_diff)
-         NULLIFY (pot_diff%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, pot_diff%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, pot_diff, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(pot_diff%pw)
-      ENDIF
+         CALL pw_zero(pot_diff)
+      END IF
 
       ! Initialize constant part of the embedding potential
       IF (add_const_pot .AND. (.NOT. grid_opt)) THEN
          ! Now the constant potential is the Coulomb one
          NULLIFY (const_pot)
          ALLOCATE (const_pot)
-         NULLIFY (const_pot%pw)
-
-         CALL pw_pool_create_pw(auxbas_pw_pool, const_pot%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, const_pot, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(const_pot%pw)
-      ENDIF
+         CALL pw_zero(const_pot)
+      END IF
 
       ! Add Fermi-Amaldi potential if requested
       IF (Fermi_Amaldi) THEN
 
          ! Extract  Hartree potential
-         NULLIFY (v_hartree_r_space%pw)
+         NULLIFY (v_hartree_r_space)
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, &
-                         v_hartree_rspace=v_hartree_r_space%pw)
-         CALL pw_copy(v_hartree_r_space%pw, embed_pot%pw)
+                         v_hartree_rspace=v_hartree_r_space)
+         CALL pw_copy(v_hartree_r_space, embed_pot)
 
          ! Calculate the number of electrons
          nelectrons = nelectron_spin(1) + nelectron_spin(2)
-         factor = (REAL(nelectrons) - 1.0_dp)/(REAL(nelectrons))
+         factor = (REAL(nelectrons, dp) - 1.0_dp)/(REAL(nelectrons, dp))
 
          ! Scale the Hartree potential to get Fermi-Amaldi
-         CALL pw_scale(embed_pot%pw, a=factor)
+         CALL pw_scale(embed_pot, a=factor)
 
          ! Copy Fermi-Amaldi to embedding potential for basis-based optimization
-         IF (.NOT. grid_opt) CALL pw_copy(embed_pot%pw, embed_pot%pw)
+         IF (.NOT. grid_opt) CALL pw_copy(embed_pot, embed_pot)
 
-      ENDIF
+      END IF
 
    END SUBROUTINE init_embed_pot
 
@@ -327,7 +323,7 @@ CONTAINS
 
       CALL read_opt_embed_section(opt_embed, opt_embed_section)
 
-      ! All these are needed for optimization in a finite Guassian basis
+      ! All these are needed for optimization in a finite Gaussian basis
       IF (.NOT. opt_embed%grid_opt) THEN
          ! Create blacs environment
          CALL get_qs_env(qs_env=qs_env, &
@@ -335,7 +331,7 @@ CONTAINS
          NULLIFY (blacs_env)
          CALL cp_blacs_env_create(blacs_env=blacs_env, para_env=para_env)
 
-         ! Reveal the dimention of the RI basis
+         ! Reveal the dimension of the RI basis
          CALL find_aux_dimen(qs_env, opt_embed%dimen_aux)
 
          ! Prepare the object for integrals
@@ -347,7 +343,7 @@ CONTAINS
             opt_embed%dimen_var_aux = 2*opt_embed%dimen_aux
          ELSE
             opt_embed%dimen_var_aux = opt_embed%dimen_aux
-         ENDIF
+         END IF
 
          ! Allocate expansion coefficients and gradient
          NULLIFY (opt_embed%embed_pot_grad, opt_embed%embed_pot_coef, opt_embed%step, fm_struct)
@@ -355,12 +351,14 @@ CONTAINS
          NULLIFY (opt_embed%prev_embed_pot_grad, opt_embed%prev_embed_pot_coef, opt_embed%prev_step)
          CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
                                   nrow_global=opt_embed%dimen_var_aux, ncol_global=1)
+         ALLOCATE (opt_embed%embed_pot_grad, opt_embed%embed_pot_coef, &
+                   opt_embed%prev_embed_pot_grad, opt_embed%prev_embed_pot_coef, &
+                   opt_embed%step, opt_embed%prev_step)
          CALL cp_fm_create(opt_embed%embed_pot_grad, fm_struct, name="pot_grad")
          CALL cp_fm_create(opt_embed%embed_pot_coef, fm_struct, name="pot_coef")
          CALL cp_fm_create(opt_embed%prev_embed_pot_grad, fm_struct, name="prev_pot_grad")
          CALL cp_fm_create(opt_embed%prev_embed_pot_coef, fm_struct, name="prev_pot_coef")
          CALL cp_fm_create(opt_embed%step, fm_struct, name="step")
-
          CALL cp_fm_create(opt_embed%prev_step, fm_struct, name="prev_step")
 
          CALL cp_fm_struct_release(fm_struct)
@@ -376,6 +374,7 @@ CONTAINS
          NULLIFY (opt_embed%embed_pot_hess, opt_embed%prev_embed_pot_hess, fm_struct)
          CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
                                   nrow_global=opt_embed%dimen_var_aux, ncol_global=opt_embed%dimen_var_aux)
+         ALLOCATE (opt_embed%embed_pot_hess, opt_embed%prev_embed_pot_hess)
          CALL cp_fm_create(opt_embed%embed_pot_hess, fm_struct, name="pot_Hess")
          CALL cp_fm_create(opt_embed%prev_embed_pot_hess, fm_struct, name="prev_pot_Hess")
          CALL cp_fm_struct_release(fm_struct)
@@ -384,6 +383,7 @@ CONTAINS
          NULLIFY (fm_struct, opt_embed%kinetic_mat)
          CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
                                   nrow_global=opt_embed%dimen_aux, ncol_global=opt_embed%dimen_aux)
+         ALLOCATE (opt_embed%kinetic_mat)
          CALL cp_fm_create(opt_embed%kinetic_mat, fm_struct, name="kinetic_mat")
          CALL cp_fm_struct_release(fm_struct)
          CALL cp_fm_set_all(opt_embed%kinetic_mat, 0.0_dp)
@@ -395,27 +395,7 @@ CONTAINS
          ! Release blacs environment
          CALL cp_blacs_env_release(blacs_env)
 
-         ! ELSE ! Grid-based optimization
-         !my_spins = 1
-         !IF (opt_embed%open_shell_embed) my_spins = 2
-         !CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
-         !CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-         !NULLIFY (opt_embed%prev_grid_grad, opt_embed%prev_grid_pot)
-         !ALLOCATE (opt_embed%prev_grid_grad(my_spins))
-         !ALLOCATE (opt_embed%prev_grid_pot(my_spins))
-         !DO i_spin = 1, my_spins
-         !   ALLOCATE (opt_embed%prev_grid_grad(i_spin))
-         !   CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_grid_grad(i_spin)%pw, &
-         !                          use_data=REALDATA3D, &
-         !                          in_space=REALSPACE)
-         !   CALL pw_zero(opt_embed%prev_grid_grad(i_spin)%pw)
-         !   ALLOCATE (opt_embed%prev_grid_pot(i_spin))
-         !   CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_grid_pot(i_spin)%pw, &
-         !                          use_data=REALDATA3D, &
-         !                          in_space=REALSPACE)
-         !   CALL pw_zero(opt_embed%prev_grid_pot(i_spin)%pw)
-         !ENDDO
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
@@ -423,11 +403,11 @@ CONTAINS
       size_prev_dens = SUM(opt_embed%all_nspins(1:(SIZE(opt_embed%all_nspins) - 1)))
       ALLOCATE (opt_embed%prev_subsys_dens(size_prev_dens))
       DO i_dens = 1, size_prev_dens
-         CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_subsys_dens(i_dens)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_subsys_dens(i_dens), &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(opt_embed%prev_subsys_dens(i_dens)%pw)
-      ENDDO
+         CALL pw_zero(opt_embed%prev_subsys_dens(i_dens))
+      END DO
       ALLOCATE (opt_embed%max_subsys_dens_diff(size_prev_dens))
 
       ! Array to store functional values
@@ -445,21 +425,19 @@ CONTAINS
       IF (opt_embed%fab) THEN
          NULLIFY (opt_embed%prev_embed_pot)
          ALLOCATE (opt_embed%prev_embed_pot)
-         NULLIFY (opt_embed%prev_embed_pot%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_embed_pot%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_embed_pot, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(opt_embed%prev_embed_pot%pw)
+         CALL pw_zero(opt_embed%prev_embed_pot)
          IF (opt_embed%open_shell_embed) THEN
             NULLIFY (opt_embed%prev_spin_embed_pot)
             ALLOCATE (opt_embed%prev_spin_embed_pot)
-            NULLIFY (opt_embed%prev_spin_embed_pot%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_spin_embed_pot%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, opt_embed%prev_spin_embed_pot, &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(opt_embed%prev_spin_embed_pot%pw)
-         ENDIF
-      ENDIF
+            CALL pw_zero(opt_embed%prev_spin_embed_pot)
+         END IF
+      END IF
 
       ! Set allowed energy decrease parameter
       opt_embed%allowed_decrease = 0.0001_dp
@@ -595,7 +573,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
-      ! First, reveal the dimention of the RI basis
+      ! First, reveal the dimension of the RI basis
       CALL get_qs_env(qs_env=qs_env, &
                       particle_set=particle_set, &
                       qs_kind_set=qs_kind_set, &
@@ -662,8 +640,8 @@ CONTAINS
       LOGICAL                                            :: open_shell_embed
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool_subsys
+      TYPE(pw_type), POINTER                             :: embed_pot, spin_embed_pot
       TYPE(section_vals_type), POINTER                   :: input, qs_section
 
       qs_env%given_embed_pot = .TRUE.
@@ -684,20 +662,16 @@ CONTAINS
       !CALL get_qs_env(qs_env=qs_env, &
       !                embed_pot=embed_pot)
       ALLOCATE (embed_pot)
-      NULLIFY (embed_pot%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool_subsys, embed_pot%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool_subsys, embed_pot, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
       IF (open_shell_embed) THEN
          ! Create spin embedding potential
-         !  CALL get_qs_env(qs_env=qs_env, &
-         !               spin_embed_pot=spin_embed_pot)
          ALLOCATE (spin_embed_pot)
-         NULLIFY (spin_embed_pot%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool_subsys, spin_embed_pot%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool_subsys, spin_embed_pot, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-      ENDIF
+      END IF
       ! Read the cubes
       CALL read_embed_pot_cube(embed_pot, spin_embed_pot, qs_section, open_shell_embed)
 
@@ -705,7 +679,7 @@ CONTAINS
          CALL set_qs_env(qs_env=qs_env, embed_pot=embed_pot)
       ELSE
          CALL set_qs_env(qs_env=qs_env, embed_pot=embed_pot, spin_embed_pot=spin_embed_pot)
-      ENDIF
+      END IF
 
    END SUBROUTINE given_embed_pot
 
@@ -719,14 +693,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE read_embed_pot(qs_env, embed_pot, spin_embed_pot, section, opt_embed)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
+      TYPE(pw_type), POINTER                             :: embed_pot, spin_embed_pot
       TYPE(section_vals_type), POINTER                   :: section
       TYPE(opt_embed_pot_type)                           :: opt_embed
 
       ! Read the potential as a vector in the auxiliary basis
       IF (opt_embed%read_embed_pot) &
-         CALL read_embed_pot_vector(qs_env, embed_pot, spin_embed_pot, section, opt_embed%embed_pot_coef, &
-                                    opt_embed%open_shell_embed)
+         CALL read_embed_pot_vector(qs_env, embed_pot, spin_embed_pot, section, &
+                                    opt_embed%embed_pot_coef, opt_embed%open_shell_embed)
       ! Read the potential as a cube (two cubes for open shell)
       IF (opt_embed%read_embed_pot_cube) &
          CALL read_embed_pot_cube(embed_pot, spin_embed_pot, section, opt_embed%open_shell_embed)
@@ -741,7 +715,7 @@ CONTAINS
 !> \param open_shell_embed ...
 ! **************************************************************************************************
    SUBROUTINE read_embed_pot_cube(embed_pot, spin_embed_pot, section, open_shell_embed)
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
+      TYPE(pw_type), INTENT(IN)                          :: embed_pot, spin_embed_pot
       TYPE(section_vals_type), POINTER                   :: section
       LOGICAL                                            :: open_shell_embed
 
@@ -756,7 +730,7 @@ CONTAINS
          CPABORT("Embedding cube file not found. ")
 
       scaling_factor = 1.0_dp
-      CALL cp_cube_to_pw(embed_pot%pw, filename, scaling_factor)
+      CALL cp_cube_to_pw(embed_pot, filename, scaling_factor)
 
       ! Spin-dependent part of the potential
       IF (open_shell_embed) THEN
@@ -767,8 +741,8 @@ CONTAINS
             CPABORT("Embedding spin cube file not found. ")
 
          scaling_factor = 1.0_dp
-         CALL cp_cube_to_pw(spin_embed_pot%pw, filename, scaling_factor)
-      ENDIF
+         CALL cp_cube_to_pw(spin_embed_pot, filename, scaling_factor)
+      END IF
 
    END SUBROUTINE read_embed_pot_cube
 
@@ -781,13 +755,13 @@ CONTAINS
 !> \param embed_pot_coef ...
 !> \param open_shell_embed ...
 ! **************************************************************************************************
-   SUBROUTINE read_embed_pot_vector(qs_env, embed_pot, spin_embed_pot, section, embed_pot_coef, &
-                                    open_shell_embed)
+   SUBROUTINE read_embed_pot_vector(qs_env, embed_pot, spin_embed_pot, section, embed_pot_coef, open_shell_embed)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
+      TYPE(pw_type), INTENT(INOUT)                       :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
       TYPE(section_vals_type), POINTER                   :: section
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: embed_pot_coef
-      LOGICAL                                            :: open_shell_embed
+      TYPE(cp_fm_type), INTENT(IN)                       :: embed_pot_coef
+      LOGICAL, INTENT(IN)                                :: open_shell_embed
 
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER                                            :: dimen_aux, dimen_restart_basis, &
@@ -797,7 +771,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: coef, coef_read
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: my_embed_pot_coef
+      TYPE(cp_fm_type)                                   :: my_embed_pot_coef
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       ! Get the vector dimension
@@ -806,21 +780,17 @@ CONTAINS
          dimen_var_aux = dimen_aux*2
       ELSE
          dimen_var_aux = dimen_aux
-      ENDIF
+      END IF
 
       ! We need a temporary vector of coefficients
       CALL get_qs_env(qs_env=qs_env, &
                       para_env=para_env)
       NULLIFY (blacs_env)
-      NULLIFY (my_embed_pot_coef, fm_struct)
+      NULLIFY (fm_struct)
       CALL cp_blacs_env_create(blacs_env=blacs_env, para_env=para_env)
       CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
                                nrow_global=dimen_var_aux, ncol_global=1)
       CALL cp_fm_create(my_embed_pot_coef, fm_struct, name="my_pot_coef")
-      IF (.NOT. (PRESENT(embed_pot_coef))) THEN
-         NULLIFY (embed_pot_coef)
-         CALL cp_fm_create(my_embed_pot_coef, fm_struct, name="pot_coef")
-      ENDIF
 
       CALL cp_fm_struct_release(fm_struct)
       CALL cp_fm_set_all(my_embed_pot_coef, 0.0_dp)
@@ -858,7 +828,7 @@ CONTAINS
          ! Close restart file
          CALL close_file(unit_number=restart_unit)
 
-      ENDIF
+      END IF
 
       ! Broadcast the coefficients on all processes
       CALL mp_bcast(coef, para_env%source, para_env%group)
@@ -872,7 +842,7 @@ CONTAINS
       DO LLL = 1, nrow_local
          l_global = row_indices(LLL)
          my_embed_pot_coef%local_data(LLL, 1) = coef(l_global)
-      ENDDO
+      END DO
 
       DEALLOCATE (coef)
 
@@ -885,7 +855,6 @@ CONTAINS
 
       ! Release my_embed_pot_coef
       CALL cp_fm_release(my_embed_pot_coef)
-      IF (.NOT. (PRESENT(embed_pot_coef))) CALL cp_fm_release(embed_pot_coef)
 
       ! Release blacs environment
       CALL cp_blacs_env_release(blacs_env)
@@ -924,14 +893,16 @@ CONTAINS
          CALL cp_fm_release(opt_embed%embed_pot_grad)
          CALL cp_fm_release(opt_embed%embed_pot_coef)
          CALL cp_fm_release(opt_embed%step)
-
          CALL cp_fm_release(opt_embed%prev_step)
-
          CALL cp_fm_release(opt_embed%embed_pot_hess)
          CALL cp_fm_release(opt_embed%prev_embed_pot_grad)
          CALL cp_fm_release(opt_embed%prev_embed_pot_coef)
          CALL cp_fm_release(opt_embed%prev_embed_pot_hess)
          CALL cp_fm_release(opt_embed%kinetic_mat)
+         DEALLOCATE (opt_embed%embed_pot_grad, opt_embed%embed_pot_coef, &
+                     opt_embed%step, opt_embed%prev_step, opt_embed%embed_pot_hess, &
+                     opt_embed%prev_embed_pot_grad, opt_embed%prev_embed_pot_coef, &
+                     opt_embed%prev_embed_pot_hess, opt_embed%kinetic_mat)
          DEALLOCATE (opt_embed%w_func)
          DEALLOCATE (opt_embed%max_diff)
          DEALLOCATE (opt_embed%int_diff)
@@ -939,40 +910,44 @@ CONTAINS
          DO ikind = 1, SIZE(opt_embed%lri)
             DEALLOCATE (opt_embed%lri(ikind)%v_int)
             DEALLOCATE (opt_embed%lri(ikind)%acoef)
-         ENDDO
+         END DO
          DEALLOCATE (opt_embed%lri)
-      ENDIF
+      END IF
 
-      DO i_dens = 1, SIZE(opt_embed%prev_subsys_dens)
-         CALL pw_release(opt_embed%prev_subsys_dens(i_dens)%pw)
-      ENDDO
-      DEALLOCATE (opt_embed%prev_subsys_dens)
+      IF (ASSOCIATED(opt_embed%prev_subsys_dens)) THEN
+         DO i_dens = 1, SIZE(opt_embed%prev_subsys_dens)
+            CALL pw_release(opt_embed%prev_subsys_dens(i_dens))
+         END DO
+         DEALLOCATE (opt_embed%prev_subsys_dens)
+      END IF
       DEALLOCATE (opt_embed%max_subsys_dens_diff)
 
       DEALLOCATE (opt_embed%all_nspins)
 
-      IF (opt_embed%add_const_pot .AND. (.NOT. opt_embed%grid_opt)) THEN
-         CALL pw_release(opt_embed%const_pot%pw)
+      IF (ASSOCIATED(opt_embed%const_pot)) THEN
+         CALL pw_release(opt_embed%const_pot)
          DEALLOCATE (opt_embed%const_pot)
-      ENDIF
+      END IF
 
-      IF (opt_embed%Coulomb_guess) THEN
-         CALL pw_release(opt_embed%pot_diff%pw)
+      IF (ASSOCIATED(opt_embed%pot_diff)) THEN
+         CALL pw_release(opt_embed%pot_diff)
          DEALLOCATE (opt_embed%pot_diff)
-      ENDIF
+      END IF
 
-      IF (opt_embed%fab) THEN
-         CALL pw_release(opt_embed%prev_embed_pot%pw)
+      IF (ASSOCIATED(opt_embed%prev_embed_pot)) THEN
+         CALL pw_release(opt_embed%prev_embed_pot)
          DEALLOCATE (opt_embed%prev_embed_pot)
-         IF (opt_embed%open_shell_embed) THEN
-            CALL pw_release(opt_embed%prev_spin_embed_pot%pw)
-            DEALLOCATE (opt_embed%prev_spin_embed_pot)
-         ENDIF
+      END IF
+      IF (ASSOCIATED(opt_embed%prev_spin_embed_pot)) THEN
+         CALL pw_release(opt_embed%prev_spin_embed_pot)
+         DEALLOCATE (opt_embed%prev_spin_embed_pot)
+      END IF
+      IF (ASSOCIATED(opt_embed%v_w)) THEN
          DO i_spin = 1, SIZE(opt_embed%v_w)
-            CALL pw_release(opt_embed%v_w(i_spin)%pw)
-         ENDDO
+            CALL pw_release(opt_embed%v_w(i_spin))
+         END DO
          DEALLOCATE (opt_embed%v_w)
-      ENDIF
+      END IF
 
    END SUBROUTINE release_opt_embed
 
@@ -987,7 +962,7 @@ CONTAINS
 !> \param eta ...
 ! **************************************************************************************************
    SUBROUTINE Coulomb_guess(v_rspace, rhs, mapping_section, qs_env, nforce_eval, iforce_eval, eta)
-      TYPE(pw_p_type)                                    :: v_rspace
+      TYPE(pw_type)                                      :: v_rspace
       REAL(KIND=dp), DIMENSION(:), POINTER               :: rhs
       TYPE(section_vals_type), POINTER                   :: mapping_section
       TYPE(qs_environment_type), POINTER                 :: qs_env
@@ -1000,9 +975,9 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: rhs_subsys
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: rho_resp, v_resp_gspace, v_resp_rspace
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rho_resp, v_resp_gspace, v_resp_rspace
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
       ! Get available particles
@@ -1030,42 +1005,42 @@ CONTAINS
                       poisson_env=poisson_env)
 
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_resp_gspace%pw, &
+                             v_resp_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_resp_rspace%pw, &
+                             v_resp_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_resp%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho_resp, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
       ! Calculate charge density
-      CALL pw_zero(rho_resp%pw)
+      CALL pw_zero(rho_resp)
       CALL calculate_rho_resp_all(rho_resp, rhs_subsys, natom, eta, qs_env)
 
       ! Calculate potential
-      CALL pw_zero(v_resp_gspace%pw)
-      CALL pw_poisson_solve(poisson_env, rho_resp%pw, &
-                            vhartree=v_resp_gspace%pw)
-      CALL pw_zero(v_resp_rspace%pw)
-      CALL pw_transfer(v_resp_gspace%pw, v_resp_rspace%pw)
-      dvol = v_resp_rspace%pw%pw_grid%dvol
-      CALL pw_scale(v_resp_rspace%pw, dvol)
+      CALL pw_zero(v_resp_gspace)
+      CALL pw_poisson_solve(poisson_env, rho_resp, &
+                            vhartree=v_resp_gspace)
+      CALL pw_zero(v_resp_rspace)
+      CALL pw_transfer(v_resp_gspace, v_resp_rspace)
+      dvol = v_resp_rspace%pw_grid%dvol
+      CALL pw_scale(v_resp_rspace, dvol)
       normalize_factor = SQRT((eta/pi)**3)
       !normalize_factor = -2.0_dp
-      CALL pw_scale(v_resp_rspace%pw, normalize_factor)
+      CALL pw_scale(v_resp_rspace, normalize_factor)
 
       ! Hard copy potential
-      v_rspace%pw%cr3d(:, :, :) = v_resp_rspace%pw%cr3d(:, :, :)
+      v_rspace%cr3d(:, :, :) = v_resp_rspace%cr3d(:, :, :)
 
       ! Release plane waves
-      CALL pw_release(v_resp_gspace%pw)
-      CALL pw_release(v_resp_rspace%pw)
-      CALL pw_release(rho_resp%pw)
+      CALL pw_release(v_resp_gspace)
+      CALL pw_release(v_resp_rspace)
+      CALL pw_release(rho_resp)
 
       ! Deallocate map_index array
       DEALLOCATE (map_index)
@@ -1089,8 +1064,10 @@ CONTAINS
                                     spin_embed_pot, spin_embed_pot_subsys, open_shell_embed, &
                                     change_spin_sign)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, embed_pot_subsys, &
-                                                            spin_embed_pot, spin_embed_pot_subsys
+      TYPE(pw_type), INTENT(IN)                          :: embed_pot
+      TYPE(pw_type), POINTER                             :: embed_pot_subsys
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
+      TYPE(pw_type), POINTER                             :: spin_embed_pot_subsys
       LOGICAL                                            :: open_shell_embed, change_spin_sign
 
       TYPE(pw_env_type), POINTER                         :: pw_env
@@ -1105,28 +1082,26 @@ CONTAINS
       ! Create embedding potential and set to zero
       NULLIFY (embed_pot_subsys)
       ALLOCATE (embed_pot_subsys)
-      NULLIFY (embed_pot_subsys%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool_subsys, embed_pot_subsys%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool_subsys, embed_pot_subsys, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
       ! Hard copy the grid
-      embed_pot_subsys%pw%cr3d(:, :, :) = embed_pot%pw%cr3d(:, :, :)
+      embed_pot_subsys%cr3d(:, :, :) = embed_pot%cr3d(:, :, :)
 
       IF (open_shell_embed) THEN
          NULLIFY (spin_embed_pot_subsys)
          ALLOCATE (spin_embed_pot_subsys)
-         NULLIFY (spin_embed_pot_subsys%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool_subsys, spin_embed_pot_subsys%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool_subsys, spin_embed_pot_subsys, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
          ! Hard copy the grid
          IF (change_spin_sign) THEN
-            spin_embed_pot_subsys%pw%cr3d(:, :, :) = -spin_embed_pot%pw%cr3d(:, :, :)
+            spin_embed_pot_subsys%cr3d(:, :, :) = -spin_embed_pot%cr3d(:, :, :)
          ELSE
-            spin_embed_pot_subsys%pw%cr3d(:, :, :) = spin_embed_pot%pw%cr3d(:, :, :)
-         ENDIF
-      ENDIF
+            spin_embed_pot_subsys%cr3d(:, :, :) = spin_embed_pot%cr3d(:, :, :)
+         END IF
+      END IF
 
    END SUBROUTINE make_subsys_embed_pot
 
@@ -1141,16 +1116,15 @@ CONTAINS
 
    SUBROUTINE calculate_embed_pot_grad(qs_env, diff_rho_r, diff_rho_spin, opt_embed)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
       TYPE(opt_embed_pot_type)                           :: opt_embed
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_embed_pot_grad', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_embed_pot_grad'
 
       INTEGER                                            :: handle
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: embed_pot_coeff_spin, &
+      TYPE(cp_fm_type)                                   :: embed_pot_coeff_spin, &
                                                             embed_pot_coeff_spinless, &
                                                             regular_term, spin_reg, spinless_reg
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -1179,9 +1153,8 @@ CONTAINS
       ! Add regularization with kinetic matrix
       IF (opt_embed%i_iter .EQ. 1) THEN ! Else it is kept in memory
          CALL compute_kinetic_mat(qs_env, opt_embed%kinetic_mat)
-      ENDIF
+      END IF
 
-      NULLIFY (regular_term)
       CALL cp_fm_get_info(matrix=opt_embed%embed_pot_grad, &
                           matrix_struct=fm_struct)
       CALL cp_fm_create(regular_term, fm_struct, name="regular_term")
@@ -1191,7 +1164,7 @@ CONTAINS
       ! the spinless and the spin parts
       IF (opt_embed%open_shell_embed) THEN
          ! Prepare auxiliary full matrices
-         NULLIFY (embed_pot_coeff_spinless, embed_pot_coeff_spin, spinless_reg, spin_reg, fm_struct, blacs_env)
+         NULLIFY (fm_struct, blacs_env)
 
          !CALL cp_blacs_env_create(blacs_env=blacs_env, para_env=para_env)
 
@@ -1220,14 +1193,14 @@ CONTAINS
                                  s_firstrow=opt_embed%dimen_aux + 1, s_firstcol=1, &
                                  t_firstrow=1, t_firstcol=1)
          ! Multiply
-         CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
-                      k=opt_embed%dimen_aux, alpha=1.0_dp, &
-                      matrix_a=opt_embed%kinetic_mat, matrix_b=embed_pot_coeff_spinless, &
-                      beta=0.0_dp, matrix_c=spinless_reg)
-         CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
-                      k=opt_embed%dimen_aux, alpha=1.0_dp, &
-                      matrix_a=opt_embed%kinetic_mat, matrix_b=embed_pot_coeff_spin, &
-                      beta=0.0_dp, matrix_c=spin_reg)
+         CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
+                            k=opt_embed%dimen_aux, alpha=1.0_dp, &
+                            matrix_a=opt_embed%kinetic_mat, matrix_b=embed_pot_coeff_spinless, &
+                            beta=0.0_dp, matrix_c=spinless_reg)
+         CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
+                            k=opt_embed%dimen_aux, alpha=1.0_dp, &
+                            matrix_a=opt_embed%kinetic_mat, matrix_b=embed_pot_coeff_spin, &
+                            beta=0.0_dp, matrix_c=spin_reg)
          ! Copy from the auxiliary structures to the full regularization term
          CALL cp_fm_to_fm_submat(msource=spinless_reg, &
                                  mtarget=regular_term, &
@@ -1246,11 +1219,11 @@ CONTAINS
          CALL cp_fm_release(spinless_reg)
 
       ELSE ! Simply multiply
-         CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
-                      k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
-                      matrix_a=opt_embed%kinetic_mat, matrix_b=opt_embed%embed_pot_coef, &
-                      beta=0.0_dp, matrix_c=regular_term)
-      ENDIF
+         CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
+                            k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
+                            matrix_a=opt_embed%kinetic_mat, matrix_b=opt_embed%embed_pot_coef, &
+                            beta=0.0_dp, matrix_c=regular_term)
+      END IF
 
       ! Scale by the regularization parameter and add to the gradient
       CALL cp_fm_scale_and_add(1.0_dp, opt_embed%embed_pot_grad, 4.0_dp*opt_embed%lambda, regular_term)
@@ -1281,13 +1254,12 @@ CONTAINS
                                              open_shell_embed, lri)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER                                            :: dimen_aux
-      TYPE(pw_p_type), POINTER                           :: rho_r, rho_spin
-      TYPE(cp_fm_type), POINTER                          :: embed_pot_grad
+      TYPE(pw_type), INTENT(IN)                          :: rho_r, rho_spin
+      TYPE(cp_fm_type), INTENT(IN)                       :: embed_pot_grad
       LOGICAL                                            :: open_shell_embed
       TYPE(lri_kind_type), DIMENSION(:), POINTER         :: lri
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_embed_pot_grad_inner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_embed_pot_grad_inner'
 
       INTEGER                                            :: handle, iatom, ikind, l_global, LLL, &
                                                             nrow_local, nsgf, start_pos
@@ -1317,7 +1289,7 @@ CONTAINS
          ALLOCATE (pot_grad(dimen_aux*2))
       ELSE
          ALLOCATE (pot_grad(dimen_aux))
-      ENDIF
+      END IF
 
       ! Use lri subroutine
       DO ikind = 1, SIZE(lri)
@@ -1337,8 +1309,8 @@ CONTAINS
             nsgf = SIZE(lri(ikind)%v_int(iatom, :))
             pot_grad(start_pos:start_pos + nsgf - 1) = lri(ikind)%v_int(iatom, :)
             start_pos = start_pos + nsgf
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! Open-shell embedding
       IF (open_shell_embed) THEN
@@ -1358,12 +1330,12 @@ CONTAINS
                nsgf = SIZE(lri(ikind)%v_int(iatom, :))
                pot_grad(start_pos:start_pos + nsgf - 1) = lri(ikind)%v_int(iatom, :)
                start_pos = start_pos + nsgf
-            ENDDO
-         ENDDO
-      ENDIF
+            END DO
+         END DO
+      END IF
 
       ! Scale by the cell volume
-      pot_grad = pot_grad*rho_r%pw%pw_grid%dvol
+      pot_grad = pot_grad*rho_r%pw_grid%dvol
 
       ! Information about full matrix gradient
       CALL cp_fm_get_info(matrix=embed_pot_grad, &
@@ -1374,7 +1346,7 @@ CONTAINS
       DO LLL = 1, nrow_local
          l_global = row_indices(LLL)
          embed_pot_grad%local_data(LLL, 1) = pot_grad(l_global)
-      ENDDO
+      END DO
 
       DEALLOCATE (pot_grad)
 
@@ -1390,10 +1362,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE compute_kinetic_mat(qs_env, kinetic_mat)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: kinetic_mat
+      TYPE(cp_fm_type), INTENT(IN)                       :: kinetic_mat
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_kinetic_mat', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_kinetic_mat'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_t
@@ -1432,16 +1403,16 @@ CONTAINS
 !> \param reg_term ...
 ! **************************************************************************************************
    SUBROUTINE grid_regularize(potential, pw_env, lambda, reg_term)
-      TYPE(pw_p_type), POINTER                           :: potential
+      TYPE(pw_type), INTENT(IN)                          :: potential
       TYPE(pw_env_type), POINTER                         :: pw_env
       REAL(KIND=dp)                                      :: lambda, reg_term
 
       INTEGER                                            :: i, j, k
       INTEGER, DIMENSION(3)                              :: lb, n, ub
-      TYPE(pw_p_type), DIMENSION(3)                      :: dpot, dpot_g
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
-      TYPE(pw_type), POINTER                             :: dr2_pot, grid_reg, grid_reg_g, &
+      TYPE(pw_type)                                      :: dr2_pot, grid_reg, grid_reg_g, &
                                                             potential_g, square_norm_dpot
+      TYPE(pw_type), DIMENSION(3)                        :: dpot, dpot_g
 
       !
       ! First, the contribution to the gradient
@@ -1450,56 +1421,49 @@ CONTAINS
       ! Get some of the grids ready
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
-      NULLIFY (potential_g)
       CALL pw_pool_create_pw(auxbas_pw_pool, potential_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
-      NULLIFY (dr2_pot)
       CALL pw_pool_create_pw(auxbas_pw_pool, dr2_pot, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
-      NULLIFY (grid_reg)
       CALL pw_pool_create_pw(auxbas_pw_pool, grid_reg, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
-      NULLIFY (grid_reg_g)
       CALL pw_pool_create_pw(auxbas_pw_pool, grid_reg_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_zero(grid_reg_g)
 
       ! Transfer potential to the reciprocal space
-      CALL pw_transfer(potential%pw, potential_g)
+      CALL pw_transfer(potential, potential_g)
 
       ! Calculate second derivatives: dx^2, dy^2, dz^2
       DO i = 1, 3
          CALL pw_dr2(potential_g, dr2_pot, i, i)
          CALL pw_axpy(dr2_pot, grid_reg_g, 1.0_dp)
-      ENDDO
+      END DO
       ! Transfer potential to the real space
       CALL pw_transfer(grid_reg_g, grid_reg)
 
       ! Update the potential with a regularization term
-      CALL pw_axpy(grid_reg, potential%pw, -4.0_dp*lambda)
+      CALL pw_axpy(grid_reg, potential, -4.0_dp*lambda)
 
       !
       ! Second, the contribution to the functional
       !
       DO i = 1, 3
-         NULLIFY (dpot(i)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, dpot(i)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, dpot(i), &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         NULLIFY (dpot_g(i)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, dpot_g(i)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, dpot_g(i), &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
-      ENDDO
+      END DO
 
-      NULLIFY (square_norm_dpot)
       CALL pw_pool_create_pw(auxbas_pw_pool, square_norm_dpot, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
@@ -1507,9 +1471,9 @@ CONTAINS
       DO i = 1, 3
          n(:) = 0
          n(i) = 1
-         CALL pw_copy(potential_g, dpot_g(i)%pw)
-         CALL pw_derive(dpot_g(i)%pw, n(:))
-         CALL pw_transfer(dpot_g(i)%pw, dpot(i)%pw)
+         CALL pw_copy(potential_g, dpot_g(i))
+         CALL pw_derive(dpot_g(i), n(:))
+         CALL pw_transfer(dpot_g(i), dpot(i))
       END DO
 
       lb(1:3) = square_norm_dpot%pw_grid%bounds_local(1, 1:3)
@@ -1520,12 +1484,12 @@ CONTAINS
       DO k = lb(3), ub(3)
          DO j = lb(2), ub(2)
             DO i = lb(1), ub(1)
-               square_norm_dpot%cr3d(i, j, k) = (dpot(1)%pw%cr3d(i, j, k)* &
-                                                 dpot(1)%pw%cr3d(i, j, k) + &
-                                                 dpot(2)%pw%cr3d(i, j, k)* &
-                                                 dpot(2)%pw%cr3d(i, j, k) + &
-                                                 dpot(3)%pw%cr3d(i, j, k)* &
-                                                 dpot(3)%pw%cr3d(i, j, k))
+               square_norm_dpot%cr3d(i, j, k) = (dpot(1)%cr3d(i, j, k)* &
+                                                 dpot(1)%cr3d(i, j, k) + &
+                                                 dpot(2)%cr3d(i, j, k)* &
+                                                 dpot(2)%cr3d(i, j, k) + &
+                                                 dpot(3)%cr3d(i, j, k)* &
+                                                 dpot(3)%cr3d(i, j, k))
             END DO
          END DO
       END DO
@@ -1540,8 +1504,8 @@ CONTAINS
       CALL pw_pool_give_back_pw(auxbas_pw_pool, grid_reg_g)
       CALL pw_pool_give_back_pw(auxbas_pw_pool, square_norm_dpot)
       DO i = 1, 3
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, dpot(i)%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, dpot_g(i)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, dpot(i))
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, dpot_g(i))
       END DO
 
    END SUBROUTINE grid_regularize
@@ -1558,20 +1522,21 @@ CONTAINS
 !> \author Vladimir Rybkin
 ! **************************************************************************************************
    SUBROUTINE opt_embed_step(diff_rho_r, diff_rho_spin, opt_embed, embed_pot, spin_embed_pot, rho_r_ref, qs_env)
-      TYPE(pw_p_type), POINTER                           :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
       TYPE(opt_embed_pot_type)                           :: opt_embed
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r_ref
+      TYPE(pw_type), INTENT(INOUT)                       :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r_ref
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'opt_embed_step', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'opt_embed_step'
       REAL(KIND=dp), PARAMETER                           :: thresh = 0.000001_dp
 
       INTEGER                                            :: handle, l_global, LLL, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: row_indices
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenval
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: diag_grad, diag_step, fm_U, fm_U_scale
+      TYPE(cp_fm_type)                                   :: diag_grad, diag_step, fm_U, fm_U_scale
       TYPE(pw_env_type), POINTER                         :: pw_env
 
       CALL timeset(routineN, handle)
@@ -1591,8 +1556,8 @@ CONTAINS
                                opt_embed%open_shell_embed, opt_embed%vw_cutoff, opt_embed%vw_smooth_cutoff_range)
             ELSE
                CALL grid_based_step(diff_rho_r, diff_rho_spin, pw_env, opt_embed, embed_pot, spin_embed_pot)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
       ELSE ! Finite basis optimization
          ! If the previous step has been rejected, we go back to the previous expansion coefficients
@@ -1609,8 +1574,8 @@ CONTAINS
                   opt_embed%trust_rad = opt_embed%max_trad
                ELSE
                   opt_embed%trust_rad = -opt_embed%max_trad
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
             CALL cp_fm_to_fm(opt_embed%step, opt_embed%prev_step)
             CALL cp_fm_scale_and_add(0.0_dp, opt_embed%prev_step, 1.0_dp, opt_embed%step)
@@ -1624,7 +1589,7 @@ CONTAINS
                IF (opt_embed%accept_step) & ! We don't update Hessian if the step has been rejected
                   CALL symm_rank_one_update(opt_embed%embed_pot_grad, opt_embed%prev_embed_pot_grad, &
                                             opt_embed%step, opt_embed%prev_embed_pot_Hess, opt_embed%embed_pot_Hess)
-            ENDIF
+            END IF
 
             ! Add regularization term to the Hessian
             !CALL cp_fm_scale_and_add(1.0_dp, opt_embed%embed_pot_Hess, 4.0_dp*opt_embed%lambda, &
@@ -1634,7 +1599,6 @@ CONTAINS
             ! Second, invert the Hessian
             ALLOCATE (eigenval(opt_embed%dimen_var_aux))
             eigenval = 0.0_dp
-            NULLIFY (fm_U, fm_U_scale, diag_grad, diag_step)
             CALL cp_fm_get_info(matrix=opt_embed%embed_pot_hess, &
                                 matrix_struct=fm_struct)
             CALL cp_fm_create(fm_U, fm_struct, name="fm_U")
@@ -1658,10 +1622,10 @@ CONTAINS
             CALL cp_fm_to_fm(fm_U_scale, opt_embed%embed_pot_hess)
 
             ! Find the step in diagonal representation, begin with gradient
-            CALL cp_gemm(transa="T", transb="N", m=opt_embed%dimen_var_aux, n=1, &
-                         k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
-                         matrix_a=fm_U, matrix_b=opt_embed%embed_pot_grad, beta=0.0_dp, &
-                         matrix_c=diag_grad)
+            CALL parallel_gemm(transa="T", transb="N", m=opt_embed%dimen_var_aux, n=1, &
+                               k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
+                               matrix_a=fm_U, matrix_b=opt_embed%embed_pot_grad, beta=0.0_dp, &
+                               matrix_c=diag_grad)
 
             CALL cp_fm_get_info(matrix=opt_embed%embed_pot_coef, &
                                 nrow_local=nrow_local, &
@@ -1674,15 +1638,15 @@ CONTAINS
                      -diag_grad%local_data(LLL, 1)/(eigenval(l_global))
                ELSE
                   diag_step%local_data(LLL, 1) = 0.0_dp
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             CALL cp_fm_trace(diag_step, diag_step, opt_embed%step_len)
 
             ! Transform step to a non-diagonal representation
-            CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
-                         k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
-                         matrix_a=fm_U, matrix_b=diag_step, beta=0.0_dp, &
-                         matrix_c=opt_embed%step)
+            CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
+                               k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
+                               matrix_a=fm_U, matrix_b=diag_step, beta=0.0_dp, &
+                               matrix_c=opt_embed%step)
 
             ! Now use fm_U_scale for scaled eigenvectors
             CALL cp_fm_to_fm(fm_U, fm_U_scale)
@@ -1701,20 +1665,20 @@ CONTAINS
                ELSE ! Just scale
                   CALL cp_fm_trace(diag_step, diag_step, opt_embed%step_len)
                   CALL cp_fm_scale(opt_embed%trust_rad/opt_embed%step_len, diag_step)
-               ENDIF
+               END IF
                CALL cp_fm_trace(diag_step, diag_step, opt_embed%step_len)
                ! Transform step to a non-diagonal representation
-               CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
-                            k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
-                            matrix_a=fm_U, matrix_b=diag_step, beta=0.0_dp, &
-                            matrix_c=opt_embed%step)
+               CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_var_aux, n=1, &
+                                  k=opt_embed%dimen_var_aux, alpha=1.0_dp, &
+                                  matrix_a=fm_U, matrix_b=diag_step, beta=0.0_dp, &
+                                  matrix_c=opt_embed%step)
                CALL cp_fm_trace(opt_embed%step, opt_embed%step, opt_embed%step_len)
 
                ! Recalculate step in diagonal representation
                opt_embed%newton_step = .FALSE.
             ELSE
                opt_embed%newton_step = .TRUE.
-            ENDIF
+            END IF
 
             ! Release some memory
             DEALLOCATE (eigenval)
@@ -1723,7 +1687,7 @@ CONTAINS
             CALL cp_fm_release(diag_step)
             CALL cp_fm_release(fm_U)
 
-         ENDIF ! grad_descent
+         END IF ! grad_descent
 
          ! Update the coefficients
          CALL cp_fm_scale_and_add(1.0_dp, opt_embed%embed_pot_coef, 1.0_dp, opt_embed%step)
@@ -1732,7 +1696,7 @@ CONTAINS
          CALL update_embed_pot(opt_embed%embed_pot_coef, opt_embed%dimen_aux, embed_pot, &
                                spin_embed_pot, qs_env, opt_embed%add_const_pot, &
                                opt_embed%open_shell_embed, opt_embed%const_pot)
-      ENDIF ! Grid-based optimization
+      END IF ! Grid-based optimization
 
       CALL timestop(handle)
 
@@ -1749,13 +1713,13 @@ CONTAINS
 !> \param spin_embed_pot ...
 ! **************************************************************************************************
    SUBROUTINE grid_based_step(diff_rho_r, diff_rho_spin, pw_env, opt_embed, embed_pot, spin_embed_pot)
-      TYPE(pw_p_type), POINTER                           :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(opt_embed_pot_type)                           :: opt_embed
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
+      TYPE(pw_type), INTENT(IN)                          :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'grid_based_step', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'grid_based_step'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: my_reg_term
@@ -1763,16 +1727,16 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       ! Take the step for spin-free part
-      CALL pw_axpy(diff_rho_r%pw, embed_pot%pw, opt_embed%step_len)
+      CALL pw_axpy(diff_rho_r, embed_pot, opt_embed%step_len)
       ! Regularize
       CALL grid_regularize(embed_pot, pw_env, opt_embed%lambda, my_reg_term)
       opt_embed%reg_term = opt_embed%reg_term + my_reg_term
 
       IF (opt_embed%open_shell_embed) THEN
-         CALL pw_axpy(diff_rho_spin%pw, spin_embed_pot%pw, opt_embed%step_len)
+         CALL pw_axpy(diff_rho_spin, spin_embed_pot, opt_embed%step_len)
          CALL grid_regularize(spin_embed_pot, pw_env, opt_embed%lambda, my_reg_term)
          opt_embed%reg_term = opt_embed%reg_term + my_reg_term
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1793,15 +1757,15 @@ CONTAINS
 
    SUBROUTINE update_embed_pot(embed_pot_coef, dimen_aux, embed_pot, spin_embed_pot, &
                                qs_env, add_const_pot, open_shell_embed, const_pot)
-      TYPE(cp_fm_type), POINTER                          :: embed_pot_coef
+      TYPE(cp_fm_type), INTENT(IN)                       :: embed_pot_coef
       INTEGER                                            :: dimen_aux
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot
+      TYPE(pw_type), INTENT(INOUT)                       :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL                                            :: add_const_pot, open_shell_embed
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: const_pot
+      TYPE(pw_type), INTENT(IN), OPTIONAL                :: const_pot
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_embed_pot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'update_embed_pot'
 
       INTEGER                                            :: handle, l_global, LLL, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: row_indices
@@ -1810,15 +1774,16 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: embed_pot_coef_spin, &
-                                                            embed_pot_coef_spinless, mo_coeff
+      TYPE(cp_fm_type)                                   :: embed_pot_coef_spin, &
+                                                            embed_pot_coef_spinless
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: psi_L, rho_g
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: psi_L, rho_g
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
       CALL timeset(routineN, handle)
@@ -1830,19 +1795,17 @@ CONTAINS
                       cell=cell, &
                       atomic_kind_set=atomic_kind_set, &
                       pw_env=pw_env, mos=mos, para_env=para_env)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff)
+      CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff)
 
       ! Get plane waves pool
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
       ! get some of the grids ready
-      NULLIFY (rho_g%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_g%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
-      NULLIFY (psi_L%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool, psi_L%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, psi_L, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
@@ -1883,7 +1846,7 @@ CONTAINS
          DO LLL = 1, nrow_local
             l_global = row_indices(LLL)
             wf_vector(l_global) = embed_pot_coef_spinless%local_data(LLL, 1)
-         ENDDO
+         END DO
          CALL mp_sum(wf_vector, para_env%group)
 
          ! Calculate the variable part of the embedding potential
@@ -1893,12 +1856,12 @@ CONTAINS
                                      external_vector=wf_vector)
          ! Update the full embedding potential
          IF (add_const_pot) THEN
-            CALL pw_copy(const_pot%pw, embed_pot%pw)
+            CALL pw_copy(const_pot, embed_pot)
          ELSE
-            CALL pw_zero(embed_pot%pw)
-         ENDIF
+            CALL pw_zero(embed_pot)
+         END IF
 
-         CALL pw_axpy(psi_L%pw, embed_pot%pw)
+         CALL pw_axpy(psi_L, embed_pot)
 
          ! Spin-dependent potential
          wf_vector = 0.0_dp
@@ -1910,7 +1873,7 @@ CONTAINS
          DO LLL = 1, nrow_local
             l_global = row_indices(LLL)
             wf_vector(l_global) = embed_pot_coef_spin%local_data(LLL, 1)
-         ENDDO
+         END DO
          CALL mp_sum(wf_vector, para_env%group)
 
          ! Calculate the variable part of the embedding potential
@@ -1919,8 +1882,8 @@ CONTAINS
                                      basis_type="RI_AUX", &
                                      external_vector=wf_vector)
          ! No constant potential for spin-dependent potential
-         CALL pw_zero(spin_embed_pot%pw)
-         CALL pw_axpy(psi_L%pw, spin_embed_pot%pw)
+         CALL pw_zero(spin_embed_pot)
+         CALL pw_axpy(psi_L, spin_embed_pot)
 
       ELSE ! Closed shell
 
@@ -1932,7 +1895,7 @@ CONTAINS
          DO LLL = 1, nrow_local
             l_global = row_indices(LLL)
             wf_vector(l_global) = embed_pot_coef%local_data(LLL, 1)
-         ENDDO
+         END DO
          CALL mp_sum(wf_vector, para_env%group)
 
          ! Calculate the variable part of the embedding potential
@@ -1946,23 +1909,23 @@ CONTAINS
 
          ! Update the full embedding potential
          IF (add_const_pot) THEN
-            CALL pw_copy(const_pot%pw, embed_pot%pw)
+            CALL pw_copy(const_pot, embed_pot)
          ELSE
-            CALL pw_zero(embed_pot%pw)
-         ENDIF
+            CALL pw_zero(embed_pot)
+         END IF
 
-         CALL pw_axpy(psi_L%pw, embed_pot%pw)
-      ENDIF ! Open/closed shell
+         CALL pw_axpy(psi_L, embed_pot)
+      END IF ! Open/closed shell
 
       ! Deallocate memory and release objects
       DEALLOCATE (wf_vector)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, psi_L%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, psi_L)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g)
 
       IF (open_shell_embed) THEN
          CALL cp_fm_release(embed_pot_coef_spin)
          CALL cp_fm_release(embed_pot_coef_spinless)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1978,13 +1941,13 @@ CONTAINS
 !> \author Vladimir Rybkin
 ! **************************************************************************************************
    SUBROUTINE inv_Hessian_update(grad, prev_grad, step, prev_inv_Hess, inv_Hess)
-      TYPE(cp_fm_type), POINTER                          :: grad, prev_grad, step, prev_inv_Hess, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: grad, prev_grad, step, prev_inv_Hess, &
                                                             inv_Hess
 
       INTEGER                                            :: mat_size
       REAL(KIND=dp)                                      :: factor1, s_dot_y, y_dot_B_inv_y
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_mat, fm_struct_vec
-      TYPE(cp_fm_type), POINTER                          :: B_inv_y, B_inv_y_s, s_s, s_y, s_y_B_inv, &
+      TYPE(cp_fm_type)                                   :: B_inv_y, B_inv_y_s, s_s, s_y, s_y_B_inv, &
                                                             y
 
       ! Recover the dimension
@@ -2003,7 +1966,6 @@ CONTAINS
                           matrix_struct=fm_struct_vec)
 
       ! Allocate intermediates
-      NULLIFY (B_inv_y, y, s_s, s_y, B_inv_y_s, s_y_B_inv)
       CALL cp_fm_create(B_inv_y, fm_struct_vec, name="B_inv_y")
       CALL cp_fm_create(y, fm_struct_vec, name="y")
 
@@ -2025,20 +1987,20 @@ CONTAINS
       CALL cp_fm_scale_and_add(1.0_dp, y, -1.0_dp, prev_grad)
 
       ! First term
-      CALL cp_gemm(transa="N", transb="N", m=mat_size, n=1, &
-                   k=mat_size, alpha=1.0_dp, &
-                   matrix_a=prev_inv_Hess, matrix_b=y, beta=0.0_dp, &
-                   matrix_c=B_inv_y)
+      CALL parallel_gemm(transa="N", transb="N", m=mat_size, n=1, &
+                         k=mat_size, alpha=1.0_dp, &
+                         matrix_a=prev_inv_Hess, matrix_b=y, beta=0.0_dp, &
+                         matrix_c=B_inv_y)
 
-      CALL cp_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=step, matrix_b=step, beta=0.0_dp, &
-                   matrix_c=s_s)
+      CALL parallel_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=step, matrix_b=step, beta=0.0_dp, &
+                         matrix_c=s_s)
 
-      CALL cp_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=step, matrix_b=y, beta=0.0_dp, &
-                   matrix_c=s_y)
+      CALL parallel_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=step, matrix_b=y, beta=0.0_dp, &
+                         matrix_c=s_y)
 
       CALL cp_fm_trace(step, y, s_dot_y)
 
@@ -2052,15 +2014,15 @@ CONTAINS
       CALL cp_fm_scale_and_add(1.0_dp, inv_Hess, factor1, s_s)
 
       ! Second term
-      CALL cp_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=B_inv_y, matrix_b=step, beta=0.0_dp, &
-                   matrix_c=B_inv_y_s)
+      CALL parallel_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=B_inv_y, matrix_b=step, beta=0.0_dp, &
+                         matrix_c=B_inv_y_s)
 
-      CALL cp_gemm(transa="N", transb="N", m=mat_size, n=mat_size, &
-                   k=mat_size, alpha=1.0_dp, &
-                   matrix_a=s_y, matrix_b=prev_inv_Hess, beta=0.0_dp, &
-                   matrix_c=s_y_B_inv)
+      CALL parallel_gemm(transa="N", transb="N", m=mat_size, n=mat_size, &
+                         k=mat_size, alpha=1.0_dp, &
+                         matrix_a=s_y, matrix_b=prev_inv_Hess, beta=0.0_dp, &
+                         matrix_c=s_y_B_inv)
 
       CALL cp_fm_scale_and_add(1.0_dp, B_inv_y_s, 1.0_dp, s_y_B_inv)
 
@@ -2086,14 +2048,14 @@ CONTAINS
 !> \param Hess ...
 ! **************************************************************************************************
    SUBROUTINE Hessian_update(grad, prev_grad, step, prev_Hess, Hess)
-      TYPE(cp_fm_type), POINTER                          :: grad, prev_grad, step, prev_Hess, Hess
+      TYPE(cp_fm_type), INTENT(IN)                       :: grad, prev_grad, step, prev_Hess, Hess
 
       INTEGER                                            :: mat_size
       REAL(KIND=dp)                                      :: s_b_s, y_t_s
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_mat, fm_struct_vec, &
                                                             fm_struct_vec_t
-      TYPE(cp_fm_type), POINTER                          :: B_s, B_s_s_B, s_t_B, y, y_y_t
+      TYPE(cp_fm_type)                                   :: B_s, B_s_s_B, s_t_B, y, y_y_t
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       ! Recover the dimension
@@ -2122,7 +2084,6 @@ CONTAINS
                                nrow_global=1, ncol_global=mat_size)
 
       ! Allocate intermediates
-      NULLIFY (y_y_t, B_s, s_t_B, B_s_s_B, y)
       CALL cp_fm_create(B_s, fm_struct_vec, name="B_s")
       CALL cp_fm_create(s_t_B, fm_struct_vec_t, name="s_t_B")
       CALL cp_fm_create(y, fm_struct_vec, name="y")
@@ -2145,32 +2106,32 @@ CONTAINS
       CALL cp_fm_scale_and_add(1.0_dp, y, -1.0_dp, prev_grad)
 
       ! First term
-      CALL cp_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=y, matrix_b=y, beta=0.0_dp, &
-                   matrix_c=y_y_t)
+      CALL parallel_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=y, matrix_b=y, beta=0.0_dp, &
+                         matrix_c=y_y_t)
 
       CALL cp_fm_trace(y, step, y_t_s)
 
       CALL cp_fm_scale_and_add(1.0_dp, Hess, (1.0_dp/y_t_s), y_y_t)
 
       ! Second term
-      CALL cp_gemm(transa="N", transb="N", m=mat_size, n=1, &
-                   k=mat_size, alpha=1.0_dp, &
-                   matrix_a=Hess, matrix_b=step, beta=0.0_dp, &
-                   matrix_c=B_s)
+      CALL parallel_gemm(transa="N", transb="N", m=mat_size, n=1, &
+                         k=mat_size, alpha=1.0_dp, &
+                         matrix_a=Hess, matrix_b=step, beta=0.0_dp, &
+                         matrix_c=B_s)
 
       CALL cp_fm_trace(B_s, step, s_B_s)
 
-      CALL cp_gemm(transa="T", transb="N", m=1, n=mat_size, &
-                   k=mat_size, alpha=1.0_dp, &
-                   matrix_a=step, matrix_b=Hess, beta=0.0_dp, &
-                   matrix_c=s_t_B)
+      CALL parallel_gemm(transa="T", transb="N", m=1, n=mat_size, &
+                         k=mat_size, alpha=1.0_dp, &
+                         matrix_a=step, matrix_b=Hess, beta=0.0_dp, &
+                         matrix_c=s_t_B)
 
-      CALL cp_gemm(transa="N", transb="N", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=B_s, matrix_b=s_t_B, beta=0.0_dp, &
-                   matrix_c=B_s_s_B)
+      CALL parallel_gemm(transa="N", transb="N", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=B_s, matrix_b=s_t_B, beta=0.0_dp, &
+                         matrix_c=B_s_s_B)
 
       CALL cp_fm_scale_and_add(1.0_dp, Hess, -(1.0_dp/s_B_s), B_s_s_B)
 
@@ -2199,12 +2160,12 @@ CONTAINS
 !> \param Hess ...
 ! **************************************************************************************************
    SUBROUTINE symm_rank_one_update(grad, prev_grad, step, prev_Hess, Hess)
-      TYPE(cp_fm_type), POINTER                          :: grad, prev_grad, step, prev_Hess, Hess
+      TYPE(cp_fm_type), INTENT(IN)                       :: grad, prev_grad, step, prev_Hess, Hess
 
       INTEGER                                            :: mat_size
       REAL(KIND=dp)                                      :: factor
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_mat, fm_struct_vec
-      TYPE(cp_fm_type), POINTER                          :: B_x, y, y_B_x_y_B_x
+      TYPE(cp_fm_type)                                   :: B_x, y, y_B_x_y_B_x
 
       ! Recover the dimension
       CALL cp_fm_get_info(matrix=Hess, nrow_global=mat_size)
@@ -2221,7 +2182,6 @@ CONTAINS
                           matrix_struct=fm_struct_vec)
 
       ! Allocate intermediates
-      NULLIFY (y, B_x, y_B_x_y_B_x)
       CALL cp_fm_create(y, fm_struct_vec, name="y")
       CALL cp_fm_create(B_x, fm_struct_vec, name="B_x")
       CALL cp_fm_create(y_B_x_y_B_x, fm_struct_mat, name="y_B_x_y_B_x")
@@ -2235,17 +2195,17 @@ CONTAINS
       CALL cp_fm_to_fm(grad, y)
       CALL cp_fm_scale_and_add(1.0_dp, y, -1.0_dp, prev_grad)
 
-      CALL cp_gemm(transa="N", transb="N", m=mat_size, n=1, &
-                   k=mat_size, alpha=1.0_dp, &
-                   matrix_a=Hess, matrix_b=step, beta=0.0_dp, &
-                   matrix_c=B_x)
+      CALL parallel_gemm(transa="N", transb="N", m=mat_size, n=1, &
+                         k=mat_size, alpha=1.0_dp, &
+                         matrix_a=Hess, matrix_b=step, beta=0.0_dp, &
+                         matrix_c=B_x)
 
       CALL cp_fm_scale_and_add(1.0_dp, y, -1.0_dp, B_x)
 
-      CALL cp_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
-                   k=1, alpha=1.0_dp, &
-                   matrix_a=y, matrix_b=y, beta=0.0_dp, &
-                   matrix_c=y_B_x_y_B_x)
+      CALL parallel_gemm(transa="N", transb="T", m=mat_size, n=mat_size, &
+                         k=1, alpha=1.0_dp, &
+                         matrix_a=y, matrix_b=y, beta=0.0_dp, &
+                         matrix_c=y_B_x_y_B_x)
 
       ! Scaling factor
       CALL cp_fm_trace(y, step, factor)
@@ -2268,17 +2228,17 @@ CONTAINS
    SUBROUTINE step_control(opt_embed)
       TYPE(opt_embed_pot_type)                           :: opt_embed
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'step_control', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'step_control'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: actual_ener_change, ener_ratio, &
                                                             lin_term, pred_ener_change, quad_term
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: H_b
+      TYPE(cp_fm_type)                                   :: H_b
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (H_b, fm_struct)
+      NULLIFY (fm_struct)
       CALL cp_fm_get_info(matrix=opt_embed%embed_pot_grad, &
                           matrix_struct=fm_struct)
       CALL cp_fm_create(H_b, fm_struct, name="H_b")
@@ -2289,10 +2249,10 @@ CONTAINS
       CALL cp_fm_trace(opt_embed%step, opt_embed%embed_pot_grad, lin_term)
 
       ! Quadratic term
-      CALL cp_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
-                   k=opt_embed%dimen_aux, alpha=1.0_dp, &
-                   matrix_a=opt_embed%embed_pot_Hess, matrix_b=opt_embed%step, &
-                   beta=0.0_dp, matrix_c=H_b)
+      CALL parallel_gemm(transa="N", transb="N", m=opt_embed%dimen_aux, n=1, &
+                         k=opt_embed%dimen_aux, alpha=1.0_dp, &
+                         matrix_a=opt_embed%embed_pot_Hess, matrix_b=opt_embed%step, &
+                         beta=0.0_dp, matrix_c=H_b)
       CALL cp_fm_trace(opt_embed%step, H_b, quad_term)
 
       pred_ener_change = lin_term + 0.5_dp*quad_term
@@ -2318,11 +2278,11 @@ CONTAINS
          ! Otherwise, the step is rejected
          IF (ABS(actual_ener_change) .GE. opt_embed%allowed_decrease) THEN
             opt_embed%accept_step = .FALSE.
-         ENDIF
+         END IF
          ! Trust radius is decreased 4 times unless it's smaller than the minimal allowed value
          IF (opt_embed%trust_rad .GE. opt_embed%min_trad) &
             opt_embed%trust_rad = 0.25_dp*opt_embed%trust_rad
-      ENDIF
+      END IF
 
       IF (opt_embed%accept_step) opt_embed%last_accepted = opt_embed%i_iter
 
@@ -2339,11 +2299,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE level_shift(opt_embed, diag_grad, eigenval, diag_step)
       TYPE(opt_embed_pot_type)                           :: opt_embed
-      TYPE(cp_fm_type), POINTER                          :: diag_grad
+      TYPE(cp_fm_type), INTENT(IN)                       :: diag_grad
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenval
-      TYPE(cp_fm_type), POINTER                          :: diag_step
+      TYPE(cp_fm_type), INTENT(IN)                       :: diag_step
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'level_shift', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'level_shift'
       INTEGER, PARAMETER                                 :: max_iter = 25
       REAL(KIND=dp), PARAMETER                           :: thresh = 0.00001_dp
 
@@ -2405,10 +2365,10 @@ CONTAINS
                   !IF (ABS(shift_max-shift_min) .LT. thresh) converged = .TRUE.
                   IF (ABS(step_minus_trad) .LT. thresh) converged = .TRUE.
                   IF (converged) EXIT
-               ENDDO
+               END DO
                IF (ABS(step_minus_trad) .LT. ABS(step_minus_trad_first)) do_shift = .TRUE.
-            ENDIF
-         ENDIF
+            END IF
+         END IF
          ! Apply level-shifting
          IF (converged .OR. do_shift) THEN
             DO LLL = 1, nrow_local
@@ -2418,13 +2378,13 @@ CONTAINS
                      -diag_grad%local_data(LLL, 1)/(eigenval(l_global) - shift)
                ELSE
                   diag_step%local_data(LLL, 1) = 0.0_dp
-               ENDIF
-            ENDDO
-         ENDIF
+               END IF
+            END DO
+         END IF
          IF (.NOT. converged) THEN ! Scale if shift has not been found
             CALL cp_fm_trace(diag_step, diag_step, step_len)
             CALL cp_fm_scale(opt_embed%trust_rad/step_len, diag_step)
-         ENDIF
+         END IF
 
          ! Special case
       ELSE ! Hess min .LT. 0.0_dp
@@ -2435,8 +2395,8 @@ CONTAINS
             l_global = row_indices(LLL)
             IF (eigenval(l_global) .GE. 0.0_dp) THEN
                red_eigenval_map(l_global) = 1
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          CALL mp_sum(red_eigenval_map, para_env%group)
 
          ! Set shift as -hess_min and find step on the reduced space of negative-value
@@ -2450,16 +2410,16 @@ CONTAINS
                      -diag_grad%local_data(LLL, 1)/(eigenval(l_global) - shift)
                ELSE
                   diag_step%local_data(LLL, 1) = 0.0_dp
-               ENDIF
+               END IF
             ELSE
                diag_step%local_data(LLL, 1) = 0.0_dp
-            ENDIF
-         ENDDO
+            END IF
+         END DO
 
          ! Find the step length of such a step
          CALL cp_fm_trace(diag_step, diag_step, step_len)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -2474,9 +2434,11 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
    FUNCTION shifted_step(diag_grad, eigenval, shift, trust_rad) RESULT(step_minus_trad)
-      TYPE(cp_fm_type), POINTER                          :: diag_grad
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenval
-      REAL(KIND=dp)                                      :: shift, trust_rad, step_minus_trad
+      TYPE(cp_fm_type), INTENT(IN)                       :: diag_grad
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
+         INTENT(IN)                                      :: eigenval
+      REAL(KIND=dp), INTENT(IN)                          :: shift, trust_rad
+      REAL(KIND=dp)                                      :: step_minus_trad
 
       REAL(KIND=dp), PARAMETER                           :: thresh = 0.000001_dp
 
@@ -2496,8 +2458,8 @@ CONTAINS
          IF ((ABS(eigenval(l_global)) .GE. thresh) .AND. (ABS(diag_grad%local_data(LLL, 1)) .GE. thresh)) THEN
             step_1d = -diag_grad%local_data(LLL, 1)/(eigenval(l_global) + shift)
             step = step + step_1d**2
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       CALL mp_sum(step, para_env%group)
 
@@ -2515,12 +2477,12 @@ CONTAINS
 !> \retval length ...
 ! **************************************************************************************************
    FUNCTION Barzilai_Borwein(step, prev_step, grad, prev_grad) RESULT(length)
-      TYPE(cp_fm_type), POINTER                          :: step, prev_step, grad, prev_grad
+      TYPE(cp_fm_type), INTENT(IN)                       :: step, prev_step, grad, prev_grad
       REAL(KIND=dp)                                      :: length
 
       REAL(KIND=dp)                                      :: denominator, numerator
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: grad_diff, step_diff
+      TYPE(cp_fm_type)                                   :: grad_diff, step_diff
 
       ! Get full matrix structures
       NULLIFY (fm_struct)
@@ -2529,7 +2491,6 @@ CONTAINS
                           matrix_struct=fm_struct)
 
       ! Allocate intermediates
-      NULLIFY (grad_diff, step_diff)
       CALL cp_fm_create(grad_diff, fm_struct, name="grad_diff")
       CALL cp_fm_create(step_diff, fm_struct, name="step_diff")
 
@@ -2565,20 +2526,20 @@ CONTAINS
    SUBROUTINE Leeuwen_Baerends_potential_update(pw_env, embed_pot, spin_embed_pot, diff_rho_r, diff_rho_spin, &
                                                 rho_r_ref, open_shell_embed, step_len)
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, spin_embed_pot, diff_rho_r, &
-                                                            diff_rho_spin
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r_ref
-      LOGICAL                                            :: open_shell_embed
-      REAL(KIND=dp)                                      :: step_len
+      TYPE(pw_type), INTENT(INOUT)                       :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r_ref
+      LOGICAL, INTENT(IN)                                :: open_shell_embed
+      REAL(KIND=dp), INTENT(IN)                          :: step_len
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'Leeuwen_Baerends_potential_update', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'Leeuwen_Baerends_potential_update'
 
       INTEGER                                            :: handle, i, i_spin, j, k, nspins
       INTEGER, DIMENSION(3)                              :: lb, ub
       REAL(KIND=dp)                                      :: my_rho, rho_cutoff
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: new_embed_pot, rho_n_1, temp_embed_pot
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: new_embed_pot, rho_n_1, temp_embed_pot
 
       CALL timeset(routineN, handle)
 
@@ -2593,15 +2554,14 @@ CONTAINS
       NULLIFY (new_embed_pot)
       ALLOCATE (new_embed_pot(nspins))
       DO i_spin = 1, nspins
-         NULLIFY (new_embed_pot(i_spin)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, new_embed_pot(i_spin)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, new_embed_pot(i_spin), &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(new_embed_pot(i_spin)%pw)
-      ENDDO
+         CALL pw_zero(new_embed_pot(i_spin))
+      END DO
 
-      lb(1:3) = embed_pot%pw%pw_grid%bounds_local(1, 1:3)
-      ub(1:3) = embed_pot%pw%pw_grid%bounds_local(2, 1:3)
+      lb(1:3) = embed_pot%pw_grid%bounds_local(1, 1:3)
+      ub(1:3) = embed_pot%pw_grid%bounds_local(2, 1:3)
 
       IF (.NOT. open_shell_embed) THEN
 !$OMP    PARALLEL DO DEFAULT(NONE) &
@@ -2610,18 +2570,18 @@ CONTAINS
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
                DO i = lb(1), ub(1)
-                  IF (rho_r_ref(1)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                     my_rho = rho_r_ref(1)%pw%cr3d(i, j, k)
+                  IF (rho_r_ref(1)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                     my_rho = rho_r_ref(1)%cr3d(i, j, k)
                   ELSE
                      my_rho = rho_cutoff
-                  ENDIF
-                  new_embed_pot(1)%pw%cr3d(i, j, k) = step_len*embed_pot%pw%cr3d(i, j, k)* &
-                                                      (diff_rho_r%pw%cr3d(i, j, k) + rho_r_ref(1)%pw%cr3d(i, j, k))/my_rho
+                  END IF
+                  new_embed_pot(1)%cr3d(i, j, k) = step_len*embed_pot%cr3d(i, j, k)* &
+                                                   (diff_rho_r%cr3d(i, j, k) + rho_r_ref(1)%cr3d(i, j, k))/my_rho
                END DO
             END DO
          END DO
 !$OMP    END PARALLEL DO
-         CALL pw_copy(new_embed_pot(1)%pw, embed_pot%pw)
+         CALL pw_copy(new_embed_pot(1), embed_pot)
 
       ELSE
          ! One has to work with spin components rather than with total and spin density
@@ -2630,32 +2590,30 @@ CONTAINS
          NULLIFY (temp_embed_pot)
          ALLOCATE (temp_embed_pot(nspins))
          DO i_spin = 1, nspins
-            NULLIFY (rho_n_1(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_n_1(i_spin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_n_1(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(rho_n_1(i_spin)%pw)
-            NULLIFY (temp_embed_pot(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, temp_embed_pot(i_spin)%pw, &
+            CALL pw_zero(rho_n_1(i_spin))
+            CALL pw_pool_create_pw(auxbas_pw_pool, temp_embed_pot(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(temp_embed_pot(i_spin)%pw)
-         ENDDO
-         CALL pw_copy(diff_rho_r%pw, rho_n_1(1)%pw)
-         CALL pw_copy(diff_rho_r%pw, rho_n_1(2)%pw)
-         CALL pw_axpy(diff_rho_spin%pw, rho_n_1(1)%pw, 1.0_dp)
-         CALL pw_axpy(diff_rho_spin%pw, rho_n_1(2)%pw, -1.0_dp)
-         CALL pw_scale(rho_n_1(1)%pw, a=0.5_dp)
-         CALL pw_scale(rho_n_1(2)%pw, a=0.5_dp)
+            CALL pw_zero(temp_embed_pot(i_spin))
+         END DO
+         CALL pw_copy(diff_rho_r, rho_n_1(1))
+         CALL pw_copy(diff_rho_r, rho_n_1(2))
+         CALL pw_axpy(diff_rho_spin, rho_n_1(1), 1.0_dp)
+         CALL pw_axpy(diff_rho_spin, rho_n_1(2), -1.0_dp)
+         CALL pw_scale(rho_n_1(1), a=0.5_dp)
+         CALL pw_scale(rho_n_1(2), a=0.5_dp)
 
-         CALL pw_copy(embed_pot%pw, temp_embed_pot(1)%pw)
-         CALL pw_copy(embed_pot%pw, temp_embed_pot(2)%pw)
-         CALL pw_axpy(spin_embed_pot%pw, temp_embed_pot(1)%pw, 1.0_dp)
-         CALL pw_axpy(spin_embed_pot%pw, temp_embed_pot(2)%pw, -1.0_dp)
+         CALL pw_copy(embed_pot, temp_embed_pot(1))
+         CALL pw_copy(embed_pot, temp_embed_pot(2))
+         CALL pw_axpy(spin_embed_pot, temp_embed_pot(1), 1.0_dp)
+         CALL pw_axpy(spin_embed_pot, temp_embed_pot(2), -1.0_dp)
 
          IF (SIZE(rho_r_ref) .EQ. 2) THEN
-            CALL pw_axpy(rho_r_ref(1)%pw, rho_n_1(1)%pw, 1.0_dp)
-            CALL pw_axpy(rho_r_ref(2)%pw, rho_n_1(2)%pw, 1.0_dp)
+            CALL pw_axpy(rho_r_ref(1), rho_n_1(1), 1.0_dp)
+            CALL pw_axpy(rho_r_ref(2), rho_n_1(2), 1.0_dp)
 
 !$OMP    PARALLEL DO DEFAULT(NONE) &
 !$OMP                PRIVATE(i,j,k, my_rho) &
@@ -2663,27 +2621,27 @@ CONTAINS
             DO k = lb(3), ub(3)
                DO j = lb(2), ub(2)
                   DO i = lb(1), ub(1)
-                     IF (rho_r_ref(1)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                        my_rho = rho_r_ref(1)%pw%cr3d(i, j, k)
+                     IF (rho_r_ref(1)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                        my_rho = rho_r_ref(1)%cr3d(i, j, k)
                      ELSE
                         my_rho = rho_cutoff
-                     ENDIF
-                     new_embed_pot(1)%pw%cr3d(i, j, k) = step_len*temp_embed_pot(1)%pw%cr3d(i, j, k)* &
-                                                         (rho_n_1(1)%pw%cr3d(i, j, k))/my_rho
-                     IF (rho_r_ref(2)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                        my_rho = rho_r_ref(2)%pw%cr3d(i, j, k)
+                     END IF
+                     new_embed_pot(1)%cr3d(i, j, k) = step_len*temp_embed_pot(1)%cr3d(i, j, k)* &
+                                                      (rho_n_1(1)%cr3d(i, j, k))/my_rho
+                     IF (rho_r_ref(2)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                        my_rho = rho_r_ref(2)%cr3d(i, j, k)
                      ELSE
                         my_rho = rho_cutoff
-                     ENDIF
-                     new_embed_pot(2)%pw%cr3d(i, j, k) = step_len*temp_embed_pot(2)%pw%cr3d(i, j, k)* &
-                                                         (rho_n_1(2)%pw%cr3d(i, j, k))/my_rho
+                     END IF
+                     new_embed_pot(2)%cr3d(i, j, k) = step_len*temp_embed_pot(2)%cr3d(i, j, k)* &
+                                                      (rho_n_1(2)%cr3d(i, j, k))/my_rho
                   END DO
                END DO
             END DO
 !$OMP    END PARALLEL DO
 
          ELSE ! Reference system is closed-shell
-            CALL pw_axpy(rho_r_ref(1)%pw, rho_n_1(1)%pw, 1.0_dp)
+            CALL pw_axpy(rho_r_ref(1), rho_n_1(1), 1.0_dp)
             ! The beta spin component is here equal to the difference: nothing to do
 
 !$OMP    PARALLEL DO DEFAULT(NONE) &
@@ -2692,39 +2650,39 @@ CONTAINS
             DO k = lb(3), ub(3)
                DO j = lb(2), ub(2)
                   DO i = lb(1), ub(1)
-                     IF (rho_r_ref(1)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                        my_rho = 0.5_dp*rho_r_ref(1)%pw%cr3d(i, j, k)
+                     IF (rho_r_ref(1)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                        my_rho = 0.5_dp*rho_r_ref(1)%cr3d(i, j, k)
                      ELSE
                         my_rho = rho_cutoff
-                     ENDIF
-                     new_embed_pot(1)%pw%cr3d(i, j, k) = step_len*temp_embed_pot(1)%pw%cr3d(i, j, k)* &
-                                                         (rho_n_1(1)%pw%cr3d(i, j, k))/my_rho
-                     new_embed_pot(2)%pw%cr3d(i, j, k) = step_len*temp_embed_pot(2)%pw%cr3d(i, j, k)* &
-                                                         (rho_n_1(2)%pw%cr3d(i, j, k))/my_rho
+                     END IF
+                     new_embed_pot(1)%cr3d(i, j, k) = step_len*temp_embed_pot(1)%cr3d(i, j, k)* &
+                                                      (rho_n_1(1)%cr3d(i, j, k))/my_rho
+                     new_embed_pot(2)%cr3d(i, j, k) = step_len*temp_embed_pot(2)%cr3d(i, j, k)* &
+                                                      (rho_n_1(2)%cr3d(i, j, k))/my_rho
                   END DO
                END DO
             END DO
 !$OMP    END PARALLEL DO
-         ENDIF
+         END IF
 
-         CALL pw_copy(new_embed_pot(1)%pw, embed_pot%pw)
-         CALL pw_axpy(new_embed_pot(2)%pw, embed_pot%pw, 1.0_dp)
-         CALL pw_scale(embed_pot%pw, a=0.5_dp)
-         CALL pw_copy(new_embed_pot(1)%pw, spin_embed_pot%pw)
-         CALL pw_axpy(new_embed_pot(2)%pw, spin_embed_pot%pw, -1.0_dp)
-         CALL pw_scale(spin_embed_pot%pw, a=0.5_dp)
+         CALL pw_copy(new_embed_pot(1), embed_pot)
+         CALL pw_axpy(new_embed_pot(2), embed_pot, 1.0_dp)
+         CALL pw_scale(embed_pot, a=0.5_dp)
+         CALL pw_copy(new_embed_pot(1), spin_embed_pot)
+         CALL pw_axpy(new_embed_pot(2), spin_embed_pot, -1.0_dp)
+         CALL pw_scale(spin_embed_pot, a=0.5_dp)
 
          DO i_spin = 1, nspins
-            CALL pw_release(rho_n_1(i_spin)%pw)
-            CALL pw_release(temp_embed_pot(i_spin)%pw)
-         ENDDO
+            CALL pw_release(rho_n_1(i_spin))
+            CALL pw_release(temp_embed_pot(i_spin))
+         END DO
          DEALLOCATE (rho_n_1)
          DEALLOCATE (temp_embed_pot)
-      ENDIF
+      END IF
 
       DO i_spin = 1, nspins
-         CALL pw_release(new_embed_pot(i_spin)%pw)
-      ENDDO
+         CALL pw_release(new_embed_pot(i_spin))
+      END DO
 
       DEALLOCATE (new_embed_pot)
 
@@ -2753,23 +2711,25 @@ CONTAINS
                          diff_rho_r, diff_rho_spin, v_w_ref, i_iter, step_len, open_shell_embed, &
                          vw_cutoff, vw_smooth_cutoff_range)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r_ref
-      TYPE(pw_p_type), POINTER                           :: prev_embed_pot, prev_spin_embed_pot, &
-                                                            embed_pot, spin_embed_pot, diff_rho_r, &
-                                                            diff_rho_spin
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: v_w_ref
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r_ref
+      TYPE(pw_type), INTENT(INOUT)                       :: prev_embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: prev_spin_embed_pot
+      TYPE(pw_type), INTENT(INOUT)                       :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: spin_embed_pot
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), DIMENSION(:), POINTER               :: v_w_ref
       INTEGER, INTENT(IN)                                :: i_iter
       REAL(KIND=dp)                                      :: step_len
       LOGICAL                                            :: open_shell_embed
       REAL(KIND=dp)                                      :: vw_cutoff, vw_smooth_cutoff_range
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'FAB_update', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'FAB_update'
 
       INTEGER                                            :: handle, i_spin, nspins
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: curr_rho, new_embed_pot, temp_embed_pot, &
-                                                            v_w
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: new_embed_pot, temp_embed_pot, v_w
+      TYPE(pw_type), DIMENSION(:), POINTER               :: curr_rho
 
       CALL timeset(routineN, handle)
 
@@ -2787,19 +2747,18 @@ CONTAINS
          NULLIFY (v_w_ref)
          ALLOCATE (v_w_ref(nspins))
          DO i_spin = 1, nspins
-            NULLIFY (v_w_ref(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, v_w_ref(i_spin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, v_w_ref(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-         ENDDO
+         END DO
          CALL Von_Weizsacker(rho_r_ref, v_w_ref, qs_env, vw_cutoff, vw_smooth_cutoff_range)
          ! For the first step previous are set to current
-         CALL pw_copy(embed_pot%pw, prev_embed_pot%pw)
-         CALL pw_axpy(diff_rho_r%pw, embed_pot%pw, 0.5_dp)
+         CALL pw_copy(embed_pot, prev_embed_pot)
+         CALL pw_axpy(diff_rho_r, embed_pot, 0.5_dp)
          IF (open_shell_embed) THEN
-            CALL pw_copy(spin_embed_pot%pw, prev_spin_embed_pot%pw)
-            CALL pw_axpy(diff_rho_r%pw, embed_pot%pw, 0.5_dp)
-         ENDIF
+            CALL pw_copy(spin_embed_pot, prev_spin_embed_pot)
+            CALL pw_axpy(diff_rho_r, embed_pot, 0.5_dp)
+         END IF
 
       ELSE
 
@@ -2807,132 +2766,125 @@ CONTAINS
          ! redefine nspins
          nspins = 1
          IF (open_shell_embed) nspins = 2
-         NULLIFY (new_embed_pot)
          ALLOCATE (new_embed_pot(nspins))
-         NULLIFY (v_w)
          ALLOCATE (v_w(nspins))
          NULLIFY (curr_rho)
          ALLOCATE (curr_rho(nspins))
          DO i_spin = 1, nspins
-            NULLIFY (new_embed_pot(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, new_embed_pot(i_spin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, new_embed_pot(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(new_embed_pot(i_spin)%pw)
+            CALL pw_zero(new_embed_pot(i_spin))
 
-            NULLIFY (v_w(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, v_w(i_spin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, v_w(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(v_w(i_spin)%pw)
+            CALL pw_zero(v_w(i_spin))
 
-            NULLIFY (curr_rho(i_spin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, curr_rho(i_spin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, curr_rho(i_spin), &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_zero(curr_rho(i_spin)%pw)
-         ENDDO
+            CALL pw_zero(curr_rho(i_spin))
+         END DO
 
          ! Now, deal with the current density
 
          IF (.NOT. open_shell_embed) THEN
             ! Reconstruct current density
-            CALL pw_copy(diff_rho_r%pw, curr_rho(1)%pw)
-            CALL pw_axpy(rho_r_ref(1)%pw, curr_rho(1)%pw, 1.0_dp)
+            CALL pw_copy(diff_rho_r, curr_rho(1))
+            CALL pw_axpy(rho_r_ref(1), curr_rho(1), 1.0_dp)
             ! Compute von Weizsaecker potential
             CALL Von_Weizsacker(curr_rho, v_w, qs_env, vw_cutoff, vw_smooth_cutoff_range)
             ! Compute new embedding potential
-            CALL pw_copy(prev_embed_pot%pw, new_embed_pot(1)%pw)
-            CALL pw_axpy(v_w(1)%pw, new_embed_pot(1)%pw, step_len)
-            CALL pw_axpy(v_w_ref(1)%pw, new_embed_pot(1)%pw, -step_len)
+            CALL pw_copy(prev_embed_pot, new_embed_pot(1))
+            CALL pw_axpy(v_w(1), new_embed_pot(1), step_len)
+            CALL pw_axpy(v_w_ref(1), new_embed_pot(1), -step_len)
             ! Copy the potentials
 
-            CALL pw_copy(embed_pot%pw, prev_embed_pot%pw)
-            CALL pw_copy(new_embed_pot(1)%pw, embed_pot%pw)
+            CALL pw_copy(embed_pot, prev_embed_pot)
+            CALL pw_copy(new_embed_pot(1), embed_pot)
 
          ELSE
             ! Reconstruct current density
-            CALL pw_copy(diff_rho_r%pw, curr_rho(1)%pw)
-            CALL pw_copy(diff_rho_r%pw, curr_rho(2)%pw)
-            CALL pw_axpy(diff_rho_spin%pw, curr_rho(1)%pw, 1.0_dp)
-            CALL pw_axpy(diff_rho_spin%pw, curr_rho(2)%pw, -1.0_dp)
-            CALL pw_scale(curr_rho(1)%pw, a=0.5_dp)
-            CALL pw_scale(curr_rho(2)%pw, a=0.5_dp)
+            CALL pw_copy(diff_rho_r, curr_rho(1))
+            CALL pw_copy(diff_rho_r, curr_rho(2))
+            CALL pw_axpy(diff_rho_spin, curr_rho(1), 1.0_dp)
+            CALL pw_axpy(diff_rho_spin, curr_rho(2), -1.0_dp)
+            CALL pw_scale(curr_rho(1), a=0.5_dp)
+            CALL pw_scale(curr_rho(2), a=0.5_dp)
 
             IF (SIZE(rho_r_ref) .EQ. 1) THEN ! If reference system is closed-shell
-               CALL pw_axpy(rho_r_ref(1)%pw, curr_rho(1)%pw, 0.5_dp)
-               CALL pw_axpy(rho_r_ref(1)%pw, curr_rho(2)%pw, 0.5_dp)
+               CALL pw_axpy(rho_r_ref(1), curr_rho(1), 0.5_dp)
+               CALL pw_axpy(rho_r_ref(1), curr_rho(2), 0.5_dp)
             ELSE ! If reference system is open-shell
-               CALL pw_axpy(rho_r_ref(1)%pw, curr_rho(1)%pw, 1.0_dp)
-               CALL pw_axpy(rho_r_ref(2)%pw, curr_rho(2)%pw, 1.0_dp)
-            ENDIF
+               CALL pw_axpy(rho_r_ref(1), curr_rho(1), 1.0_dp)
+               CALL pw_axpy(rho_r_ref(2), curr_rho(2), 1.0_dp)
+            END IF
 
             ! Compute von Weizsaecker potential
             CALL Von_Weizsacker(curr_rho, v_w, qs_env, vw_cutoff, vw_smooth_cutoff_range)
 
             ! Reconstruct corrent spin components of the potential
-            NULLIFY (temp_embed_pot)
             ALLOCATE (temp_embed_pot(nspins))
             DO i_spin = 1, nspins
-               NULLIFY (temp_embed_pot(i_spin)%pw)
-               CALL pw_pool_create_pw(auxbas_pw_pool, temp_embed_pot(i_spin)%pw, &
+               CALL pw_pool_create_pw(auxbas_pw_pool, temp_embed_pot(i_spin), &
                                       use_data=REALDATA3D, &
                                       in_space=REALSPACE)
-               CALL pw_zero(temp_embed_pot(i_spin)%pw)
-            ENDDO
-            CALL pw_copy(embed_pot%pw, temp_embed_pot(1)%pw)
-            CALL pw_copy(embed_pot%pw, temp_embed_pot(2)%pw)
-            CALL pw_axpy(spin_embed_pot%pw, temp_embed_pot(1)%pw, 1.0_dp)
-            CALL pw_axpy(spin_embed_pot%pw, temp_embed_pot(2)%pw, -1.0_dp)
+               CALL pw_zero(temp_embed_pot(i_spin))
+            END DO
+            CALL pw_copy(embed_pot, temp_embed_pot(1))
+            CALL pw_copy(embed_pot, temp_embed_pot(2))
+            CALL pw_axpy(spin_embed_pot, temp_embed_pot(1), 1.0_dp)
+            CALL pw_axpy(spin_embed_pot, temp_embed_pot(2), -1.0_dp)
 
             ! Compute new embedding potential
             IF (SIZE(v_w_ref) .EQ. 1) THEN ! Reference system is closed-shell
-               CALL pw_copy(temp_embed_pot(1)%pw, new_embed_pot(1)%pw)
-               CALL pw_axpy(v_w(1)%pw, new_embed_pot(1)%pw, 0.5_dp*step_len)
-               CALL pw_axpy(v_w_ref(1)%pw, new_embed_pot(1)%pw, -0.5_dp*step_len)
+               CALL pw_copy(temp_embed_pot(1), new_embed_pot(1))
+               CALL pw_axpy(v_w(1), new_embed_pot(1), 0.5_dp*step_len)
+               CALL pw_axpy(v_w_ref(1), new_embed_pot(1), -0.5_dp*step_len)
 
-               CALL pw_copy(temp_embed_pot(2)%pw, new_embed_pot(2)%pw)
-               CALL pw_axpy(v_w(2)%pw, new_embed_pot(2)%pw, 0.5_dp)
-               CALL pw_axpy(v_w_ref(1)%pw, new_embed_pot(2)%pw, -0.5_dp)
+               CALL pw_copy(temp_embed_pot(2), new_embed_pot(2))
+               CALL pw_axpy(v_w(2), new_embed_pot(2), 0.5_dp)
+               CALL pw_axpy(v_w_ref(1), new_embed_pot(2), -0.5_dp)
 
             ELSE ! Reference system is open-shell
 
                DO i_spin = 1, nspins
-                  CALL pw_copy(temp_embed_pot(i_spin)%pw, new_embed_pot(i_spin)%pw)
-                  CALL pw_axpy(v_w(1)%pw, new_embed_pot(i_spin)%pw, step_len)
-                  CALL pw_axpy(v_w_ref(i_spin)%pw, new_embed_pot(i_spin)%pw, -step_len)
-               ENDDO
-            ENDIF
+                  CALL pw_copy(temp_embed_pot(i_spin), new_embed_pot(i_spin))
+                  CALL pw_axpy(v_w(1), new_embed_pot(i_spin), step_len)
+                  CALL pw_axpy(v_w_ref(i_spin), new_embed_pot(i_spin), -step_len)
+               END DO
+            END IF
 
             ! Update embedding potentials
-            CALL pw_copy(embed_pot%pw, prev_embed_pot%pw)
-            CALL pw_copy(spin_embed_pot%pw, prev_spin_embed_pot%pw)
+            CALL pw_copy(embed_pot, prev_embed_pot)
+            CALL pw_copy(spin_embed_pot, prev_spin_embed_pot)
 
-            CALL pw_copy(new_embed_pot(1)%pw, embed_pot%pw)
-            CALL pw_axpy(new_embed_pot(2)%pw, embed_pot%pw, 1.0_dp)
-            CALL pw_scale(embed_pot%pw, a=0.5_dp)
-            CALL pw_copy(new_embed_pot(1)%pw, spin_embed_pot%pw)
-            CALL pw_axpy(new_embed_pot(2)%pw, spin_embed_pot%pw, -1.0_dp)
-            CALL pw_scale(spin_embed_pot%pw, a=0.5_dp)
+            CALL pw_copy(new_embed_pot(1), embed_pot)
+            CALL pw_axpy(new_embed_pot(2), embed_pot, 1.0_dp)
+            CALL pw_scale(embed_pot, a=0.5_dp)
+            CALL pw_copy(new_embed_pot(1), spin_embed_pot)
+            CALL pw_axpy(new_embed_pot(2), spin_embed_pot, -1.0_dp)
+            CALL pw_scale(spin_embed_pot, a=0.5_dp)
 
             DO i_spin = 1, nspins
-               CALL pw_release(temp_embed_pot(i_spin)%pw)
-            ENDDO
+               CALL pw_release(temp_embed_pot(i_spin))
+            END DO
             DEALLOCATE (temp_embed_pot)
 
-         ENDIF
+         END IF
 
          DO i_spin = 1, nspins
-            CALL pw_release(curr_rho(i_spin)%pw)
-            CALL pw_release(new_embed_pot(i_spin)%pw)
-            CALL pw_release(v_w(i_spin)%pw)
-         ENDDO
+            CALL pw_release(curr_rho(i_spin))
+            CALL pw_release(new_embed_pot(i_spin))
+            CALL pw_release(v_w(i_spin))
+         END DO
 
          DEALLOCATE (new_embed_pot)
          DEALLOCATE (v_w)
          DEALLOCATE (curr_rho)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -2947,9 +2899,10 @@ CONTAINS
 !> \param vw_smooth_cutoff_range ...
 ! **************************************************************************************************
    SUBROUTINE Von_Weizsacker(rho_r, v_w, qs_env, vw_cutoff, vw_smooth_cutoff_range)
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r, v_w
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
+      TYPE(pw_type), DIMENSION(:), INTENT(IN)            :: v_w
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      REAL(KIND=dp)                                      :: vw_cutoff, vw_smooth_cutoff_range
+      REAL(KIND=dp), INTENT(IN)                          :: vw_cutoff, vw_smooth_cutoff_range
 
       REAL(KIND=dp), PARAMETER                           :: one_4 = 0.25_dp, one_8 = 0.125_dp
 
@@ -2959,17 +2912,17 @@ CONTAINS
                                                             rho_cutoff
       REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: rhoa, rhob
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g, tau
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, tau
       TYPE(section_vals_type), POINTER                   :: input, xc_section
       TYPE(xc_rho_cflags_type)                           :: needs
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
+      TYPE(xc_rho_set_type)                              :: rho_set
 
       rho_cutoff = EPSILON(0.0_dp)
 
       nspins = SIZE(rho_r)
 
-      NULLIFY (rho_set, xc_section)
+      NULLIFY (xc_section)
 
       CALL get_qs_env(qs_env=qs_env, &
                       pw_env=pw_env, &
@@ -2982,17 +2935,16 @@ CONTAINS
       NULLIFY (rho_g)
       ALLOCATE (rho_g(nspins))
       DO i_spin = 1, nspins
-         NULLIFY (rho_g(i_spin)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(i_spin)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(i_spin), &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
-         CALL pw_transfer(rho_r(i_spin)%pw, rho_g(i_spin)%pw)
-      ENDDO
+         CALL pw_transfer(rho_r(i_spin), rho_g(i_spin))
+      END DO
 
       xc_section => section_vals_get_subs_vals(input, "DFT%XC")
 
       CALL xc_rho_set_create(rho_set, &
-                             rho_r(1)%pw%pw_grid%bounds_local, &
+                             rho_r(1)%pw_grid%bounds_local, &
                              rho_cutoff=section_get_rval(xc_section, "density_cutoff"), &
                              drho_cutoff=section_get_rval(xc_section, "gradient_cutoff"), &
                              tau_cutoff=section_get_rval(xc_section, "tau_cutoff"))
@@ -3007,7 +2959,7 @@ CONTAINS
          needs%rho = .TRUE.
          needs%norm_drho = .TRUE.
          needs%laplace_rho = .TRUE.
-      ENDIF
+      END IF
 
       CALL xc_rho_set_update(rho_set, rho_r, rho_g, tau, needs, &
                              section_get_ival(xc_section, "XC_GRID%XC_DERIV"), &
@@ -3019,8 +2971,8 @@ CONTAINS
       CALL section_vals_val_get(xc_section, "DENSITY_SMOOTH_CUTOFF_RANGE", &
                                 r_val=density_smooth_cut_range)
 
-      lb(1:3) = rho_r(1)%pw%pw_grid%bounds_local(1, 1:3)
-      ub(1:3) = rho_r(1)%pw%pw_grid%bounds_local(2, 1:3)
+      lb(1:3) = rho_r(1)%pw_grid%bounds_local(1, 1:3)
+      ub(1:3) = rho_r(1)%pw_grid%bounds_local(2, 1:3)
 
       IF (nspins .EQ. 2) THEN
 !$OMP    PARALLEL DO DEFAULT(NONE) &
@@ -3029,21 +2981,21 @@ CONTAINS
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
                DO i = lb(1), ub(1)
-                  IF (rho_r(1)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                     my_rho = rho_r(1)%pw%cr3d(i, j, k)
+                  IF (rho_r(1)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                     my_rho = rho_r(1)%cr3d(i, j, k)
                   ELSE
                      my_rho = rho_cutoff
-                  ENDIF
-                  v_w(1)%pw%cr3d(i, j, k) = one_8*rho_set%norm_drhoa(i, j, k)**2/my_rho**2 - &
-                                            one_4*rho_set%laplace_rhoa(i, j, k)/my_rho
+                  END IF
+                  v_w(1)%cr3d(i, j, k) = one_8*rho_set%norm_drhoa(i, j, k)**2/my_rho**2 - &
+                                         one_4*rho_set%laplace_rhoa(i, j, k)/my_rho
 
-                  IF (rho_r(2)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                     my_rho = rho_r(2)%pw%cr3d(i, j, k)
+                  IF (rho_r(2)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                     my_rho = rho_r(2)%cr3d(i, j, k)
                   ELSE
                      my_rho = rho_cutoff
-                  ENDIF
-                  v_w(2)%pw%cr3d(i, j, k) = one_8*rho_set%norm_drhob(i, j, k)**2/my_rho**2 - &
-                                            one_4*rho_set%laplace_rhob(i, j, k)/my_rho
+                  END IF
+                  v_w(2)%cr3d(i, j, k) = one_8*rho_set%norm_drhob(i, j, k)**2/my_rho**2 - &
+                                         one_4*rho_set%laplace_rhob(i, j, k)/my_rho
                END DO
             END DO
          END DO
@@ -3055,36 +3007,36 @@ CONTAINS
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
                DO i = lb(1), ub(1)
-                  IF (rho_r(1)%pw%cr3d(i, j, k) .GT. rho_cutoff) THEN
-                     my_rho = rho_r(1)%pw%cr3d(i, j, k)
-                     v_w(1)%pw%cr3d(i, j, k) = one_8*rho_set%norm_drho(i, j, k)**2/my_rho**2 - &
-                                               one_4*rho_set%laplace_rho(i, j, k)/my_rho
+                  IF (rho_r(1)%cr3d(i, j, k) .GT. rho_cutoff) THEN
+                     my_rho = rho_r(1)%cr3d(i, j, k)
+                     v_w(1)%cr3d(i, j, k) = one_8*rho_set%norm_drho(i, j, k)**2/my_rho**2 - &
+                                            one_4*rho_set%laplace_rho(i, j, k)/my_rho
                   ELSE
-                     v_w(1)%pw%cr3d(i, j, k) = 0.0_dp
-                  ENDIF
+                     v_w(1)%cr3d(i, j, k) = 0.0_dp
+                  END IF
                END DO
             END DO
          END DO
 !$OMP    END PARALLEL DO
 
-      ENDIF
+      END IF
 
       ! Smoothen the von Weizsaecker potential
       IF (nspins == 2) THEN
          density_smooth_cut_range = 0.5_dp*density_smooth_cut_range
          rho_cutoff = 0.5_dp*rho_cutoff
-      ENDIF
+      END IF
       DO i_spin = 1, nspins
-         CALL smooth_cutoff(pot=v_w(i_spin)%pw%cr3d, rho=rho_r(i_spin)%pw%cr3d, rhoa=rhoa, rhob=rhob, &
+         CALL smooth_cutoff(pot=v_w(i_spin)%cr3d, rho=rho_r(i_spin)%cr3d, rhoa=rhoa, rhob=rhob, &
                             rho_cutoff=vw_cutoff, &
                             rho_smooth_cutoff_range=vw_smooth_cutoff_range)
-      ENDDO
+      END DO
 
       CALL xc_rho_set_release(rho_set, pw_pool=auxbas_pw_pool)
 
       DO i_spin = 1, nspins
-         CALL pw_release(rho_g(i_spin)%pw)
-      ENDDO
+         CALL pw_release(rho_g(i_spin))
+      END DO
       DEALLOCATE (rho_g)
 
    END SUBROUTINE Von_Weizsacker
@@ -3095,7 +3047,7 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
    FUNCTION max_dens_diff(diff_rho_r) RESULT(total_max_diff)
-      TYPE(pw_p_type)                                    :: diff_rho_r
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r
       REAL(KIND=dp)                                      :: total_max_diff
 
       INTEGER                                            :: size_x, size_y, size_z
@@ -3105,20 +3057,20 @@ CONTAINS
       !, i_x, i_y, i_z
 
       ! Get the sizes
-      size_x = SIZE(diff_rho_r%pw%cr3d, 1)
-      size_y = SIZE(diff_rho_r%pw%cr3d, 2)
-      size_z = SIZE(diff_rho_r%pw%cr3d, 3)
+      size_x = SIZE(diff_rho_r%cr3d, 1)
+      size_y = SIZE(diff_rho_r%cr3d, 2)
+      size_z = SIZE(diff_rho_r%cr3d, 3)
 
       ! Allocate the density
       ALLOCATE (grid_3d(size_x, size_y, size_z))
 
       ! Copy density
-      grid_3d(:, :, :) = diff_rho_r%pw%cr3d(:, :, :)
+      grid_3d(:, :, :) = diff_rho_r%cr3d(:, :, :)
 
       ! Find the maximum absolute value
       max_diff = MAXVAL(ABS(grid_3d))
       total_max_diff = max_diff
-      CALL mp_max(total_max_diff, diff_rho_r%pw%pw_grid%para%group)
+      CALL mp_max(total_max_diff, diff_rho_r%pw_grid%para%group)
 
       ! Deallocate the density
       DEALLOCATE (grid_3d)
@@ -3134,10 +3086,10 @@ CONTAINS
 !> \author Vladimir Rybkin
 ! **************************************************************************************************
    SUBROUTINE print_rho_diff(diff_rho_r, i_iter, qs_env, final_one)
-      TYPE(pw_p_type), POINTER                           :: diff_rho_r
-      INTEGER                                            :: i_iter
-      TYPE(qs_environment_type), POINTER                 :: qs_env
-      LOGICAL                                            :: final_one
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r
+      INTEGER, INTENT(IN)                                :: i_iter
+      TYPE(qs_environment_type), INTENT(IN), POINTER     :: qs_env
+      LOGICAL, INTENT(IN)                                :: final_one
 
       CHARACTER(LEN=default_path_length)                 :: filename, my_pos_cube, title
       INTEGER                                            :: unit_nr
@@ -3162,17 +3114,17 @@ CONTAINS
             WRITE (filename, '(a5,I3.3,a1,I1.1)') "DIFF_", i_iter
          ELSE
             WRITE (filename, '(a5,I3.3,a1,I1.1)') "DIFF"
-         ENDIF
+         END IF
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%EMBED_DENS_DIFF", &
                                         extension=".cube", middle_name=TRIM(filename), file_position=my_pos_cube, &
                                         log_filename=.FALSE.)
 
          WRITE (title, *) "EMBEDDING DENSITY DIFFERENCE ", " optimization step ", i_iter
-         CALL cp_pw_to_cube(diff_rho_r%pw, unit_nr, title, particles=particles, &
+         CALL cp_pw_to_cube(diff_rho_r, unit_nr, title, particles=particles, &
                             stride=section_get_ivals(dft_section, "QS%OPT_EMBED%EMBED_DENS_DIFF%STRIDE"))
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%QS%OPT_EMBED%EMBED_DENS_DIFF")
-      ENDIF
+      END IF
 
    END SUBROUTINE print_rho_diff
 
@@ -3185,10 +3137,10 @@ CONTAINS
 !> \author Vladimir Rybkin
 ! **************************************************************************************************
    SUBROUTINE print_rho_spin_diff(spin_diff_rho_r, i_iter, qs_env, final_one)
-      TYPE(pw_p_type), POINTER                           :: spin_diff_rho_r
-      INTEGER                                            :: i_iter
-      TYPE(qs_environment_type), POINTER                 :: qs_env
-      LOGICAL                                            :: final_one
+      TYPE(pw_type), INTENT(IN)                          :: spin_diff_rho_r
+      INTEGER, INTENT(IN)                                :: i_iter
+      TYPE(qs_environment_type), INTENT(IN), POINTER     :: qs_env
+      LOGICAL, INTENT(IN)                                :: final_one
 
       CHARACTER(LEN=default_path_length)                 :: filename, my_pos_cube, title
       INTEGER                                            :: unit_nr
@@ -3213,17 +3165,17 @@ CONTAINS
             WRITE (filename, '(a5,I3.3,a1,I1.1)') "SPIN_DIFF_", i_iter
          ELSE
             WRITE (filename, '(a9,I3.3,a1,I1.1)') "SPIN_DIFF"
-         ENDIF
+         END IF
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%EMBED_DENS_DIFF", &
                                         extension=".cube", middle_name=TRIM(filename), file_position=my_pos_cube, &
                                         log_filename=.FALSE.)
 
          WRITE (title, *) "EMBEDDING SPIN DENSITY DIFFERENCE ", " optimization step ", i_iter
-         CALL cp_pw_to_cube(spin_diff_rho_r%pw, unit_nr, title, particles=particles, &
+         CALL cp_pw_to_cube(spin_diff_rho_r, unit_nr, title, particles=particles, &
                             stride=section_get_ivals(dft_section, "QS%OPT_EMBED%EMBED_DENS_DIFF%STRIDE"))
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%QS%OPT_EMBED%EMBED_DENS_DIFF")
-      ENDIF
+      END IF
 
    END SUBROUTINE print_rho_spin_diff
 ! **************************************************************************************************
@@ -3242,10 +3194,10 @@ CONTAINS
                                   embed_pot_spin, open_shell_embed, grid_opt, final_one)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER                                            :: dimen_aux
-      TYPE(cp_fm_type), POINTER                          :: embed_pot_coef
-      TYPE(pw_p_type), POINTER                           :: embed_pot
+      TYPE(cp_fm_type), INTENT(IN), POINTER              :: embed_pot_coef
+      TYPE(pw_type), INTENT(IN)                          :: embed_pot
       INTEGER                                            :: i_iter
-      TYPE(pw_p_type), POINTER                           :: embed_pot_spin
+      TYPE(pw_type), INTENT(IN), POINTER                 :: embed_pot_spin
       LOGICAL                                            :: open_shell_embed, grid_opt, final_one
 
       CHARACTER(LEN=default_path_length)                 :: filename, my_pos_cube, title
@@ -3268,18 +3220,18 @@ CONTAINS
                WRITE (filename, '(a10,I3.3)') "embed_pot_", i_iter
             ELSE
                WRITE (filename, '(a10,I3.3)') "embed_pot"
-            ENDIF
+            END IF
             unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%EMBED_POT_VECTOR", extension=".wfn", &
                                            file_form="UNFORMATTED", middle_name=TRIM(filename), file_position="REWIND")
             IF (unit_nr > 0) THEN
                WRITE (unit_nr) dimen_aux
-            ENDIF
+            END IF
             CALL cp_fm_write_unformatted(embed_pot_coef, unit_nr)
             IF (unit_nr > 0) THEN
                CALL close_file(unit_nr)
-            ENDIF
-         ENDIF
-      ENDIF
+            END IF
+         END IF
+      END IF
 
       ! Second, cube files
       dft_section => section_vals_get_subs_vals(input, "DFT")
@@ -3293,13 +3245,13 @@ CONTAINS
             WRITE (filename, '(a10,I3.3)') "embed_pot_", i_iter
          ELSE
             WRITE (filename, '(a10,I3.3)') "embed_pot"
-         ENDIF
+         END IF
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%EMBED_POT_CUBE", &
                                         extension=".cube", middle_name=TRIM(filename), file_position=my_pos_cube, &
                                         log_filename=.FALSE.)
 
          WRITE (title, *) "EMBEDDING POTENTIAL at optimization step ", i_iter
-         CALL cp_pw_to_cube(embed_pot%pw, unit_nr, title, particles=particles)
+         CALL cp_pw_to_cube(embed_pot, unit_nr, title, particles=particles)
 !, &
 !                            stride=section_get_ivals(dft_section, "QS%OPT_EMBED%EMBED_POT_CUBE%STRIDE"))
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
@@ -3310,19 +3262,19 @@ CONTAINS
                WRITE (filename, '(a15,I3.3)') "spin_embed_pot_", i_iter
             ELSE
                WRITE (filename, '(a15,I3.3)') "spin_embed_pot"
-            ENDIF
+            END IF
             unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%EMBED_POT_CUBE", &
                                            extension=".cube", middle_name=TRIM(filename), file_position=my_pos_cube, &
                                            log_filename=.FALSE.)
 
             WRITE (title, *) "SPIN EMBEDDING POTENTIAL at optimization step ", i_iter
-            CALL cp_pw_to_cube(embed_pot_spin%pw, unit_nr, title, particles=particles)
+            CALL cp_pw_to_cube(embed_pot_spin, unit_nr, title, particles=particles)
 !,  &
 !                               stride=section_get_ivals(dft_section, "QS%OPT_EMBED%EMBED_POT_CUBE%STRIDE"))
             CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                               "DFT%QS%OPT_EMBED%EMBED_POT_CUBE")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
    END SUBROUTINE print_embed_restart
 
@@ -3339,7 +3291,8 @@ CONTAINS
    SUBROUTINE print_pot_simple_grid(qs_env, embed_pot, embed_pot_spin, i_iter, open_shell_embed, &
                                     final_one, qs_env_cluster)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), POINTER                           :: embed_pot, embed_pot_spin
+      TYPE(pw_type), INTENT(IN)                          :: embed_pot
+      TYPE(pw_type), INTENT(IN), POINTER                 :: embed_pot_spin
       INTEGER                                            :: i_iter
       LOGICAL                                            :: open_shell_embed, final_one
       TYPE(qs_environment_type), POINTER                 :: qs_env_cluster
@@ -3349,8 +3302,8 @@ CONTAINS
       LOGICAL                                            :: angstrom, bohr
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: pot_alpha, pot_beta
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: pot_alpha, pot_beta
       TYPE(section_vals_type), POINTER                   :: dft_section, input
 
       NULLIFY (input)
@@ -3385,57 +3338,49 @@ CONTAINS
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
          ! Create embedding potential and set to zero
-         NULLIFY (pot_alpha)
-         ALLOCATE (pot_alpha)
-         NULLIFY (pot_alpha%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, pot_alpha%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, pot_alpha, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_zero(pot_alpha%pw)
+         CALL pw_zero(pot_alpha)
 
-         CALL pw_copy(embed_pot%pw, pot_alpha%pw)
+         CALL pw_copy(embed_pot, pot_alpha)
 
          IF (open_shell_embed) THEN
-            NULLIFY (pot_beta)
-            ALLOCATE (pot_beta)
-            NULLIFY (pot_beta%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, pot_beta%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, pot_beta, &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_copy(embed_pot%pw, pot_beta%pw)
+            CALL pw_copy(embed_pot, pot_beta)
             ! Add spin potential to the alpha, and subtract from the beta part
-            CALL pw_axpy(embed_pot_spin%pw, pot_alpha%pw, 1.0_dp)
-            CALL pw_axpy(embed_pot_spin%pw, pot_beta%pw, -1.0_dp)
-         ENDIF
+            CALL pw_axpy(embed_pot_spin, pot_alpha, 1.0_dp)
+            CALL pw_axpy(embed_pot_spin, pot_beta, -1.0_dp)
+         END IF
 
          IF (.NOT. final_one) THEN
             WRITE (filename, '(a10,I3.3)') "embed_pot_", i_iter
          ELSE
             WRITE (filename, '(a10,I3.3)') "embed_pot"
-         ENDIF
+         END IF
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%QS%OPT_EMBED%WRITE_SIMPLE_GRID", extension=".dat", &
                                         middle_name=TRIM(filename), file_form="FORMATTED", file_position="REWIND")
 
          IF (open_shell_embed) THEN ! Print spin part of the embedding potential
-            CALL cp_pw_to_simple_volumetric(pw=pot_alpha%pw, unit_nr=unit_nr, &
+            CALL cp_pw_to_simple_volumetric(pw=pot_alpha, unit_nr=unit_nr, &
                                             stride=section_get_ivals(dft_section, "QS%OPT_EMBED%WRITE_SIMPLE_GRID%STRIDE"), &
-                                            pw2=pot_beta%pw)
+                                            pw2=pot_beta)
          ELSE
-            CALL cp_pw_to_simple_volumetric(pot_alpha%pw, unit_nr, &
+            CALL cp_pw_to_simple_volumetric(pot_alpha, unit_nr, &
                                             stride=section_get_ivals(dft_section, "QS%OPT_EMBED%WRITE_SIMPLE_GRID%STRIDE"))
-         ENDIF
+         END IF
 
          CALL cp_print_key_finished_output(unit_nr, logger, input, &
                                            "DFT%QS%OPT_EMBED%WRITE_SIMPLE_GRID")
          ! Release structures
-         CALL pw_release(pot_alpha%pw)
-         DEALLOCATE (pot_alpha)
+         CALL pw_release(pot_alpha)
          IF (open_shell_embed) THEN
-            CALL pw_release(pot_beta%pw)
-            DEALLOCATE (pot_beta)
-         ENDIF
+            CALL pw_release(pot_beta)
+         END IF
 
-      ENDIF
+      END IF
 
       ! Fold the coordinates and write into separate file: needed to have the grid correspond to coordinates
       ! Needed for external software.
@@ -3502,9 +3447,9 @@ CONTAINS
 
             DEALLOCATE (particles_el)
             DEALLOCATE (particles_r)
-         ENDIF
+         END IF
 
-      ENDIF ! Should output
+      END IF ! Should output
 
    END SUBROUTINE print_folded_coordinates
 
@@ -3553,7 +3498,7 @@ CONTAINS
       INTEGER                                            :: subsys_num
 
       INTEGER                                            :: i_dens_start, i_spin, nspins
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_rho_type), POINTER                         :: rho
 
       NULLIFY (rho_r, rho)
@@ -3565,9 +3510,9 @@ CONTAINS
       i_dens_start = SUM(opt_embed%all_nspins(1:subsys_num)) - nspins + 1
 
       DO i_spin = 1, nspins
-         opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%pw%cr3d(:, :, :) = &
-            rho_r(i_spin)%pw%cr3d(:, :, :)
-      ENDDO
+         opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%cr3d(:, :, :) = &
+            rho_r(i_spin)%cr3d(:, :, :)
+      END DO
 
    END SUBROUTINE get_prev_density
 
@@ -3583,7 +3528,7 @@ CONTAINS
       INTEGER                                            :: subsys_num
 
       INTEGER                                            :: i_dens_start, i_spin, nspins
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_rho_type), POINTER                         :: rho
 
       NULLIFY (rho_r, rho)
@@ -3595,11 +3540,11 @@ CONTAINS
       i_dens_start = SUM(opt_embed%all_nspins(1:subsys_num)) - nspins + 1
 
       DO i_spin = 1, nspins
-         opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%pw%cr3d(:, :, :) = &
-            rho_r(i_spin)%pw%cr3d(:, :, :) - opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%pw%cr3d(:, :, :)
+         opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%cr3d(:, :, :) = &
+            rho_r(i_spin)%cr3d(:, :, :) - opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1)%cr3d(:, :, :)
          opt_embed%max_subsys_dens_diff(i_dens_start + i_spin - 1) = &
             max_dens_diff(opt_embed%prev_subsys_dens(i_dens_start + i_spin - 1))
-      ENDDO
+      END DO
 
    END SUBROUTINE get_max_subsys_diff
 
@@ -3612,7 +3557,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE conv_check_embed(opt_embed, diff_rho_r, diff_rho_spin, output_unit)
       TYPE(opt_embed_pot_type)                           :: opt_embed
-      TYPE(pw_p_type), POINTER                           :: diff_rho_r, diff_rho_spin
+      TYPE(pw_type), INTENT(IN)                          :: diff_rho_r, diff_rho_spin
       INTEGER                                            :: output_unit
 
       INTEGER                                            :: i_dens, i_dens_start, i_spin
@@ -3623,13 +3568,13 @@ CONTAINS
 
       ! Calculate the convergence target values
       opt_embed%max_diff(1) = max_dens_diff(diff_rho_r)
-      opt_embed%int_diff(1) = pw_integrate_function(fun=diff_rho_r%pw, oprt='ABS')
-      opt_embed%int_diff_square(1) = pw_integral_ab(diff_rho_r%pw, diff_rho_r%pw)
+      opt_embed%int_diff(1) = pw_integrate_function(fun=diff_rho_r, oprt='ABS')
+      opt_embed%int_diff_square(1) = pw_integral_ab(diff_rho_r, diff_rho_r)
       IF (opt_embed%open_shell_embed) THEN
          opt_embed%max_diff(2) = max_dens_diff(diff_rho_spin)
-         opt_embed%int_diff(2) = pw_integrate_function(fun=diff_rho_spin%pw, oprt='ABS')
-         opt_embed%int_diff_square(2) = pw_integral_ab(diff_rho_spin%pw, diff_rho_spin%pw)
-      ENDIF
+         opt_embed%int_diff(2) = pw_integrate_function(fun=diff_rho_spin, oprt='ABS')
+         opt_embed%int_diff_square(2) = pw_integral_ab(diff_rho_spin, diff_rho_spin)
+      END IF
 
       ! Find out the convergence
       max_diff = opt_embed%max_diff(1)
@@ -3642,15 +3587,15 @@ CONTAINS
             conv_max_diff = .TRUE.
          ELSE
             conv_max_diff = .FALSE.
-         ENDIF
+         END IF
       ELSE
          ! Closed shell
          IF (max_diff .LE. opt_embed%conv_max) THEN
             conv_max_diff = .TRUE.
          ELSE
             conv_max_diff = .FALSE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Integrated value criterium
       int_diff = opt_embed%int_diff(1)
@@ -3661,15 +3606,15 @@ CONTAINS
             conv_int_diff = .TRUE.
          ELSE
             conv_int_diff = .FALSE.
-         ENDIF
+         END IF
       ELSE
          ! Closed shell
          IF (int_diff .LE. opt_embed%conv_int) THEN
             conv_int_diff = .TRUE.
          ELSE
             conv_int_diff = .FALSE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Integrated squared value criterium
       int_diff_square = opt_embed%int_diff_square(1)
@@ -3680,7 +3625,7 @@ CONTAINS
          opt_embed%converged = .TRUE.
       ELSE
          opt_embed%converged = .FALSE.
-      ENDIF
+      END IF
 
       ! Print the information
       IF (output_unit > 0) THEN
@@ -3700,7 +3645,7 @@ CONTAINS
             WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
                " Convergence limit for max. spin dens.diff.= ", opt_embed%conv_max_spin
 
-         ENDIF
+         END IF
 
          IF (conv_max_diff) THEN
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
@@ -3722,7 +3667,7 @@ CONTAINS
                " Integrated spin density difference        = ", int_diff_spin
             WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
                " Conv. limit for integrated spin dens.diff.= ", opt_embed%conv_int_spin
-         ENDIF
+         END IF
 
          IF (conv_int_diff) THEN
             WRITE (UNIT=output_unit, FMT="(T2,2A)") &
@@ -3740,7 +3685,7 @@ CONTAINS
          IF (opt_embed%open_shell_embed) THEN
             WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
                " Integrated squared spin density difference= ", int_diff_square_spin
-         ENDIF
+         END IF
 
          ! Maximum subsystem density change
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
@@ -3751,10 +3696,10 @@ CONTAINS
                WRITE (UNIT=output_unit, FMT="(T4,A10,I3,A6,I3,A1,F20.10)") &
                   " subsystem ", i_dens, ', spin', i_spin, ":", &
                   opt_embed%max_subsys_dens_diff(i_dens_start + i_spin - 1)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
 
-      ENDIF
+      END IF
 
       IF ((opt_embed%converged) .AND. (output_unit > 0)) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)

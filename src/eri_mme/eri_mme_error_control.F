@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -75,9 +77,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: print_calib
       INTEGER, INTENT(IN)                                :: unit_nr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calibrate_cutoff', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iter1, iter2, max_iter
       LOGICAL                                            :: do_print, valid_initial
       REAL(KIND=dp)                                      :: cutoff_mid, delta_c_mid, delta_mm_mid
@@ -90,7 +89,7 @@ CONTAINS
          WRITE (unit_nr, '(T2, A, T67, ES12.2, 1X, I1)') "ERI_MME|   exp, l:", zet_min, l_mm
          WRITE (unit_nr, '(T2, A)') "ERI_MME| Basis set parameters for estimating cutoff error"
          WRITE (unit_nr, '(T2, A, T67, ES12.2, 1X, I1)') "ERI_MME|   exp, l:", zet_max, l_max_zet
-      ENDIF
+      END IF
 
       max_iter = 100
 
@@ -111,7 +110,7 @@ CONTAINS
          WRITE (unit_nr, '(/T2, A)') "ERI_MME| Calibrating cutoff by bisecting error(minimax) - error(cutoff)"
          WRITE (unit_nr, '(T2, A, T72, ES9.2)') "ERI_MME| Rel. cutoff precision", tol
          WRITE (unit_nr, '(T2, A, T77, F4.1)') "ERI_MME| Rel. cutoff delta to modify initial interval", delta
-      ENDIF
+      END IF
 
       ! 1) find valid initial values for bisection
       DO iter1 = 1, max_iter + 1
@@ -126,20 +125,20 @@ CONTAINS
          DO i = 1, 2
             CALL cutoff_minimax_error(cutoff_lr(i), hmat, h_inv, vol, G_min, zet_min, l_mm, zet_max, l_max_zet, &
                                       n_minimax, minimax_aw, delta_mm(i), delta_c(i), C_mm, para_env)
-         ENDDO
+         END DO
 
          valid_initial = .TRUE.
          IF ((delta_mm(1) - delta_c(1)) .GT. 0) THEN
             cutoff_lr(1) = cutoff_lr(1)*(1.0_dp - ABS(delta))
             valid_initial = .FALSE.
-         ENDIF
+         END IF
          IF ((delta_mm(2) - delta_c(2)) .LT. 0) THEN
             cutoff_lr(2) = cutoff_lr(2)*(1.0_dp + ABS(delta))
             valid_initial = .FALSE.
-         ENDIF
+         END IF
 
          IF (valid_initial) EXIT
-      ENDDO
+      END DO
 
       ! 2) bisection to find cutoff s.t. err_minimax(cutoff) - err_cutoff(cutoff) = 0
       IF (do_print) WRITE (unit_nr, '(/T2, A)') &
@@ -166,8 +165,8 @@ CONTAINS
             cutoff_lr(1) = cutoff_mid
             delta_mm(1) = delta_mm_mid
             delta_c(1) = delta_c_mid
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       err_mm = delta_mm_mid
       err_c = delta_c_mid
       cutoff = cutoff_mid
@@ -176,7 +175,7 @@ CONTAINS
          WRITE (unit_nr, '(/T2, A)') "ERI_MME| Cutoff calibration number of steps:"
          WRITE (unit_nr, '(T2, A, T79, I2)') "ERI_MME|   Steps for initial interval", iter1 - 1
          WRITE (unit_nr, '(T2, A, T79, I2/)') "ERI_MME|   Bisection iteration steps", iter2 - 1
-      ENDIF
+      END IF
 
    END SUBROUTINE calibrate_cutoff
 
@@ -212,9 +211,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: minimax_aw
       REAL(KIND=dp), INTENT(OUT)                         :: err_mm, err_ctff, C_mm
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cutoff_minimax_error', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: delta_mm
 
@@ -253,8 +249,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: potential
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pot_par
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'minimax_error', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_xyz
       REAL(KIND=dp)                                      :: prod_mm_k
 
@@ -265,7 +259,7 @@ CONTAINS
       DO i_xyz = 1, 3
          prod_mm_k = prod_mm_k*(ABS(hmat(i_xyz, i_xyz))/twopi + &
                                 MERGE(SQRT(2.0_dp/(zet_min*pi))*EXP(-1.0_dp), 0.0_dp, l_mm .GT. 0))
-      ENDDO
+      END DO
       err_mm = 32*pi**4/vol*delta_mm*prod_mm_k
 
    END SUBROUTINE
@@ -295,11 +289,9 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: h_inv
       REAL(KIND=dp), INTENT(IN)                          :: G_min, zet_max
       INTEGER, INTENT(IN)                                :: l_max_zet, n_minimax
-      REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: minimax_aw
+      REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: minimax_aw
       REAL(KIND=dp), INTENT(OUT)                         :: err_ctff, C_mm
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cutoff_error', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_aw, iG, iter, max_iter, nG
       REAL(KIND=dp) :: C, dG, eps_zet, err0, err1, err_c, err_ctff_curr, err_ctff_prev, err_d, G, &
@@ -331,15 +323,15 @@ CONTAINS
             C = 0.0_dp
             DO i_aw = 1, n_minimax
                C = C + 3.0_dp*minimax_aw(n_minimax + i_aw)*EXP(-3.0_dp*minimax_aw(i_aw)*G**2)*G**2
-            ENDDO
+            END DO
             C_mm = MAX(C, C_mm)
             G = G + dG
-         ENDDO
+         END DO
       ELSE
          DO i_aw = 1, n_minimax
             C_mm = C_mm + 3.0_dp*minimax_aw(n_minimax + i_aw)*EXP(-3.0_dp*minimax_aw(i_aw)*G_c**2)*G_c**2
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       C = MAX(1.0_dp, C_mm)
 
       err_ctff_prev = 0.0_dp
@@ -357,9 +349,9 @@ CONTAINS
             EXIT
          ELSE
             err_ctff_prev = err_ctff_curr
-         ENDIF
+         END IF
          zet_max_tmp = zet_max_tmp/zet_div
-      ENDDO
+      END DO
 
       ! Golden section search
       zet_c = zet_b - gr*(zet_b - zet_a)
@@ -370,7 +362,7 @@ CONTAINS
             CALL cutoff_error_fixed_exp(cutoff, h_inv, G_min, l_max_zet, zet_b, C, err1, para_env)
             err_ctff_curr = MAX(err0, err1)
             EXIT
-         ENDIF
+         END IF
          CALL cutoff_error_fixed_exp(cutoff, h_inv, G_min, l_max_zet, zet_c, C, err_c, para_env)
          CALL cutoff_error_fixed_exp(cutoff, h_inv, G_min, l_max_zet, zet_d, C, err_d, para_env)
          IF (err_c .GT. err_d) THEN
@@ -381,8 +373,8 @@ CONTAINS
             zet_a = zet_c
             zet_c = zet_d
             zet_d = zet_a + gr*(zet_b - zet_a)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       err_ctff = err_ctff_curr
 
    END SUBROUTINE
@@ -410,9 +402,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: err_c
       TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cutoff_error_fixed_exp', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, G_l, G_u, Gl_first, Gl_last, &
                                                             Gu_first, Gu_last, i_xyz, l, my_p, &
                                                             n_Gl, n_Gl_left, n_Gl_p, n_Gu, &
@@ -432,7 +421,7 @@ CONTAINS
       ALLOCATE (S_G_l(0:2*l_max_zet, 3))
       ALLOCATE (S_G_u(0:2*l_max_zet, 3))
 
-      G_rad = exp_radius(2*l_max_zet, alpha_G, eps_G, prefactor, epsin=G_res)
+      G_rad = exp_radius(2*l_max_zet, alpha_G, eps_G, prefactor, epsabs=G_res)
 
       ! Parallelization of sum over G vectors
       my_p = para_env%mepos ! mpi rank
@@ -468,7 +457,7 @@ CONTAINS
          ELSE
             Gu_first = G_l + 1 + n_Gu_left + n_Gu_p*my_p
             Gu_last = G_l + 1 + n_Gu_left + n_Gu_p*(my_p + 1) - 1
-         ENDIF
+         END IF
 
          IF (my_p .LT. n_Gl_left) THEN
             Gl_first = -G_l + (n_Gl_p + 1)*my_p
@@ -476,7 +465,7 @@ CONTAINS
          ELSE
             Gl_first = -G_l + n_Gl_left + n_Gl_p*my_p
             Gl_last = -G_l + n_Gl_left + n_Gl_p*(my_p + 1) - 1
-         ENDIF
+         END IF
 
          ! Sum |G| <= G_c
          CALL pgf_sum_2c_gspace_1d_deltal(S_G_l(:, i_xyz), alpha_G, inv_lgth, Gl_first, Gl_last, &
@@ -485,7 +474,7 @@ CONTAINS
          ! Sum |G| > G_c
          CALL pgf_sum_2c_gspace_1d_deltal(S_G_u(:, i_xyz), alpha_G, inv_lgth, Gu_first, Gu_last, &
                                           2.0_dp/3.0_dp, prefactor)
-      ENDDO
+      END DO
 
       CALL mp_sum(S_G_l, para_env%group)
       CALL mp_sum(S_G_u, para_env%group)
@@ -511,9 +500,9 @@ CONTAINS
                    C_mm/3.0_dp*sum_G_diff
 
          err_c = MAX(err_c, err_c_l)
-      ENDDO
-      ENDDO
-      ENDDO
+      END DO
+      END DO
+      END DO
 
       DEALLOCATE (S_G_u, S_G_l)
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -11,6 +13,7 @@
 !>      10.2014 created [Felix Uhl]
 ! **************************************************************************************************
 MODULE pint_pile
+   USE input_constants,                 ONLY: propagator_cmd
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
@@ -38,39 +41,39 @@ MODULE pint_pile
 
 CONTAINS
 
-   ! ***************************************************************************
-   !> \brief initializes the data for a pile run
-   !> \author Felix Uhl
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief initializes the data for a pile run
 !> \param pile_therm ...
 !> \param pint_env ...
 !> \param normalmode_env ...
 !> \param section ...
+!> \author Felix Uhl
 ! **************************************************************************************************
    SUBROUTINE pint_pile_init(pile_therm, pint_env, normalmode_env, section)
-      TYPE(pile_therm_type), POINTER                     :: pile_therm
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pile_therm_type), INTENT(OUT)                 :: pile_therm
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(normalmode_env_type), POINTER                 :: normalmode_env
       TYPE(section_vals_type), POINTER                   :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_pile_init', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=rng_record_length)                   :: rng_record
-      INTEGER                                            :: i, j, p
+      INTEGER                                            :: i, i_propagator, j, p
       LOGICAL                                            :: explicit
       REAL(KIND=dp)                                      :: dti2, ex
       REAL(KIND=dp), DIMENSION(3, 2)                     :: initial_seed
-      TYPE(section_vals_type), POINTER                   :: rng_section
+      TYPE(section_vals_type), POINTER                   :: pint_section, rng_section
 
       pint_env%e_pile = 0.0_dp
-      ALLOCATE (pile_therm)
-      pile_therm%ref_count = 1
       pile_therm%thermostat_energy = 0.0_dp
       !Get input parameter
       CALL section_vals_val_get(section, "TAU", r_val=pile_therm%tau)
       CALL section_vals_val_get(section, "LAMBDA", r_val=pile_therm%lamb)
+      CALL section_vals_val_get(section, "THERMOSTAT_ENERGY", r_val=pile_therm%thermostat_energy)
+      pint_section => section_vals_get_subs_vals(pint_env%input, "MOTION%PINT")
+      CALL section_vals_val_get(pint_section, "PROPAGATOR", i_val=i_propagator)
+
+      IF (i_propagator == propagator_cmd) THEN
+         pile_therm%tau = 0.0_dp
+      END IF
 
       p = pint_env%p
       dti2 = 0.5_dp*pint_env%dt
@@ -137,7 +140,7 @@ CONTAINS
       REAL(kind=dp), DIMENSION(:, :), INTENT(IN)         :: masses
       TYPE(pile_therm_type), POINTER                     :: pile_therm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_pile_step', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pint_pile_step'
 
       INTEGER                                            :: handle, ibead, idim
       REAL(KIND=dp)                                      :: delta_ekin
@@ -159,56 +162,33 @@ CONTAINS
       CALL timestop(handle)
    END SUBROUTINE pint_pile_step
 
-   ! ***************************************************************************
-   !> \brief releases the pile environment
-   !> \param pile_therm pile data to be released
-   !> \author Felix Uhl
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
-!> \param pile_therm ...
+! ***************************************************************************
+!> \brief releases the pile environment
+!> \param pile_therm pile data to be released
+!> \author Felix Uhl
 ! **************************************************************************************************
    SUBROUTINE pint_pile_release(pile_therm)
 
-      TYPE(pile_therm_type), POINTER                     :: pile_therm
+      TYPE(pile_therm_type), INTENT(INOUT)               :: pile_therm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_pile_release', &
-         routineP = moduleN//':'//routineN
+      DEALLOCATE (pile_therm%c1)
+      DEALLOCATE (pile_therm%c2)
+      DEALLOCATE (pile_therm%g_fric)
+      DEALLOCATE (pile_therm%massfact)
 
-      IF (ASSOCIATED(pile_therm)) THEN
-         pile_therm%ref_count = pile_therm%ref_count - 1
-         IF (pile_therm%ref_count == 0) THEN
-            DEALLOCATE (pile_therm%c1)
-            DEALLOCATE (pile_therm%c2)
-            DEALLOCATE (pile_therm%g_fric)
-            DEALLOCATE (pile_therm%massfact)
-            DEALLOCATE (pile_therm)
-         END IF
-      END IF
-      NULLIFY (pile_therm)
-
-      RETURN
    END SUBROUTINE pint_pile_release
 
-   ! ***************************************************************************
-   !> \brief returns the pile kinetic energy contribution
-   !> \author Felix Uhl
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief returns the pile kinetic energy contribution
 !> \param pint_env ...
+!> \author Felix Uhl
 ! **************************************************************************************************
    SUBROUTINE pint_calc_pile_energy(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_pile_energy', &
-         routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       IF (ASSOCIATED(pint_env%pile_therm)) THEN
          pint_env%e_pile = pint_env%pile_therm%thermostat_energy
       END IF
-
-      RETURN
 
    END SUBROUTINE pint_calc_pile_energy
 END MODULE

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -53,8 +55,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_topology_gromos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_topology_gromos'
 
       CHARACTER                                          :: ctemp
       CHARACTER(LEN=default_string_length)               :: label, string
@@ -71,9 +72,9 @@ CONTAINS
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(connectivity_info_type), POINTER              :: conn_info
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser, logger)
+      NULLIFY (logger)
       NULLIFY (namearray1, namearray2)
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/GTOP_INFO", &
@@ -630,8 +631,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_g96', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_g96'
       INTEGER, PARAMETER                                 :: nblock = 1000
 
       CHARACTER(LEN=default_string_length)               :: label, string, strtmp, strtmp2
@@ -642,10 +642,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: velocity
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
       TYPE(section_vals_type), POINTER                   :: velocity_section
 
-      NULLIFY (parser, logger, velocity)
+      NULLIFY (logger, velocity)
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/G96_INFO", &
                                 extension=".subsysLog")

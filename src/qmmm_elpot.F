@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,8 +68,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: compatibility
       TYPE(section_vals_type), POINTER                   :: print_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_potential_init', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: dx = 0.05_dp
 
       CHARACTER(LEN=default_path_length)                 :: myFormat
@@ -217,7 +217,7 @@ CONTAINS
                Ndim = SIZE(mm_atom_index)
                mm_atom_index(Ndim) = J
                CALL reallocate(mm_atom_index, 1, Ndim + 1)
-            ENDIF
+            END IF
          END DO
          CALL reallocate(mm_atom_index, 1, Ndim)
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,14 +21,14 @@ MODULE qs_tensors_types
    USE cp_para_env,                     ONLY: cp_para_env_create,&
                                               cp_para_env_release
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: dbcsr_type_real_8
-   USE dbcsr_tensor_api,                ONLY: dbcsr_t_create,&
-                                              dbcsr_t_distribution_destroy,&
-                                              dbcsr_t_distribution_new,&
-                                              dbcsr_t_distribution_type,&
-                                              dbcsr_t_mp_environ_pgrid,&
-                                              dbcsr_t_pgrid_type,&
-                                              dbcsr_t_type
+   USE dbt_api,                         ONLY: dbt_create,&
+                                              dbt_default_distvec,&
+                                              dbt_distribution_destroy,&
+                                              dbt_distribution_new,&
+                                              dbt_distribution_type,&
+                                              dbt_mp_environ_pgrid,&
+                                              dbt_pgrid_type,&
+                                              dbt_type
    USE distribution_2d_types,           ONLY: distribution_2d_create_prv => distribution_2d_create,&
                                               distribution_2d_release,&
                                               distribution_2d_type
@@ -45,14 +47,14 @@ MODULE qs_tensors_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_tensors_types'
 
    PUBLIC :: distribution_3d_type, neighbor_list_3c_type, neighbor_list_3c_iterator_type, &
-             distribution_2d_create, distribution_3d_create, distribution_3d_destroy, cyclic_tensor_dist, &
+             distribution_2d_create, distribution_3d_create, distribution_3d_destroy, &
              split_block_sizes, create_3c_tensor, create_2c_tensor, contiguous_tensor_dist, pgf_block_sizes, &
              create_tensor_batches
 
    INTEGER, PARAMETER, PUBLIC :: symmetric_none = 0, symmetric_ij = 1, symmetric_jk = 2, symmetrik_ik = 3, symmetric_ijk = 4
 
-   INTEGER, PARAMETER, PUBLIC :: libcusmm_maxblocksize = 45
-   !! upper limit for block sizes still covered by lib cusmm
+   INTEGER, PARAMETER, PUBLIC :: default_block_size = 64
+   !! default block size for dense tensors, this block size should be covered by DBCSR/libcusmm
 
    TYPE distribution_3d_type
       TYPE(distribution_2d_type), POINTER :: dist_2d_1 => NULL(), dist_2d_2 => NULL()
@@ -95,8 +97,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: mp_comm_3d
       LOGICAL, INTENT(IN), OPTIONAL                      :: own_comm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_3d_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_3d_create'
 
       INTEGER                                            :: comm_2d_1, comm_2d_2, handle, nproc_1, &
                                                             nproc_2
@@ -110,7 +111,7 @@ CONTAINS
          dist_3d%owns_comm = own_comm
       ELSE
          dist_3d%owns_comm = .FALSE.
-      ENDIF
+      END IF
 
       CALL mp_cart_sub(mp_comm_3d, [.TRUE., .TRUE., .FALSE.], comm_2d_1)
       CALL mp_cart_sub(mp_comm_3d, [.FALSE., .TRUE., .TRUE.], comm_2d_2)
@@ -136,8 +137,7 @@ CONTAINS
    SUBROUTINE distribution_3d_destroy(dist)
       TYPE(distribution_3d_type)                         :: dist
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_3d_destroy', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_3d_destroy'
 
       INTEGER                                            :: handle
 
@@ -170,8 +170,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER, INTENT(IN)                                :: mp_comm_2d
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_2d_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_2d_create'
 
       INTEGER                                            :: handle, iatom, ikind, n, natom, nproc
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: nparticle_local_col, nparticle_local_row
@@ -243,37 +242,6 @@ CONTAINS
    END SUBROUTINE
 
 ! **************************************************************************************************
-!> \brief cyclic distribution of weighted elements
-!> \param nel ...
-!> \param nbin ...
-!> \param weights ...
-!> \param dist ...
-! **************************************************************************************************
-   SUBROUTINE cyclic_tensor_dist(nel, nbin, weights, dist)
-      INTEGER, INTENT(IN)                                :: nel, nbin
-      INTEGER, DIMENSION(nel), INTENT(IN)                :: weights
-      INTEGER, DIMENSION(nel), INTENT(OUT)               :: dist
-
-      INTEGER                                            :: ibin, iel, niter
-      INTEGER, DIMENSION(nbin)                           :: occup
-
-      occup(:) = 0
-      ibin = 0
-      DO iel = 1, nel
-         niter = 0
-         ibin = MOD(ibin + 1, nbin)
-         DO WHILE (occup(ibin + 1) + weights(iel) .GE. MAXVAL(occup))
-            IF (MINLOC(occup, DIM=1) == ibin + 1) EXIT
-            ibin = MOD(ibin + 1, nbin)
-            niter = niter + 1
-         ENDDO
-         dist(iel) = ibin
-         occup(ibin + 1) = occup(ibin + 1) + weights(iel)
-      ENDDO
-
-   END SUBROUTINE cyclic_tensor_dist
-
-! **************************************************************************************************
 !> \brief contiguous distribution of weighted elements
 !> \param nel ...
 !> \param nbin ...
@@ -309,7 +277,7 @@ CONTAINS
          nel_split = nel_div
          IF (ibin <= nel_rem) THEN
             nel_split = nel_split + 1
-         ENDIF
+         END IF
          el_start = el_end + 1
          el_end = el_start
          w_partialsum = w_partialsum + weights(el_end)
@@ -319,19 +287,19 @@ CONTAINS
             el_end = el_end + 1
             w_partialsum = w_partialsum + weights(el_end)
             IF (el_end == nel) EXIT
-         ENDDO
+         END DO
 
          IF (PRESENT(dist)) dist(el_start:el_end) = ibin - 1
          lim_s(ibin) = el_start
          lim_e(ibin) = el_end
 
          IF (el_end == nel) EXIT
-      ENDDO
+      END DO
 
       IF (PRESENT(limits_start) .AND. PRESENT(limits_end)) THEN
          ALLOCATE (limits_start(ibin)); limits_start(:ibin) = lim_s(:ibin)
          ALLOCATE (limits_end(ibin)); limits_end(:ibin) = lim_e(:ibin)
-      ENDIF
+      END IF
 
       nbin = ibin
 
@@ -349,48 +317,24 @@ CONTAINS
 !> \param sizes_3 ...
 !> \param map1 ...
 !> \param map2 ...
-!> \param starts_array_block_1 ...
-!> \param ends_array_block_1 ...
-!> \param starts_array_block_2 ...
-!> \param ends_array_block_2 ...
-!> \param starts_array_block_3 ...
-!> \param ends_array_block_3 ...
 !> \param name ...
 ! **************************************************************************************************
-   SUBROUTINE create_3c_tensor(t3c, dist_1, dist_2, dist_3, pgrid, sizes_1, sizes_2, sizes_3, map1, map2, &
-                               starts_array_block_1, ends_array_block_1, &
-                               starts_array_block_2, ends_array_block_2, &
-                               starts_array_block_3, ends_array_block_3, &
-                               name)
-      TYPE(dbcsr_t_type), INTENT(OUT)                    :: t3c
+   SUBROUTINE create_3c_tensor(t3c, dist_1, dist_2, dist_3, pgrid, sizes_1, sizes_2, sizes_3, map1, map2, name)
+      TYPE(dbt_type), INTENT(OUT)                        :: t3c
       INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT)    :: dist_1, dist_2, dist_3
-      TYPE(dbcsr_t_pgrid_type), INTENT(IN)               :: pgrid
+      TYPE(dbt_pgrid_type), INTENT(IN)                   :: pgrid
       INTEGER, DIMENSION(:), INTENT(IN)                  :: sizes_1, sizes_2, sizes_3, map1, map2
-      INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL :: starts_array_block_1, ends_array_block_1, &
-         starts_array_block_2, ends_array_block_2, starts_array_block_3, ends_array_block_3
       CHARACTER(len=*), INTENT(IN)                       :: name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_3c_tensor', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'create_3c_tensor'
 
-      INTEGER                                            :: handle, imem, nbatches_1, nbatches_2, &
-                                                            nbatches_3, size_1, size_2, size_3, &
-                                                            size_cut
+      INTEGER                                            :: handle, size_1, size_2, size_3
       INTEGER, DIMENSION(3)                              :: pcoord, pdims
-      LOGICAL                                            :: mem_aware_1, mem_aware_2, mem_aware_3
-      TYPE(dbcsr_t_distribution_type)                    :: dist
+      TYPE(dbt_distribution_type)                        :: dist
 
       CALL timeset(routineN, handle)
 
-      mem_aware_1 = PRESENT(starts_array_block_1) .AND. PRESENT(ends_array_block_1)
-      mem_aware_2 = PRESENT(starts_array_block_2) .AND. PRESENT(ends_array_block_2)
-      mem_aware_3 = PRESENT(starts_array_block_3) .AND. PRESENT(ends_array_block_3)
-
-      IF (mem_aware_1) nbatches_1 = SIZE(starts_array_block_1)
-      IF (mem_aware_2) nbatches_2 = SIZE(starts_array_block_2)
-      IF (mem_aware_3) nbatches_3 = SIZE(starts_array_block_3)
-
-      CALL dbcsr_t_mp_environ_pgrid(pgrid, pdims, pcoord)
+      CALL dbt_mp_environ_pgrid(pgrid, pdims, pcoord)
 
       size_1 = SIZE(sizes_1)
       size_2 = SIZE(sizes_2)
@@ -400,46 +344,13 @@ CONTAINS
       ALLOCATE (dist_2(size_2))
       ALLOCATE (dist_3(size_3))
 
-      IF (mem_aware_1) THEN
-         DO imem = 1, nbatches_1
-            size_cut = ends_array_block_1(imem) - starts_array_block_1(imem) + 1
-            CALL cyclic_tensor_dist( &
-               size_cut, pdims(1), &
-               sizes_1(starts_array_block_1(imem):ends_array_block_1(imem)), &
-               dist_1(starts_array_block_1(imem):ends_array_block_1(imem)))
-         ENDDO
-      ELSE
-         CALL cyclic_tensor_dist(size_1, pdims(1), sizes_1, dist_1)
-      ENDIF
+      CALL dbt_default_distvec(size_1, pdims(1), sizes_1, dist_1)
+      CALL dbt_default_distvec(size_2, pdims(2), sizes_2, dist_2)
+      CALL dbt_default_distvec(size_3, pdims(3), sizes_3, dist_3)
 
-      IF (mem_aware_2) THEN
-         DO imem = 1, nbatches_2
-            size_cut = ends_array_block_2(imem) - starts_array_block_2(imem) + 1
-            CALL cyclic_tensor_dist( &
-               size_cut, pdims(2), &
-               sizes_2(starts_array_block_2(imem):ends_array_block_2(imem)), &
-               dist_2(starts_array_block_2(imem):ends_array_block_2(imem)))
-         ENDDO
-      ELSE
-         CALL cyclic_tensor_dist(size_2, pdims(2), sizes_2, dist_2)
-      ENDIF
-
-      IF (mem_aware_3) THEN
-         DO imem = 1, nbatches_3
-            size_cut = ends_array_block_3(imem) - starts_array_block_3(imem) + 1
-            CALL cyclic_tensor_dist( &
-               size_cut, pdims(3), &
-               sizes_3(starts_array_block_3(imem):ends_array_block_3(imem)), &
-               dist_3(starts_array_block_3(imem):ends_array_block_3(imem)))
-         ENDDO
-      ELSE
-         CALL cyclic_tensor_dist(size_3, pdims(3), sizes_3, dist_3)
-      ENDIF
-
-      CALL dbcsr_t_distribution_new(dist, pgrid, dist_1, dist_2, dist_3)
-      CALL dbcsr_t_create(t3c, name, dist, map1, map2, dbcsr_type_real_8, sizes_1, &
-                          sizes_2, sizes_3)
-      CALL dbcsr_t_distribution_destroy(dist)
+      CALL dbt_distribution_new(dist, pgrid, dist_1, dist_2, dist_3)
+      CALL dbt_create(t3c, name, dist, map1, map2, sizes_1, sizes_2, sizes_3)
+      CALL dbt_distribution_destroy(dist)
 
       CALL timestop(handle)
    END SUBROUTINE
@@ -456,19 +367,18 @@ CONTAINS
 !> \param name ...
 ! **************************************************************************************************
    SUBROUTINE create_2c_tensor(t2c, dist_1, dist_2, pgrid, sizes_1, sizes_2, order, name)
-      TYPE(dbcsr_t_type), INTENT(OUT)                    :: t2c
+      TYPE(dbt_type), INTENT(OUT)                        :: t2c
       INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(OUT)    :: dist_1, dist_2
-      TYPE(dbcsr_t_pgrid_type), INTENT(IN)               :: pgrid
+      TYPE(dbt_pgrid_type), INTENT(IN)                   :: pgrid
       INTEGER, DIMENSION(:), INTENT(IN)                  :: sizes_1, sizes_2
       INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL        :: order
       CHARACTER(len=*), INTENT(IN)                       :: name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_2c_tensor', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'create_2c_tensor'
 
       INTEGER                                            :: handle, size_1, size_2
       INTEGER, DIMENSION(2)                              :: order_in, pcoord, pdims
-      TYPE(dbcsr_t_distribution_type)                    :: dist
+      TYPE(dbt_distribution_type)                        :: dist
 
       CALL timeset(routineN, handle)
 
@@ -476,9 +386,9 @@ CONTAINS
          order_in = order
       ELSE
          order_in = [1, 2]
-      ENDIF
+      END IF
 
-      CALL dbcsr_t_mp_environ_pgrid(pgrid, pdims, pcoord)
+      CALL dbt_mp_environ_pgrid(pgrid, pdims, pcoord)
 
       size_1 = SIZE(sizes_1)
       size_2 = SIZE(sizes_2)
@@ -486,12 +396,12 @@ CONTAINS
       ALLOCATE (dist_1(size_1))
       ALLOCATE (dist_2(size_2))
 
-      CALL cyclic_tensor_dist(size_1, pdims(1), sizes_1, dist_1)
-      CALL cyclic_tensor_dist(size_2, pdims(2), sizes_2, dist_2)
+      CALL dbt_default_distvec(size_1, pdims(1), sizes_1, dist_1)
+      CALL dbt_default_distvec(size_2, pdims(2), sizes_2, dist_2)
 
-      CALL dbcsr_t_distribution_new(dist, pgrid, dist_1, dist_2)
-      CALL dbcsr_t_create(t2c, name, dist, [order_in(1)], [order_in(2)], dbcsr_type_real_8, sizes_1, sizes_2)
-      CALL dbcsr_t_distribution_destroy(dist)
+      CALL dbt_distribution_new(dist, pgrid, dist_1, dist_2)
+      CALL dbt_create(t2c, name, dist, [order_in(1)], [order_in(2)], sizes_1, sizes_2)
+      CALL dbt_distribution_destroy(dist)
 
       CALL timestop(handle)
    END SUBROUTINE
@@ -514,7 +424,7 @@ CONTAINS
       DO i = 1, SIZE(blk_sizes)
          nsplit = (blk_sizes(i) + max_size - 1)/max_size
          isplit_sum = isplit_sum + nsplit
-      ENDDO
+      END DO
 
       ALLOCATE (blk_sizes_split(isplit_sum))
 
@@ -526,8 +436,8 @@ CONTAINS
             isplit_sum = isplit_sum + 1
             blk_sizes_split(isplit_sum) = MIN(max_size, blk_remainder)
             blk_remainder = blk_remainder - max_size
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE split_block_sizes
 
@@ -559,7 +469,7 @@ CONTAINS
          ikind = kind_of(iatom)
          CALL get_gto_basis_set(basis(ikind)%gto_basis_set, nset=nset)
          nblk = nblk + nset
-      ENDDO
+      END DO
 
       ALLOCATE (pgf_blk_sizes_tmp(nblk)); pgf_blk_sizes_tmp = 0
 
@@ -575,14 +485,14 @@ CONTAINS
                blk_count = blk_count + 1
                pgf_blk_sizes_tmp(blk_count) = pgf_blk_sizes_tmp(blk_count) + blk_size
                blk_size = 0
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          IF (blk_size > 0) THEN
             IF (blk_count == blk_count_prev) blk_count = blk_count + 1
             pgf_blk_sizes_tmp(blk_count) = pgf_blk_sizes_tmp(blk_count) + blk_size
             blk_size = 0
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ALLOCATE (pgf_blk_sizes(blk_count))
       pgf_blk_sizes(:) = pgf_blk_sizes_tmp(:blk_count)
@@ -618,7 +528,7 @@ CONTAINS
          starts_array(imem) = bsum + 1
          bsum = bsum + SUM(sizes(starts_array_block(imem):ends_array_block(imem)))
          ends_array(imem) = bsum
-      ENDDO
+      END DO
    END SUBROUTINE
 
 END MODULE

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,6 +68,7 @@ MODULE pint_methods
    USE helium_types,                    ONLY: helium_solvent_p_type
    USE input_constants,                 ONLY: integrate_exact,&
                                               integrate_numeric,&
+                                              propagator_cmd,&
                                               propagator_rpmd,&
                                               transformation_normal,&
                                               transformation_stage
@@ -145,7 +148,6 @@ MODULE pint_methods
 
    LOGICAL, PARAMETER, PRIVATE :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'pint_methods'
-   INTEGER, SAVE, PRIVATE :: last_pint_id = 0
 
    PUBLIC :: do_pint_run
 
@@ -162,18 +164,19 @@ CONTAINS
 !>           Added normal mode transformation [hforbert]
 !>           10.2015 Added RPMD propagator and harmonic integrator [Felix Uhl]
 !>           10.2018 Added centroid constraints [cschran+rperez]
+!>           10.2021 Added beadwise constraints [lduran]
 !> \author fawzi
 !> \note   Might return an unassociated pointer in parallel on the processors
 !>         that are not needed.
 ! **************************************************************************************************
    SUBROUTINE pint_create(pint_env, input, input_declaration, para_env)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(OUT)                   :: pint_env
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(section_type), POINTER                        :: input_declaration
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_create', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pint_create'
 
       CHARACTER(len=2*default_string_length)             :: msg
       CHARACTER(len=default_path_length)                 :: output_file_name, project_name
@@ -193,7 +196,6 @@ CONTAINS
 
       NULLIFY (f_env, subsys, particles, nose_section, gle_section, gci)
 
-      CPASSERT(.NOT. ASSOCIATED(pint_env))
       CPASSERT(ASSOCIATED(input))
       CPASSERT(input%ref_count > 0)
       NULLIFY (rep_env)
@@ -231,15 +233,10 @@ CONTAINS
       END IF
       IF (.NOT. ASSOCIATED(rep_env)) RETURN
 
-      ALLOCATE (pint_env)
-
       NULLIFY (pint_env%logger)
       pint_env%logger => cp_get_default_logger()
       CALL cp_add_iter_level(pint_env%logger%iter_info, "PINT")
 
-      last_pint_id = last_pint_id + 1
-      pint_env%id_nr = last_pint_id
-      pint_env%ref_count = 1
       NULLIFY (pint_env%replicas, pint_env%input, pint_env%staging_env, &
                pint_env%normalmode_env, pint_env%propagator)
       pint_env%p = nrep
@@ -295,6 +292,11 @@ CONTAINS
 
       CALL section_vals_val_get(pint_section, "transformation", &
                                 i_val=pint_env%transform)
+
+      IF ((pint_env%propagator%prop_kind == propagator_cmd) .AND. &
+          (pint_env%transform /= transformation_normal)) THEN
+         CPABORT("CMD Propagator without normal modes not implemented!")
+      END IF
 
       NULLIFY (pint_env%tx, pint_env%tv, pint_env%tv_t, pint_env%tv_old, pint_env%tv_new, pint_env%tf)
 
@@ -388,11 +390,13 @@ CONTAINS
       IF (pint_env%transform == transformation_stage) THEN
          transform_section => section_vals_get_subs_vals(input, &
                                                          "MOTION%PINT%STAGING")
+         ALLOCATE (pint_env%staging_env)
          CALL staging_env_create(pint_env%staging_env, transform_section, &
                                  p=pint_env%p, kT=pint_env%kT)
       ELSE
          transform_section => section_vals_get_subs_vals(input, &
                                                          "MOTION%PINT%NORMALMODE")
+         ALLOCATE (pint_env%normalmode_env)
          CALL normalmode_env_create(pint_env%normalmode_env, &
                                     transform_section, p=pint_env%p, kT=pint_env%kT, propagator=pint_env%propagator%prop_kind)
          IF (para_env%ionode) THEN
@@ -456,7 +460,7 @@ CONTAINS
             CPASSERT(stat == 0)
             DO itmp = 1, pint_env%gle%loc_num_gle
                pint_env%gle%map_info%index(itmp) = itmp
-            ENDDO
+            END DO
             CALL gle_thermo_create(pint_env%gle, pint_env%gle%loc_num_gle)
 
             ! here we should have read a_mat and c_mat;
@@ -484,6 +488,7 @@ CONTAINS
                                    i_val=pint_env%thermostat_rng_seed)
          IF (pint_env%pimd_thermostat == thermostat_none) THEN
             pint_env%pimd_thermostat = thermostat_pile
+            ALLOCATE (pint_env%pile_therm)
             CALL pint_pile_init(pile_therm=pint_env%pile_therm, &
                                 pint_env=pint_env, &
                                 normalmode_env=pint_env%normalmode_env, &
@@ -504,6 +509,7 @@ CONTAINS
                                    i_val=pint_env%thermostat_rng_seed)
          IF (pint_env%pimd_thermostat == thermostat_none) THEN
             pint_env%pimd_thermostat = thermostat_piglet
+            ALLOCATE (pint_env%piglet_therm)
             CALL pint_piglet_create(pint_env%piglet_therm, &
                                     pint_env, &
                                     piglet_section)
@@ -540,32 +546,32 @@ CONTAINS
       CALL section_vals_val_get(pint_section, "HARM_INT", i_val=pint_env%harm_integrator)
       IF (pint_env%harm_integrator == integrate_exact) THEN
          IF (pint_env%pimd_thermostat == thermostat_nose) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| Nose Thermostat only avaliable in "// &
+            WRITE (UNIT=msg, FMT=*) "PINT WARNING| Nose Thermostat only available in "// &
                "the numeric harmonic integrator. Switching to numeric harmonic integrator."
             CPWARN(msg)
             pint_env%harm_integrator = integrate_numeric
          END IF
          IF (pint_env%pimd_thermostat == thermostat_gle) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| GLE Thermostat only avaliable in "// &
+            WRITE (UNIT=msg, FMT=*) "PINT WARNING| GLE Thermostat only available in "// &
                "the numeric harmonic integrator. Switching to numeric harmonic integrator."
             CPWARN(msg)
             pint_env%harm_integrator = integrate_numeric
          END IF
       ELSE IF (pint_env%harm_integrator == integrate_numeric) THEN
          IF (pint_env%pimd_thermostat == thermostat_pile) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| PILE Thermostat only avaliable in "// &
+            WRITE (UNIT=msg, FMT=*) "PINT WARNING| PILE Thermostat only available in "// &
                "the exact harmonic integrator. Switching to exact harmonic integrator."
             CPWARN(msg)
             pint_env%harm_integrator = integrate_exact
          END IF
          IF (pint_env%pimd_thermostat == thermostat_piglet) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| PIGLET Thermostat only avaliable in "// &
+            WRITE (UNIT=msg, FMT=*) "PINT WARNING| PIGLET Thermostat only available in "// &
                "the exact harmonic integrator. Switching to exact harmonic integrator."
             CPWARN(msg)
             pint_env%harm_integrator = integrate_exact
          END IF
          IF (pint_env%pimd_thermostat == thermostat_qtb) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| QTB Thermostat only avaliable in "// &
+            WRITE (UNIT=msg, FMT=*) "PINT WARNING| QTB Thermostat only available in "// &
                "the exact harmonic integrator. Switching to exact harmonic integrator."
             CPWARN(msg)
             pint_env%harm_integrator = integrate_exact
@@ -613,27 +619,44 @@ CONTAINS
       CALL create_simpar_type(pint_env%simpar)
       pint_env%simpar%constraint = explicit
       pint_env%kTcorr = 1.0_dp
+
+      ! Determine if beadwise constraints are activated
+      pint_env%beadwise_constraints = .FALSE.
+      CALL section_vals_val_get(constraint_section, "PIMD_BEADWISE_CONSTRAINT", &
+                                l_val=pint_env%beadwise_constraints)
+      IF (pint_env%beadwise_constraints) THEN
+         CALL pint_write_line("Using beadwise constraints")
+      ELSE
+         CALL pint_write_line("Using centroid constraints")
+      END IF
+
       IF (explicit) THEN
          ! Staging not supported yet, since lowest mode is assumed
          ! to be related to centroid
          IF (pint_env%transform == transformation_stage) THEN
-            CPABORT("Centroid constraints are not supported for staging transformation")
+            CPABORT("Constraints are not supported for staging transformation")
          END IF
 
          ! Check thermostats that are not supported:
          IF (pint_env%pimd_thermostat == thermostat_gle) THEN
             WRITE (UNIT=msg, FMT=*) "GLE Thermostat not supported for "// &
-               "centroid constraints. Switch to NOSE for numeric integration."
+               "constraints. Switch to NOSE for numeric integration."
             CPABORT(msg)
          END IF
          ! Warn for NOSE
          IF (pint_env%pimd_thermostat == thermostat_nose) THEN
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| Nose Thermostat set to "// &
-               "zero for constrained atoms. Careful interpretation of temperature."
-            CPWARN(msg)
-            WRITE (UNIT=msg, FMT=*) "PINT WARNING| Lagrange multipliers are "// &
-               "are printed every RESPA step and need to be treated carefully."
-            CPWARN(msg)
+            !Beadwise constraints not supported
+            IF (pint_env%beadwise_constraints) THEN
+               CPABORT("Beadwise constraints are not supported for NOSE Thermostat.")
+               !Centroid constraints supported
+            ELSE
+               WRITE (UNIT=msg, FMT=*) "PINT WARNING| Nose Thermostat set to "// &
+                  "zero for constrained atoms. Careful interpretation of temperature."
+               CPWARN(msg)
+               WRITE (UNIT=msg, FMT=*) "PINT WARNING| Lagrange multipliers are "// &
+                  "are printed every RESPA step and need to be treated carefully."
+               CPWARN(msg)
+            END IF
          END IF
 
          CALL section_vals_val_get(constraint_section, "SHAKE_TOLERANCE", &
@@ -679,24 +702,7 @@ CONTAINS
 
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE pint_create
-
-! ***************************************************************************
-!> \brief Retain a path integral environment
-!> \param pint_env the pint_env to retain
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE pint_retain(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
-      pint_env%ref_count = pint_env%ref_count + 1
-      RETURN
-   END SUBROUTINE pint_retain
 
 ! ***************************************************************************
 !> \brief Release a path integral environment
@@ -706,83 +712,74 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE pint_release(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_release', routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(pint_env)) THEN
-         CPASSERT(pint_env%ref_count > 0)
-         pint_env%ref_count = pint_env%ref_count - 1
-         IF (pint_env%ref_count == 0) THEN
-            CALL rep_env_release(pint_env%replicas)
-            CALL section_vals_release(pint_env%input)
-            IF (ASSOCIATED(pint_env%staging_env)) THEN
-               CALL staging_release(pint_env%staging_env)
-            END IF
-            IF (ASSOCIATED(pint_env%normalmode_env)) THEN
-               CALL normalmode_release(pint_env%normalmode_env)
-            END IF
-
-            DEALLOCATE (pint_env%mass)
-            DEALLOCATE (pint_env%e_pot_bead)
-
-            DEALLOCATE (pint_env%x)
-            DEALLOCATE (pint_env%v)
-            DEALLOCATE (pint_env%f)
-            DEALLOCATE (pint_env%external_f)
-            DEALLOCATE (pint_env%mass_beads)
-            DEALLOCATE (pint_env%mass_fict)
-            DEALLOCATE (pint_env%ux)
-            DEALLOCATE (pint_env%ux_t)
-            DEALLOCATE (pint_env%uv)
-            DEALLOCATE (pint_env%uv_t)
-            DEALLOCATE (pint_env%uv_new)
-            DEALLOCATE (pint_env%uf)
-            DEALLOCATE (pint_env%uf_h)
-            DEALLOCATE (pint_env%centroid)
-            DEALLOCATE (pint_env%rtmp_ndim)
-            DEALLOCATE (pint_env%rtmp_natom)
-            DEALLOCATE (pint_env%propagator)
-
-            IF (pint_env%simpar%constraint) THEN
-               DEALLOCATE (pint_env%atoms_constraints)
-            END IF
-            CALL release_simpar_type(pint_env%simpar)
-
-            IF (pint_env%harm_integrator == integrate_exact) THEN
-               DEALLOCATE (pint_env%wsinex)
-               DEALLOCATE (pint_env%iwsinex)
-               DEALLOCATE (pint_env%cosex)
-            END IF
-
-            SELECT CASE (pint_env%pimd_thermostat)
-            CASE (thermostat_nose)
-               DEALLOCATE (pint_env%tx)
-               DEALLOCATE (pint_env%tv)
-               DEALLOCATE (pint_env%tv_t)
-               DEALLOCATE (pint_env%tv_old)
-               DEALLOCATE (pint_env%tv_new)
-               DEALLOCATE (pint_env%tf)
-            CASE (thermostat_gle)
-               CALL gle_dealloc(pint_env%gle)
-            CASE (thermostat_pile)
-               CALL pint_pile_release(pint_env%pile_therm)
-            CASE (thermostat_piglet)
-               CALL pint_piglet_release(pint_env%piglet_therm)
-            CASE (thermostat_qtb)
-               CALL pint_qtb_release(pint_env%qtb_therm)
-            END SELECT
-
-            DEALLOCATE (pint_env%Q)
-
-            DEALLOCATE (pint_env)
-
-         END IF
+      CALL rep_env_release(pint_env%replicas)
+      CALL section_vals_release(pint_env%input)
+      IF (ASSOCIATED(pint_env%staging_env)) THEN
+         CALL staging_release(pint_env%staging_env)
+         DEALLOCATE (pint_env%staging_env)
+      END IF
+      IF (ASSOCIATED(pint_env%normalmode_env)) THEN
+         CALL normalmode_release(pint_env%normalmode_env)
+         DEALLOCATE (pint_env%normalmode_env)
       END IF
 
-      NULLIFY (pint_env)
+      DEALLOCATE (pint_env%mass)
+      DEALLOCATE (pint_env%e_pot_bead)
 
-      RETURN
+      DEALLOCATE (pint_env%x)
+      DEALLOCATE (pint_env%v)
+      DEALLOCATE (pint_env%f)
+      DEALLOCATE (pint_env%external_f)
+      DEALLOCATE (pint_env%mass_beads)
+      DEALLOCATE (pint_env%mass_fict)
+      DEALLOCATE (pint_env%ux)
+      DEALLOCATE (pint_env%ux_t)
+      DEALLOCATE (pint_env%uv)
+      DEALLOCATE (pint_env%uv_t)
+      DEALLOCATE (pint_env%uv_new)
+      DEALLOCATE (pint_env%uf)
+      DEALLOCATE (pint_env%uf_h)
+      DEALLOCATE (pint_env%centroid)
+      DEALLOCATE (pint_env%rtmp_ndim)
+      DEALLOCATE (pint_env%rtmp_natom)
+      DEALLOCATE (pint_env%propagator)
+
+      IF (pint_env%simpar%constraint) THEN
+         DEALLOCATE (pint_env%atoms_constraints)
+      END IF
+      CALL release_simpar_type(pint_env%simpar)
+
+      IF (pint_env%harm_integrator == integrate_exact) THEN
+         DEALLOCATE (pint_env%wsinex)
+         DEALLOCATE (pint_env%iwsinex)
+         DEALLOCATE (pint_env%cosex)
+      END IF
+
+      SELECT CASE (pint_env%pimd_thermostat)
+      CASE (thermostat_nose)
+         DEALLOCATE (pint_env%tx)
+         DEALLOCATE (pint_env%tv)
+         DEALLOCATE (pint_env%tv_t)
+         DEALLOCATE (pint_env%tv_old)
+         DEALLOCATE (pint_env%tv_new)
+         DEALLOCATE (pint_env%tf)
+      CASE (thermostat_gle)
+         CALL gle_dealloc(pint_env%gle)
+      CASE (thermostat_pile)
+         CALL pint_pile_release(pint_env%pile_therm)
+         DEALLOCATE (pint_env%pile_therm)
+      CASE (thermostat_piglet)
+         CALL pint_piglet_release(pint_env%piglet_therm)
+         DEALLOCATE (pint_env%piglet_therm)
+      CASE (thermostat_qtb)
+         CALL pint_qtb_release(pint_env%qtb_therm)
+         DEALLOCATE (pint_env%qtb_therm)
+      END SELECT
+
+      DEALLOCATE (pint_env%Q)
+
    END SUBROUTINE pint_release
 
 ! ***************************************************************************
@@ -797,53 +794,48 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(section_type), POINTER                        :: input_declaration
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_test', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ib, idim, unit_nr
       REAL(kind=dp)                                      :: c, e_h, err
       REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)        :: x1
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type)                                :: pint_env
 
       CPASSERT(ASSOCIATED(para_env))
       CPASSERT(ASSOCIATED(input))
       CPASSERT(para_env%ref_count > 0)
       CPASSERT(input%ref_count > 0)
-      NULLIFY (pint_env)
       unit_nr = cp_logger_get_default_io_unit()
       CALL pint_create(pint_env, input, input_declaration, para_env)
-      IF (ASSOCIATED(pint_env)) THEN
-         ALLOCATE (x1(pint_env%ndim, pint_env%p))
-         x1(:, :) = pint_env%x
-         CALL pint_x2u(pint_env)
-         pint_env%x = 0._dp
-         CALL pint_u2x(pint_env)
-         err = 0._dp
-         DO i = 1, pint_env%ndim
-            err = MAX(err, ABS(x1(1, i) - pint_env%x(1, i)))
-         END DO
-         IF (unit_nr > 0) WRITE (unit_nr, *) "diff_r1="//cp_to_string(err)
+      ALLOCATE (x1(pint_env%ndim, pint_env%p))
+      x1(:, :) = pint_env%x
+      CALL pint_x2u(pint_env)
+      pint_env%x = 0._dp
+      CALL pint_u2x(pint_env)
+      err = 0._dp
+      DO i = 1, pint_env%ndim
+         err = MAX(err, ABS(x1(1, i) - pint_env%x(1, i)))
+      END DO
+      IF (unit_nr > 0) WRITE (unit_nr, *) "diff_r1="//cp_to_string(err)
 
-         CALL pint_calc_uf_h(pint_env, e_h=e_h)
-         c = -pint_env%staging_env%w_p**2
-         pint_env%f = 0._dp
-         DO idim = 1, pint_env%ndim
-            DO ib = 1, pint_env%p
-               pint_env%f(ib, idim) = pint_env%f(ib, idim) + &
-                                      c*(2._dp*pint_env%x(ib, idim) &
-                                         - pint_env%x(MODULO(ib - 2, pint_env%p) + 1, idim) &
-                                         - pint_env%x(MODULO(ib, pint_env%p) + 1, idim))
-            END DO
+      CALL pint_calc_uf_h(pint_env, e_h=e_h)
+      c = -pint_env%staging_env%w_p**2
+      pint_env%f = 0._dp
+      DO idim = 1, pint_env%ndim
+         DO ib = 1, pint_env%p
+            pint_env%f(ib, idim) = pint_env%f(ib, idim) + &
+                                   c*(2._dp*pint_env%x(ib, idim) &
+                                      - pint_env%x(MODULO(ib - 2, pint_env%p) + 1, idim) &
+                                      - pint_env%x(MODULO(ib, pint_env%p) + 1, idim))
          END DO
-         CALL pint_f2uf(pint_env)
-         err = 0._dp
-         DO idim = 1, pint_env%ndim
-            DO ib = 1, pint_env%p
-               err = MAX(err, ABS(pint_env%uf(ib, idim) - pint_env%uf_h(ib, idim)))
-            END DO
+      END DO
+      CALL pint_f2uf(pint_env)
+      err = 0._dp
+      DO idim = 1, pint_env%ndim
+         DO ib = 1, pint_env%p
+            err = MAX(err, ABS(pint_env%uf(ib, idim) - pint_env%uf_h(ib, idim)))
          END DO
-         IF (unit_nr > 0) WRITE (unit_nr, *) "diff_f_h="//cp_to_string(err)
-      END IF
-      RETURN
+      END DO
+      IF (unit_nr > 0) WRITE (unit_nr, *) "diff_f_h="//cp_to_string(err)
+
    END SUBROUTINE pint_test
 
 ! ***************************************************************************
@@ -865,7 +857,7 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'do_pint_run', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'do_pint_run'
       INTEGER, PARAMETER                                 :: helium_only_mid = 1, &
                                                             int_pot_scan_mid = 4, &
                                                             solute_only_mid = 2, &
@@ -876,7 +868,7 @@ CONTAINS
       LOGICAL                                            :: explicit, helium_only, int_pot_scan, &
                                                             solvent_present
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type)                                :: pint_env
       TYPE(section_vals_type), POINTER                   :: helium_section
 
       CALL timeset(routineN, handle)
@@ -936,8 +928,6 @@ CONTAINS
          mode = solute_only_mid
       END IF
 
-      NULLIFY (pint_env)
-
       ! perform the simulation according to the chosen mode
       SELECT CASE (mode)
 
@@ -966,7 +956,7 @@ CONTAINS
 
       CASE (solute_with_helium_mid)
          CALL pint_create(pint_env, input, input_declaration, para_env)
-         ! init pint wihtout helium forces (they are not yet initialized)
+         ! init pint without helium forces (they are not yet initialized)
          CALL pint_init(pint_env)
          ! init helium with solute's positions (they are already initialized)
          CALL helium_create(helium_env, input, solute=pint_env)
@@ -984,7 +974,6 @@ CONTAINS
 
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE do_pint_run
 
 ! ***************************************************************************
@@ -998,19 +987,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pint_init(pint_env)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_init', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       CALL pint_init_x(pint_env)
       CALL pint_init_v(pint_env)
       CALL pint_init_t(pint_env)
       CALL pint_init_f(pint_env)
 
-      RETURN
    END SUBROUTINE pint_init
 
 ! ***************************************************************************
@@ -1030,11 +1013,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pint_init_x(pint_env)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_init_x', routineP = moduleN//':'//routineN
-
-      CHARACTER(len=default_string_length)               :: msg, tmp
+      CHARACTER(len=5*default_string_length)             :: msg, tmp
       INTEGER                                            :: ia, ib, ic, idim, input_seed, n_rep_val
       LOGICAL                                            :: done_init, done_levy, done_rand, &
                                                             explicit, levycorr, ltmp
@@ -1044,9 +1025,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(:), POINTER               :: bx, r_vals
       TYPE(rng_stream_type), ALLOCATABLE                 :: rng_gaussian
       TYPE(section_vals_type), POINTER                   :: input_section
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
 
       DO idim = 1, pint_env%ndim
          DO ib = 1, pint_env%p
@@ -1062,6 +1040,13 @@ CONTAINS
                                 "MOTION%PINT%INIT%LEVY_TEMP_FACTOR", &
                                 r_val=tcorr)
       IF (ltmp) THEN
+
+         IF (pint_env%beadwise_constraints) THEN
+            WRITE (UNIT=msg, FMT=*) "Beadwise constraints are not supported for "// &
+               "the initialization of the beads as free particles. "// &
+               "Please use hot start (default)."
+            CPABORT(msg)
+         END IF
 
          NULLIFY (bx)
          ALLOCATE (bx(3*pint_env%p))
@@ -1149,6 +1134,14 @@ CONTAINS
                                 "MOTION%PINT%INIT%RANDOMIZE_POS", &
                                 l_val=ltmp)
       IF (ltmp) THEN
+
+         IF (pint_env%beadwise_constraints) THEN
+            WRITE (UNIT=msg, FMT=*) "Beadwise constraints are not supported if "// &
+               "a random noise is applied to the initialization of the bead positions. "// &
+               "Please use hot start (default)."
+            CPABORT(msg)
+         END IF
+
          DO idim = 1, pint_env%ndim
             DO ib = 1, pint_env%p
                pint_env%x(ib, idim) = pint_env%x(ib, idim) + &
@@ -1178,7 +1171,6 @@ CONTAINS
          CALL pint_write_line(msg)
       END IF
 
-      RETURN
    END SUBROUTINE pint_init_x
 
 ! ***************************************************************************
@@ -1203,9 +1195,7 @@ CONTAINS
 !>            if present
 ! **************************************************************************************************
    SUBROUTINE pint_init_v(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_init_v', routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       CHARACTER(len=default_string_length)               :: msg, stmp, stmp1, stmp2, unit_str
       INTEGER                                            :: first_mode, i, ia, ib, ic, idim, ierr, &
@@ -1233,13 +1223,10 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: input_section
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
-
       NULLIFY (logger)
       logger => cp_get_default_logger()
 
-      ! Get centroid constraint info, if needed
+      ! Get constraint info, if needed
       ! Create a force environment which will be identical to
       ! the bead that is being processed by the processor.
       IF (pint_env%simpar%constraint) THEN
@@ -1377,7 +1364,7 @@ CONTAINS
          END DO
       END DO
 
-      ! add random component to the centroid velocity if requsted
+      ! add random component to the centroid velocity if requested
       done_sped = .FALSE.
       CALL section_vals_val_get(pint_env%input, &
                                 "MOTION%PINT%INIT%CENTROID_SPEED", &
@@ -1475,7 +1462,7 @@ CONTAINS
          END IF
       END IF
 
-      ! Apply constraints to the initial velocities for centroid constraints
+      ! Apply constraints to the initial velocities
       IF (pint_env%simpar%constraint) THEN
          IF (pint_env%propagator%prop_kind == propagator_rpmd) THEN
             ! Multiply with 1/SQRT(n_beads) due to normal mode transformation in RPMD
@@ -1484,42 +1471,81 @@ CONTAINS
             ! lowest NM is centroid
             factor = 1.0_dp
          END IF
-
-         IF (pint_env%logger%para_env%ionode) THEN
+         ! Beadwise constraints
+         IF (pint_env%beadwise_constraints) THEN
+            IF (pint_env%logger%para_env%ionode) THEN
+               CALL pint_u2x(pint_env, ux=pint_env%uv, x=pint_env%v)
+               DO ib = 1, pint_env%p
+                  DO i = 1, nparticle
+                     DO j = 1, 3
+                        ! Centroid is also constrained. This has to be changed if the initialization
+                        ! of the positions of the beads is done as free particles (LEVY_POS_SAMPLE)
+                        ! or if a Gaussian noise is added (RANDOMIZE_POS)
+                        particle_set(i)%r(j) = pint_env%x(1, j + (i - 1)*3)/factor
+                        vel(j, i) = pint_env%v(ib, j + (i - 1)*3)
+                     END DO
+                  END DO
+                  ! Possibly update the target values
+                  CALL shake_update_targets(gci, local_molecules, molecule_set, &
+                                            molecule_kind_set, pint_env%dt, &
+                                            f_env%force_env%root_section)
+                  CALL rattle_control(gci, local_molecules, molecule_set, &
+                                      molecule_kind_set, particle_set, &
+                                      vel, pint_env%dt, pint_env%simpar%shake_tol, &
+                                      pint_env%simpar%info_constraint, &
+                                      pint_env%simpar%lagrange_multipliers, &
+                                      .FALSE., &
+                                      cell, mp_comm_self, &
+                                      local_particles)
+                  DO i = 1, nparticle
+                     DO j = 1, 3
+                        pint_env%v(ib, j + (i - 1)*3) = vel(j, i)
+                     END DO
+                  END DO
+               END DO
+               ! Transform back to normal modes:
+               CALL pint_x2u(pint_env, ux=pint_env%uv, x=pint_env%v)
+            END IF
+            ! Broadcast updated velocities to other nodes
+            CALL mp_bcast(pint_env%uv, &
+                          pint_env%logger%para_env%source, &
+                          pint_env%logger%para_env%group)
+            ! Centroid constraints
+         ELSE
+            ! Transform positions and velocities to Cartesian coordinates:
+            IF (pint_env%logger%para_env%ionode) THEN
+               DO i = 1, nparticle
+                  DO j = 1, 3
+                     particle_set(i)%r(j) = pint_env%x(1, j + (i - 1)*3)/factor
+                     vel(j, i) = pint_env%uv(1, j + (i - 1)*3)/factor
+                  END DO
+               END DO
+               ! Possibly update the target values
+               CALL shake_update_targets(gci, local_molecules, molecule_set, &
+                                         molecule_kind_set, pint_env%dt, &
+                                         f_env%force_env%root_section)
+               CALL rattle_control(gci, local_molecules, molecule_set, &
+                                   molecule_kind_set, particle_set, &
+                                   vel, pint_env%dt, pint_env%simpar%shake_tol, &
+                                   pint_env%simpar%info_constraint, &
+                                   pint_env%simpar%lagrange_multipliers, &
+                                   .FALSE., &
+                                   cell, mp_comm_self, &
+                                   local_particles)
+            END IF
+            ! Broadcast updated velocities to other nodes
+            CALL mp_bcast(vel, &
+                          pint_env%logger%para_env%source, &
+                          pint_env%logger%para_env%group)
+            ! Transform back to normal modes
             DO i = 1, nparticle
                DO j = 1, 3
-                  vel(j, i) = pint_env%uv(1, j + (i - 1)*3)/factor
+                  pint_env%uv(1, j + (i - 1)*3) = vel(j, i)*factor
                END DO
             END DO
-
-            ! Possibly update the target values
-            CALL shake_update_targets(gci, local_molecules, molecule_set, &
-                                      molecule_kind_set, pint_env%dt, &
-                                      f_env%force_env%root_section)
-            CALL rattle_control(gci, local_molecules, molecule_set, &
-                                molecule_kind_set, particle_set, &
-                                vel, pint_env%dt, pint_env%simpar%shake_tol, &
-                                pint_env%simpar%info_constraint, &
-                                pint_env%simpar%lagrange_multipliers, &
-                                .FALSE., &
-                                cell, mp_comm_self, &
-                                local_particles)
          END IF
-
-         ! Broadcast updated velocities to other nodes
-         CALL mp_bcast(vel, &
-                       pint_env%logger%para_env%source, &
-                       pint_env%logger%para_env%group)
-
-         DO i = 1, nparticle
-            DO j = 1, 3
-               pint_env%uv(1, j + (i - 1)*3) = vel(j, i)*factor
-            END DO
-         END DO
-
       END IF
 
-      RETURN
    END SUBROUTINE pint_init_v
 
 ! ***************************************************************************
@@ -1532,19 +1558,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pint_init_t(pint_env, kT)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       REAL(kind=dp), INTENT(in), OPTIONAL                :: kT
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_init_t', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ib, idim, ii, inos, n_rep_val
       LOGICAL                                            :: explicit, gle_restart
       REAL(kind=dp)                                      :: mykt
       REAL(kind=dp), DIMENSION(:), POINTER               :: r_vals
       TYPE(section_vals_type), POINTER                   :: input_section
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
 
       IF (pint_env%pimd_thermostat == thermostat_nose) THEN
 
@@ -1558,6 +1579,9 @@ CONTAINS
                END DO
             END DO
          END DO
+         IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+            pint_env%tv(:, 1, :) = 0.0_dp
+         END IF
 
          NULLIFY (input_section)
          input_section => section_vals_get_subs_vals(pint_env%input, &
@@ -1583,6 +1607,9 @@ CONTAINS
                END DO
             END IF
          END IF
+         IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+            pint_env%tx(:, 1, :) = 0.0_dp
+         END IF
 
          NULLIFY (input_section)
          input_section => section_vals_get_subs_vals(pint_env%input, &
@@ -1607,6 +1634,9 @@ CONTAINS
                   END DO
                END DO
             END IF
+            IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+               pint_env%tv(:, 1, :) = 0.0_dp
+            END IF
          END IF
 
       ELSEIF (pint_env%pimd_thermostat == thermostat_gle) THEN
@@ -1620,7 +1650,6 @@ CONTAINS
          END IF
       END IF
 
-      RETURN
    END SUBROUTINE pint_init_t
 
 ! ***************************************************************************
@@ -1634,18 +1663,13 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_init_f(pint_env, helium_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(helium_solvent_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: helium_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_init_f', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ib, idim, inos
       REAL(kind=dp)                                      :: e_h
       TYPE(cp_logger_type), POINTER                      :: logger
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -1707,7 +1731,6 @@ CONTAINS
          CALL pint_calc_nh_energy(pint_env)
       END IF
 
-      RETURN
    END SUBROUTINE pint_init_f
 
 ! ***************************************************************************
@@ -1726,20 +1749,16 @@ CONTAINS
 !> \note   Everything should be read for an md step.
 ! **************************************************************************************************
    SUBROUTINE pint_do_run(pint_env, globenv, helium_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(helium_solvent_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: helium_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_do_run', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: k, step
       LOGICAL                                            :: should_stop
       REAL(kind=dp)                                      :: scal
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(f_env_type), POINTER                          :: f_env
-
-      CPASSERT(ASSOCIATED(pint_env))
 
       ! initialize iteration info
       CALL cp_iterate(pint_env%logger%iter_info, iter_nr=pint_env%first_step)
@@ -1826,7 +1845,6 @@ CONTAINS
       ! remove iteration level
       CALL cp_rm_iter_level(pint_env%logger%iter_info, "PINT")
 
-      RETURN
    END SUBROUTINE pint_do_run
 
 ! ***************************************************************************
@@ -1839,10 +1857,8 @@ CONTAINS
 !> \author Lukasz Walewski
 ! **************************************************************************************************
    SUBROUTINE pint_run_scan(pint_env, helium_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_run_scan', routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: comment
       INTEGER                                            :: unit_nr
@@ -1894,7 +1910,6 @@ CONTAINS
       CALL pint_write_centroids(pint_env)
       CALL pint_write_trajectory(pint_env)
 
-      RETURN
    END SUBROUTINE pint_run_scan
 
 ! ***************************************************************************
@@ -1906,17 +1921,19 @@ CONTAINS
 !>           10.2015 Added RPMD propagator and harmonic integrator [Felix Uhl]
 !>           04.2016 Changed to work with helium_env [cschran]
 !>           10.2018 Added centroid constraints [cschran+rperez]
+!>           10.2021 Added beadwise constraints [lduran]
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_step(pint_env, helium_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(helium_solvent_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: helium_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_step', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pint_step'
 
       INTEGER                                            :: handle, i, ia, ib, idim, ierr, inos, &
-                                                            iresp, j, k, nparticle, nparticle_kind
+                                                            iresp, j, k, nbeads, nparticle, &
+                                                            nparticle_kind
       REAL(kind=dp)                                      :: dt_temp, dti, dti2, dti22, e_h, factor, &
                                                             rn, tdti, time_start, time_stop, tol
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: pos, vel
@@ -1938,15 +1955,13 @@ CONTAINS
       CALL timeset(routineN, handle)
       time_start = m_walltime()
 
-      CPASSERT(ASSOCIATED(pint_env))
-
       rn = REAL(pint_env%nrespa, dp)
       dti = pint_env%dt/rn
       dti2 = dti/2._dp
       tdti = 2.*dti
       dti22 = dti**2/2._dp
 
-      ! Get centroid constraint info, if needed
+      ! Get constraint info, if needed
       ! Create a force environment which will be identical to
       ! the bead that is being processed by the processor.
       IF (pint_env%simpar%constraint) THEN
@@ -1975,6 +1990,7 @@ CONTAINS
          atomic_kind_set => atomic_kinds%els
          molecule_kind_set => molecule_kinds%els
          nparticle = particles%n_els
+         nbeads = pint_env%p
          particle_set => particles%els
          molecule_set => molecules%els
 
@@ -2014,11 +2030,24 @@ CONTAINS
                   END DO
                END IF
 
+               ! Exempt centroid from thermostat for CMD
+               IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                  pint_env%tx(:, 1, :) = 0.0_dp
+                  pint_env%tv(:, 1, :) = 0.0_dp
+                  pint_env%tf(:, 1, :) = 0.0_dp
+               END IF
+
                DO i = pint_env%first_propagated_mode, pint_env%p
                   pint_env%ux(i, :) = pint_env%ux(i, :) - &
                                       dti22*pint_env%uv(i, :)*pint_env%tv(1, i, :)
                END DO
                pint_env%tx = pint_env%tx + dti*pint_env%tv + dti22*pint_env%tf
+
+               IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                  pint_env%tx(:, 1, :) = 0.0_dp
+                  pint_env%tv(:, 1, :) = 0.0_dp
+                  pint_env%tf(:, 1, :) = 0.0_dp
+               END IF
 
             END IF
             !Integrate position in harmonic springs (uf_h) and physical potential
@@ -2033,6 +2062,13 @@ CONTAINS
             ! apply thermostats to velocities
             SELECT CASE (pint_env%pimd_thermostat)
             CASE (thermostat_nose)
+
+               IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                  pint_env%tx(:, 1, :) = 0.0_dp
+                  pint_env%tv(:, 1, :) = 0.0_dp
+                  pint_env%tf(:, 1, :) = 0.0_dp
+               END IF
+
                pint_env%uv_t = pint_env%uv - dti2* &
                                pint_env%uv*pint_env%tv(1, :, :)
                tmp => pint_env%tv_t
@@ -2054,6 +2090,13 @@ CONTAINS
                      pint_env%tv_t(:, 1, j) = 0.0_dp
                   END DO
                END DO
+            END IF
+
+            ! Exempt centroid from thermostat for CMD
+            IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+               pint_env%tx(:, 1, :) = 0.0_dp
+               pint_env%tv(:, 1, :) = 0.0_dp
+               pint_env%tf(:, 1, :) = 0.0_dp
             END IF
 
             !Integrate harmonic velocities and physical velocities
@@ -2102,6 +2145,12 @@ CONTAINS
                END DO
 
             END IF
+            ! Exempt centroid from thermostat for CMD
+            IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+               pint_env%tx(:, 1, :) = 0.0_dp
+               pint_env%tv(:, 1, :) = 0.0_dp
+               pint_env%tf(:, 1, :) = 0.0_dp
+            END IF
 
             CALL pint_calc_uf_h(pint_env=pint_env, e_h=e_h)
             pint_env%uv_t = pint_env%uv_t + dti2*(pint_env%uf_h + pint_env%uf)
@@ -2138,6 +2187,12 @@ CONTAINS
             ! Apply second half of thermostats
             SELECT CASE (pint_env%pimd_thermostat)
             CASE (thermostat_nose)
+               ! Exempt centroid from thermostat for CMD
+               IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                  pint_env%tx(:, 1, :) = 0.0_dp
+                  pint_env%tv(:, 1, :) = 0.0_dp
+                  pint_env%tf(:, 1, :) = 0.0_dp
+               END IF
                DO i = 1, 6
                   tol = 0._dp
                   pint_env%uv_new = pint_env%uv_t/(1.+dti2*pint_env%tv(1, :, :))
@@ -2157,6 +2212,13 @@ CONTAINS
                            pint_env%tf(:, 1, j) = 0.0_dp
                         END DO
                      END DO
+                  END IF
+
+                  ! Exempt centroid from thermostat for CMD
+                  IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                     pint_env%tx(:, 1, :) = 0.0_dp
+                     pint_env%tv(:, 1, :) = 0.0_dp
+                     pint_env%tf(:, 1, :) = 0.0_dp
                   END IF
 
                   DO idim = 1, pint_env%ndim
@@ -2182,6 +2244,13 @@ CONTAINS
                            END DO
                         END IF
 
+                        ! Exempt centroid from thermostat for CMD
+                        IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                           pint_env%tx(:, 1, :) = 0.0_dp
+                           pint_env%tv(:, 1, :) = 0.0_dp
+                           pint_env%tf(:, 1, :) = 0.0_dp
+                        END IF
+
                         pint_env%tv_new(pint_env%nnos, ib, idim) = &
                            pint_env%tv_t(pint_env%nnos, ib, idim) + &
                            dti2*pint_env%tf(pint_env%nnos, ib, idim)
@@ -2198,6 +2267,12 @@ CONTAINS
                               END DO
                            END DO
                         END IF
+                        ! Exempt centroid from thermostat for CMD
+                        IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                           pint_env%tx(:, 1, :) = 0.0_dp
+                           pint_env%tv(:, 1, :) = 0.0_dp
+                           pint_env%tf(:, 1, :) = 0.0_dp
+                        END IF
 
                      END DO
                   END DO
@@ -2205,6 +2280,12 @@ CONTAINS
                   pint_env%uv = pint_env%uv_new
                   pint_env%tv = pint_env%tv_new
                   IF (tol <= pint_env%v_tol) EXIT
+                  ! Exempt centroid from thermostat for CMD
+                  IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                     pint_env%tx(:, 1, :) = 0.0_dp
+                     pint_env%tv(:, 1, :) = 0.0_dp
+                     pint_env%tf(:, 1, :) = 0.0_dp
+                  END IF
                END DO
 
                ! Apply centroid constraints (RATTLE)
@@ -2251,6 +2332,13 @@ CONTAINS
                                             - pint_env%tv(inos, :, :)*pint_env%tv(inos + 1, :, :)
                END DO
 
+               ! Exempt centroid from thermostat for CMD
+               IF (pint_env%propagator%prop_kind == propagator_cmd) THEN
+                  pint_env%tx(:, 1, :) = 0.0_dp
+                  pint_env%tv(:, 1, :) = 0.0_dp
+                  pint_env%tf(:, 1, :) = 0.0_dp
+               END IF
+
             CASE (thermostat_gle)
                CALL pint_gle_step(pint_env)
                pint_env%uv = pint_env%uv_t
@@ -2263,10 +2351,9 @@ CONTAINS
          ! The Liouvillian splitting is as follows:
          ! 1. Thermostat
          ! 2. 0.5*physical integration
-         ! 3. Exact harmonic integration ( + apply centroid constraints (SHAKE))
+         ! 3. Exact harmonic integration + apply constraints (SHAKE)
          ! 4. 0.5*physical integration
-         ! 5. Thermostat
-         ! 6. Apply centroid constraints (RATTLE)
+         ! 5. Thermostat + apply constraints (RATTLE)
 
          ! 1. Apply thermostats
          SELECT CASE (pint_env%pimd_thermostat)
@@ -2308,9 +2395,65 @@ CONTAINS
             !                      dti22*pint_env%uf_h(1, :)
             !pint_env%uv_t(1, :) = pint_env%uv_t(1, :)+ &
             !                      dti2*pint_env%uf_h(1, :)
+         ELSE
+            ! set velocities to zero for fixed centroids
+            pint_env%ux_t(1, :) = pint_env%ux(1, :)
+            pint_env%uv_t(1, :) = 0.0_dp
+         END IF
+         ! Other modes are integrated exactly
+         DO i = 2, pint_env%p
+            pint_env%ux_t(i, :) = pint_env%cosex(i)*pint_env%ux(i, :) &
+                                  + pint_env%iwsinex(i)*pint_env%uv_t(i, :)
+            pint_env%uv_t(i, :) = pint_env%cosex(i)*pint_env%uv_t(i, :) &
+                                  - pint_env%wsinex(i)*pint_env%ux(i, :)
+         END DO
 
-            ! Apply centroid constraints (SHAKE)
-            IF (pint_env%simpar%constraint) THEN
+         ! Apply constraints (SHAKE)
+         IF (pint_env%simpar%constraint) THEN
+            ! Beadwise constraints
+            IF (pint_env%beadwise_constraints) THEN
+               IF (pint_env%logger%para_env%ionode) THEN
+                  ! Transform positions and velocities to Cartesian coordinates:
+                  CALL pint_u2x(pint_env, ux=pint_env%ux_t, x=pint_env%x)
+                  CALL pint_u2x(pint_env, ux=pint_env%uv_t, x=pint_env%v)
+                  DO ib = 1, nbeads
+                     DO i = 1, nparticle
+                        DO j = 1, 3
+                           pos(j, i) = pint_env%x(ib, j + (i - 1)*3)
+                           vel(j, i) = pint_env%v(ib, j + (i - 1)*3)
+                        END DO
+                     END DO
+                     ! Possibly update the target values
+                     CALL shake_update_targets(gci, local_molecules, molecule_set, &
+                                               molecule_kind_set, dti, &
+                                               f_env%force_env%root_section)
+                     CALL shake_control(gci, local_molecules, molecule_set, &
+                                        molecule_kind_set, particle_set, &
+                                        pos, vel, dti, pint_env%simpar%shake_tol, &
+                                        pint_env%simpar%info_constraint, &
+                                        pint_env%simpar%lagrange_multipliers, &
+                                        pint_env%simpar%dump_lm, cell, &
+                                        mp_comm_self, local_particles)
+                     DO i = 1, nparticle
+                        DO j = 1, 3
+                           pint_env%x(ib, j + (i - 1)*3) = pos(j, i)
+                           pint_env%v(ib, j + (i - 1)*3) = vel(j, i)
+                        END DO
+                     END DO
+                  END DO
+                  ! Transform back to normal modes:
+                  CALL pint_x2u(pint_env, ux=pint_env%ux_t, x=pint_env%x)
+                  CALL pint_x2u(pint_env, ux=pint_env%uv_t, x=pint_env%v)
+               END IF
+               ! Broadcast positions and velocities to all nodes
+               CALL mp_bcast(pint_env%ux_t, &
+                             pint_env%logger%para_env%source, &
+                             pint_env%logger%para_env%group)
+               CALL mp_bcast(pint_env%uv_t, &
+                             pint_env%logger%para_env%source, &
+                             pint_env%logger%para_env%group)
+               ! Centroid constraints
+            ELSE
                IF (pint_env%logger%para_env%ionode) THEN
                   ! Transform positions and velocities to Cartesian coordinates:
                   DO i = 1, nparticle
@@ -2319,7 +2462,6 @@ CONTAINS
                         vel(j, i) = pint_env%uv_t(1, j + (i - 1)*3)/factor
                      END DO
                   END DO
-
                   ! Possibly update the target values
                   CALL shake_update_targets(gci, local_molecules, molecule_set, &
                                             molecule_kind_set, dti, &
@@ -2332,7 +2474,7 @@ CONTAINS
                                      pint_env%simpar%dump_lm, cell, &
                                      mp_comm_self, local_particles)
                END IF
-               ! Positions and velocities of centroid were constrained by SHAKE
+               ! Broadcast positions and velocities to all nodes
                CALL mp_bcast(pos, &
                              pint_env%logger%para_env%source, &
                              pint_env%logger%para_env%group)
@@ -2346,27 +2488,15 @@ CONTAINS
                      pint_env%uv_t(1, j + (i - 1)*3) = vel(j, i)*factor
                   END DO
                END DO
-
             END IF
-
-         ELSE
-            ! set velocities to zero for fixed centroids
-            pint_env%ux_t(1, :) = pint_env%ux(1, :)
-            pint_env%uv_t(1, :) = 0.0_dp
+            ! Positions and velocities were constrained by SHAKE
          END IF
-
-         DO i = 2, pint_env%p
-            pint_env%ux_t(i, :) = pint_env%cosex(i)*pint_env%ux(i, :) &
-                                  + pint_env%iwsinex(i)*pint_env%uv_t(i, :)
-            pint_env%uv_t(i, :) = pint_env%cosex(i)*pint_env%uv_t(i, :) &
-                                  - pint_env%wsinex(i)*pint_env%ux(i, :)
-         END DO
+         ! Update positions
          pint_env%ux = pint_env%ux_t
 
          ! 4. 1/2*Physical integration
          pint_env%uf = 0.0_dp
          CALL pint_u2x(pint_env)
-         !TODO apply bead-wise constraints
          CALL pint_calc_f(pint_env)
          ! perform helium step and add helium forces
          IF (PRESENT(helium_env)) THEN
@@ -2413,46 +2543,83 @@ CONTAINS
             pint_env%uv = pint_env%uv_t
          END SELECT
 
-         ! 6. Apply centroid constraints (RATTLE)
+         ! Apply constraints (RATTLE)
          IF (pint_env%simpar%constraint) THEN
-            IF (pint_env%logger%para_env%ionode) THEN
-               ! Transform positions and velocities to Cartesian coordinates:
-               ! Reset particle r, due to force calc:
+            ! Beadwise constraints
+            IF (pint_env%beadwise_constraints) THEN
+               IF (pint_env%logger%para_env%ionode) THEN
+                  ! Transform positions and velocities to Cartesian coordinates:
+                  ! Reset particle r, due to force calc:
+                  CALL pint_u2x(pint_env, ux=pint_env%ux, x=pint_env%x)
+                  CALL pint_u2x(pint_env, ux=pint_env%uv, x=pint_env%v)
+                  DO ib = 1, nbeads
+                     DO i = 1, nparticle
+                        DO j = 1, 3
+                           particle_set(i)%r(j) = pint_env%x(ib, j + (i - 1)*3)
+                           vel(j, i) = pint_env%v(ib, j + (i - 1)*3)
+                        END DO
+                     END DO
+                     CALL rattle_control(gci, local_molecules, &
+                                         molecule_set, molecule_kind_set, &
+                                         particle_set, vel, dti, &
+                                         pint_env%simpar%shake_tol, &
+                                         pint_env%simpar%info_constraint, &
+                                         pint_env%simpar%lagrange_multipliers, &
+                                         pint_env%simpar%dump_lm, cell, &
+                                         mp_comm_self, local_particles)
+                     DO i = 1, nparticle
+                        DO j = 1, 3
+                           pint_env%v(ib, j + (i - 1)*3) = vel(j, i)
+                        END DO
+                     END DO
+                  END DO
+                  ! Transform back to normal modes:
+                  CALL pint_x2u(pint_env, ux=pint_env%uv, x=pint_env%v)
+               END IF
+               CALL mp_bcast(pint_env%uv, &
+                             pint_env%logger%para_env%source, &
+                             pint_env%logger%para_env%group)
+               ! Centroid constraints
+            ELSE
+               IF (pint_env%logger%para_env%ionode) THEN
+                  ! Transform positions and velocities to Cartesian coordinates:
+                  ! Reset particle r, due to force calc:
+                  DO i = 1, nparticle
+                     DO j = 1, 3
+                        vel(j, i) = pint_env%uv(1, j + (i - 1)*3)/factor
+                        particle_set(i)%r(j) = pint_env%ux(1, j + (i - 1)*3)/factor
+                     END DO
+                  END DO
+                  CALL rattle_control(gci, local_molecules, &
+                                      molecule_set, molecule_kind_set, &
+                                      particle_set, vel, dti, &
+                                      pint_env%simpar%shake_tol, &
+                                      pint_env%simpar%info_constraint, &
+                                      pint_env%simpar%lagrange_multipliers, &
+                                      pint_env%simpar%dump_lm, cell, &
+                                      mp_comm_self, local_particles)
+               END IF
+               ! Velocities of centroid were constrained by RATTLE
+               ! Broadcast updated velocities to other nodes
+               CALL mp_bcast(vel, &
+                             pint_env%logger%para_env%source, &
+                             pint_env%logger%para_env%group)
+
+               ! Transform back to normal modes:
+               ! Multiply with SQRT(n_beads) due to normal mode transformation
                DO i = 1, nparticle
                   DO j = 1, 3
-                     vel(j, i) = pint_env%uv(1, j + (i - 1)*3)/factor
-                     particle_set(i)%r(j) = pint_env%ux(1, j + (i - 1)*3)/factor
+                     pint_env%uv(1, j + (i - 1)*3) = vel(j, i)*factor
                   END DO
                END DO
-               CALL rattle_control(gci, local_molecules, &
-                                   molecule_set, molecule_kind_set, &
-                                   particle_set, vel, dti, &
-                                   pint_env%simpar%shake_tol, &
-                                   pint_env%simpar%info_constraint, &
-                                   pint_env%simpar%lagrange_multipliers, &
-                                   pint_env%simpar%dump_lm, cell, &
-                                   mp_comm_self, local_particles)
             END IF
-            ! Velocities of centroid were constrained by RATTLE
-            ! Broadcast updated velocities to other nodes
-            CALL mp_bcast(vel, &
-                          pint_env%logger%para_env%source, &
-                          pint_env%logger%para_env%group)
-
-            ! Transform back to normal modes:
-            ! Multiply with SQRT(n_beads) due to normal mode transformation
-            DO i = 1, nparticle
-               DO j = 1, 3
-                  pint_env%uv(1, j + (i - 1)*3) = vel(j, i)*factor
-               END DO
-            END DO
-
-            !TODO apply bead-wise constraints
          END IF
 
       END SELECT
 
-      IF (pint_env%simpar%constraint) DEALLOCATE (pos, vel)
+      IF (pint_env%simpar%constraint) THEN
+         DEALLOCATE (pos, vel)
+      END IF
 
       ! calculate the energy components
       CALL pint_calc_energy(pint_env)
@@ -2474,7 +2641,6 @@ CONTAINS
       CALL pint_write_step_info(pint_env)
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE pint_step
 
 ! ***************************************************************************
@@ -2485,10 +2651,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pint_calc_energy(pint_env)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_energy', &
-         routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       REAL(KIND=dp)                                      :: e_h
 
@@ -2528,7 +2691,6 @@ CONTAINS
       pint_env%energy(e_potential_id) = &
          pint_env%energy(e_potential_id)/REAL(pint_env%p, dp)
 
-      RETURN
    END SUBROUTINE pint_calc_energy
 
 ! ***************************************************************************
@@ -2541,10 +2703,8 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_calc_uf_h(pint_env, e_h)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       REAL(KIND=dp), INTENT(OUT)                         :: e_h
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_uf_h', routineP = moduleN//':'//routineN
 
       IF (pint_env%transform == transformation_stage) THEN
          CALL staging_calc_uf_h(pint_env%staging_env, &
@@ -2561,7 +2721,6 @@ CONTAINS
       END IF
       e_h = pint_env%e_pot_h
       pint_env%uf_h = pint_env%uf_h/pint_env%mass_fict
-      RETURN
    END SUBROUTINE pint_calc_uf_h
 
 ! ***************************************************************************
@@ -2577,7 +2736,7 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_calc_f(pint_env, x, f, e)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(in), &
          OPTIONAL, TARGET                                :: x
       REAL(kind=dp), DIMENSION(:, :), INTENT(out), &
@@ -2585,14 +2744,10 @@ CONTAINS
       REAL(kind=dp), DIMENSION(:), INTENT(out), &
          OPTIONAL, TARGET                                :: e
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_f', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ib, idim
       REAL(kind=dp), DIMENSION(:), POINTER               :: my_e
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: my_f, my_x
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       my_x => pint_env%x
       IF (PRESENT(x)) my_x => x
       my_f => pint_env%f
@@ -2613,7 +2768,6 @@ CONTAINS
       END DO
       my_e = pint_env%replicas%f(SIZE(pint_env%replicas%f, 1), :)
 
-      RETURN
    END SUBROUTINE pint_calc_f
 
 ! ***************************************************************************
@@ -2626,20 +2780,15 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_calc_e_kin_beads_u(pint_env, uv, e_k)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(in), &
          OPTIONAL, TARGET                                :: uv
       REAL(kind=dp), INTENT(out), OPTIONAL               :: e_k
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_e_kin_beads_u', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ib, idim
       REAL(kind=dp)                                      :: res
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: my_uv
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       res = -1.0_dp
       my_uv => pint_env%uv
       IF (PRESENT(uv)) my_uv => uv
@@ -2652,7 +2801,6 @@ CONTAINS
       res = res*0.5
       IF (.NOT. PRESENT(uv)) pint_env%e_kin_beads = res
       IF (PRESENT(e_k)) e_k = res
-      RETURN
    END SUBROUTINE pint_calc_e_kin_beads_u
 
 ! ***************************************************************************
@@ -2663,18 +2811,13 @@ CONTAINS
 !> \note   This subroutine modifies pint_env%energy(e_kin_virial_id) global
 !>         variable [lwalewski]
 ! **************************************************************************************************
-   SUBROUTINE pint_calc_e_vir(pint_env, e_vir)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+   ELEMENTAL SUBROUTINE pint_calc_e_vir(pint_env, e_vir)
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       REAL(kind=dp), INTENT(out), OPTIONAL               :: e_vir
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_e_vir', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ib, idim
       REAL(kind=dp)                                      :: res, xcentroid
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       res = -1.0_dp
       res = 0._dp
       DO idim = 1, pint_env%ndim
@@ -2692,7 +2835,6 @@ CONTAINS
                     (pint_env%kT*pint_env%propagator%temp_sim2phys) - res/REAL(pint_env%p, dp))
       pint_env%energy(e_kin_virial_id) = res
       IF (PRESENT(e_vir)) e_vir = res
-      RETURN
    END SUBROUTINE pint_calc_e_vir
 
 ! ***************************************************************************
@@ -2701,17 +2843,12 @@ CONTAINS
 !> \param pint_env the path integral environment
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE pint_calc_nh_energy(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_nh_energy', &
-         routineP = moduleN//':'//routineN
+   ELEMENTAL SUBROUTINE pint_calc_nh_energy(pint_env)
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       INTEGER                                            :: ib, idim, inos
       REAL(kind=dp)                                      :: ekin, epot
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       ekin = 0._dp
       DO idim = 1, pint_env%ndim
          DO ib = 1, pint_env%p
@@ -2730,7 +2867,6 @@ CONTAINS
          END DO
       END DO
       pint_env%e_pot_t = pint_env%kT*epot
-      RETURN
    END SUBROUTINE pint_calc_nh_energy
 
 ! ***************************************************************************
@@ -2739,12 +2875,9 @@ CONTAINS
 !> \return ...
 !> \author Felix Uhl
 ! **************************************************************************************************
-   FUNCTION pint_calc_total_link_action(pint_env) RESULT(link_action)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+   ELEMENTAL FUNCTION pint_calc_total_link_action(pint_env) RESULT(link_action)
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(KIND=dp)                                      :: link_action
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_total_link_action', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, ibead, idim, indx
       REAL(KIND=dp)                                      :: hb2m, tau, tmp_link_action
@@ -2753,8 +2886,6 @@ CONTAINS
       !tau = 1/(k_B T p)
       tau = pint_env%beta/REAL(pint_env%p, dp)
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       link_action = 0.0_dp
       DO iatom = 1, pint_env%ndim/3
          ! hbar / (2.0*m)
@@ -2777,8 +2908,6 @@ CONTAINS
 
       link_action = link_action/(2.0_dp*tau)
 
-      RETURN
-
    END FUNCTION pint_calc_total_link_action
 
 ! ***************************************************************************
@@ -2787,22 +2916,14 @@ CONTAINS
 !> \return ...
 !> \author Felix Uhl
 ! **************************************************************************************************
-   FUNCTION pint_calc_total_pot_action(pint_env) RESULT(pot_action)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+   ELEMENTAL FUNCTION pint_calc_total_pot_action(pint_env) RESULT(pot_action)
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(KIND=dp)                                      :: pot_action
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_total_pot_action', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: tau
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
-
       tau = pint_env%beta/REAL(pint_env%p, dp)
       pot_action = tau*SUM(pint_env%e_pot_bead)
-
-      RETURN
 
    END FUNCTION pint_calc_total_pot_action
 
@@ -2811,19 +2932,12 @@ CONTAINS
 !> \param pint_env the path integral environment
 !> \author Felix Uhl
 ! **************************************************************************************************
-   SUBROUTINE pint_calc_total_action(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_total_action', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
+   ELEMENTAL SUBROUTINE pint_calc_total_action(pint_env)
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       pint_env%pot_action = pint_calc_total_pot_action(pint_env)
       pint_env%link_action = pint_calc_total_link_action(pint_env)
 
-      RETURN
    END SUBROUTINE pint_calc_total_action
 
 END MODULE pint_methods

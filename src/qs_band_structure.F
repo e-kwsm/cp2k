@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,27 +12,27 @@
 !> \author JGH
 ! **************************************************************************************************
 MODULE qs_band_structure
-   USE cell_types,                      ONLY: cell_type,&
-                                              get_cell
+   USE cell_types,                      ONLY: cell_type
    USE cp_blacs_env,                    ONLY: cp_blacs_env_retain,&
                                               cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_files,                        ONLY: close_file,&
                                               open_file
-   USE cp_fm_pool_types,                ONLY: cp_fm_pool_p_type
-   USE cp_fm_types,                     ONLY: cp_fm_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE cp_para_env,                     ONLY: cp_para_env_retain
    USE cp_para_types,                   ONLY: cp_para_env_type
+   USE cp_parser_methods,               ONLY: read_float_object
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
-                                              dp
+                                              dp,&
+                                              max_line_length
    USE kpoint_methods,                  ONLY: kpoint_env_initialize,&
                                               kpoint_init_cell_index,&
+                                              kpoint_initialize_mo_set,&
                                               kpoint_initialize_mos
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_create,&
@@ -47,10 +49,7 @@ MODULE qs_band_structure
                                               qs_env_release,&
                                               qs_environment_type
    USE qs_gamma2kp,                     ONLY: create_kp_from_gamma
-   USE qs_matrix_pools,                 ONLY: mpools_get
-   USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              init_mo_set,&
-                                              mo_set_p_type
+   USE qs_mo_types,                     ONLY: get_mo_set
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_scf_diagonalization,          ONLY: do_general_diag_kp
    USE qs_scf_types,                    ONLY: qs_scf_env_type
@@ -64,7 +63,7 @@ MODULE qs_band_structure
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_band_structure'
 
-   PUBLIC :: calculate_band_structure, calculate_kp_orbitals
+   PUBLIC :: calculate_band_structure, calculate_kp_orbitals, calculate_kpoints_for_bs
 
 ! **************************************************************************************************
 
@@ -78,11 +77,7 @@ CONTAINS
    SUBROUTINE calculate_band_structure(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_band_structure', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: do_kpoints, explicit
-      TYPE(qs_environment_type), POINTER                 :: qs_env_kp
       TYPE(section_vals_type), POINTER                   :: bs_input
 
       bs_input => section_vals_get_subs_vals(qs_env%input, "DFT%PRINT%BAND_STRUCTURE")
@@ -92,10 +87,13 @@ CONTAINS
          IF (do_kpoints) THEN
             CALL do_calculate_band_structure(qs_env)
          ELSE
-            NULLIFY (qs_env_kp)
-            CALL create_kp_from_gamma(qs_env, qs_env_kp)
-            CALL do_calculate_band_structure(qs_env_kp)
-            CALL qs_env_release(qs_env_kp)
+            BLOCK
+               TYPE(qs_environment_type), POINTER :: qs_env_kp
+               CALL create_kp_from_gamma(qs_env, qs_env_kp)
+               CALL do_calculate_band_structure(qs_env_kp)
+               CALL qs_env_release(qs_env_kp)
+               DEALLOCATE (qs_env_kp)
+            END BLOCK
          END IF
       END IF
 
@@ -109,20 +107,20 @@ CONTAINS
    SUBROUTINE do_calculate_band_structure(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_calculate_band_structure', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: filename, ustr
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: spname, strptr
-      INTEGER                                            :: i_rep, ik, ikk, ikpgr, ip, ispin, iw, &
-                                                            n_ptr, n_rep, nadd, nkp, nmo, npline, &
-                                                            npoints, nspins, unit_nr
+      CHARACTER(LEN=max_line_length)                     :: error_message
+      INTEGER                                            :: bs_data_unit, i, i_rep, ik, ikk, ikpgr, &
+                                                            imo, ip, ispin, n_ptr, n_rep, nadd, &
+                                                            nkp, nmo, npline, npoints, nspins, &
+                                                            unit_nr
       INTEGER, DIMENSION(2)                              :: kp_range
       LOGICAL                                            :: explicit, io_default, my_kpgrp
       REAL(KIND=dp)                                      :: t1, t2
       REAL(KIND=dp), DIMENSION(3)                        :: kpptr
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, eigval
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, eigval, occnum, &
+                                                            occupation_numbers, wkp
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: kpgeneral, kspecial, xkp
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -143,22 +141,22 @@ CONTAINS
          CALL section_vals_get(kpset, n_repetition=n_rep)
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, FMT="(/,T2,A)") "KPOINTS| Band Structure Calculation"
-            WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Number of K-Point Sets", n_rep
+            WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Number of k-point sets", n_rep
             IF (nadd /= 0) THEN
-               WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Number of added Mos/Bands", nadd
+               WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Number of added MOs/bands", nadd
             END IF
          END IF
          IF (filename == "") THEN
             ! use standard output file
-            iw = unit_nr
+            bs_data_unit = unit_nr
             io_default = .TRUE.
          ELSE
             io_default = .FALSE.
             IF (para_env%ionode) THEN
-               CALL open_file(filename, unit_number=iw, file_status="UNKNOWN", file_action="WRITE", &
+               CALL open_file(filename, unit_number=bs_data_unit, file_status="UNKNOWN", file_action="WRITE", &
                               file_position="APPEND")
             ELSE
-               iw = -1
+               bs_data_unit = -1
             END IF
          END IF
          DO i_rep = 1, n_rep
@@ -173,14 +171,16 @@ CONTAINS
                CALL section_vals_val_get(kpset, "SPECIAL_POINT", i_rep_section=i_rep, i_rep_val=ip, c_vals=strptr)
                IF (SIZE(strptr(:), 1) == 4) THEN
                   spname(ip) = strptr(1)
-                  READ (strptr(2), "(F12.8)") kpptr(1)
-                  READ (strptr(3), "(F12.8)") kpptr(2)
-                  READ (strptr(4), "(F12.8)") kpptr(3)
+                  DO i = 1, 3
+                     CALL read_float_object(strptr(i + 1), kpptr(i), error_message)
+                     IF (LEN_TRIM(error_message) > 0) CPABORT(TRIM(error_message))
+                  END DO
                ELSE IF (SIZE(strptr(:), 1) == 3) THEN
                   spname(ip) = "not specified"
-                  READ (strptr(1), "(F12.8)") kpptr(1)
-                  READ (strptr(2), "(F12.8)") kpptr(2)
-                  READ (strptr(3), "(F12.8)") kpptr(3)
+                  DO i = 1, 3
+                     CALL read_float_object(strptr(i), kpptr(i), error_message)
+                     IF (LEN_TRIM(error_message) > 0) CPABORT(TRIM(error_message))
+                  END DO
                ELSE
                   CPABORT("Input SPECIAL_POINT invalid")
                END IF
@@ -196,28 +196,13 @@ CONTAINS
                                        kpptr(2)*cell%hmat(2, 1:3) + &
                                        kpptr(3)*cell%hmat(3, 1:3))/twopi
                CASE DEFAULT
-                  CPABORT("Unknown Unit for kpoint definition")
+                  CPABORT("Unknown unit <"//TRIM(ustr)//"> specified for k-point definition")
                END SELECT
             END DO
             npoints = (n_ptr - 1)*npline + 1
-            !
             CPASSERT(npoints >= 1)
-            IF (unit_nr > 0) THEN
-               WRITE (unit_nr, "(T2,A,I4,T71,I10)") "KPOINTS| Number of K-Points in Set ", i_rep, npoints
-               WRITE (unit_nr, "(T2,A)") "KPOINTS| In units of b-vector [2pi/Bohr]"
-               DO ip = 1, n_ptr
-                  WRITE (unit_nr, "(T2,A,I4,T31,A15,3F10.4)") "KPOINTS| Special K-Point ", &
-                     ip, ADJUSTL(TRIM(spname(ip))), kspecial(1:3, ip)
-               END DO
-            END IF
-            IF (iw > 0 .AND. (iw /= unit_nr)) THEN
-               WRITE (iw, "(A,I8,T30,A,I8)") " SET:", i_rep, " TOTAL POINTS:", npoints
-               DO ip = 1, n_ptr
-                  WRITE (iw, "(A,I4,T30,A15,3F12.6)") "   POINT", &
-                     ip, ADJUSTL(TRIM(spname(ip))), kspecial(1:3, ip)
-               END DO
-            END IF
-            ! initialize environment and calculate MOS
+
+            ! Initialize environment and calculate MOs
             ALLOCATE (kpgeneral(3, npoints))
             kpgeneral(1:3, 1) = kspecial(1:3, 1)
             ikk = 1
@@ -232,49 +217,76 @@ CONTAINS
             NULLIFY (kpoint)
             CALL calculate_kp_orbitals(qs_env, kpoint, "GENERAL", nadd, kpgeneral=kpgeneral)
             DEALLOCATE (kpgeneral)
-            !
+
             CALL get_qs_env(qs_env, dft_control=dft_control)
             nspins = dft_control%nspins
             kp => kpoint%kp_env(1)%kpoint_env
-            CALL get_mo_set(kp%mos(1, 1)%mo_set, nmo=nmo)
-            ALLOCATE (eigval(nmo))
-            CALL get_kpoint_info(kpoint, nkp=nkp, kp_range=kp_range, xkp=xkp)
+            CALL get_mo_set(kp%mos(1, 1), nmo=nmo)
+            ALLOCATE (eigval(nmo), occnum(nmo))
+            CALL get_kpoint_info(kpoint, nkp=nkp, kp_range=kp_range, xkp=xkp, wkp=wkp)
+
+            IF (unit_nr > 0) THEN
+               WRITE (UNIT=unit_nr, FMT="(T2,A,I4,T71,I10)") &
+                  "KPOINTS| Number of k-points in set ", i_rep, npoints
+               WRITE (UNIT=unit_nr, FMT="(T2,A)") &
+                  "KPOINTS| In units of b-vector [2pi/Bohr]"
+               DO ip = 1, n_ptr
+                  WRITE (UNIT=unit_nr, FMT="(T2,A,I5,1X,A11,3(1X,F12.6))") &
+                     "KPOINTS| Special point ", ip, ADJUSTL(TRIM(spname(ip))), kspecial(1:3, ip)
+               END DO
+            END IF
+            IF (bs_data_unit > 0 .AND. (bs_data_unit /= unit_nr)) THEN
+               WRITE (UNIT=bs_data_unit, FMT="(4(A,I0),A)") &
+                  "# Set ", i_rep, ": ", n_ptr, " special points, ", npoints, " k-points, ", nmo, " bands"
+               DO ip = 1, n_ptr
+                  WRITE (UNIT=bs_data_unit, FMT="(A,I0,T20,T24,3(1X,F14.8),2X,A)") &
+                     "#  Special point ", ip, kspecial(1:3, ip), ADJUSTL(TRIM(spname(ip)))
+               END DO
+            END IF
+
             DO ik = 1, nkp
                my_kpgrp = (ik >= kp_range(1) .AND. ik <= kp_range(2))
                DO ispin = 1, nspins
                   IF (my_kpgrp) THEN
                      ikpgr = ik - kp_range(1) + 1
                      kp => kpoint%kp_env(ikpgr)%kpoint_env
-                     CALL get_mo_set(kp%mos(1, ispin)%mo_set, eigenvalues=eigenvalues)
+                     CALL get_mo_set(kp%mos(1, ispin), eigenvalues=eigenvalues, occupation_numbers=occupation_numbers)
                      eigval(1:nmo) = eigenvalues(1:nmo)
+                     occnum(1:nmo) = occupation_numbers(1:nmo)
                   ELSE
                      eigval(1:nmo) = 0.0_dp
+                     occnum(1:nmo) = 0.0_dp
                   END IF
                   CALL mp_sum(eigval, kpoint%para_env_inter_kp%group)
-                  ! output
-                  IF (iw > 0) THEN
-                     eigval(1:nmo) = eigval(1:nmo)*evolt
-                     WRITE (iw, "(T8,A,I5,T20,A,I2,T34,A,3F12.8)") "Nr.", ik, "Spin", ispin, "K-Point", xkp(1:3, ik)
-                     WRITE (iw, "(T8,I10)") nmo
-                     WRITE (iw, "(T8,4F16.8)") eigval(1:nmo)
+                  CALL mp_sum(occnum, kpoint%para_env_inter_kp%group)
+                  IF (bs_data_unit > 0) THEN
+                     WRITE (UNIT=bs_data_unit, FMT="(A,I0,T15,A,I0,A,T24,3(1X,F14.8),3X,F14.8)") &
+                        "#  Point ", ik, "  Spin ", ispin, ":", xkp(1:3, ik), wkp(ik)
+                     WRITE (UNIT=bs_data_unit, FMT="(A)") &
+                        "#   Band    Energy [eV]     Occupation"
+                     DO imo = 1, nmo
+                        WRITE (UNIT=bs_data_unit, FMT="(T2,I7,2(1X,F14.8))") &
+                           imo, eigval(imo)*evolt, occnum(imo)
+                     END DO
                   END IF
                END DO
             END DO
-            !
+
             DEALLOCATE (kspecial, spname)
-            DEALLOCATE (eigval)
+            DEALLOCATE (eigval, occnum)
             CALL kpoint_release(kpoint)
             t2 = m_walltime()
             IF (unit_nr > 0) THEN
-               WRITE (unit_nr, FMT="(T2,A,T67,F14.3)") "KPOINTS| Time for K-Point Line ", t2 - t1
+               WRITE (UNIT=unit_nr, FMT="(T2,A,T67,F14.3)") "KPOINTS| Time for k-point line ", t2 - t1
             END IF
+
          END DO
-         ! close output file
+
+         ! Close output files
          IF (.NOT. io_default) THEN
-            IF (para_env%ionode) THEN
-               CALL close_file(iw)
-            END IF
+            IF (para_env%ionode) CALL close_file(bs_data_unit)
          END IF
+
       END IF
 
    END SUBROUTINE do_calculate_band_structure
@@ -300,25 +312,54 @@ CONTAINS
          OPTIONAL                                        :: kpgeneral
       INTEGER, INTENT(IN), OPTIONAL                      :: group_size_ext
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_kp_orbitals', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: i, ic, ik, ikk, ispin, ix, iy, iz, &
-                                                            npoints
-      REAL(KIND=dp), DIMENSION(3)                        :: kpt_latt
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: h_inv
-      TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:, :), POINTER      :: mos
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
+
+      CALL calculate_kpoints_for_bs(kpoint, scheme, group_size_ext, mp_grid, kpgeneral)
+
+      CALL get_qs_env(qs_env=qs_env, para_env=para_env, blacs_env=blacs_env)
+      kpoint%para_env => para_env
+      CALL cp_para_env_retain(para_env)
+      kpoint%blacs_env_all => blacs_env
+      CALL cp_blacs_env_retain(blacs_env)
+      CALL kpoint_env_initialize(kpoint)
+
+      CALL kpoint_initialize_mos(kpoint, qs_env%mos, nadd)
+      CALL kpoint_initialize_mo_set(kpoint)
+
+      CALL get_qs_env(qs_env, sab_kp=sab_nl, dft_control=dft_control)
+      CALL kpoint_init_cell_index(kpoint, sab_nl, para_env, dft_control)
+
+      CALL get_qs_env(qs_env, matrix_ks_kp=matrix_ks, matrix_s_kp=matrix_s, &
+                      scf_env=scf_env, scf_control=scf_control)
+      CALL do_general_diag_kp(matrix_ks, matrix_s, kpoint, scf_env, scf_control, .FALSE.)
+
+   END SUBROUTINE calculate_kp_orbitals
+
+! **************************************************************************************************
+!> \brief ...
+!> \param kpoint ...
+!> \param scheme ...
+!> \param group_size_ext ...
+!> \param mp_grid ...
+!> \param kpgeneral ...
+! **************************************************************************************************
+   SUBROUTINE calculate_kpoints_for_bs(kpoint, scheme, group_size_ext, mp_grid, kpgeneral)
+
+      TYPE(kpoint_type), POINTER                         :: kpoint
+      CHARACTER(LEN=*), INTENT(IN)                       :: scheme
+      INTEGER, INTENT(IN), OPTIONAL                      :: group_size_ext
+      INTEGER, DIMENSION(3), INTENT(IN), OPTIONAL        :: mp_grid
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
+         OPTIONAL                                        :: kpgeneral
+
+      INTEGER                                            :: i, ix, iy, iz, npoints
 
       CPASSERT(.NOT. ASSOCIATED(kpoint))
 
@@ -353,17 +394,14 @@ CONTAINS
          kpoint%nkp = npoints
          ALLOCATE (kpoint%xkp(3, npoints), kpoint%wkp(npoints))
          kpoint%wkp(:) = 1._dp/REAL(npoints, KIND=dp)
-         CALL get_qs_env(qs_env, cell=cell)
-         CALL get_cell(cell, h_inv=h_inv)
          i = 0
          DO ix = 1, mp_grid(1)
             DO iy = 1, mp_grid(2)
                DO iz = 1, mp_grid(3)
                   i = i + 1
-                  kpt_latt(1) = REAL(2*ix - mp_grid(1) - 1, KIND=dp)/(2._dp*REAL(mp_grid(1), KIND=dp))
-                  kpt_latt(2) = REAL(2*iy - mp_grid(2) - 1, KIND=dp)/(2._dp*REAL(mp_grid(2), KIND=dp))
-                  kpt_latt(3) = REAL(2*iz - mp_grid(3) - 1, KIND=dp)/(2._dp*REAL(mp_grid(3), KIND=dp))
-                  kpoint%xkp(1:3, i) = MATMUL(TRANSPOSE(h_inv), kpt_latt(:))
+                  kpoint%xkp(1, i) = REAL(2*ix - mp_grid(1) - 1, KIND=dp)/(2._dp*REAL(mp_grid(1), KIND=dp))
+                  kpoint%xkp(2, i) = REAL(2*iy - mp_grid(2) - 1, KIND=dp)/(2._dp*REAL(mp_grid(2), KIND=dp))
+                  kpoint%xkp(3, i) = REAL(2*iz - mp_grid(3) - 1, KIND=dp)/(2._dp*REAL(mp_grid(3), KIND=dp))
                END DO
             END DO
          END DO
@@ -392,38 +430,6 @@ CONTAINS
          CPABORT("Unknown kpoint scheme requested")
       END SELECT
 
-      CALL get_qs_env(qs_env=qs_env, para_env=para_env, blacs_env=blacs_env)
-      kpoint%para_env => para_env
-      CALL cp_para_env_retain(para_env)
-      kpoint%blacs_env_all => blacs_env
-      CALL cp_blacs_env_retain(blacs_env)
-      CALL kpoint_env_initialize(kpoint)
-
-      CALL kpoint_initialize_mos(kpoint, qs_env%mos, nadd)
-      DO ik = 1, SIZE(kpoint%kp_env)
-         CALL mpools_get(kpoint%mpools, ao_mo_fm_pools=ao_mo_fm_pools)
-         mos => kpoint%kp_env(ik)%kpoint_env%mos
-         ikk = kpoint%kp_range(1) + ik - 1
-         CPASSERT(ASSOCIATED(mos))
-         DO ispin = 1, SIZE(mos, 2)
-            DO ic = 1, SIZE(mos, 1)
-               CALL get_mo_set(mos(ic, ispin)%mo_set, mo_coeff=mo_coeff)
-               IF (.NOT. ASSOCIATED(mo_coeff)) THEN
-                  CALL init_mo_set(mos(ic, ispin)%mo_set, &
-                                   fm_pool=ao_mo_fm_pools(ispin)%pool, name="kpoints")
-               END IF
-            END DO
-         END DO
-      END DO
-      CALL get_qs_env(qs_env, sab_kp=sab_nl, dft_control=dft_control)
-      CALL kpoint_init_cell_index(kpoint, sab_nl, para_env, dft_control)
-      !
-      CALL get_qs_env(qs_env, matrix_ks_kp=matrix_ks, matrix_s_kp=matrix_s, &
-                      scf_env=scf_env, scf_control=scf_control)
-      CALL do_general_diag_kp(matrix_ks, matrix_s, kpoint, scf_env, scf_control, .FALSE.)
-
-   END SUBROUTINE calculate_kp_orbitals
-
-! **************************************************************************************************
+   END SUBROUTINE calculate_kpoints_for_bs
 
 END MODULE qs_band_structure

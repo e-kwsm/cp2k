@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,10 +29,10 @@ MODULE pair_potential
                                               default_string_length,&
                                               dp
    USE pair_potential_types,            ONLY: &
-        b4_type, bm_type, compare_pot, ea_type, ft_type, ftd_type, gp_type, gw_type, ip_type, &
-        list_pot, lj_charmm_type, lj_type, multi_type, nn_type, pair_potential_pp_type, &
-        pair_potential_single_type, potential_single_allocation, quip_type, siepmann_type, &
-        tersoff_type, wl_type
+        b4_type, bm_type, compare_pot, ea_type, ft_type, ftd_type, gal21_type, gal_type, gp_type, &
+        gw_type, ip_type, list_pot, lj_charmm_type, lj_type, multi_type, nn_type, &
+        pair_potential_pp_type, pair_potential_single_type, potential_single_allocation, &
+        quip_type, siepmann_type, tab_type, tersoff_type, wl_type
    USE pair_potential_util,             ONLY: ener_pot,&
                                               ener_zbl,&
                                               zbl_matching_polinomial
@@ -60,7 +62,8 @@ MODULE pair_potential
    INTEGER, PARAMETER, PRIVATE          :: MAX_POINTS = 2000000
 
    PUBLIC :: spline_nonbond_control, &
-             get_nonbond_storage
+             get_nonbond_storage, &
+             init_genpot
 
 CONTAINS
 
@@ -75,7 +78,7 @@ CONTAINS
       TYPE(pair_potential_pp_type), POINTER              :: potparm
       INTEGER, INTENT(IN)                                :: ntype
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_genpot', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'init_genpot'
 
       INTEGER                                            :: handle, i, j, k, ngp
       TYPE(pair_potential_single_type), POINTER          :: pot
@@ -141,8 +144,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: do_zbl, shift_cutoff
       CHARACTER(LEN=*), INTENT(IN)                       :: nonbonded_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'spline_nonbond_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'spline_nonbond_control'
 
       INTEGER                                            :: handle, i, ip, j, k, n, ncount, &
                                                             npoints_spline, ntype
@@ -177,18 +179,22 @@ CONTAINS
                      ip = 0
                   END IF
                END IF
-            ENDIF
+            END IF
             ! Setup of Exclusion Types
             pot%no_pp = .TRUE.
             pot%no_mb = .TRUE.
             DO k = 1, SIZE(pot%type)
                SELECT CASE (pot%type(k))
                CASE (lj_type, lj_charmm_type, wl_type, gw_type, ft_type, ftd_type, ip_type, &
-                     b4_type, bm_type, gp_type, ea_type, quip_type)
+                     b4_type, bm_type, gp_type, ea_type, quip_type, tab_type)
                   pot%no_pp = .FALSE.
                CASE (tersoff_type)
                   pot%no_mb = .FALSE.
                CASE (siepmann_type)
+                  pot%no_mb = .FALSE.
+               CASE (gal_type)
+                  pot%no_mb = .FALSE.
+               CASE (gal21_type)
                   pot%no_mb = .FALSE.
                CASE (nn_type)
                   ! Do nothing..
@@ -286,9 +292,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: do_zbl
       REAL(KIND=dp), INTENT(IN)                          :: energy_cutoff, emax_spline
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_spline_cutoff', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ilevel, jx
       REAL(KIND=dp)                                      :: dx2, e, locut_found, x
 
@@ -311,7 +314,7 @@ CONTAINS
             x = x - dx2
          END DO
          x = x + dx2
-      ENDDO
+      END DO
       locut = locut_found
 
    END SUBROUTINE get_spline_cutoff
@@ -355,9 +358,6 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       CHARACTER(LEN=*), INTENT(IN)                       :: nonbonded_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'generate_spline_low', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2*default_string_length)             :: message, tmp
       CHARACTER(LEN=default_path_length)                 :: file_name
       INTEGER                                            :: ix, jx, mfac, nppa, nx, unit_number
@@ -380,7 +380,7 @@ CONTAINS
          fixed_spline_points = .FALSE.
          npoints = 20
          IF (.NOT. found_locut) npoints = 2
-      ENDIF
+      END IF
       spline_data => spl_p(1)%spline_data
       DO WHILE (.TRUE.)
          CALL init_splinexy(spline_data, npoints + 1)
@@ -558,8 +558,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       LOGICAL, INTENT(IN)                                :: do_zbl, shift_cutoff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_nonbond_storage', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_nonbond_storage'
 
       INTEGER                                            :: handle, i, idim, iend, istart, j, k, &
                                                             locij, n, ndim, nk, ntype, nunique, &
@@ -610,7 +609,7 @@ CONTAINS
          CASE (ft_type)
             nvar = 4 + nvar
          CASE (ftd_type)
-            nvar = 5 + nvar
+            nvar = 6 + nvar
          CASE (ip_type)
             nvar = 3 + nvar
          CASE (b4_type)
@@ -623,8 +622,14 @@ CONTAINS
             nvar = 13 + nvar
          CASE (siepmann_type)
             nvar = 5 + nvar
+         CASE (gal_type)
+            nvar = 12 + nvar
+         CASE (gal21_type)
+            nvar = 30 + nvar
          CASE (nn_type)
             nvar = nvar
+         CASE (tab_type)
+            nvar = 4 + nvar
          CASE DEFAULT
             CPABORT("")
          END SELECT
@@ -691,7 +696,8 @@ CONTAINS
                         pot_par(nk, 2) = potparm%pot(i, j)%pot%set(1)%ftd%B
                         pot_par(nk, 3) = potparm%pot(i, j)%pot%set(1)%ftd%C
                         pot_par(nk, 4) = potparm%pot(i, j)%pot%set(1)%ftd%D
-                        pot_par(nk, 5) = potparm%pot(i, j)%pot%set(1)%ftd%BD
+                        pot_par(nk, 5) = potparm%pot(i, j)%pot%set(1)%ftd%BD(1)
+                        pot_par(nk, 6) = potparm%pot(i, j)%pot%set(1)%ftd%BD(2)
                      CASE (ip_type)
                         pot_par(nk, 1) = potparm%pot(i, j)%pot%set(1)%ipbv%rcore
                         pot_par(nk, 2) = potparm%pot(i, j)%pot%set(1)%ipbv%m
@@ -733,6 +739,55 @@ CONTAINS
                         pot_par(nk, 3) = potparm%pot(i, j)%pot%set(1)%siepmann%E
                         pot_par(nk, 4) = potparm%pot(i, j)%pot%set(1)%siepmann%F
                         pot_par(nk, 5) = potparm%pot(i, j)%pot%set(1)%siepmann%beta
+                     CASE (gal_type)
+                        pot_par(nk, 1) = potparm%pot(i, j)%pot%set(1)%gal%epsilon
+                        pot_par(nk, 2) = potparm%pot(i, j)%pot%set(1)%gal%bxy
+                        pot_par(nk, 3) = potparm%pot(i, j)%pot%set(1)%gal%bz
+                        pot_par(nk, 4) = potparm%pot(i, j)%pot%set(1)%gal%r1
+                        pot_par(nk, 5) = potparm%pot(i, j)%pot%set(1)%gal%r2
+                        pot_par(nk, 6) = potparm%pot(i, j)%pot%set(1)%gal%a1
+                        pot_par(nk, 7) = potparm%pot(i, j)%pot%set(1)%gal%a2
+                        pot_par(nk, 8) = potparm%pot(i, j)%pot%set(1)%gal%a3
+                        pot_par(nk, 9) = potparm%pot(i, j)%pot%set(1)%gal%a4
+                        pot_par(nk, 10) = potparm%pot(i, j)%pot%set(1)%gal%a
+                        pot_par(nk, 11) = potparm%pot(i, j)%pot%set(1)%gal%b
+                        pot_par(nk, 12) = potparm%pot(i, j)%pot%set(1)%gal%c
+                     CASE (gal21_type)
+                        pot_par(nk, 1) = potparm%pot(i, j)%pot%set(1)%gal21%epsilon1
+                        pot_par(nk, 2) = potparm%pot(i, j)%pot%set(1)%gal21%epsilon2
+                        pot_par(nk, 3) = potparm%pot(i, j)%pot%set(1)%gal21%epsilon3
+                        pot_par(nk, 4) = potparm%pot(i, j)%pot%set(1)%gal21%bxy1
+                        pot_par(nk, 5) = potparm%pot(i, j)%pot%set(1)%gal21%bxy2
+                        pot_par(nk, 6) = potparm%pot(i, j)%pot%set(1)%gal21%bz1
+                        pot_par(nk, 7) = potparm%pot(i, j)%pot%set(1)%gal21%bz2
+                        pot_par(nk, 8) = potparm%pot(i, j)%pot%set(1)%gal21%r1
+                        pot_par(nk, 9) = potparm%pot(i, j)%pot%set(1)%gal21%r2
+                        pot_par(nk, 10) = potparm%pot(i, j)%pot%set(1)%gal21%a11
+                        pot_par(nk, 11) = potparm%pot(i, j)%pot%set(1)%gal21%a12
+                        pot_par(nk, 12) = potparm%pot(i, j)%pot%set(1)%gal21%a13
+                        pot_par(nk, 13) = potparm%pot(i, j)%pot%set(1)%gal21%a21
+                        pot_par(nk, 14) = potparm%pot(i, j)%pot%set(1)%gal21%a22
+                        pot_par(nk, 15) = potparm%pot(i, j)%pot%set(1)%gal21%a23
+                        pot_par(nk, 16) = potparm%pot(i, j)%pot%set(1)%gal21%a31
+                        pot_par(nk, 17) = potparm%pot(i, j)%pot%set(1)%gal21%a32
+                        pot_par(nk, 18) = potparm%pot(i, j)%pot%set(1)%gal21%a33
+                        pot_par(nk, 19) = potparm%pot(i, j)%pot%set(1)%gal21%a41
+                        pot_par(nk, 20) = potparm%pot(i, j)%pot%set(1)%gal21%a42
+                        pot_par(nk, 21) = potparm%pot(i, j)%pot%set(1)%gal21%a43
+                        pot_par(nk, 22) = potparm%pot(i, j)%pot%set(1)%gal21%AO1
+                        pot_par(nk, 23) = potparm%pot(i, j)%pot%set(1)%gal21%AO2
+                        pot_par(nk, 24) = potparm%pot(i, j)%pot%set(1)%gal21%BO1
+                        pot_par(nk, 25) = potparm%pot(i, j)%pot%set(1)%gal21%BO2
+                        pot_par(nk, 26) = potparm%pot(i, j)%pot%set(1)%gal21%c
+                        pot_par(nk, 27) = potparm%pot(i, j)%pot%set(1)%gal21%AH1
+                        pot_par(nk, 28) = potparm%pot(i, j)%pot%set(1)%gal21%AH2
+                        pot_par(nk, 29) = potparm%pot(i, j)%pot%set(1)%gal21%BH1
+                        pot_par(nk, 30) = potparm%pot(i, j)%pot%set(1)%gal21%BH2
+                     CASE (tab_type)
+                        pot_par(nk, 1) = potparm%pot(i, j)%pot%set(1)%tab%dr
+                        pot_par(nk, 2) = potparm%pot(i, j)%pot%set(1)%tab%rcut
+                        pot_par(nk, 3) = potparm%pot(i, j)%pot%set(1)%tab%npoints
+                        pot_par(nk, 4) = potparm%pot(i, j)%pot%set(1)%tab%index
                      CASE (nn_type)
                         ! no checks
                      CASE DEFAULT
@@ -894,6 +949,7 @@ CONTAINS
          END DO
       END DO
       ! Concluding the postprocess..
+      ALLOCATE (spline_env)
       CALL spline_env_create(spline_env, ntype, nunique)
       spline_env%spltab = tmp_index
       DEALLOCATE (tmp_index)
@@ -922,8 +978,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       LOGICAL, INTENT(IN)                                :: shift_cutoff, do_zbl
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_potparm_index', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'set_potparm_index'
 
       INTEGER                                            :: handle, i, min_val, nvalues, tmpij(2), &
                                                             value, zi, zj
@@ -988,7 +1043,7 @@ CONTAINS
          pot%spl_f%rcutsq_f = 1.0_dp
          pot%spl_f%rscale = 1.0_dp
          pot%spl_f%fscale = 1.0_dp
-      ENDDO
+      END DO
 
       IF (ANY(potential_single_allocation == pot_target)) THEN
          DO i = 1, nvalues
@@ -1016,7 +1071,7 @@ CONTAINS
                   pot%spl_f%fscale(1) = l_epsilon/m_epsilon
                END IF
             END IF
-         ENDDO
+         END DO
       END IF
 
       DO i = 1, nvalues

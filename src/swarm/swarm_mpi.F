@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -79,8 +81,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: worker_id
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'swarm_mpi_init', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: n_groups_created, pe_per_worker, &
                                                             subgroup, subgroup_rank, &
                                                             subgroup_size, worker_group
@@ -96,17 +96,17 @@ CONTAINS
 
       IF (MOD(swarm_mpi%world%num_pe - 1, n_workers) /= 0) THEN
          CPABORT("number of processors-1 is not divisible by n_workers.")
-      ENDIF
+      END IF
       IF (swarm_mpi%world%num_pe < n_workers + 1) THEN
          CPABORT("There are not enough processes for n_workers + 1. Aborting.")
-      ENDIF
+      END IF
 
       pe_per_worker = (swarm_mpi%world%num_pe - 1)/n_workers
 
       IF (iw > 0) THEN
          WRITE (iw, '(A,45X,I8)') " SWARM| Number of mpi ranks", swarm_mpi%world%num_pe
          WRITE (iw, '(A,47X,I8)') " SWARM| Number of workers", n_workers
-      ENDIF
+      END IF
 
       ! the last task becomes the master. Preseves node-alignment of other tasks.
       im_the_master = (swarm_mpi%world%mepos == swarm_mpi%world%num_pe - 1)
@@ -123,7 +123,7 @@ CONTAINS
          CALL mp_environ(subgroup_size, subgroup_rank, subgroup)
          !WRITE (*,*) "Hello, this is a Worker - there are ",subgroup_size, " of us."
          IF (subgroup_size /= swarm_mpi%world%num_pe - 1) CPABORT("mp_comm_split_direct failed (worker)")
-      ENDIF
+      END IF
 
       ALLOCATE (swarm_mpi%wid2group(n_workers))
       swarm_mpi%wid2group = 0
@@ -143,7 +143,7 @@ CONTAINS
          IF (swarm_mpi%worker%mepos == 0) &
             swarm_mpi%wid2group(worker_id) = swarm_mpi%world%mepos
 
-      ENDIF
+      END IF
 
       CALL mp_sum(swarm_mpi%wid2group, swarm_mpi%world%group)
       !WRITE (*,*), "wid2group table: ",swarm_mpi%wid2group
@@ -206,9 +206,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       INTEGER                                            :: worker_id
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'logger_init_worker', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: output_path
       CHARACTER(len=default_string_length)               :: new_project_name, project_name, &
                                                             worker_name
@@ -221,18 +218,18 @@ CONTAINS
          project_name = old_logger%iter_info%project_name
          IF (worker_id > 99999) THEN
             CPABORT("Did not expect so many workers.")
-         ENDIF
+         END IF
          WRITE (worker_name, "(A,I5.5)") 'WORKER', worker_id
          IF (LEN_TRIM(project_name) + 1 + LEN_TRIM(worker_name) > default_string_length) THEN
             CPABORT("project name too long")
-         ENDIF
+         END IF
          output_path = TRIM(project_name)//"-"//TRIM(worker_name)//".out"
          new_project_name = TRIM(project_name)//"-"//TRIM(worker_name)
          CALL section_vals_val_set(root_section, "GLOBAL%PROJECT_NAME", c_val=new_project_name)
          CALL cp_iteration_info_create(new_iter_info, new_project_name)
          CALL error_add_new_logger(swarm_mpi%worker, output_path, new_iter_info)
          CALL cp_iteration_info_release(new_iter_info)
-      ENDIF
+      END IF
    END SUBROUTINE logger_init_worker
 
 ! **************************************************************************************************
@@ -258,7 +255,7 @@ CONTAINS
          IF (output_path /= "__STD_OUT__") &
             CALL open_file(file_name=output_path, file_status="UNKNOWN", &
                            file_action="WRITE", file_position="APPEND", unit_number=output_unit)
-      ENDIF
+      END IF
 
       old_logger => cp_get_default_logger()
       CALL cp_logger_create(new_logger, para_env=para_env, &
@@ -323,7 +320,7 @@ CONTAINS
          output_unit = old_logger%default_local_unit_nr
          OPEN (unit=output_unit, file=swarm_mpi%master_output_path, &
                status="UNKNOWN", action="WRITE", position="APPEND")
-      ENDIF
+      END IF
    END SUBROUTINE logger_finalize
 
 ! **************************************************************************************************
@@ -338,7 +335,7 @@ CONTAINS
 
       INTEGER                                            :: dest, tag
 
-! Only rank-0 of worker group sends it's report
+! Only rank-0 of worker group sends its report
 
       IF (swarm_mpi%worker%source /= swarm_mpi%worker%mepos) RETURN
 
@@ -407,7 +404,7 @@ CONTAINS
          tag = 42
          CALL swarm_message_mpi_recv(cmd, group=swarm_mpi%world%group, src=src, tag=tag)
 
-      ENDIF
+      END IF
 
 !     ! Second: The command is broadcasted within the worker group.
       CALL swarm_message_mpi_bcast(cmd, src=swarm_mpi%worker%source, group=swarm_mpi%worker%group)

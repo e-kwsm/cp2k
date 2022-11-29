@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -64,8 +66,7 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: w
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fix_atom_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fix_atom_control'
 
       INTEGER :: handle, i, ifixd, ii, ikind, iparticle, iparticle_local, my_atm_fixed, natom, &
          ncore, nfixed_atoms, nkind, nparticle, nparticle_local, nshell, shell_index
@@ -425,8 +426,7 @@ CONTAINS
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind_set(:)
       TYPE(distribution_1d_type), POINTER                :: local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_local_fixd_list', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_local_fixd_list'
 
       INTEGER                                            :: handle, i, ikind, iparticle, &
                                                             iparticle_local, isize, jsize, ncnst, &
@@ -541,9 +541,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_local_fixd_list(lfixd_list)
       TYPE(local_fixd_constraint_type), POINTER          :: lfixd_list(:)
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_local_fixd_list', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(lfixd_list))
       DEALLOCATE (lfixd_list)

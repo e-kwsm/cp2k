@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -88,8 +90,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:ldrr1-1, ldrr2, *), &
          INTENT(INOUT)                                   :: rr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'efg', routineP = moduleN//':'//routineN
-
       INTEGER :: ax, ay, az, bx, by, bz, coa, coam1x, coam1y, coam1z, coam2x, coam2y, coam2z, &
          coamxpy, coamxpz, coamxy, coamxz, coamypx, coamypz, coamyz, coamzpx, coamzpy, coap1x, &
          coap1y, coap1z, coap2x, coap2y, coap2z, coapxy, coapxz, coapyz, cob, cobm1x, cobm1y, &
@@ -127,11 +127,11 @@ CONTAINS
                      vab(i, j, 4) = 0.0_dp
                      vab(i, j, 5) = 0.0_dp
                      vab(i, j, 6) = 0.0_dp
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                nb = nb + ncoset(lb_max)
                CYCLE
-            ENDIF
+            END IF
 
             ! *** Calculate some prefactors ***
 
@@ -302,21 +302,21 @@ CONTAINS
                   vab(ma, mb, 4) = (2.0_dp*dumyy - dumzz - dumxx)/3.0_dp !yy
                   vab(ma, mb, 5) = dumyz !yz
                   vab(ma, mb, 6) = (2.0_dp*dumzz - dumxx - dumyy)/3.0_dp !zz
-               ENDDO
-               ENDDO
-               ENDDO !la
+               END DO
+               END DO
+               END DO !la
 
-            ENDDO
-            ENDDO
-            ENDDO !lb
+            END DO
+            END DO
+            END DO !lb
 
             nb = nb + ncoset(lb_max)
 
-         ENDDO
+         END DO
 
          na = na + ncoset(la_max)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE efg
 

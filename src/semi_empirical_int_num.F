@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,7 +49,6 @@ MODULE semi_empirical_int_num
    IMPLICIT NONE
 
    PRIVATE
-#include "semi_empirical_int_args.h"
 
    LOGICAL, PARAMETER, PRIVATE          :: debug_this_module = .FALSE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'semi_empirical_int_num'
@@ -78,8 +79,6 @@ CONTAINS
       REAL(dp), DIMENSION(2025), INTENT(OUT)             :: w
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotint_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, i1, ii, ij, ij1, iminus, istep, &
                                                             iw_loc, j, j1, jj, k, kk, kl, l, &
@@ -206,14 +205,14 @@ CONTAINS
 
          ! Store two electron integrals in the triangular format
          CALL store_2el_2c_diag(limij, limkl, ww, w)
-      ENDIF
+      END IF
    END SUBROUTINE rotint_num
 
 ! **************************************************************************************************
 !> \brief Calculates the derivative pf two-electron repulsion integrals and the
 !>      nuclear attraction integrals w.r.t. |r|
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param rep array of two-electron repulsion integrals
 !> \param se_taper ...
@@ -229,8 +228,6 @@ CONTAINS
       REAL(dp), DIMENSION(491), INTENT(OUT)              :: rep
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'terep_num', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: ft
       TYPE(se_int_screen_type)                           :: se_int_screen
@@ -254,8 +251,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the  two-electron repulsion integrals - sp shell only
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij ...
 !> \param rep array of two-electron repulsion integrals
 !> \param se_int_control input parameters that control the calculation of SE
@@ -275,8 +272,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
       REAL(dp), INTENT(IN)                               :: ft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'terep_sp_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ij, j, k, kl, l, lasti, lastj, li, &
                                                             lj, lk, ll, nold, numb
@@ -338,8 +333,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
       REAL(dp), INTENT(IN)                               :: ft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'terep_d_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ij, j, k, kl, l, lasti, lastj, li, &
                                                             lj, lk, ll, nold, numb
@@ -404,8 +397,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotnuc_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idd, idp, ind1, ind2, ipp, j, &
                                                             last_orbital(2), m, n
@@ -513,8 +504,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore_num', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ig, nt
       REAL(dp)                                           :: aab, alpi, alpj, apdg, ax, dai, daj, &
                                                             dbi, dbj, pai, paj, pbi, pbj, qcorr, &
@@ -552,7 +541,7 @@ CONTAINS
             IF (nt == 8 .OR. nt == 9) THEN
                IF (sepi%z == 7 .OR. sepi%z == 8) scale = scale + (angstrom*rij - 1._dp)*EXP(-alpi*rij)
                IF (sepj%z == 7 .OR. sepj%z == 8) scale = scale + (angstrom*rij - 1._dp)*EXP(-alpj*rij)
-            ENDIF
+            END IF
             scale = ABS(scale*zz*ssss)
             zz = zz/rij
             IF (itype == do_method_am1 .OR. itype == do_method_pm3 .OR. itype == do_method_pdg) THEN
@@ -602,16 +591,16 @@ CONTAINS
                      ax = fni2(ig)*(rij - fni3(ig))**2
                      IF (ax <= 25._dp) THEN
                         scale = scale + zz*fni1(ig)*EXP(-ax)
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   IF (ABS(fnj1(ig)) > 0._dp) THEN
                      ax = fnj2(ig)*(rij - fnj3(ig))**2
                      IF (ax <= 25._dp) THEN
                         scale = scale + zz*fnj1(ig)*EXP(-ax)
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                END DO
-            ENDIF
+            END IF
             IF (itype == do_method_pdg) THEN
                ! PDDG function
                zaf = sepi%zeff/nt
@@ -689,9 +678,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore_el_num', &
-         routineP = moduleN//':'//routineN
-
       REAL(dp)                                           :: rij, ssss, ssss_sr, zz
       TYPE(se_int_control_type)                          :: se_int_control_off
 
@@ -719,8 +705,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the SSSS integrals (main driver)
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param ssss derivative of (ssss) integral
 !>                          derivatives are intended w.r.t. rij
@@ -740,9 +726,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ssss_nucint_num', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: ft
       TYPE(se_int_screen_type)                           :: se_int_screen
@@ -773,8 +756,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the nuclear attraction integrals CORE (main driver)
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param core derivative of 4 X 2 array of electron-core attraction integrals
 !>                          derivatives are intended w.r.t. rij
@@ -794,9 +777,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itype
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'core_nucint_num', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: ft
@@ -865,8 +845,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nucint_sp_num', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ij, kl
       LOGICAL                                            :: l_core, l_ssss, si, sj
 
@@ -879,38 +857,38 @@ CONTAINS
       ij = indexa(1, 1)
       IF (l_ssss) THEN
          ! Store the value for <S  S  | S  S  > (Used for computing the core-core interactions)
-         ssss = ijkl_sp(sepi, sepj, ij, ij, 0, 0, 0, 0, -1, rij, CPPint_args)
+         ssss = ijkl_sp(sepi, sepj, ij, ij, 0, 0, 0, 0, -1, rij, se_int_control, se_int_screen, itype)
       END IF
 
       IF (l_core) THEN
          !     <S  S  | S  S  >
          kl = indexa(1, 1)
-         core(1, 1) = ijkl_sp(sepi, sepj, kl, ij, 0, 0, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+         core(1, 1) = ijkl_sp(sepi, sepj, kl, ij, 0, 0, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          IF (si) THEN
             !  <S  P  | S  S  >
             kl = indexa(2, 1)
-            core(2, 1) = ijkl_sp(sepi, sepj, kl, ij, 0, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(2, 1) = ijkl_sp(sepi, sepj, kl, ij, 0, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <P  P  | S  S  >
             kl = indexa(2, 2)
-            core(3, 1) = ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(3, 1) = ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <P+ P+ | S  S  >
             kl = indexa(3, 3)
-            core(4, 1) = ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(4, 1) = ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          END IF
 
          !     <S  S  | S  S  >
          kl = indexa(1, 1)
-         core(1, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 0, 1, rij, CPPint_args)*sepi%zeff
+         core(1, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 0, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          IF (sj) THEN
             !  <S  S  | S  P  >
             kl = indexa(2, 1)
-            core(2, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 1, 1, rij, CPPint_args)*sepi%zeff
+            core(2, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S  S  | P  P  >
             kl = indexa(2, 2)
-            core(3, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, CPPint_args)*sepi%zeff
+            core(3, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S  S  | P+ P+ >
             kl = indexa(3, 3)
-            core(4, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, CPPint_args)*sepi%zeff
+            core(4, 2) = ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          END IF
       END IF
 
@@ -918,8 +896,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the nuclear attraction integrals involving d orbitals
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param core 4 X 2 array of electron-core attraction integrals
 !>
@@ -946,8 +924,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nucint_d_num', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ij, kl
 
 ! Check if d-orbitals are present
@@ -957,42 +933,42 @@ CONTAINS
          IF (sepj%dorb) THEN
             !  <S S | D S>
             kl = indexa(5, 1)
-            core(5, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 0, 1, rij, CPPint_args)*sepi%zeff
+            core(5, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 0, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D P >
             kl = indexa(5, 2)
-            core(6, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, CPPint_args)*sepi%zeff
+            core(6, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D D >
             kl = indexa(5, 5)
-            core(7, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            core(7, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D+P+>
             kl = indexa(6, 3)
-            core(8, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, CPPint_args)*sepi%zeff
+            core(8, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D+D+>
             kl = indexa(6, 6)
-            core(9, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            core(9, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D#D#>
             kl = indexa(8, 8)
-            core(10, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            core(10, 2) = ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          END IF
          IF (sepi%dorb) THEN
             !  <D S | S S>
             kl = indexa(5, 1)
-            core(5, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 0, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(5, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 0, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D P | S S >
             kl = indexa(5, 2)
-            core(6, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(6, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D D | S S >
             kl = indexa(5, 5)
-            core(7, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(7, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D+P+| S S >
             kl = indexa(6, 3)
-            core(8, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(8, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D+D+| S S >
             kl = indexa(6, 6)
-            core(9, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(9, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D#D#| S S >
             kl = indexa(8, 8)
-            core(10, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            core(10, 1) = ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          END IF
 
       END IF
@@ -1015,8 +991,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: delta
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'drotint_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, nsize
       REAL(dp)                                           :: od
@@ -1058,8 +1032,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: delta
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'drotnuc_num', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       LOGICAL                                            :: l_de1b, l_de2a
@@ -1110,8 +1082,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcorecore_num', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(dp)                                           :: enucm, enucp, od
       REAL(dp), DIMENSION(3)                             :: rr
@@ -1146,9 +1116,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: delta
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcorecore_el_num', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(dp)                                           :: enucm, enucp, od

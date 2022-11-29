@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,7 +25,6 @@ MODULE qs_mom_methods
                                               cp_fm_type,&
                                               cp_fm_vectorsnorm,&
                                               cp_fm_vectorssum
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE input_constants,                 ONLY: momproj_norm,&
                                               momproj_sum,&
@@ -31,9 +32,9 @@ MODULE qs_mom_methods
                                               momtype_mom
    USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type,&
                                               set_mo_set
    USE qs_scf_diagonalization,          ONLY: general_eigenproblem
@@ -69,8 +70,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: iarr
       LOGICAL                                            :: is_unique
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mom_is_unique_orbital_indices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mom_is_unique_orbital_indices'
 
       INTEGER                                            :: handle, norbs
       INTEGER, DIMENSION(:), POINTER                     :: tmp_iarr
@@ -93,7 +93,7 @@ CONTAINS
             CPABORT("MOM: all molecular orbital indices must be positive integer numbers")
 
          DEALLOCATE (tmp_iarr)
-      ENDIF
+      END IF
 
       is_unique = .TRUE.
 
@@ -113,12 +113,11 @@ CONTAINS
 !>      01.2016 created [Sergey Chulkov]
 ! **************************************************************************************************
    SUBROUTINE mom_reoccupy_orbitals(mo_set, deocc_orb_set, occ_orb_set, spin)
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
       INTEGER, DIMENSION(:), POINTER                     :: deocc_orb_set, occ_orb_set
       CHARACTER(len=*), INTENT(in)                       :: spin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mom_reoccupy_orbitals', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mom_reoccupy_orbitals'
 
       CHARACTER(len=10)                                  :: str_iorb, str_norbs
       CHARACTER(len=3)                                   :: str_prefix
@@ -154,14 +153,14 @@ CONTAINS
             ELSE
                iorb = occ_orb_set(norbs)
                str_prefix = ''
-            ENDIF
+            END IF
             CALL integer_to_string(iorb, str_iorb)
 
             CALL cp_abort(__LOCATION__, "Unable to "//TRIM(str_prefix)//"occupy "// &
                           TRIM(spin)//" orbital No. "//TRIM(str_iorb)// &
                           " since its index exceeds the number of atomic orbital functions available ("// &
                           TRIM(str_norbs)//"). Please consider using a larger basis set.")
-         ENDIF
+         END IF
 
          IF (deocc_orb_set(norbs) > nmo .OR. occ_orb_set(norbs) > nmo) THEN
             ! STOP: one of the molecular orbital index exceeds the number of constructed molecular orbitals
@@ -169,7 +168,7 @@ CONTAINS
                iorb = deocc_orb_set(norbs)
             ELSE
                iorb = occ_orb_set(norbs)
-            ENDIF
+            END IF
 
             IF (iorb - nmo > 1) THEN
                CALL integer_to_string(iorb - nmo, str_iorb)
@@ -177,7 +176,7 @@ CONTAINS
             ELSE
                str_iorb = 'an'
                str_prefix = ''
-            ENDIF
+            END IF
 
             CALL integer_to_string(nmo, str_norbs)
 
@@ -185,7 +184,7 @@ CONTAINS
                           ") is not enough to perform MOM calculation. Please add "// &
                           TRIM(str_iorb)//" extra orbital"//TRIM(str_prefix)// &
                           " using the ADDED_MOS keyword in the SCF section of your input file.")
-         ENDIF
+         END IF
 
          DO iorb = 1, norbs
             ! swap occupation numbers between two adjoint molecular orbitals
@@ -194,35 +193,35 @@ CONTAINS
 
                CALL cp_abort(__LOCATION__, "The "//TRIM(spin)//" orbital No. "// &
                              TRIM(str_iorb)//" is not occupied thus it cannot be deoccupied.")
-            ENDIF
+            END IF
 
             IF (occ_nums(occ_orb_set(iorb)) > 0.0_dp) THEN
                CALL integer_to_string(occ_orb_set(iorb), str_iorb)
 
                CALL cp_abort(__LOCATION__, "The "//TRIM(spin)//" orbital No. "// &
                              TRIM(str_iorb)//" is already occupied thus it cannot be reoccupied.")
-            ENDIF
+            END IF
 
             occ_nums(occ_orb_set(iorb)) = occ_nums(deocc_orb_set(iorb))
             occ_nums(deocc_orb_set(iorb)) = 0.0_dp
-         ENDDO
+         END DO
 
          ! locate the lowest non-maxocc occupied orbital
          DO lfomo = 1, nmo
             IF (occ_nums(lfomo) /= maxocc) EXIT
-         ENDDO
+         END DO
 
          ! locate the highest occupied orbital
          DO homo = nmo, 1, -1
             IF (occ_nums(homo) > 0.0_dp) EXIT
-         ENDDO
+         END DO
 
          CALL set_mo_set(mo_set=mo_set, homo=homo, lfomo=lfomo)
 
       ELSE IF (deocc_orb_set(1) /= 0 .OR. occ_orb_set(1) /= 0) THEN
          CALL cp_abort(__LOCATION__, &
                        "Incorrect multiplicity of the MOM reference electronic state")
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -239,11 +238,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE do_mom_guess(nspins, mos, scf_control, p_rmpv)
       INTEGER, INTENT(in)                                :: nspins
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mos
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: p_rmpv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'do_mom_guess', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'do_mom_guess'
 
       CHARACTER(len=10)                                  :: str_iter
       INTEGER                                            :: handle, ispin, scf_iter
@@ -276,7 +275,7 @@ CONTAINS
 
          CALL cp_warn(__LOCATION__, "Maximum overlap method will"// &
                       " ignore beta orbitals since neither UKS nor ROKS calculation is performed")
-      ENDIF
+      END IF
 
       ! compute the change in multiplicity and number of electrons
       IF (SIZE(scf_control%diagonalization%mom_deoccA) /= &
@@ -287,7 +286,7 @@ CONTAINS
 
          CALL cp_abort(__LOCATION__, "Incorrect multiplicity of the MOM reference"// &
                        " electronic state or inconsistent number of electrons")
-      ENDIF
+      END IF
 
       is_mo = .FALSE.
       ! by default activate MOM at the second SCF iteration as the
@@ -296,7 +295,7 @@ CONTAINS
       ! check if the molecular orbitals are actually there
       ! by finding at least one MO coefficient > 0
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          CALL cp_fm_maxabsval(mo_coeff, maxa)
          ! is_mo |= maxa > 0.0_dp
          IF (maxa > 0.0_dp) THEN
@@ -305,18 +304,18 @@ CONTAINS
             ! activate MOM immediately if the input keyword START_ITER is not given
             scf_iter = 1
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! proceed alpha orbitals
       IF (nspins >= 1) &
-         CALL mom_reoccupy_orbitals(mos(1)%mo_set, &
+         CALL mom_reoccupy_orbitals(mos(1), &
                                     scf_control%diagonalization%mom_deoccA, &
                                     scf_control%diagonalization%mom_occA, 'alpha')
 
       ! proceed beta orbitals (if any)
       IF (nspins >= 2) &
-         CALL mom_reoccupy_orbitals(mos(2)%mo_set, &
+         CALL mom_reoccupy_orbitals(mos(2), &
                                     scf_control%diagonalization%mom_deoccB, &
                                     scf_control%diagonalization%mom_occB, 'beta')
 
@@ -325,9 +324,9 @@ CONTAINS
       ! obtained from atomic guess
       IF (is_mo) THEN
          DO ispin = 1, nspins
-            CALL calculate_density_matrix(mos(ispin)%mo_set, p_rmpv(ispin)%matrix)
-         ENDDO
-      ENDIF
+            CALL calculate_density_matrix(mos(ispin), p_rmpv(ispin)%matrix)
+         END DO
+      END IF
 
       ! adjust the start SCF iteration number if needed
       IF (scf_control%diagonalization%mom_start < scf_iter) THEN
@@ -338,7 +337,7 @@ CONTAINS
             CALL cp_warn(__LOCATION__, &
                          "The maximum overlap method will be activated at the SCF iteration No. "// &
                          TRIM(str_iter)//" due to the SCF guess method used.")
-         ENDIF
+         END IF
          scf_control%diagonalization%mom_start = scf_iter
       ELSE IF (scf_control%diagonalization%mom_start > scf_iter .AND. &
                (scf_control%diagonalization%mom_occA(1) > 0 .OR. scf_control%diagonalization%mom_occB(1) > 0)) THEN
@@ -348,7 +347,7 @@ CONTAINS
                       "The maximum overlap method will be activated at the SCF iteration No. "// &
                       TRIM(str_iter)//" because an excited state calculation has been requested")
          scf_control%diagonalization%mom_start = scf_iter
-      ENDIF
+      END IF
 
       ! MOM is now initialised properly
       scf_control%diagonalization%mom_didguess = .TRUE.
@@ -374,13 +373,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE do_mom_diag(scf_env, mos, matrix_ks, matrix_s, scf_control, scf_section, diis_step)
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(section_vals_type), POINTER                   :: scf_section
       LOGICAL, INTENT(INOUT)                             :: diis_step
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'do_mom_diag', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'do_mom_diag'
 
       INTEGER                                            :: handle, homo, iproj, ispin, lfomo, nao, &
                                                             nmo, nspins
@@ -406,8 +405,9 @@ CONTAINS
             ALLOCATE (scf_env%mom_ref_mo_coeff(nspins))
             DO ispin = 1, nspins
                NULLIFY (ao_mo_fmstruct, scf_env%mom_ref_mo_coeff(ispin)%matrix)
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, occupation_numbers=occ_nums)
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, occupation_numbers=occ_nums)
                CALL cp_fm_get_info(mo_coeff, matrix_struct=ao_mo_fmstruct)
+               ALLOCATE (scf_env%mom_ref_mo_coeff(ispin)%matrix)
                CALL cp_fm_create(scf_env%mom_ref_mo_coeff(ispin)%matrix, ao_mo_fmstruct)
 
                ! Initial Maximum Overlap Method: keep initial molecular orbitals
@@ -423,9 +423,10 @@ CONTAINS
             ALLOCATE (scf_env%mom_overlap(nspins))
             DO ispin = 1, nspins
                NULLIFY (blacs_env, mo_mo_fmstruct, scf_env%mom_overlap(ispin)%matrix)
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo, mo_coeff=mo_coeff)
+               CALL get_mo_set(mo_set=mos(ispin), nmo=nmo, mo_coeff=mo_coeff)
                CALL cp_fm_get_info(mo_coeff, context=blacs_env)
                CALL cp_fm_struct_create(mo_mo_fmstruct, nrow_global=nmo, ncol_global=nmo, context=blacs_env)
+               ALLOCATE (scf_env%mom_overlap(ispin)%matrix)
                CALL cp_fm_create(scf_env%mom_overlap(ispin)%matrix, mo_mo_fmstruct)
                CALL cp_fm_struct_release(mo_mo_fmstruct)
             END DO
@@ -436,8 +437,9 @@ CONTAINS
             ALLOCATE (scf_env%mom_s_mo_coeff(nspins))
             DO ispin = 1, nspins
                NULLIFY (ao_mo_fmstruct, scf_env%mom_s_mo_coeff(ispin)%matrix)
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
                CALL cp_fm_get_info(mo_coeff, matrix_struct=ao_mo_fmstruct)
+               ALLOCATE (scf_env%mom_s_mo_coeff(ispin)%matrix)
                CALL cp_fm_create(scf_env%mom_s_mo_coeff(ispin)%matrix, ao_mo_fmstruct)
             END DO
          END IF
@@ -445,7 +447,7 @@ CONTAINS
          ! Original Maximum Overlap Method: keep orbitals from the previous SCF iteration
          IF (scf_control%diagonalization%mom_type == momtype_mom) THEN
             DO ispin = 1, nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, occupation_numbers=occ_nums)
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, occupation_numbers=occ_nums)
                CALL cp_fm_to_fm(mo_coeff, scf_env%mom_ref_mo_coeff(ispin)%matrix)
                CALL cp_fm_column_scale(scf_env%mom_ref_mo_coeff(ispin)%matrix, occ_nums)
             END DO
@@ -459,7 +461,7 @@ CONTAINS
          DO ispin = 1, nspins
 
             ! TO DO: sparse-matrix variant; check if use_mo_coeff_b is set, and if yes use mo_coeff_b instead
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, maxocc=maxocc, mo_coeff=mo_coeff, &
+            CALL get_mo_set(mo_set=mos(ispin), maxocc=maxocc, mo_coeff=mo_coeff, &
                             nao=nao, nmo=nmo, occupation_numbers=occ_nums)
 
             mo_coeff_ref => scf_env%mom_ref_mo_coeff(ispin)%matrix
@@ -470,7 +472,7 @@ CONTAINS
             CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, mo_coeff, svec, nmo)
 
             ! overlap = C(reference occupied)^T * S * C(new)
-            CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, mo_coeff_ref, svec, 0.0_dp, overlap)
+            CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, mo_coeff_ref, svec, 0.0_dp, overlap)
 
             ALLOCATE (proj(nmo))
             ALLOCATE (inds(nmo))
@@ -503,7 +505,7 @@ CONTAINS
             ! reorder occupation numbers according to overlap projections
             DO iproj = 1, nmo
                occ_nums(inds(iproj)) = tmp_occ_nums(iproj)
-            ENDDO
+            END DO
 
             DEALLOCATE (tmp_occ_nums)
             DEALLOCATE (inds)
@@ -512,20 +514,20 @@ CONTAINS
             ! locate the lowest non-fully occupied orbital
             DO lfomo = 1, nmo
                IF (occ_nums(lfomo) /= maxocc) EXIT
-            ENDDO
+            END DO
 
             ! locate the highest occupied orbital
             DO homo = nmo, 1, -1
                IF (occ_nums(homo) > 0.0_dp) EXIT
-            ENDDO
+            END DO
 
-            CALL set_mo_set(mo_set=mos(ispin)%mo_set, homo=homo, lfomo=lfomo)
+            CALL set_mo_set(mo_set=mos(ispin), homo=homo, lfomo=lfomo)
          END DO
-      ENDIF
+      END IF
 
       ! recompute density matrix
       DO ispin = 1, nspins
-         CALL calculate_density_matrix(mos(ispin)%mo_set, scf_env%p_mix_new(ispin, 1)%matrix)
+         CALL calculate_density_matrix(mos(ispin), scf_env%p_mix_new(ispin, 1)%matrix)
       END DO
 
       CALL timestop(handle)

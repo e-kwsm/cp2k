@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -38,7 +40,8 @@ MODULE mathlib
              get_pseudo_inverse_diag, &
              symmetrize_matrix, &
              unit_matrix, diag, &
-             erfc_cutoff
+             erfc_cutoff, &
+             complex_diag
 
    ! Public functions
 
@@ -52,15 +55,12 @@ MODULE mathlib
              inv_3x3, &
              lcm, &
              vector_product, &
-             matmul_3x3, &
-             matvec_3x3, &
              pswitch, &
              rotate_vector, &
              reflect_vector, &
-             dotprod_3d, &
-             transpose_3d, &
              expint, abnormal_value, &
-             get_diag
+             get_diag, &
+             set_diag
 
    INTERFACE det_3x3
       MODULE PROCEDURE det_3x3_1, det_3x3_2
@@ -141,7 +141,7 @@ CONTAINS
    END FUNCTION pswitch
 
 ! **************************************************************************************************
-!> \brief determins if a value is not normal (e.g. for Inf and Nan)
+!> \brief determines if a value is not normal (e.g. for Inf and Nan)
 !>        based on IO to work also under optimization.
 !> \param a input value
 !> \return TRUE for NaN and Inf
@@ -152,7 +152,7 @@ CONTAINS
       CHARACTER(LEN=32)                                  :: buffer
 
       abnormal_value = .FALSE.
-      ! the function should work when compiled witht -ffast-math and similar
+      ! the function should work when compiled with -ffast-math and similar
       ! unfortunately, that option asserts that all numbers are normals,
       ! which the compiler uses to optimize the function to .FALSE. if based on the IEEE module
       ! therefore, pass this to the Fortran runtime/printf, if things are NaN or Inf, error out.
@@ -266,7 +266,7 @@ CONTAINS
          denom = 1.0_dp
          DO i = 1, SIZE(k)
             denom = denom*fac(k(i))
-         ENDDO
+         END DO
          res = fac(n)/denom
       ELSE
          res = 0.0_dp
@@ -377,7 +377,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: eigval
       LOGICAL, INTENT(IN), OPTIONAL                      :: dac
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'diamat_all', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'diamat_all'
 
       INTEGER                                            :: handle, info, liwork, lwork, n, nb
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iwork
@@ -548,8 +548,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: a(:, :)
       INTEGER, INTENT(OUT)                               :: info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invmat', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: lwork, n
       INTEGER, ALLOCATABLE                               :: ipiv(:)
       REAL(KIND=dp), ALLOCATABLE                         :: work(:)
@@ -581,7 +579,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: a(:, :)
       CHARACTER(LEN=1), INTENT(IN), OPTIONAL             :: cholesky_triangle
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invmat_symm', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'invmat_symm'
 
       CHARACTER(LEN=1)                                   :: my_triangle
       INTEGER                                            :: handle, i, info, n
@@ -595,7 +593,7 @@ CONTAINS
          my_triangle = cholesky_triangle
       ELSE
          my_triangle = "U"
-      ENDIF
+      END IF
 
       ! do cholesky decomposition
       IF (.NOT. PRESENT(cholesky_triangle)) THEN
@@ -603,7 +601,7 @@ CONTAINS
          IF (info /= 0) THEN
             CPABORT("DPOTRF failed")
          END IF
-      ENDIF
+      END IF
 
       ! do inversion using the cholesky decomposition
       CALL dpotri(my_triangle, n, a, n, info)
@@ -614,12 +612,12 @@ CONTAINS
       IF (my_triangle == "U") THEN
          DO i = 1, n - 1
             a(i + 1:n, i) = a(i, i + 1:n)
-         ENDDO
+         END DO
       ELSE
          DO i = 1, n - 1
             a(i, i + 1:n) = a(i + 1:n, i)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       CALL timestop(handle)
 
@@ -654,9 +652,6 @@ CONTAINS
       CHARACTER(LEN=1), INTENT(IN), OPTIONAL             :: option
       LOGICAL, INTENT(IN), OPTIONAL                      :: improve
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_matrix_d', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=1)                                   :: norm, trans
       CHARACTER(LEN=default_string_length)               :: message
       INTEGER                                            :: info, iter, n
@@ -680,7 +675,7 @@ CONTAINS
          do_improve = improve
       ELSE
          do_improve = .TRUE.
-      ENDIF
+      END IF
 
       ! Get the dimension of matrix a
       n = SIZE(a, 1)
@@ -779,7 +774,7 @@ CONTAINS
             IF (ABS(eval_error - old_eval_error) <= EPSILON(1.0_dp)) EXIT
 
          END DO
-      ENDIF
+      END IF
 
       ! Release work storage
       DEALLOCATE (work)
@@ -817,9 +812,6 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: a_inverse
       REAL(KIND=dp), INTENT(OUT)                         :: eval_error
       CHARACTER(LEN=1), INTENT(IN), OPTIONAL             :: option
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_matrix_z', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=1)                                   :: norm, trans
       CHARACTER(LEN=default_string_length)               :: message
@@ -966,8 +958,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT), &
          OPTIONAL, POINTER                               :: sval
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_pseudo_inverse_svd', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_pseudo_inverse_svd'
 
       INTEGER                                            :: handle, i, info, lwork, n
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iwork
@@ -1020,8 +1011,8 @@ CONTAINS
             sig_plus(i, i) = 1._dp/sig(i)
          ELSE
             sig_plus(i, i) = 0.0_dp
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! build pseudoinverse: V*sig_plus*UT
       CALL dgemm("N", "T", n, n, n, 1._dp, sig_plus, n, u, n, 0._dp, temp_mat, n)
@@ -1046,8 +1037,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :)                     :: a, a_pinverse
       REAL(KIND=dp), INTENT(IN)                          :: rskip
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_pseudo_inverse_diag', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_pseudo_inverse_diag'
 
       INTEGER                                            :: handle, i, info, lwork, n
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eig, work
@@ -1065,7 +1055,7 @@ CONTAINS
 
       ! work size query
       lwork = -1
-      CALL dsyev('V', 'U', n, a(1, 1), n, eig(1), work(1), lwork, info)
+      CALL dsyev('V', 'U', n, a, n, eig(1), work(1), lwork, info)
       IF (info /= 0) THEN
          CPABORT("ERROR in DSYEV: Could not retrieve work array sizes")
       END IF
@@ -1075,7 +1065,7 @@ CONTAINS
       work = 0.0_dp
 
       ! get eigenvalues and eigenvectors
-      CALL dsyev('V', 'U', n, a(1, 1), n, eig(1), work(1), lwork, info)
+      CALL dsyev('V', 'U', n, a, n, eig(1), work(1), lwork, info)
 
       IF (info /= 0) THEN
          CPABORT("Matrix diagonalization failed")
@@ -1087,8 +1077,8 @@ CONTAINS
             dinv(i, i) = 1.0_dp/eig(i)
          ELSE
             dinv(i, i) = 0._dp
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! build pseudoinverse: U*dinv*UT
       CALL dgemm("N", "T", n, n, n, 1._dp, dinv, n, a, n, 0._dp, temp_mat, n)
@@ -1226,9 +1216,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: a
       CHARACTER(LEN=*), INTENT(IN)                       :: option
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'symmetrize_matrix', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, n
 
       n = MIN(SIZE(a, 1), SIZE(a, 2))
@@ -1322,18 +1309,18 @@ CONTAINS
       ELSE
          s = ab
          l = aa
-      ENDIF
+      END IF
       IF (s .NE. 0) THEN
          DO
             rem = MOD(l, s)
             IF (rem == 0) EXIT
             l = s
             s = rem
-         ENDDO
+         END DO
          GCD = s
       ELSE
          GCD = l
-      ENDIF
+      END IF
    END FUNCTION gcd
 
 ! **************************************************************************************************
@@ -1368,7 +1355,6 @@ CONTAINS
    FUNCTION ei(x)
       REAL(dp)                                           :: x, ei
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ei', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: maxit = 100
       REAL(dp), PARAMETER                                :: eps = EPSILON(0.0_dp), &
                                                             fpmin = TINY(0.0_dp)
@@ -1412,77 +1398,6 @@ CONTAINS
    END FUNCTION ei
 
 ! **************************************************************************************************
-!> \brief ...
-!> \param mat1 ...
-!> \param mat2 ...
-!> \return ...
-! **************************************************************************************************
-   PURE FUNCTION matmul_3x3(mat1, mat2)
-      REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: mat1, mat2
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: matmul_3x3
-
-      matmul_3x3(1, 1) = mat1(1, 1)*mat2(1, 1) + mat1(1, 2)*mat2(2, 1) + mat1(1, 3)*mat2(3, 1)
-      matmul_3x3(1, 2) = mat1(1, 1)*mat2(1, 2) + mat1(1, 2)*mat2(2, 2) + mat1(1, 3)*mat2(3, 2)
-      matmul_3x3(1, 3) = mat1(1, 1)*mat2(1, 3) + mat1(1, 2)*mat2(2, 3) + mat1(1, 3)*mat2(3, 3)
-      matmul_3x3(2, 1) = mat1(2, 1)*mat2(1, 1) + mat1(2, 2)*mat2(2, 1) + mat1(2, 3)*mat2(3, 1)
-      matmul_3x3(2, 2) = mat1(2, 1)*mat2(1, 2) + mat1(2, 2)*mat2(2, 2) + mat1(2, 3)*mat2(3, 2)
-      matmul_3x3(2, 3) = mat1(2, 1)*mat2(1, 3) + mat1(2, 2)*mat2(2, 3) + mat1(2, 3)*mat2(3, 3)
-      matmul_3x3(3, 1) = mat1(3, 1)*mat2(1, 1) + mat1(3, 2)*mat2(2, 1) + mat1(3, 3)*mat2(3, 1)
-      matmul_3x3(3, 2) = mat1(3, 1)*mat2(1, 2) + mat1(3, 2)*mat2(2, 2) + mat1(3, 3)*mat2(3, 2)
-      matmul_3x3(3, 3) = mat1(3, 1)*mat2(1, 3) + mat1(3, 2)*mat2(2, 3) + mat1(3, 3)*mat2(3, 3)
-   END FUNCTION matmul_3x3
-
-! **************************************************************************************************
-!> \brief ...
-!> \param res ...
-!> \param mat ...
-!> \param vec ...
-! **************************************************************************************************
-   PURE SUBROUTINE matvec_3x3(res, mat, vec)
-      REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: res
-      REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: mat
-      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: vec
-
-      res(1) = mat(1, 1)*vec(1) + mat(1, 2)*vec(2) + mat(1, 3)*vec(3)
-      res(2) = mat(2, 1)*vec(1) + mat(2, 2)*vec(2) + mat(2, 3)*vec(3)
-      res(3) = mat(3, 1)*vec(1) + mat(3, 2)*vec(2) + mat(3, 3)*vec(3)
-   END SUBROUTINE matvec_3x3
-
-! **************************************************************************************************
-!> \brief ...
-!> \param vec1 ...
-!> \param vec2 ...
-!> \return ...
-! **************************************************************************************************
-   PURE FUNCTION dotprod_3d(vec1, vec2)
-      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: vec1, vec2
-      REAL(KIND=dp)                                      :: dotprod_3d
-
-      dotprod_3d = &
-         vec1(1)*vec2(1) &
-         + vec1(2)*vec2(2) &
-         + vec1(3)*vec2(3)
-   END FUNCTION dotprod_3d
-
-! **************************************************************************************************
-!> \brief ...
-!> \param mat ...
-!> \return ...
-! **************************************************************************************************
-   PURE FUNCTION transpose_3d(mat)
-      REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: mat
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: transpose_3d
-
-      INTEGER                                            :: i, j
-
-      DO i = 1, 3
-         DO j = 1, 3
-            transpose_3d(j, i) = mat(i, j)
-         END DO
-      END DO
-   END FUNCTION transpose_3d
-
-! **************************************************************************************************
 !> \brief computes the exponential integral
 !>      En(x) = Int(exp(-x*t)/t^n,t=1..infinity)  x>0, n=0,1,..
 !>      Note: Ei(-x) = -E1(x)
@@ -1493,11 +1408,11 @@ CONTAINS
 !>      05.2007 Created
 !> \author Manuel Guidon (adapted from Numerical recipies)
 ! **************************************************************************************************
-   FUNCTION expint(n, x)
-      INTEGER                                            :: n
-      REAL(dp)                                           :: x, expint
+   ELEMENTAL IMPURE FUNCTION expint(n, x)
+      INTEGER, INTENT(IN)                                :: n
+      REAL(dp), INTENT(IN)                               :: x
+      REAL(dp)                                           :: expint
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'expint', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: maxit = 100
       REAL(dp), PARAMETER :: eps = 6.e-14_dp, euler = 0.5772156649015328606065120_dp, &
          fpmin = TINY(0.0_dp)
@@ -1752,8 +1667,6 @@ CONTAINS
    SUBROUTINE swap_vector(a, b)
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: a, b
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'swap_vector', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, n
       REAL(KIND=dp)                                      :: c
 
@@ -1787,8 +1700,7 @@ CONTAINS
       REAL(dp), INTENT(in)  :: eps, omg
       REAL(dp), INTENT(out) :: r_cutoff
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'erfc_cutoff', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'erfc_cutoff'
 
       REAL(dp), PARAMETER :: abstol = 1E-10_dp, soltol = 1E-16_dp
       REAL(dp) :: r0, f0, fprime0, delta_r
@@ -1829,5 +1741,55 @@ CONTAINS
       END SUBROUTINE eval_transc_func
    END SUBROUTINE erfc_cutoff
 
-END MODULE mathlib
+! **************************************************************************************************
+!> \brief Diagonalizes a local complex Hermitian matrix using LAPACK. Based on cp_cfm_heevd
+!> \param matrix ...
+!> \param eigenvectors ...
+!> \param eigenvalues ...
+!> \author A. Bussy
+! **************************************************************************************************
+   SUBROUTINE complex_diag(matrix, eigenvectors, eigenvalues)
 
+      COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT)    :: matrix, eigenvectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: eigenvalues
+
+      COMPLEX(KIND=dp), DIMENSION(:), ALLOCATABLE        :: work
+      INTEGER                                            :: info, liwork, lrwork, lwork, n
+      INTEGER, DIMENSION(:), ALLOCATABLE                 :: iwork
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE           :: rwork
+
+      eigenvectors(:, :) = matrix(:, :)
+
+      n = SIZE(matrix, 1)
+      ALLOCATE (iwork(1), rwork(1), work(1))
+
+      ! work space query
+      lwork = -1
+      lrwork = -1
+      liwork = -1
+
+      CALL ZHEEVD('V', 'U', n, eigenvectors, n, eigenvalues, work, lwork, rwork, lrwork, iwork, liwork, info)
+
+      lwork = CEILING(REAL(work(1), KIND=dp))
+      lrwork = CEILING(REAL(rwork(1), KIND=dp))
+      liwork = iwork(1)
+
+      DEALLOCATE (iwork, rwork, work)
+
+      ALLOCATE (iwork(liwork))
+      iwork(:) = 0
+      ALLOCATE (rwork(lrwork))
+      rwork(:) = 0.0_dp
+      ALLOCATE (work(lwork))
+      work(:) = CMPLX(0.0_dp, 0.0_dp, KIND=dp)
+
+      !diagonalization proper
+      CALL ZHEEVD('V', 'U', n, eigenvectors, n, eigenvalues, work, lwork, rwork, lrwork, iwork, liwork, info)
+
+      IF (info /= 0) &
+         CPABORT("Diagonalisation of a complex matrix failed")
+      DEALLOCATE (iwork, rwork, work)
+
+   END SUBROUTINE complex_diag
+
+END MODULE mathlib

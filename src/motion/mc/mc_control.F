@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -80,8 +82,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nchains
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_mc_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'write_mc_restart'
 
       CHARACTER(LEN=20)                                  :: ensemble
       CHARACTER(LEN=default_path_length)                 :: restart_file_name
@@ -141,10 +142,10 @@ CONTAINS
                      TRIM(ADJUSTL(name)), &
                      particles%els(iparticle)%r(1:3)*angstrom
                   iparticle = iparticle + 1
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDIF
+               END DO
+            END DO
+         END DO
+      END IF
 
       CALL close_file(unit_number=unit)
 
@@ -173,8 +174,7 @@ CONTAINS
       INTEGER, INTENT(INOUT)                             :: mc_nunits_tot
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_mc_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'read_mc_restart'
 
       CHARACTER(5), ALLOCATABLE, DIMENSION(:)            :: atom_symbols
       CHARACTER(default_string_length), &
@@ -219,7 +219,7 @@ CONTAINS
          READ (unit, *) temperature, nunits_tot
          READ (unit, *) ensemble
          READ (unit, *) nchains(1:nmol_types)
-      ENDIF
+      END IF
       CALL mp_bcast(nstart, source, group)
       CALL mp_bcast(temperature, source, group)
       CALL mp_bcast(nunits_tot, source, group)
@@ -233,27 +233,27 @@ CONTAINS
                'not the same as the input file.'
             WRITE (iw, *) 'Input file temperature =', mc_temp
             WRITE (iw, *) 'Restart file temperature =', temperature
-         ENDIF
+         END IF
          CPABORT("Temperature difference between restart and input")
-      ENDIF
+      END IF
       IF (nunits_tot .NE. mc_nunits_tot) THEN
          IF (ionode) THEN
             WRITE (iw, *) 'The total number of units in the restart ', &
                'file is not the same as the input file.'
             WRITE (iw, *) 'Input file units =', mc_nunits_tot
             WRITE (iw, *) 'Restart file units =', nunits_tot
-         ENDIF
+         END IF
          mc_nunits_tot = nunits_tot
-      ENDIF
+      END IF
       IF (ensemble .NE. mc_ensemble) THEN
          IF (ionode) THEN
             WRITE (iw, *) 'The ensemble in the restart file is ', &
                'not the same as the input file.'
             WRITE (iw, *) 'Input file ensemble =', mc_ensemble
             WRITE (iw, *) 'Restart file ensemble =', ensemble
-         ENDIF
+         END IF
          CPABORT("Ensembles different between restart and input")
-      ENDIF
+      END IF
 
       ! get the cell length and coordinates
       CALL force_env_get(force_env, cell=cell, subsys=subsys)
@@ -265,7 +265,7 @@ CONTAINS
          READ (unit, *) box_length(1:3) ! in angstroms
          READ (unit, *)
          box_length(1:3) = box_length(1:3)/angstrom ! convert to a.u.
-      ENDIF
+      END IF
       CALL mp_bcast(box_length, source, group)
       IF (ABS(box_length(1) - abc(1)) .GT. 0.0001E0_dp .OR. &
           ABS(box_length(2) - abc(2)) .GT. 0.0001E0_dp .OR. &
@@ -275,10 +275,10 @@ CONTAINS
                'not the same as the input file.'
             WRITE (iw, *) 'Input file cell length =', abc(1:3)*angstrom
             WRITE (iw, *) 'Restart file cell length =', box_length(1:3)*angstrom
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
-      ! allocate the array holding the coordiantes, and read in the coordiantes,
+      ! allocate the array holding the coordinates, and read in the coordinates,
       ! and write the dat file so we can make a new force_env
       IF (SUM(nchains(:)) == 0) THEN
          ALLOCATE (r(3, nunits(1)))
@@ -287,13 +287,13 @@ CONTAINS
          DO iunit = 1, nunits(1)
             r(1:3, iunit) = (/REAL(iunit, dp), REAL(iunit, dp), REAL(iunit, dp)/)
             atom_symbols(iunit) = atom_names(iunit, 1)
-         ENDDO
+         END DO
 
          IF (ionode) THEN
             CALL mc_make_dat_file_new(r(:, :), atom_symbols, 0, &
                                       box_length(:), dat_file, nchains(:), mc_input_file)
             CALL close_file(unit_number=unit)
-         ENDIF
+         END IF
       ELSE
          ALLOCATE (r(3, nunits_tot))
          ALLOCATE (atom_symbols(nunits_tot))
@@ -302,15 +302,15 @@ CONTAINS
             DO ipart = 1, nunits_tot
                READ (unit, *) atom_symbols(ipart), r(1:3, ipart)
                r(1:3, ipart) = r(1:3, ipart)/angstrom
-            ENDDO
+            END DO
 
             CALL close_file(unit_number=unit)
 
             CALL mc_make_dat_file_new(r(:, :), atom_symbols, nunits_tot, &
                                       box_length(:), dat_file, nchains(:), mc_input_file)
 
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL set_mc_par(mc_par, nstart=nstart)
 
@@ -318,8 +318,8 @@ CONTAINS
       IF (ionode) THEN
          DO i = 1, nstart + 1
             rand = rng_stream%next()
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       ! end the timing
       CALL timestop(handle)
@@ -350,9 +350,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       CHARACTER(LEN=*), INTENT(IN)                       :: input_file_name
       TYPE(global_environment_type), OPTIONAL, POINTER   :: globenv_new
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mc_create_force_env', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: f_env_id, ierr, output_unit
       TYPE(f_env_type), POINTER                          :: f_env
@@ -406,9 +403,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       TYPE(mc_input_file_type), POINTER                  :: mc_input_file
       LOGICAL, INTENT(IN)                                :: ionode
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mc_create_bias_force_env', &
-         routineP = moduleN//':'//routineN
 
       IF (ionode) &
          CALL mc_make_dat_file_new(r(:, :), atom_symbols, nunits_tot, &

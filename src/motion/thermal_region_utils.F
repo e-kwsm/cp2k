@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -31,6 +33,7 @@ MODULE thermal_region_utils
    USE input_constants,                 ONLY: langevin_ensemble,&
                                               npt_f_ensemble,&
                                               npt_i_ensemble,&
+                                              npt_ia_ensemble,&
                                               nvt_ensemble
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
@@ -77,9 +80,6 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_thermal_regions', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: my_region
       INTEGER                                            :: i, il, ipart, ireg, nlist, nregions
       INTEGER, DIMENSION(:), POINTER                     :: tmplist
@@ -93,12 +93,14 @@ CONTAINS
       TYPE(thermal_region_type), POINTER                 :: t_region
 
       NULLIFY (region_sections, t_region, thermal_region_section, particles, subsys, tmplist)
+      ALLOCATE (thermal_regions)
       CALL allocate_thermal_regions(thermal_regions)
       thermal_region_section => section_vals_get_subs_vals(md_section, "THERMAL_REGION")
       CALL section_vals_get(thermal_region_section, explicit=explicit)
       IF (explicit) THEN
          apply_thermostat = (simpar%ensemble == nvt_ensemble) .OR. &
                             (simpar%ensemble == npt_f_ensemble) .OR. &
+                            (simpar%ensemble == npt_ia_ensemble) .OR. &
                             (simpar%ensemble == npt_i_ensemble)
          IF (apply_thermostat) THEN
             CALL cp_warn(__LOCATION__, &
@@ -188,10 +190,12 @@ CONTAINS
             simpar%do_thermal_region = .TRUE.
          ELSE
             CALL release_thermal_regions(thermal_regions)
+            DEALLOCATE (thermal_regions)
             simpar%do_thermal_region = .FALSE.
          END IF
       ELSE
          CALL release_thermal_regions(thermal_regions)
+         DEALLOCATE (thermal_regions)
          simpar%do_thermal_region = .FALSE.
       END IF
 
@@ -216,9 +220,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itimes
       REAL(KIND=dp), INTENT(IN)                          :: time
       CHARACTER(LEN=default_string_length)               :: pos, act
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_thermal_regions_temperature', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: fmd
       INTEGER                                            :: ireg, nregions, unit
@@ -274,9 +275,6 @@ CONTAINS
       TYPE(thermal_regions_type), POINTER                :: thermal_regions
       TYPE(simpar_type), POINTER                         :: simpar
       CHARACTER(LEN=default_string_length)               :: pos, act
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_thermal_regions_langevin', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ipart, ipart_reg, ireg, natoms, &
                                                             print_unit

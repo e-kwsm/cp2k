@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -126,9 +128,6 @@ CONTAINS
       TYPE(bend_kind_type), DIMENSION(:), POINTER        :: bend_kind_set
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_bend_kind_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       NULLIFY (bend_kind_set)
@@ -159,9 +158,6 @@ CONTAINS
       TYPE(bond_kind_type), DIMENSION(:), POINTER        :: bond_kind_set
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_bond_kind_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       NULLIFY (bond_kind_set)
@@ -184,9 +180,6 @@ CONTAINS
 
       TYPE(torsion_kind_type), DIMENSION(:), POINTER     :: torsion_kind_set
       INTEGER, INTENT(IN)                                :: nkind
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_torsion_kind_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind
 
@@ -213,9 +206,6 @@ CONTAINS
       TYPE(ub_kind_type), DIMENSION(:), POINTER          :: ub_kind_set
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_ub_kind_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       NULLIFY (ub_kind_set)
@@ -237,9 +227,6 @@ CONTAINS
 
       TYPE(impr_kind_type), DIMENSION(:), POINTER        :: impr_kind_set
       INTEGER, INTENT(IN)                                :: nkind
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_impr_kind_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind
 
@@ -263,9 +250,6 @@ CONTAINS
       TYPE(opbend_kind_type), DIMENSION(:), POINTER      :: opbend_kind_set
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_opbend_kind_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
 
       NULLIFY (opbend_kind_set)
@@ -285,9 +269,6 @@ CONTAINS
    SUBROUTINE deallocate_bend_kind_set(bend_kind_set)
 
       TYPE(bend_kind_type), DIMENSION(:), POINTER        :: bend_kind_set
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_bend_kind_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -309,9 +290,6 @@ CONTAINS
 
       TYPE(bond_kind_type), DIMENSION(:), POINTER        :: bond_kind_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_bond_kind_set', &
-         routineP = moduleN//':'//routineN
-
       DEALLOCATE (bond_kind_set)
 
    END SUBROUTINE deallocate_bond_kind_set
@@ -323,9 +301,6 @@ CONTAINS
    SUBROUTINE torsion_kind_dealloc_ref(torsion_kind)
 
       TYPE(torsion_kind_type), INTENT(INOUT)             :: torsion_kind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'torsion_kind_dealloc_ref', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(torsion_kind%k)) THEN
          DEALLOCATE (torsion_kind%k)
@@ -346,9 +321,6 @@ CONTAINS
    SUBROUTINE ub_kind_dealloc_ref(ub_kind_set)
       TYPE(ub_kind_type), DIMENSION(:), POINTER          :: ub_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ub_kind_dealloc_ref', &
-         routineP = moduleN//':'//routineN
-
       DEALLOCATE (ub_kind_set)
 
    END SUBROUTINE ub_kind_dealloc_ref
@@ -357,9 +329,6 @@ CONTAINS
 !> \brief Deallocate a impr kind element
 ! **************************************************************************************************
    SUBROUTINE impr_kind_dealloc_ref()
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'impr_kind_dealloc_ref', &
-         routineP = moduleN//':'//routineN
 
 !
 ! Questa e' la migliore routine che mente umana abbia concepito! ;-)

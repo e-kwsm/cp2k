@@ -5,60 +5,69 @@
 # shellcheck disable=SC1091
 source /opt/cp2k-toolchain/install/setup
 
-cd /workspace/cp2k
+cd /opt/cp2k
 echo -n "Compiling cp2k... "
-if make -j VERSION=pdbg &> /dev/null ; then
-   echo "done."
+if make -j VERSION=sdbg &> make.out; then
+  echo "done."
 else
-   echo -e "failed.\n\n"
-   echo "Summary: Compilation failed."
-   echo "Status: FAILED"
-   exit
+  echo -e "failed.\n\n"
+  tail -n 100 make.out
+  echo -e "\nSummary: Compilation failed."
+  echo -e "Status: FAILED\n"
+  exit 0
 fi
 
-echo -e "\n========== Installing CP2K =========="
+cat > /usr/bin/cp2k_shell << EndOfMessage
+#!/bin/bash -e
+source /opt/cp2k-toolchain/install/setup
+export OMP_NUM_THREADS=1
+/opt/cp2k/exe/local/cp2k_shell.sdbg "\$@"
+EndOfMessage
+chmod +x /usr/bin/cp2k_shell
+
 # The cp2k main binary is used by ase/test/cp2k/cp2k_dcd.py.
 # https://gitlab.com/ase/ase/merge_requests/1109
 cat > /usr/bin/cp2k << EndOfMessage
 #!/bin/bash -e
 source /opt/cp2k-toolchain/install/setup
-mpiexec -np 2 /workspace/cp2k/exe/local/cp2k.pdbg "\$@"
+export OMP_NUM_THREADS=1
+/opt/cp2k/exe/local/cp2k.sdbg "\$@"
 EndOfMessage
 chmod +x /usr/bin/cp2k
 
+mkdir -p ~/.config/ase
+cat > ~/.config/ase/ase.conf << EndOfMessage
+[executables]
+cp2k = /usr/bin/cp2k_shell
+cp2k_main = /usr/bin/cp2k
+EndOfMessage
+
+echo -e "\n========== Installing Dependencies =========="
+apt-get update -qq
+apt-get install -qq --no-install-recommends \
+  python3 \
+  python3-dev \
+  python3-pip \
+  python3-wheel \
+  python3-setuptools \
+  build-essential
+rm -rf /var/lib/apt/lists/*
+
 echo -e "\n========== Installing ASE =========="
+git clone --quiet --depth=1 --single-branch -b master https://gitlab.com/ase/ase.git /opt/ase
 cd /opt/ase/
-git pull
-pip3 install .
+pip3 install ".[test]"
 
 echo -e "\n========== Running ASE Tests =========="
-cd /opt/ase/
-export ASE_CP2K_COMMAND="mpiexec -np 2 /workspace/cp2k/exe/local/cp2k_shell.pdbg"
-
-set +e # disable error trapping for remainder of script
-(
-set -e # abort if error is encountered
-for i in ./ase/test/cp2k/cp2k_*.py
-do
-  echo "Running $i ..."
-  python3 "$i" |& tee "/tmp/test_ase.out"
-  if grep "Exception ignored" "/tmp/test_ase.out" ; then
-    exit 1  # Found unraisable exception, e.g. in __del__.
-  fi
-done
-)
-
-EXIT_CODE=$?
-
-echo ""
-
 ASE_REVISION=$(git rev-parse --short HEAD)
-if (( EXIT_CODE )); then
-    echo "Summary: Something is wrong with ASE commit ${ASE_REVISION}."
-    echo "Status: FAILED"
+echo -
+
+if ase test -j 0 -c cp2k calculator/cp2k; then
+  echo -e "\nSummary: ASE commit ${ASE_REVISION} works fine."
+  echo -e "Status: OK\n"
 else
-    echo "Summary: ASE commit ${ASE_REVISION} works fine."
-    echo "Status: OK"
+  echo -e "\nSummary: Something is wrong with ASE commit ${ASE_REVISION}."
+  echo -e "Status: FAILED\n"
 fi
 
 #EOF

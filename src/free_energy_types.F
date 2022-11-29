@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -86,8 +88,6 @@ CONTAINS
       TYPE(free_energy_type), POINTER                    :: fe_env
       TYPE(section_vals_type), POINTER                   :: fe_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fe_env_create', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, id_method
       LOGICAL                                            :: explicit
       TYPE(section_vals_type), POINTER                   :: ui_section, ui_var_section
@@ -154,8 +154,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fe_env_release(fe_env)
       TYPE(free_energy_type), POINTER                    :: fe_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fe_env_release', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 

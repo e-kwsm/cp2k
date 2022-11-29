@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,8 +46,7 @@ CONTAINS
 
       TYPE(mc_averages_type), POINTER                    :: averages
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_averages_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_averages_create'
 
       INTEGER                                            :: handle
 
@@ -76,8 +77,7 @@ CONTAINS
 
       TYPE(mc_averages_type), POINTER                    :: averages
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_averages_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_averages_release'
 
       INTEGER                                            :: handle
 
@@ -104,7 +104,7 @@ CONTAINS
 !> \param energy_check the sum of the energy changes of each move
 !> \param initial_energy the initial unbiased energy of the system
 !> \param final_energy the final unbiased energy of the system
-!> \param averages the structure that holds computed average properites for
+!> \param averages the structure that holds computed average properties for
 !>               the simulation
 !>
 !>    Only use in serial.
@@ -120,7 +120,7 @@ CONTAINS
                                                             final_energy
       TYPE(mc_averages_type), POINTER                    :: averages
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'final_mc_write', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'final_mc_write'
 
       CHARACTER(LEN=5)                                   :: molecule_string, tab_string
       CHARACTER(LEN=default_string_length)               :: format_string, string1, string2, string3
@@ -156,7 +156,7 @@ CONTAINS
       IF (pmswap .GT. 0.0E0_dp) THEN
          WRITE (iw, '(A,T66,F15.8)') "Average number of molecules:", &
             averages%molecules
-      ENDIF
+      END IF
       WRITE (iw, '(A,A,T65,F16.6)') "Average Volume ", &
          "[angstroms**3]:", averages%ave_volume*angstrom**3
 
@@ -199,9 +199,9 @@ CONTAINS
             CALL final_move_write(all_moves(1)%moves%bias_cltrans, string1, string2, iw, &
                                   displacement=rmcltrans, lbias=lbias, format_string=format_string, &
                                   string3=string3)
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
 ! Hybrid MC moves (basically short MD runs)
       string2 = "Attempted       Accepted       Percent"
@@ -275,7 +275,7 @@ CONTAINS
                "Box Was Empty: ", moves%empty_conf
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '--------------------------------'
-         ENDIF
+         END IF
 
 ! translation moves
          string1 = "Translation Moves"
@@ -303,7 +303,7 @@ CONTAINS
                REAL(moves%empty, dp)/ &
                REAL(moves%swap%attempts, dp)*100.0E0_dp
             WRITE (iw, '(A,T43,A)') "                  Growths", &
-               "Attempted       Sucessful      Percent"
+               "Attempted       Successful     Percent"
             WRITE (iw, '(T46,I6,9X,I6,7X,F7.3)') &
                moves%swap%attempts, &
                moves%grown, &
@@ -318,7 +318,7 @@ CONTAINS
                REAL(moves%swap%attempts, dp)*100.0E0_dp
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '--------------------------------'
-         ENDIF
+         END IF
 
 ! now we write out information on the classical moves, if it's
 ! a classical simulations
@@ -359,18 +359,18 @@ CONTAINS
                                   displacement=rmrot(itype), lbias=lbias, format_string=format_string, &
                                   string3=string3)
 
-         ENDIF
+         END IF
 
-      ENDDO
+      END DO
 
 ! see if the energies add up properly
       IF (ABS(initial_energy + energy_check - final_energy) .GT. 0.0000001E0_dp) &
          THEN
          WRITE (iw, *) '!!!!!!! We have an energy problem. !!!!!!!!'
          WRITE (iw, '(A,T64,F16.10)') 'Final Energy = ', final_energy
-         WRITE (iw, '(A,T64,F16.10)') 'Inital Energy + energy_check =', &
+         WRITE (iw, '(A,T64,F16.10)') 'Initial Energy + energy_check =', &
             initial_energy + energy_check
-      ENDIF
+      END IF
       WRITE (iw, '(A,A)') '****************************************************', &
          '****************************'
       WRITE (iw, *)
@@ -413,12 +413,12 @@ CONTAINS
                REAL(move_data%attempts, dp)*100.0E0_dp
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '---------------------------------'
-         ENDIF
+         END IF
       ELSE
          IF (.NOT. PRESENT(string3) .OR. .NOT. PRESENT(lbias) .OR. &
              .NOT. PRESENT(displacement)) THEN
             WRITE (iw, *) 'MISSING FLAGS IN FINAL_MOVE_WRITE'
-         ENDIF
+         END IF
          IF (move_data%attempts .GT. 0) THEN
             WRITE (iw, '(A,T43,A)') TRIM(ADJUSTL(string1)), &
                TRIM(ADJUSTL(string2))
@@ -431,8 +431,8 @@ CONTAINS
                string3, displacement
             WRITE (iw, '(A,A)') '-----------------------------------------------', &
                '---------------------------------'
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
    END SUBROUTINE final_move_write
 
@@ -446,7 +446,7 @@ CONTAINS
 !>      assumptions than before.
 !>
 !>      box_length and coordinates should be passed in a.u.
-!> \param coordinates the coordiantes of the atoms in the force_env (a.u.)
+!> \param coordinates the coordinates of the atoms in the force_env (a.u.)
 !> \param atom_names ...
 !> \param nunits_tot the total number of atoms
 !> \param box_length the length of all sides of the simulation box (angstrom)
@@ -466,9 +466,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: filename
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nchains
       TYPE(mc_input_file_type), POINTER                  :: mc_input_file
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mc_make_dat_file_new', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(60)                                      :: cell_string, mol_string
       CHARACTER(default_string_length)                   :: line_text
@@ -500,7 +497,7 @@ CONTAINS
 ! first, write all the information up to the cell lengths
       DO iline = 1, cell_row - 1
          WRITE (unit, '(A)') TRIM(text(iline))
-      ENDDO
+      END DO
 ! substitute in the current cell lengths
       WRITE (cell_string, '(3(F13.8,2X))') box_length(1:3)*angstrom
       line_text = text(cell_row)
@@ -510,7 +507,7 @@ CONTAINS
 ! now write everything until the coordinates
       DO iline = cell_row + 1, coord_row_start
          WRITE (unit, '(A)') TRIM(text(iline))
-      ENDDO
+      END DO
 
 ! we may pass nunits_tot=0, but we should still have coordinates
       IF (nunits_tot == 0) THEN
@@ -518,41 +515,41 @@ CONTAINS
             WRITE (unit, '(5X,A,2X,3(F15.10))') &
                TRIM(ADJUSTL(atom_names_empty(iunit))), &
                coordinates_empty(1:3, iunit)*angstrom
-         ENDDO
+         END DO
       ELSE
          DO iunit = 1, nunits_tot
             WRITE (unit, '(5X,A,2X,3(F15.10))') &
                TRIM(ADJUSTL(atom_names(iunit))), &
                coordinates(1:3, iunit)*angstrom
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
 ! now we need to write the MOL_SET section
       start_line = coord_row_end
       DO itype = 1, nmol_types
          DO iline = start_line, mol_set_nmol_row(itype) - 1
             WRITE (unit, '(A)') TRIM(text(iline))
-         ENDDO
+         END DO
 
 ! have to print out one molecule, even if it's empty
          IF (nunits_tot == 0 .AND. itype == 1) THEN
             WRITE (mol_string, '(I8)') 1
          ELSE
             WRITE (mol_string, '(I8)') nchains(itype)
-         ENDIF
+         END IF
 
          line_text = text(mol_set_nmol_row(itype))
          line_text(mol_set_nmol_column(itype):mol_set_nmol_column(itype) + 9) = &
             mol_string(1:10)
          WRITE (unit, '(A)') TRIM(line_text)
          start_line = mol_set_nmol_row(itype) + 1
-      ENDDO
+      END DO
 
 ! write up to the RUN_TYPE...tailor this for the type of environment, so
 ! that we can easily do ./cp2k.sdbg input.dat and have it run
       DO iline = mol_set_nmol_row(nmol_types) + 1, run_type_row - 1
          WRITE (unit, '(A)') TRIM(text(iline))
-      ENDDO
+      END DO
       SELECT CASE (in_use)
       CASE (use_fist_force)
          WRITE (unit, '(A)') '  RUN_TYPE     ENERGY_FORCE'
@@ -561,10 +558,10 @@ CONTAINS
       END SELECT
       DO iline = run_type_row + 1, global_row_end
          WRITE (unit, '(A)') TRIM(text(iline))
-      ENDDO
+      END DO
       DO iline = motion_row_start, motion_row_end
          WRITE (unit, '(A)') TRIM(text(iline))
-      ENDDO
+      END DO
 
 ! close the file
       CALL close_file(unit_number=unit)

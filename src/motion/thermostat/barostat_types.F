@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,7 +21,8 @@ MODULE barostat_types
                                               nph_uniaxial_damped_ensemble,&
                                               nph_uniaxial_ensemble,&
                                               npt_f_ensemble,&
-                                              npt_i_ensemble
+                                              npt_i_ensemble,&
+                                              npt_ia_ensemble
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
@@ -43,12 +46,11 @@ MODULE barostat_types
    PRIVATE
    PUBLIC :: barostat_type, &
              create_barostat_type, &
-             release_barostat_type, &
-             retain_barostat_type
+             release_barostat_type
 
 ! **************************************************************************************************
    TYPE barostat_type
-      INTEGER                          :: id_nr, ref_count
+      INTEGER                          :: ref_count
       INTEGER                          :: type_of_barostat, virial_components
       REAL(KIND=dp)                    :: temp_ext
       TYPE(npt_info_type), POINTER  :: npt(:, :)
@@ -58,7 +60,6 @@ MODULE barostat_types
 ! *** Global parameters ***
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'barostat_types'
-   INTEGER, PRIVATE, SAVE               :: last_barostat_id_nr = 0
 
 CONTAINS
 
@@ -81,9 +82,6 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_barostat_type', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: check, explicit
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: barostat_section
@@ -93,14 +91,13 @@ CONTAINS
       barostat_section => section_vals_get_subs_vals(md_section, "BAROSTAT")
       CALL section_vals_get(barostat_section, explicit=explicit)
       IF (simpar%ensemble == npt_i_ensemble .OR. &
+          simpar%ensemble == npt_ia_ensemble .OR. &
           simpar%ensemble == npt_f_ensemble .OR. &
           simpar%ensemble == npe_f_ensemble .OR. &
           simpar%ensemble == npe_i_ensemble .OR. &
           simpar%ensemble == nph_uniaxial_ensemble .OR. &
           simpar%ensemble == nph_uniaxial_damped_ensemble) THEN
          ALLOCATE (barostat)
-         last_barostat_id_nr = last_barostat_id_nr + 1
-         barostat%id_nr = last_barostat_id_nr
          barostat%ref_count = 1
          barostat%section => barostat_section
          NULLIFY (barostat%npt)
@@ -128,29 +125,10 @@ CONTAINS
          IF (explicit) &
             CALL cp_warn(__LOCATION__, &
                          "A barostat has been defined with an MD ensemble which does not support barostat! "// &
-                         "It's definition will be ignored!")
+                         "Its definition will be ignored!")
       END IF
 
    END SUBROUTINE create_barostat_type
-
-! **************************************************************************************************
-!> \brief retains the given barostat
-!> \param barostat ...
-!> \par History
-!>      09.2007 created [tlaino]
-!> \author Teodoro Laino
-! **************************************************************************************************
-   SUBROUTINE retain_barostat_type(barostat)
-      TYPE(barostat_type), POINTER                       :: barostat
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'retain_barostat_type', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(barostat)) THEN
-         CPASSERT(barostat%ref_count > 0)
-         barostat%ref_count = barostat%ref_count + 1
-      END IF
-   END SUBROUTINE retain_barostat_type
 
 ! **************************************************************************************************
 !> \brief ...
@@ -161,9 +139,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_barostat_type(barostat)
       TYPE(barostat_type), POINTER                       :: barostat
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_barostat_type', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: check
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE se_fock_matrix_dbg
@@ -45,9 +47,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_p
       LOGICAL, INTENT(IN)                                :: calculate_forces
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dbg_energy_coulomb_lr', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ispin
       REAL(KIND=dp)                                      :: ecoul

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -93,8 +95,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:)                       :: f
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: vac_plus
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'coulomb2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ax, ay, az, coc, cocx, cocy, cocz, cx, &
                                                             cy, cz, i, ipgf, j, jpgf, la, lc, &
@@ -450,8 +450,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:)                       :: f
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: vac_plus
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'coulomb2_new', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ax, ay, az, coc, cocx, cocy, cocz, cx, &
                                                             cy, cz, i, ipgf, j, jpgf, la, lc, &
@@ -815,8 +813,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:)                       :: f
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: vabc_plus
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'coulomb3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ax, ay, az, bx, by, bz, coc, cocx, cocy, &
                                                             cocz, cx, cy, cz, i, ipgf, j, jpgf, k, &

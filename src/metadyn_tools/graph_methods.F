@@ -1,8 +1,9 @@
 !--------------------------------------------------------------------------------------------------!
-!   FES: a fast and general program to map metadynamics on grids                                   !
-!   Copyright (C) 2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013                      !
-!                 Teodoro Laino                                               !
-!-----------------------------------------------------------------------------!
+!   CP2K: A general program to perform molecular dynamics simulations                              !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
+!--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief   Program to Map on grid the hills spawned during a metadynamics run
@@ -426,7 +427,7 @@ CONTAINS
 
       ELSE
          pos = mep_input_data%minima
-      ENDIF
+      END IF
 
       ! Compute value and derivative in all replicas
       DO irep = 1, nreplica
@@ -631,7 +632,7 @@ CONTAINS
 
       IF (residual .GT. 1.0d-6) THEN
          WRITE (*, *)
-         WRITE (*, *) 'ERROR: this progam can only handle orthogonal cells'
+         WRITE (*, *) 'ERROR: this program can only handle orthogonal cells'
          WRITE (*, *) ' with vectors pointing in the X, Y and Z directions'
          CPABORT("")
       END IF

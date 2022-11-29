@@ -15,20 +15,17 @@
     &END QS
 
     &XC
-      &XC_FUNCTIONAL 
-         &LIBXC
-            FUNCTIONAL LDA_C_VWN
-         &END LIBXC
+      &XC_FUNCTIONAL
+         &LDA_C_VWN
+         &END LDA_C_VWN
          !Range separated, need 100% of long-range and 75% of short range LDA exchange
-         !Long-range obtained by substracting short-range from normal => end up with -0.25 scale
-         &LIBXC
-            FUNCTIONAL LDA_X
-         &END LIBXC 
-         &LIBXC
-            FUNCTIONAL LDA_X_ERF
+         !Long-range obtained by subtracting short-range from normal => end up with -0.25 scale
+         &LDA_X
+         &END LDA_X
+         &LDA_X_ERF
             SCALE -0.25
-            PARAMETERS 0.6
-         &END LIBXC
+            _OMEGA 0.6
+         &END LDA_X_ERF
       &END XC_FUNCTIONAL
       &HF
          FRACTION 0.25
@@ -42,26 +39,24 @@
     &XAS_TDP
       &DONOR_STATES
          DEFINE_EXCITED BY_INDEX
-         AT_LIST 1 
+         AT_LIST 1
          STATE_TYPES 1s
          N_SEARCH 8
          LOCALIZE
       &END DONOR_STATES
 
-      TAMM_DANCOFF 
+      TAMM_DANCOFF
       GRID Ne 150 150
       N_EXCITED 10
 
       &KERNEL
-         &XC_FUNCTIONAL 
-            &LIBXC
-               FUNCTIONAL LDA_C_VWN
-            &END LIBXC
-            &LIBXC
-               FUNCTIONAL LDA_X_ERF
+         &XC_FUNCTIONAL
+            &LDA_C_VWN
+            &END LDA_C_VWN
+            &LDA_X_ERF
                SCALE 0.75
-               PARAMETERS 0.6
-            &END LIBXC
+               _OMEGA 0.6
+            &END LDA_X_ERF
          &END XC_FUNCTIONAL
 
          &EXACT_EXCHANGE

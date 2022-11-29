@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,6 +15,8 @@ MODULE xc_hcth
    USE cp_log_handling,                 ONLY: cp_to_string
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi
+   USE xc_derivative_desc,              ONLY: deriv_norm_drho,&
+                                              deriv_rho
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -46,8 +50,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'hcth_lda_info', routineP = moduleN//':'//routineN
 
       SELECT CASE (iparset)
       CASE (93)
@@ -107,44 +109,39 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE hcth_lda_eval(iparset, rho_set, deriv_set, grad_deriv)
       INTEGER, INTENT(in)                                :: iparset
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: grad_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hcth_lda_eval', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: e_0, e_ndrho, e_rho, norm_drho, rho
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: e_0, e_ndrho, e_rho, norm_drho, rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
-      NULLIFY (bo, e_0, e_ndrho, e_rho, norm_drho, rho)
+      NULLIFY (e_0, e_ndrho, e_rho, norm_drho, rho)
 
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           norm_drho=norm_drho, local_bounds=bo, rho_cutoff=epsilon_rho)
       npoints = (bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1)
 
       IF (grad_deriv >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
-      deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+      deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                       allocate_deriv=.TRUE.)
       CALL xc_derivative_get(deriv, deriv_data=e_rho)
-      deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)", &
+      deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho], &
                                       allocate_deriv=.TRUE.)
       CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
       IF (grad_deriv > 1 .OR. grad_deriv < -1) THEN
@@ -187,7 +184,6 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho
       INTEGER, INTENT(IN)                                :: npoints
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hcth_lda_calc', routineP = moduleN//':'//routineN
       REAL(KIND=dp), DIMENSION(4), PARAMETER :: &
          beta0 = (/7.59570_dp, 3.58760_dp, 1.63820_dp, 0.49294_dp/), &
          beta1 = (/14.11890_dp, 6.19770_dp, 3.36620_dp, 0.62517_dp/)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -369,6 +371,7 @@ MODULE almo_scf_types
       TYPE(optimizer_options_type)                   :: opt_xalmo_pcg
       TYPE(optimizer_options_type)                   :: opt_xalmo_trustr
       TYPE(optimizer_options_type)                   :: opt_nlmo_pcg
+      TYPE(optimizer_options_type)                   :: opt_block_diag_trustr
       TYPE(optimizer_options_type)                   :: opt_xalmo_newton_pcg_solver
       TYPE(optimizer_options_type)                   :: opt_k_pcg
 
@@ -434,9 +437,6 @@ CONTAINS
       TYPE(optimizer_options_type), INTENT(IN)           :: optimizer
       INTEGER, INTENT(IN)                                :: unit_nr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_optimizer_options', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(33)                                      :: conj_string, prec_string, type_string
 
       IF (unit_nr .GT. 0) THEN
@@ -458,7 +458,7 @@ CONTAINS
 
             WRITE (unit_nr, '(T4,A,T48,I33)') "maximum DIIS history:", optimizer%ndiis
 
-         ENDIF
+         END IF
 
          IF (optimizer%optimizer_type .EQ. optimizer_trustr .OR. &
              optimizer%optimizer_type .EQ. optimizer_pcg) THEN
@@ -496,7 +496,7 @@ CONTAINS
             END SELECT
             WRITE (unit_nr, '(T4,A,T48,A33)') "conjugator:", TRIM(conj_string)
 
-         ENDIF
+         END IF
 
          IF (optimizer%optimizer_type .EQ. optimizer_pcg) THEN
 
@@ -504,8 +504,12 @@ CONTAINS
                optimizer%lin_search_step_size_guess
             WRITE (unit_nr, '(T4,A,T48,E33.3)') "line search target error:", &
                optimizer%lin_search_eps_error
+            IF (optimizer%neglect_threshold .GT. 0.0_dp) THEN
+               WRITE (unit_nr, '(T4,A,T48,E33.3)') "low-curvature threshold:", &
+                  optimizer%neglect_threshold
+            END IF
 
-         ENDIF
+         END IF
 
          IF (optimizer%optimizer_type .EQ. optimizer_trustr) THEN
 
@@ -528,9 +532,9 @@ CONTAINS
             WRITE (unit_nr, '(T4,A,T48,E33.3)') "rho of no update lies between .0 and .25:", &
                optimizer%rho_do_not_update
 
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
    END SUBROUTINE print_optimizer_options
 
@@ -544,8 +548,7 @@ CONTAINS
    SUBROUTINE almo_scf_env_release(almo_scf_env)
       TYPE(almo_scf_env_type), POINTER                   :: almo_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_env_release'
 
       INTEGER                                            :: handle, ispin, istore
 
@@ -555,10 +558,10 @@ CONTAINS
       DO ispin = 1, SIZE(almo_scf_env%almo_history%matrix_t)
          DO istore = 1, MIN(almo_scf_env%almo_history%istore, almo_scf_env%almo_history%nstore)
             CALL dbcsr_release(almo_scf_env%almo_history%matrix_p_up_down(ispin, istore))
-         ENDDO
+         END DO
          IF (almo_scf_env%almo_history%istore .GT. 0) &
             CALL dbcsr_release(almo_scf_env%almo_history%matrix_t(ispin))
-      ENDDO
+      END DO
       DEALLOCATE (almo_scf_env%almo_history%matrix_p_up_down)
       DEALLOCATE (almo_scf_env%almo_history%matrix_t)
       ! delete xalmo history
@@ -566,10 +569,10 @@ CONTAINS
          DO istore = 1, MIN(almo_scf_env%xalmo_history%istore, almo_scf_env%xalmo_history%nstore)
             CALL dbcsr_release(almo_scf_env%xalmo_history%matrix_p_up_down(ispin, istore))
             !CALL dbcsr_release(almo_scf_env%xalmo_history%matrix_x(ispin, istore))
-         ENDDO
+         END DO
          IF (almo_scf_env%xalmo_history%istore .GT. 0) &
             CALL dbcsr_release(almo_scf_env%xalmo_history%matrix_t(ispin))
-      ENDDO
+      END DO
       DEALLOCATE (almo_scf_env%xalmo_history%matrix_p_up_down)
       !DEALLOCATE (almo_scf_env%xalmo_history%matrix_x)
       DEALLOCATE (almo_scf_env%xalmo_history%matrix_t)

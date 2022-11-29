@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -12,6 +14,7 @@
 MODULE admm_dm_methods
    USE admm_dm_types,                   ONLY: admm_dm_type,&
                                               mcweeny_history_type
+   USE admm_types,                      ONLY: get_admm_env
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
    USE cp_log_handling,                 ONLY: cp_logger_get_default_unit_nr
@@ -24,10 +27,11 @@ MODULE admm_dm_methods
                                               do_admm_blocked_projection
    USE iterate_matrix,                  ONLY: invert_Hotelling
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_elec
-   USE qs_ks_types,                     ONLY: get_ks_env,&
-                                              qs_ks_env_type
+   USE qs_environment_types,            ONLY: get_qs_env,&
+                                              qs_environment_type
+   USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_set,&
                                               qs_rho_type
@@ -44,52 +48,50 @@ MODULE admm_dm_methods
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief Entry methods: Calculates auxilary density matrix from primary one.
-!> \param ks_env ...
+!> \brief Entry methods: Calculates auxiliary density matrix from primary one.
+!> \param qs_env ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE admm_dm_calc_rho_aux(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE admm_dm_calc_rho_aux(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'admm_dm_calc_rho_aux', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'admm_dm_calc_rho_aux'
 
       INTEGER                                            :: handle
       TYPE(admm_dm_type), POINTER                        :: admm_dm
 
       NULLIFY (admm_dm)
       CALL timeset(routineN, handle)
-      CALL get_ks_env(ks_env, admm_dm=admm_dm)
+      CALL get_admm_env(qs_env%admm_env, admm_dm=admm_dm)
 
       SELECT CASE (admm_dm%method)
       CASE (do_admm_basis_projection)
-         CALL map_dm_projection(ks_env)
+         CALL map_dm_projection(qs_env)
 
       CASE (do_admm_blocked_projection)
-         CALL map_dm_blocked(ks_env)
+         CALL map_dm_blocked(qs_env)
 
       CASE DEFAULT
          CPABORT("admm_dm_calc_rho_aux: unknown method")
       END SELECT
 
       IF (admm_dm%purify) &
-         CALL purify_mcweeny(ks_env)
+         CALL purify_mcweeny(qs_env)
 
-      CALL update_rho_aux(ks_env)
+      CALL update_rho_aux(qs_env)
 
       CALL timestop(handle)
    END SUBROUTINE admm_dm_calc_rho_aux
 
 ! **************************************************************************************************
-!> \brief Entry methods: Merges auxilary Kohn-Sham matrix into primary one.
-!> \param ks_env ...
+!> \brief Entry methods: Merges auxiliary Kohn-Sham matrix into primary one.
+!> \param qs_env ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE admm_dm_merge_ks_matrix(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE admm_dm_merge_ks_matrix(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'admm_dm_merge_ks_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'admm_dm_merge_ks_matrix'
 
       INTEGER                                            :: handle
       TYPE(admm_dm_type), POINTER                        :: admm_dm
@@ -98,20 +100,20 @@ CONTAINS
       CALL timeset(routineN, handle)
       NULLIFY (admm_dm, matrix_ks_merge)
 
-      CALL get_ks_env(ks_env, admm_dm=admm_dm)
+      CALL get_admm_env(qs_env%admm_env, admm_dm=admm_dm)
 
       IF (admm_dm%purify) THEN
-         CALL revert_purify_mcweeny(ks_env, matrix_ks_merge)
+         CALL revert_purify_mcweeny(qs_env, matrix_ks_merge)
       ELSE
-         CALL get_ks_env(ks_env, matrix_ks_aux_fit=matrix_ks_merge)
-      ENDIF
+         CALL get_admm_env(qs_env%admm_env, matrix_ks_aux_fit=matrix_ks_merge)
+      END IF
 
       SELECT CASE (admm_dm%method)
       CASE (do_admm_basis_projection)
-         CALL merge_dm_projection(ks_env, matrix_ks_merge)
+         CALL merge_dm_projection(qs_env, matrix_ks_merge)
 
       CASE (do_admm_blocked_projection)
-         CALL merge_dm_blocked(ks_env, matrix_ks_merge)
+         CALL merge_dm_blocked(qs_env, matrix_ks_merge)
 
       CASE DEFAULT
          CPABORT("admm_dm_merge_ks_matrix: unknown method")
@@ -125,15 +127,12 @@ CONTAINS
    END SUBROUTINE admm_dm_merge_ks_matrix
 
 ! **************************************************************************************************
-!> \brief Calculates auxilary density matrix via basis projection.
-!> \param ks_env ...
+!> \brief Calculates auxiliary density matrix via basis projection.
+!> \param qs_env ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE map_dm_projection(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'map_dm_projection', &
-         routineP = moduleN//':'//routineN
+   SUBROUTINE map_dm_projection(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
       INTEGER                                            :: ispin
       LOGICAL                                            :: s_mstruct_changed
@@ -148,14 +147,9 @@ CONTAINS
       NULLIFY (dft_control, admm_dm, matrix_s_aux, matrix_s_mixed, rho, rho_aux)
       NULLIFY (rho_ao, rho_ao_aux)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      matrix_s_aux_fit=matrix_s_aux, &
-                      matrix_s_aux_fit_vs_orb=matrix_s_mixed, &
-                      s_mstruct_changed=s_mstruct_changed, &
-                      rho=rho, &
-                      rho_aux_fit=rho_aux)
+      CALL get_qs_env(qs_env, dft_control=dft_control, s_mstruct_changed=s_mstruct_changed, rho=rho)
+      CALL get_admm_env(qs_env%admm_env, matrix_s_aux_fit=matrix_s_aux, rho_aux_fit=rho_aux, &
+                        matrix_s_aux_fit_vs_orb=matrix_s_mixed, admm_dm=admm_dm)
 
       CALL qs_rho_get(rho, rho_ao=rho_ao)
       CALL qs_rho_get(rho_aux, rho_ao=rho_ao_aux)
@@ -169,11 +163,11 @@ CONTAINS
          IF (.NOT. ASSOCIATED(admm_dm%matrix_A)) THEN
             ALLOCATE (admm_dm%matrix_A)
             CALL dbcsr_create(admm_dm%matrix_A, template=matrix_s_mixed(1)%matrix, matrix_type="N")
-         ENDIF
+         END IF
          CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_aux_inv, matrix_s_mixed(1)%matrix, &
                              0.0_dp, admm_dm%matrix_A)
          CALL dbcsr_release(matrix_s_aux_inv)
-      ENDIF
+      END IF
 
       ! Calculate P_aux = A * P * A^T
       CALL dbcsr_create(matrix_tmp, template=admm_dm%matrix_A)
@@ -188,12 +182,12 @@ CONTAINS
    END SUBROUTINE map_dm_projection
 
 ! **************************************************************************************************
-!> \brief Calculates auxilary density matrix via blocking.
-!> \param ks_env ...
+!> \brief Calculates auxiliary density matrix via blocking.
+!> \param qs_env ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE map_dm_blocked(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE map_dm_blocked(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
       INTEGER                                            :: blk, iatom, ispin, jatom
       LOGICAL                                            :: found
@@ -206,11 +200,8 @@ CONTAINS
 
       NULLIFY (dft_control, admm_dm, rho, rho_aux, rho_ao, rho_ao_aux)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      rho=rho, &
-                      rho_aux_fit=rho_aux)
+      CALL get_qs_env(qs_env, dft_control=dft_control, rho=rho)
+      CALL get_admm_env(qs_env%admm_env, rho_aux_fit=rho_aux, admm_dm=admm_dm)
 
       CALL qs_rho_get(rho, rho_ao=rho_ao)
       CALL qs_rho_get(rho_aux, rho_ao=rho_ao_aux)
@@ -230,34 +221,33 @@ CONTAINS
             END IF
          END DO
          CALL dbcsr_iterator_stop(iter)
-      ENDDO
+      END DO
 
    END SUBROUTINE map_dm_blocked
 
 ! **************************************************************************************************
-!> \brief Call calculate_rho_elec() for auxilary density
-!> \param ks_env ...
+!> \brief Call calculate_rho_elec() for auxiliary density
+!> \param qs_env ...
 ! **************************************************************************************************
-   SUBROUTINE update_rho_aux(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE update_rho_aux(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
       INTEGER                                            :: ispin
       REAL(KIND=dp), DIMENSION(:), POINTER               :: tot_rho_r_aux
       TYPE(admm_dm_type), POINTER                        :: admm_dm
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao_aux
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g_aux, rho_r_aux
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g_aux, rho_r_aux
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho_aux
       TYPE(task_list_type), POINTER                      :: task_list_aux_fit
 
       NULLIFY (dft_control, admm_dm, rho_aux, rho_ao_aux, rho_r_aux, rho_g_aux, tot_rho_r_aux, &
-               task_list_aux_fit)
+               task_list_aux_fit, ks_env)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      rho_aux_fit=rho_aux, &
-                      task_list_aux_fit=task_list_aux_fit)
+      CALL get_qs_env(qs_env, ks_env=ks_env, dft_control=dft_control)
+      CALL get_admm_env(qs_env%admm_env, task_list_aux_fit=task_list_aux_fit, rho_aux_fit=rho_aux, &
+                        admm_dm=admm_dm)
 
       CALL qs_rho_get(rho_aux, &
                       rho_ao=rho_ao_aux, &
@@ -281,13 +271,13 @@ CONTAINS
    END SUBROUTINE update_rho_aux
 
 ! **************************************************************************************************
-!> \brief Merges auxilary Kohn-Sham matrix via basis projection.
-!> \param ks_env ...
+!> \brief Merges auxiliary Kohn-Sham matrix via basis projection.
+!> \param qs_env ...
 !> \param matrix_ks_merge Input: The KS matrix to be merged
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE merge_dm_projection(ks_env, matrix_ks_merge)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE merge_dm_projection(qs_env, matrix_ks_merge)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks_merge
 
       INTEGER                                            :: ispin
@@ -298,10 +288,8 @@ CONTAINS
 
       NULLIFY (admm_dm, dft_control, matrix_ks)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      matrix_ks=matrix_ks)
+      CALL get_qs_env(qs_env, dft_control=dft_control, matrix_ks=matrix_ks)
+      CALL get_admm_env(qs_env%admm_env, admm_dm=admm_dm)
 
       ! Calculate K += A^T * K_aux * A
       CALL dbcsr_create(matrix_tmp, template=admm_dm%matrix_A, matrix_type="N")
@@ -318,13 +306,13 @@ CONTAINS
    END SUBROUTINE merge_dm_projection
 
 ! **************************************************************************************************
-!> \brief Merges auxilary Kohn-Sham matrix via blocking.
-!> \param ks_env ...
+!> \brief Merges auxiliary Kohn-Sham matrix via blocking.
+!> \param qs_env ...
 !> \param matrix_ks_merge Input: The KS matrix to be merged
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE merge_dm_blocked(ks_env, matrix_ks_merge)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE merge_dm_blocked(qs_env, matrix_ks_merge)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks_merge
 
       INTEGER                                            :: blk, iatom, ispin, jatom
@@ -336,10 +324,8 @@ CONTAINS
 
       NULLIFY (admm_dm, dft_control, matrix_ks)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      matrix_ks=matrix_ks)
+      CALL get_qs_env(qs_env, dft_control=dft_control, matrix_ks=matrix_ks)
+      CALL get_admm_env(qs_env%admm_env, admm_dm=admm_dm)
 
       DO ispin = 1, dft_control%nspins
          CALL dbcsr_iterator_start(iter, matrix_ks_merge(ispin)%matrix)
@@ -350,19 +336,19 @@ CONTAINS
          END DO
          CALL dbcsr_iterator_stop(iter)
          CALL dbcsr_add(matrix_ks(ispin)%matrix, matrix_ks_merge(ispin)%matrix, 1.0_dp, 1.0_dp)
-      ENDDO
+      END DO
 
    END SUBROUTINE merge_dm_blocked
 
 ! **************************************************************************************************
-!> \brief Apply McWeeny purification to auxilary density matrix
-!> \param ks_env ...
+!> \brief Apply McWeeny purification to auxiliary density matrix
+!> \param qs_env ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE purify_mcweeny(ks_env)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE purify_mcweeny(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'purify_mcweeny', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'purify_mcweeny'
 
       INTEGER                                            :: handle, ispin, istep, nspins, unit_nr
       REAL(KIND=dp)                                      :: frob_norm
@@ -379,11 +365,9 @@ CONTAINS
                matrix_p, matrix_s, rho_ao_aux)
 
       unit_nr = cp_logger_get_default_unit_nr()
-      CALL get_ks_env(ks_env, &
-                      dft_control=dft_control, &
-                      admm_dm=admm_dm, &
-                      matrix_s_aux_fit=matrix_s_aux_fit, &
-                      rho_aux_fit=rho_aux_fit)
+      CALL get_qs_env(qs_env, dft_control=dft_control)
+      CALL get_admm_env(qs_env%admm_env, matrix_s_aux_fit=matrix_s_aux_fit, &
+                        rho_aux_fit=rho_aux_fit, admm_dm=admm_dm)
 
       CALL qs_rho_get(rho_aux_fit, rho_ao=rho_ao_aux)
 
@@ -442,17 +426,16 @@ CONTAINS
    END SUBROUTINE purify_mcweeny
 
 ! **************************************************************************************************
-!> \brief Prepare auxilary KS-matrix for merge using reverse McWeeny
-!> \param ks_env ...
+!> \brief Prepare auxiliary KS-matrix for merge using reverse McWeeny
+!> \param qs_env ...
 !> \param matrix_ks_merge Output: The KS matrix for the merge
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE revert_purify_mcweeny(ks_env, matrix_ks_merge)
-      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+   SUBROUTINE revert_purify_mcweeny(qs_env, matrix_ks_merge)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks_merge
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'revert_purify_mcweeny', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'revert_purify_mcweeny'
 
       INTEGER                                            :: handle, ispin, nspins, unit_nr
       TYPE(admm_dm_type), POINTER                        :: admm_dm
@@ -469,13 +452,9 @@ CONTAINS
                matrix_s_aux_fit, matrix_s_aux_fit_vs_orb, &
                history_next, history_curr, matrix_k)
 
-      CALL get_ks_env(ks_env, &
-                      admm_dm=admm_dm, &
-                      dft_control=dft_control, &
-                      matrix_ks=matrix_ks, &
-                      matrix_ks_aux_fit=matrix_ks_aux_fit, &
-                      matrix_s_aux_fit=matrix_s_aux_fit, &
-                      matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb)
+      CALL get_qs_env(qs_env, dft_control=dft_control, matrix_ks=matrix_ks)
+      CALL get_admm_env(qs_env%admm_env, matrix_s_aux_fit=matrix_s_aux_fit, admm_dm=admm_dm, &
+                        matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb, matrix_ks_aux_fit=matrix_ks_aux_fit)
 
       nspins = dft_control%nspins
       ALLOCATE (matrix_ks_merge(nspins))
@@ -517,8 +496,7 @@ CONTAINS
    SUBROUTINE reverse_mcweeny_step(matrix_k, matrix_s, matrix_p)
       TYPE(dbcsr_type)                                   :: matrix_k, matrix_s, matrix_p
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'reverse_mcweeny_step', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'reverse_mcweeny_step'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_type)                                   :: matrix_ps, matrix_sp, matrix_sum, &

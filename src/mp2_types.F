@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -26,8 +28,18 @@ MODULE mp2_types
                                               ri_mp2_laplace,&
                                               ri_mp2_method_gpw,&
                                               ri_rpa_method_gpw
+   USE input_section_types,             ONLY: section_vals_release,&
+                                              section_vals_type
+   USE iso_c_binding,                   ONLY: c_ptr
    USE kinds,                           ONLY: dp
+   USE kpoint_types,                    ONLY: kpoint_type
    USE libint_2c_3c,                    ONLY: libint_potential_type
+   USE local_gemm_api,                  ONLY: LOCAL_GEMM_PU_GPU,&
+                                              local_gemm_create,&
+                                              local_gemm_destroy,&
+                                              local_gemm_set_op_threshold_gpu
+   USE qs_force_types,                  ONLY: qs_force_type
+   USE qs_p_env_types,                  ONLY: qs_p_env_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -48,15 +60,39 @@ MODULE mp2_types
              ri_mp2_laplace, &
              init_TShPSC_lmax
 
-   PUBLIC :: mp2_env_create, mp2_env_release, mp2_biel_type, &
+   PUBLIC :: mp2_env_create, &
+             mp2_env_release, &
+             mp2_biel_type, &
              pair_list_type_mp2, &
              one_dim_int_array, &
              two_dim_int_array, &
-             two_dim_real_array
+             one_dim_real_array, &
+             two_dim_real_array, &
+             three_dim_real_array
 
    INTEGER, SAVE                                         :: init_TShPSC_lmax = -1
 
 ! TYPE definitions
+
+   TYPE one_dim_int_array
+      INTEGER, DIMENSION(:), ALLOCATABLE    :: array
+   END TYPE
+
+   TYPE two_dim_int_array
+      INTEGER, DIMENSION(:, :), ALLOCATABLE :: array
+   END TYPE
+
+   TYPE one_dim_real_array
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: array
+   END TYPE
+
+   TYPE two_dim_real_array
+      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: array
+   END TYPE
+
+   TYPE three_dim_real_array
+      REAL(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE :: array
+   END TYPE
 
    TYPE mp2_biel_type
       INTEGER, DIMENSION(:, :), ALLOCATABLE :: index_table
@@ -64,9 +100,7 @@ MODULE mp2_types
 
    TYPE mp2_laplace_type
       INTEGER       :: n_quadrature
-      INTEGER       :: integ_group_size
-      LOGICAL       :: mo_sos
-      REAL(dp)      :: threshold
+      INTEGER       :: num_integ_groups
    END TYPE
 
    TYPE mp2_direct_type
@@ -83,21 +117,24 @@ MODULE mp2_types
 
    TYPE ri_mp2_type
       INTEGER                  :: block_size
-      REAL(dp)                 :: eps_canonical
-      LOGICAL                  :: free_hfx_buffer
+      LOGICAL                  :: print_dgemm_info
    END TYPE
 
    TYPE ri_rpa_type
       INTEGER                  :: rpa_num_quad_points
-      INTEGER                  :: rpa_integ_group_size
+      INTEGER                  :: rpa_num_integ_groups
       INTEGER                  :: mm_style
       TYPE(hfx_type), DIMENSION(:, :), POINTER &
-         :: x_data
+         :: x_data => NULL()
+      TYPE(section_vals_type), POINTER         :: xc_section_primary => Null(), &
+                                                  xc_section_aux => Null()
+      LOGICAL                  :: reuse_hfx
       LOGICAL                  :: minimax_quad
       LOGICAL                  :: do_ri_g0w0
       LOGICAL                  :: do_admm
       LOGICAL                  :: do_ri_axk
       LOGICAL                  :: do_rse
+      LOGICAL                  :: print_dgemm_info
       TYPE(dbcsr_type), POINTER             :: mo_coeff_o, &
                                                mo_coeff_v
       REAL(KIND=dp)            :: ener_axk
@@ -108,14 +145,28 @@ MODULE mp2_types
 
    TYPE ri_rpa_im_time_type
       INTEGER                  :: cut_memory
-      LOGICAL                  :: memory_info
-      REAL(KIND=dp)            :: eps_filter_im_time, cutoff, &
-                                  exp_kpoints
-      INTEGER                  :: group_size_P, group_size_3c
+      LOGICAL                  :: memory_info, make_chi_pos_definite, trunc_coulomb_ri_x, keep_quad, &
+                                  do_kpoints_from_Gamma, do_extrapolate_kpoints
+      REAL(KIND=dp)            :: eps_filter, &
+                                  eps_filter_factor, eps_compress, exp_tailored_weights, regularization_RI, &
+                                  eps_eigval_S, rel_cutoff_trunc_coulomb_ri_x
+      REAL(KIND=dp), DIMENSION(:), POINTER :: rel_cutoffs_chi_W, tau_tj, tau_wj, tj, wj
+      REAL(KIND=dp), DIMENSION(:, :), POINTER :: weights_cos_tf_t_to_w, weights_cos_tf_w_to_t
+      REAL(KIND=dp), DIMENSION(2) :: abs_cutoffs_chi_W
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: Eigenval_Gamma, wkp_V
+      INTEGER                  :: group_size_P, group_size_3c, kpoint_weights_W_method, k_mesh_g_factor
       INTEGER, DIMENSION(:), POINTER     :: kp_grid
+      INTEGER, DIMENSION(3) ::  kp_grid_extra
       LOGICAL                  :: do_im_time_kpoints
-      LOGICAL                  :: group_size_internal
-      INTEGER                  :: min_bsize
+      INTEGER                  :: min_bsize, min_bsize_mo, periodic_gf, nkp_orig, nkp_extra
+      TYPE(kpoint_type), POINTER :: kpoints_G, kpoints_Sigma, kpoints_Sigma_no_xc
+      INTEGER, ALLOCATABLE, DIMENSION(:)      :: starts_array_mc_RI, ends_array_mc_RI, &
+                                                 starts_array_mc_block_RI, &
+                                                 ends_array_mc_block_RI, &
+                                                 starts_array_mc, ends_array_mc, &
+                                                 starts_array_mc_block, &
+                                                 ends_array_mc_block
+
    END TYPE
 
    TYPE ri_g0w0_type
@@ -135,7 +186,7 @@ MODULE mp2_types
                                   do_periodic, &
                                   print_self_energy
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :) :: vec_Sigma_x_minus_vxc_gw
-      INTEGER, DIMENSION(:), POINTER    :: kp_grid
+      INTEGER, DIMENSION(:), POINTER    :: kp_grid, kp_grid_Sigma
       INTEGER                  :: num_kp_grids
       REAL(KIND=dp)            :: eps_kpoint
       LOGICAL                  :: do_mo_coeff_gamma, do_average_deg_levels
@@ -148,9 +199,15 @@ MODULE mp2_types
       REAL(KIND=dp)            :: eps_min_trans
       LOGICAL                  :: do_ic_model, print_ic_values
       REAL(KIND=dp)            :: eps_dist
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: ic_corr_list, ic_corr_list_beta
+      TYPE(one_dim_real_array), DIMENSION(2) :: ic_corr_list
       INTEGER :: print_exx
       LOGICAL :: do_gamma_only_sigma
+      LOGICAL :: update_xc_energy, do_kpoints_Sigma
+      INTEGER :: n_kp_in_kp_line, n_special_kp, nkp_self_energy, &
+                 nkp_self_energy_special_kp, nkp_self_energy_monkh_pack
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :) :: xkp_special_kp
+      TYPE(dbcsr_p_type), DIMENSION(:), ALLOCATABLE :: &
+         matrix_sigma_x_minus_vxc, matrix_ks
    END TYPE
 
    TYPE ri_basis_opt
@@ -163,21 +220,25 @@ MODULE mp2_types
    END TYPE
 
    TYPE grad_util
-      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: P_ij, P_ab, P_ij_beta, P_ab_beta
-      REAL(KIND=dp), DIMENSION(:, :, :), ALLOCATABLE :: Gamma_P_ia, Gamma_P_ia_beta
-      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: PQ_half, Gamma_PQ, Gamma_PQ_beta
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: G_P_ia, G_P_ia_beta
-      TYPE(dbcsr_type), POINTER             :: mo_coeff_o, mo_coeff_o_beta, &
-                                               mo_coeff_v, mo_coeff_v_beta
-      TYPE(cp_fm_type), POINTER                :: P_mo, P_mo_beta, W_mo, W_mo_beta, &
-                                                  L_jb, L_jb_beta
-      REAL(KIND=dp) :: cphf_eps_conv
-      INTEGER :: cphf_max_num_iter, num_sing_ij, num_sing_ij_beta
+      TYPE(two_dim_real_array), DIMENSION(2) :: P_ij, P_ab
+      TYPE(three_dim_real_array), DIMENSION(2) :: Gamma_P_ia
+      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: operator_half, PQ_half, Gamma_PQ, Gamma_PQ_2
+      TYPE(dbcsr_p_type), DIMENSION(:, :), ALLOCATABLE :: G_P_ia
+      TYPE(dbcsr_p_type), DIMENSION(:), ALLOCATABLE :: mo_coeff_o, mo_coeff_v
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:) :: P_mo, W_mo, L_jb
+      REAL(KIND=dp) :: cphf_eps_conv, scale_step_size
+      INTEGER :: cphf_max_num_iter, z_solver_method, cphf_restart
+      LOGICAL :: enforce_decrease, recalc_residual, polak_ribiere
+      TYPE(qs_p_env_type), POINTER :: p_env => NULL()
+      TYPE(qs_force_type), DIMENSION(:), POINTER :: mp2_force => NULL()
+      REAL(KIND=dp), DIMENSION(3, 3) :: mp2_virial
+      REAL(dp)                 :: eps_canonical
+      LOGICAL                  :: free_hfx_buffer
+      LOGICAL                  :: use_old_grad
+      INTEGER :: dot_blksize
    END TYPE
 
    TYPE mp2_type
-      REAL(KIND=dp)            :: energy
-      LOGICAL                  :: compute_reference
       INTEGER                  :: method
       TYPE(mp2_laplace_type)   :: ri_laplace
       TYPE(mp2_direct_type)    :: direct_canonical
@@ -205,21 +266,22 @@ MODULE mp2_types
       TYPE(cp_eri_mme_param), POINTER  :: eri_mme_param
       INTEGER, DIMENSION(:), POINTER  :: eri_blksize => NULL()
       LOGICAL  :: do_svd
-      REAL(KIND=dp) :: eps_svd
       REAL(KIND=dp) :: eps_range
       TYPE(libint_potential_type) :: ri_metric
+      TYPE(C_ptr)                 :: local_gemm_ctx
+      REAL(dp) :: e_gap, e_range
    END TYPE
 
    TYPE integ_mat_buffer_type
-      REAL(KIND=dp), DIMENSION(:), POINTER  :: msg
-      INTEGER, DIMENSION(:), POINTER  :: sizes
-      INTEGER, DIMENSION(:, :), POINTER  :: indx
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE  :: msg
+      INTEGER, DIMENSION(:), ALLOCATABLE  :: sizes
+      INTEGER, DIMENSION(:, :), ALLOCATABLE  :: indx
       INTEGER :: proc
       INTEGER :: msg_req
    END TYPE
 
    TYPE integ_mat_buffer_type_2D
-      REAL(KIND=dp), DIMENSION(:, :), POINTER  :: msg
+      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE  :: msg
       INTEGER :: proc
       INTEGER :: msg_req
    END TYPE
@@ -229,30 +291,6 @@ MODULE mp2_types
       INTEGER :: n_element
    END TYPE pair_list_type_mp2
 
-   TYPE offset_type
-      INTEGER, DIMENSION(:), POINTER :: offset_occ
-      INTEGER, DIMENSION(:), POINTER :: LLL
-   END TYPE
-
-   TYPE one_dim_int_array
-      INTEGER, DIMENSION(:), ALLOCATABLE    :: array
-   END TYPE
-
-   TYPE two_dim_int_array
-      INTEGER, DIMENSION(:, :), ALLOCATABLE :: array
-   END TYPE
-
-   TYPE two_dim_real_array
-      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: array
-   END TYPE
-
-   TYPE offset_row_col_from_LLL
-      INTEGER, DIMENSION(:), POINTER :: rows
-      INTEGER, DIMENSION(:), POINTER :: cols
-      INTEGER, DIMENSION(:), POINTER :: offset
-      INTEGER, DIMENSION(:), POINTER :: blocksize
-   END TYPE
-
 CONTAINS
 
 ! **************************************************************************************************
@@ -260,26 +298,31 @@ CONTAINS
 !> \param mp2_env ...
 ! **************************************************************************************************
    SUBROUTINE mp2_env_release(mp2_env)
-      TYPE(mp2_type), POINTER                            :: mp2_env
+      TYPE(mp2_type)                                     :: mp2_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mp2_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mp2_env_release'
 
       INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(mp2_env))
-
       ! release the HFX section for the EXX calculation
-      IF (ASSOCIATED(mp2_env%ri_rpa%x_data)) THEN
-         CALL hfx_release(mp2_env%ri_rpa%x_data)
+      IF (.NOT. mp2_env%ri_rpa%reuse_hfx) THEN
+         IF (ASSOCIATED(mp2_env%ri_rpa%x_data)) CALL hfx_release(mp2_env%ri_rpa%x_data)
       END IF
+      IF (ASSOCIATED(mp2_env%ri_rpa%xc_section_aux)) CALL section_vals_release(mp2_env%ri_rpa%xc_section_aux)
+      IF (ASSOCIATED(mp2_env%ri_rpa%xc_section_primary)) CALL section_vals_release(mp2_env%ri_rpa%xc_section_primary)
 
       IF (mp2_env%eri_method .EQ. do_eri_mme) CALL cp_eri_mme_finalize(mp2_env%eri_mme_param)
       IF (ASSOCIATED(mp2_env%eri_mme_param)) DEALLOCATE (mp2_env%eri_mme_param)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tau_tj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tau_tj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tau_wj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tau_wj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%tj)) DEALLOCATE (mp2_env%ri_rpa_im_time%tj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%wj)) DEALLOCATE (mp2_env%ri_rpa_im_time%wj)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%weights_cos_tf_t_to_w)) DEALLOCATE (mp2_env%ri_rpa_im_time%weights_cos_tf_t_to_w)
+      IF (ASSOCIATED(mp2_env%ri_rpa_im_time%weights_cos_tf_w_to_t)) DEALLOCATE (mp2_env%ri_rpa_im_time%weights_cos_tf_w_to_t)
 
-      DEALLOCATE (mp2_env)
+      CALL local_gemm_destroy(mp2_env%local_gemm_ctx)
 
       CALL timestop(handle)
 
@@ -292,7 +335,7 @@ CONTAINS
    SUBROUTINE mp2_env_create(mp2_env)
       TYPE(mp2_type), POINTER                            :: mp2_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mp2_env_create', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mp2_env_create'
 
       INTEGER                                            :: handle
 
@@ -301,6 +344,12 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(mp2_env))
 
       ALLOCATE (mp2_env)
+
+      ! these two functions are empty if spla is build without gpu support and
+      ! OFFLOAD_GEMM is not given at compilation time
+
+      CALL local_gemm_create(mp2_env%local_gemm_ctx, LOCAL_GEMM_PU_GPU)
+      CALL local_gemm_set_op_threshold_gpu(mp2_env%local_gemm_ctx, 128*128*128*2)
 
       NULLIFY (mp2_env%ri_rpa%x_data)
 

@@ -1,13 +1,15 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief stores a lists of integer that are local to a processor.
 !>      The idea is that these integers represent objects that are distributed
 !>      between the different processors.
-!>      The ordering is just to make some operation more efficent, logically
+!>      The ordering is just to make some operation more efficient, logically
 !>      these lists are like sets.
 !>      Some operations assume that the integers represent a range of values
 !>      from 1 to a (not too big) maxval, and that an element is present just
@@ -34,7 +36,6 @@ MODULE distribution_1d_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'distribution_1d_types'
-   INTEGER, SAVE, PRIVATE :: distribution_1d_last_id_nr = 0
 
    PUBLIC :: distribution_1d_type
    PUBLIC :: distribution_1d_create, distribution_1d_retain, distribution_1d_release
@@ -60,24 +61,13 @@ MODULE distribution_1d_types
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    TYPE distribution_1d_type
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       LOGICAL :: listbased_distribution
       INTEGER, DIMENSION(:), POINTER :: n_el
       TYPE(cp_1d_i_p_type), DIMENSION(:), POINTER :: list
       TYPE(cp_para_env_type), POINTER :: para_env
       TYPE(local_particle_type), DIMENSION(:), POINTER :: local_particle_set
    END TYPE distribution_1d_type
-
-! **************************************************************************************************
-!> \brief pointer to a distribution_1d_type
-!> \param distribution_1d: the pointer to the distribution_1d
-!> \par History
-!>      06.2003 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   TYPE distribution_1d_p_type
-      TYPE(distribution_1d_type), POINTER :: distribution_1d
-   END TYPE distribution_1d_p_type
 
 CONTAINS
 
@@ -101,9 +91,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(in), OPTIONAL        :: n_el
       INTEGER, INTENT(in), OPTIONAL                      :: n_lists
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_1d_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ilist, my_n_lists, stat
 
       my_n_lists = 1
@@ -111,8 +98,6 @@ CONTAINS
       IF (PRESENT(n_lists)) my_n_lists = n_lists
 
       ALLOCATE (distribution_1d)
-      distribution_1d_last_id_nr = distribution_1d_last_id_nr + 1
-      distribution_1d%id_nr = distribution_1d_last_id_nr
 
       distribution_1d%ref_count = 1
 
@@ -156,9 +141,6 @@ CONTAINS
    SUBROUTINE distribution_1d_retain(distribution_1d)
       TYPE(distribution_1d_type), POINTER                :: distribution_1d
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_1d_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(distribution_1d))
       CPASSERT(distribution_1d%ref_count > 0)
       distribution_1d%ref_count = distribution_1d%ref_count + 1
@@ -173,9 +155,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE distribution_1d_release(distribution_1d)
       TYPE(distribution_1d_type), POINTER                :: distribution_1d
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'distribution_1d_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ilist, iparticle_kind, iparticle_local, &
                                                             nparticle_kind, nparticle_local

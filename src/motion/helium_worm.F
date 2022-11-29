@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,17 +48,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_sample_worm(helium, pint_env)
 
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_sample_worm', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       CHARACTER(len=default_string_length)               :: stmp
       INTEGER :: ac, iatom, ibead, icrawl, iMC, imove, ncentracc, ncentratt, ncloseacc, ncloseatt, &
-         ncrawlbwdacc, ncrawlbwdatt, ncrawlfwdacc, ncrawlfwdatt, nMC, nmoveheadacc, nmoveheadatt, &
-         nmovetailacc, nmovetailatt, nopenacc, nopenatt, npswapacc, nstagacc, nstagatt, nstat, &
-         nswapacc, nswapatt, ntot, staging_l
+         ncrawlbwdacc, ncrawlbwdatt, ncrawlfwdacc, ncrawlfwdatt, ncycle, nMC, nmoveheadacc, &
+         nmoveheadatt, nmovetailacc, nmovetailatt, nopenacc, nopenatt, npswapacc, nstagacc, &
+         nstagatt, nstat, nswapacc, nswapatt, ntot, staging_l
       REAL(KIND=dp)                                      :: rtmp
 
       CALL helium_update_coord_system(helium, pint_env)
@@ -90,8 +89,14 @@ CONTAINS
       IF (helium%solute_present) helium%force_avrg(:, :) = 0.0d0
       helium%energy_avrg(:) = 0.0d0
       helium%plength_avrg(:) = 0.0d0
+      IF (helium%worm_max_open_cycles > 0) THEN
+         helium%savepos(:, :, :) = helium%pos(:, :, :)
+         helium%saveiperm(:) = helium%iperm(:)
+         helium%savepermutation(:) = helium%permutation(:)
+      END IF
 
       nMC = helium%iter_rot
+      ncycle = 0
       IF (helium%worm_allow_open) THEN
          DO ! Exit criterion at the end of the loop
             DO iMC = 1, nMC
@@ -214,7 +219,19 @@ CONTAINS
             IF (helium%worm_is_closed) THEN
                EXIT
             ELSE
-               nMC = MAX(helium%iter_rot/10, 10)
+               ncycle = ncycle + 1
+               ! reset position and permutation and start MC cycle again
+               ! if stuck in open position for too long
+               IF (helium%worm_max_open_cycles > 0 .AND. ncycle > helium%worm_max_open_cycles) THEN
+                  nMC = helium%iter_rot
+                  ncycle = 0
+                  helium%pos = helium%savepos
+                  helium%permutation = helium%savepermutation
+                  helium%iperm = helium%saveiperm
+                  CPWARN("Trapped in open state, reset helium to closed state from last MD step.")
+               ELSE
+                  nMC = MAX(helium%iter_rot/10, 10)
+               END IF
             END IF
          END DO !attempts loop
       ELSE ! only closed configurations allowed
@@ -237,7 +254,7 @@ CONTAINS
                nstagatt = nstagatt + 1
                nstagacc = nstagacc + ac
             ELSE
-               ! this must not occour
+               ! this must not occur
                CPABORT("Undefined move selected in helium worm sampling!")
             END IF
 
@@ -328,7 +345,6 @@ CONTAINS
 
       !CALL center_pos(helium)
 
-      RETURN
    END SUBROUTINE helium_sample_worm
 
 ! **************************************************************************************************
@@ -342,8 +358,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_centroid_move(pint_env, helium, iatom, drmax, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: iatom
       REAL(KIND=dp), INTENT(IN)                          :: drmax
       INTEGER, INTENT(OUT)                               :: ac
@@ -528,8 +544,6 @@ CONTAINS
       END DO
       helium%worm_xtra_bead(:) = helium%worm_xtra_bead_work(:)
 
-      RETURN
-
    END SUBROUTINE worm_centroid_move
 
 ! **************************************************************************************************
@@ -545,7 +559,7 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_centroid_move_action(helium, pos, iatom, xtrapos, winc) &
       RESULT(partaction)
 
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: iatom
@@ -636,7 +650,7 @@ CONTAINS
                   ! opatom is the atom in front of the first bead of the second atom
                   opatom = helium%iperm(ia)
                   ! if not in cycle, compute pair action
-                  ! substract pair action for closed link
+                  ! subtract pair action for closed link
                   r(:) = pos(:, helium%worm_atom_idx, 1) - pos(:, ia, 1)
                   rp(:) = pos(:, patom, helium%beads) - pos(:, opatom, helium%beads)
                   partaction = partaction - helium_eval_expansion(helium, r, rp, work3)
@@ -661,7 +675,7 @@ CONTAINS
                   END DO
                   IF (incycle) CYCLE
                   ! if not in cycle, compute pair action
-                  ! substract pair action for closed link
+                  ! subtract pair action for closed link
                   r(:) = pos(:, helium%worm_atom_idx, wbead) - pos(:, ia, wbead)
                   rp(:) = pos(:, helium%worm_atom_idx, wbead - 1) - pos(:, ia, wbead - 1)
                   partaction = partaction - helium_eval_expansion(helium, r, rp, work3)
@@ -688,7 +702,7 @@ CONTAINS
                ia = helium%permutation(iatom)
                DO WHILE (ia /= iatom)
                   opatom = helium%iperm(ia)
-                  ! substract pair action for closed link
+                  ! subtract pair action for closed link
                   r(:) = pos(:, helium%worm_atom_idx, 1) - pos(:, ia, 1)
                   rp(:) = pos(:, patom, helium%beads) - pos(:, opatom, helium%beads)
                   partaction = partaction - helium_eval_expansion(helium, r, rp, work3)
@@ -711,7 +725,7 @@ CONTAINS
                ! go through all other atoms, not in the exchange cycle, and correct pair action
                ia = helium%permutation(iatom)
                DO WHILE (ia /= iatom)
-                  ! substract pair action for closed link
+                  ! subtract pair action for closed link
                   r(:) = pos(:, helium%worm_atom_idx, wbead) - pos(:, ia, wbead)
                   rp(:) = pos(:, helium%worm_atom_idx, wbead - 1) - pos(:, ia, wbead - 1)
                   partaction = partaction - helium_eval_expansion(helium, r, rp, work3)
@@ -742,8 +756,8 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_centroid_move_inter_action(pint_env, helium, pos, iatom, xtrapos, winc) &
       RESULT(partaction)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: iatom
@@ -859,9 +873,9 @@ CONTAINS
    SUBROUTINE path_construct(helium, ri, rj, l, new_path)
 
       !constructs a path of length l between the positions ri and rj
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: ri, rj
-      INTEGER                                            :: l
+      INTEGER, INTENT(IN)                                :: l
       REAL(KIND=dp), DIMENSION(3, l), INTENT(OUT)        :: new_path
 
       INTEGER                                            :: idim, istage
@@ -900,8 +914,6 @@ CONTAINS
          new_path(:, istage) = new_path(:, istage) + weight*(rk*new_path(:, istage - 1) + re(:))
       END DO
 
-      RETURN
-
    END SUBROUTINE path_construct
 
 ! **************************************************************************************************
@@ -916,8 +928,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_staging_move(pint_env, helium, startatom, startbead, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: startatom, startbead, l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -950,7 +962,7 @@ CONTAINS
                          ((helium%worm_bead_idx > startbead) .OR. &
                           (helium%worm_bead_idx <= endbead)))
          IF (worm_overlap) THEN
-            ! if in addition the worm end is IN the reconstructed section reject imediately
+            ! if in addition the worm end is IN the reconstructed section reject immediately
             IF (((helium%worm_atom_idx == startatom) .AND. (helium%worm_bead_idx >= startbead)) .OR. &
                 ((helium%worm_atom_idx == endatom) .AND. (helium%worm_bead_idx <= endbead))) THEN
                ac = 0
@@ -988,7 +1000,7 @@ CONTAINS
          helium%work(:, startatom, ibead) = newsection(:, jbead)
          jbead = jbead + 1
       END DO
-      ! transfer the rest of the beads to coordinates of endatom if neccessary
+      ! transfer the rest of the beads to coordinates of endatom if necessary
       IF (helium%beads < startbead + l) THEN
          DO ibead = 1, endbead - 1
             helium%work(:, endatom, ibead) = newsection(:, jbead)
@@ -1033,7 +1045,7 @@ CONTAINS
                helium%work(:, startatom, ibead) = helium%pos(:, startatom, ibead)
                jbead = jbead + 1
             END DO
-            ! transfer the rest of the beads to coordinates of endatom if neccessary
+            ! transfer the rest of the beads to coordinates of endatom if necessary
             IF (helium%beads < startbead + l) THEN
                DO ibead = 1, endbead - 1
                   helium%work(:, endatom, ibead) = helium%pos(:, endatom, ibead)
@@ -1101,7 +1113,7 @@ CONTAINS
                helium%work(:, startatom, ibead) = helium%pos(:, startatom, ibead)
                jbead = jbead + 1
             END DO
-            ! transfer the rest of the beads to coordinates of endatom if neccessary
+            ! transfer the rest of the beads to coordinates of endatom if necessary
             IF (helium%beads < startbead + l) THEN
                DO ibead = 1, endbead - 1
                   helium%work(:, endatom, ibead) = helium%pos(:, endatom, ibead)
@@ -1121,7 +1133,7 @@ CONTAINS
          helium%pos(:, startatom, ibead) = helium%work(:, startatom, ibead)
          jbead = jbead + 1
       END DO
-      ! transfer the rest of the beads to coordinates of endatom if neccessary
+      ! transfer the rest of the beads to coordinates of endatom if necessary
       IF (helium%beads < startbead + l) THEN
          DO ibead = 1, endbead - 1
             helium%pos(:, endatom, ibead) = helium%work(:, endatom, ibead)
@@ -1143,8 +1155,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_open_move(pint_env, helium, endatom, endbead, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: endatom, endbead, l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -1394,8 +1406,6 @@ CONTAINS
       helium%worm_atom_idx = helium%worm_atom_idx_work
       helium%worm_bead_idx = helium%worm_bead_idx_work
 
-      RETURN
-
    END SUBROUTINE worm_open_move
 
 ! **************************************************************************************************
@@ -1408,8 +1418,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_close_move(pint_env, helium, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -1629,8 +1639,6 @@ CONTAINS
          END DO
       END IF
 
-      RETURN
-
    END SUBROUTINE worm_close_move
 
 ! **************************************************************************************************
@@ -1643,8 +1651,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_head_move(pint_env, helium, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -1880,8 +1888,6 @@ CONTAINS
       END IF
       helium%worm_xtra_bead(:) = helium%worm_xtra_bead_work(:)
 
-      RETURN
-
    END SUBROUTINE worm_head_move
 
 ! **************************************************************************************************
@@ -1894,8 +1900,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_tail_move(pint_env, helium, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -2110,8 +2116,6 @@ CONTAINS
          END DO
       END IF
 
-      RETURN
-
    END SUBROUTINE worm_tail_move
 
 ! **************************************************************************************************
@@ -2124,8 +2128,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_crawl_move_forward(pint_env, helium, l, ac)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -2397,8 +2401,6 @@ CONTAINS
       helium%worm_bead_idx = helium%worm_bead_idx_work
       helium%worm_atom_idx = helium%worm_atom_idx_work
 
-      RETURN
-
    END SUBROUTINE worm_crawl_move_forward
 
 ! **************************************************************************************************
@@ -2411,8 +2413,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_crawl_move_backward(pint_env, helium, l, ac)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -2668,8 +2670,6 @@ CONTAINS
       helium%worm_bead_idx = helium%worm_bead_idx_work
       helium%worm_atom_idx = helium%worm_atom_idx_work
 
-      RETURN
-
    END SUBROUTINE worm_crawl_move_backward
 
 ! **************************************************************************************************
@@ -2683,7 +2683,7 @@ CONTAINS
 ! **************************************************************************************************
    REAL(KIND=dp) FUNCTION free_density_matrix(helium, startpos, endpos, l) RESULT(rho)
 
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: startpos, endpos
       INTEGER, INTENT(IN)                                :: l
 
@@ -2699,8 +2699,6 @@ CONTAINS
       rho = EXP(rho)
       rho = rho*(SQRT(prefac/pi))**3
 
-      RETURN
-
    END FUNCTION free_density_matrix
 
 ! **************************************************************************************************
@@ -2714,8 +2712,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE worm_swap_move(pint_env, helium, natoms, l, ac)
 
-      TYPE(pint_env_type), INTENT(INOUT), POINTER        :: pint_env
-      TYPE(helium_solvent_type), INTENT(INOUT), POINTER  :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: natoms, l
       INTEGER, INTENT(OUT)                               :: ac
 
@@ -2798,7 +2796,7 @@ CONTAINS
          ! the worm gap and due to primitive coupling no cross bead terms are considered
          sold = sold + worm_path_inter_action(pint_env, helium, helium%pos, &
                                               bstartatom, startbead, fendatom, endbead)
-         ! compute potential of old and new head here (only once, as later only a rescaling is neccessary)
+         ! compute potential of old and new head here (only once, as later only a rescaling is necessary)
          CALL helium_bead_solute_e_f(pint_env, helium, &
                                      fstartatom, startbead, helium%worm_xtra_bead, &
                                      energy=oldheadpotential)
@@ -3029,8 +3027,6 @@ CONTAINS
          END DO
       END IF
 
-      RETURN
-
    END SUBROUTINE worm_swap_move
 
 ! **************************************************************************************************
@@ -3047,7 +3043,7 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_path_action(helium, pos, &
                                            startatom, startbead, endatom, endbead) RESULT(partaction)
 
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: startatom, startbead, endatom, endbead
@@ -3105,8 +3101,6 @@ CONTAINS
       END IF
       DEALLOCATE (work, work2, work3)
 
-      RETURN
-
    END FUNCTION worm_path_action
 
 ! **************************************************************************************************
@@ -3126,7 +3120,7 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_path_action_worm_corrected(helium, pos, &
                                    startatom, startbead, endatom, endbead, xtrapos, worm_atom_idx, worm_bead_idx) RESULT(partaction)
 
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: startatom, startbead, endatom, endbead
@@ -3355,8 +3349,6 @@ CONTAINS
       END IF
       DEALLOCATE (work, work2, work3)
 
-      RETURN
-
    END FUNCTION worm_path_action_worm_corrected
 
 ! **************************************************************************************************
@@ -3374,8 +3366,8 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_path_inter_action(pint_env, helium, pos, &
                                                  startatom, startbead, endatom, endbead) RESULT(partaction)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: startatom, startbead, endatom, endbead
@@ -3417,8 +3409,6 @@ CONTAINS
 
       partaction = partaction*helium%tau
 
-      RETURN
-
    END FUNCTION worm_path_inter_action
 
 ! **************************************************************************************************
@@ -3437,8 +3427,8 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_path_inter_action_head(pint_env, helium, pos, &
                                                      startatom, startbead, xtrapos, worm_atom_idx, worm_bead_idx) RESULT(partaction)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: startatom, startbead
@@ -3479,8 +3469,6 @@ CONTAINS
 
       partaction = partaction*helium%tau
 
-      RETURN
-
    END FUNCTION worm_path_inter_action_head
 
 ! **************************************************************************************************
@@ -3498,8 +3486,8 @@ CONTAINS
    REAL(KIND=dp) FUNCTION worm_path_inter_action_tail(pint_env, helium, pos, &
                                                       endatom, endbead, worm_atom_idx, worm_bead_idx) RESULT(partaction)
 
-      TYPE(pint_env_type), INTENT(IN), POINTER           :: pint_env
-      TYPE(helium_solvent_type), INTENT(IN), POINTER     :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
          POINTER                                         :: pos
       INTEGER, INTENT(IN)                                :: endatom, endbead, worm_atom_idx, &
@@ -3538,8 +3526,6 @@ CONTAINS
       END IF
 
       partaction = partaction*helium%tau
-
-      RETURN
 
    END FUNCTION worm_path_inter_action_tail
 

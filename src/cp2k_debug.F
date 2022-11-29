@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -54,8 +56,6 @@ MODULE cp2k_debug
    USE qs_environment_types,            ONLY: get_qs_env
    USE qs_kind_types,                   ONLY: qs_kind_type
    USE virial_types,                    ONLY: cp_virial,&
-                                              virial_create,&
-                                              virial_release,&
                                               virial_set,&
                                               virial_type,&
                                               zero_virial
@@ -78,10 +78,8 @@ CONTAINS
 
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp2k_debug_energy_and_forces', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=3*default_string_length)             :: message
+      CHARACTER(LEN=60)                                  :: line
       CHARACTER(LEN=default_string_length)               :: description
       INTEGER                                            :: i, ip, iw, j, k, np, stress_tensor
       LOGICAL                                            :: check_failed, debug_dipole, &
@@ -107,8 +105,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: root_section, subsys_section
-      TYPE(virial_type), POINTER                         :: virial, virial_analytical, &
-                                                            virial_numerical
 
       NULLIFY (analyt_forces, numer_forces, subsys, particles)
 
@@ -162,71 +158,89 @@ CONTAINS
 
          IF (.NOT. skip) THEN
 
-            ! Compute the analytical stress tensor
-            CALL cp_subsys_get(subsys, virial=virial)
-            CALL virial_set(virial, pv_numer=.FALSE.)
-            CALL force_env_calc_energy_force(force_env, &
-                                             calc_force=.TRUE., &
-                                             calc_stress_tensor=.TRUE.)
+            BLOCK
+               TYPE(virial_type) :: virial_analytical, virial_numerical
+               TYPE(virial_type), POINTER :: virial
 
-            ! Retrieve the analytical virial
-            CALL virial_create(virial_analytical)
-            CALL zero_virial(virial_analytical)
-            CALL cp_virial(virial, virial_analytical)
+               ! Compute the analytical stress tensor
+               CALL cp_subsys_get(subsys, virial=virial)
+               CALL virial_set(virial, pv_numer=.FALSE.)
+               CALL force_env_calc_energy_force(force_env, &
+                                                calc_force=.TRUE., &
+                                                calc_stress_tensor=.TRUE.)
 
-            ! Debug stress tensor (numerical vs analytical)
-            CALL virial_set(virial, pv_numer=.TRUE.)
-            CALL force_env_calc_num_pressure(force_env, dx=dx)
+               ! Retrieve the analytical virial
+               CALL zero_virial(virial_analytical)
+               CALL cp_virial(virial, virial_analytical)
 
-            ! Retrieve the numerical virial
-            CALL cp_subsys_get(subsys, virial=virial)
-            CALL virial_create(virial_numerical)
-            CALL zero_virial(virial_numerical)
-            CALL cp_virial(virial, virial_numerical)
+               ! Debug stress tensor (numerical vs analytical)
+               CALL virial_set(virial, pv_numer=.TRUE.)
+               CALL force_env_calc_num_pressure(force_env, dx=dx)
 
-            ! Print results
-            IF (iw > 0) THEN
-               WRITE (UNIT=iw, FMT="((T2,A))") &
-                  "DEBUG| Numerical pv_virial"
-               WRITE (UNIT=iw, FMT="((T2,A,3F16.10))") &
-                  ("DEBUG|", virial_numerical%pv_virial(i, 1:3), i=1, 3)
-               WRITE (UNIT=iw, FMT="(/,(T2,A))") &
-                  "DEBUG| Analytical pv_virial"
-               WRITE (UNIT=iw, FMT="((T2,A,3F16.10))") &
-                  ("DEBUG|", virial_analytical%pv_virial(i, 1:3), i=1, 3)
-               WRITE (UNIT=iw, FMT="(/,(T2,A))") &
-                  "DEBUG| Difference pv_virial"
-               WRITE (UNIT=iw, FMT="((T2,A,3F16.10))") &
-                  ("DEBUG|", virial_numerical%pv_virial(i, 1:3) - virial_analytical%pv_virial(i, 1:3), i=1, 3)
-               WRITE (UNIT=iw, FMT="(T2,A,T40,F16.10,/)") &
-                  "DEBUG| Sum of differences:", &
-                  SUM(ABS(virial_numerical%pv_virial(:, :) - virial_analytical%pv_virial(:, :)))
-            END IF
+               ! Retrieve the numerical virial
+               CALL cp_subsys_get(subsys, virial=virial)
+               CALL zero_virial(virial_numerical)
+               CALL cp_virial(virial, virial_numerical)
 
-            ! Check and abort on failure
-            check_failed = .FALSE.
-            DO i = 1, 3
-               err(:) = 0.0_dp
-               DO k = 1, 3
-                  IF (ABS(virial_analytical%pv_virial(i, k)) >= eps_no_error_check) THEN
-                     err(k) = 100.0_dp*(virial_numerical%pv_virial(i, k) - virial_analytical%pv_virial(i, k))/ &
-                              virial_analytical%pv_virial(i, k)
-                  END IF
-               END DO
-               IF (ANY(ABS(err(1:3)) > maxerr)) check_failed = .TRUE.
-            END DO
-            CALL virial_release(virial_analytical)
-            CALL virial_release(virial_numerical)
-            IF (check_failed) THEN
-               message = "A mismatch between the analytical and the numerical "// &
-                         "stress tensor has been detected. Check the implementation "// &
-                         "of the stress tensor"
-               IF (stop_on_mismatch) THEN
-                  CPABORT(TRIM(message))
-               ELSE
-                  CPWARN(TRIM(message))
+               ! Print results
+               IF (iw > 0) THEN
+                  WRITE (UNIT=iw, FMT="((T2,A))") &
+                     "DEBUG| Numerical pv_virial [a.u.]"
+                  WRITE (UNIT=iw, FMT="((T2,A,T21,3(1X,F19.12)))") &
+                     ("DEBUG|", virial_numerical%pv_virial(i, 1:3), i=1, 3)
+                  WRITE (UNIT=iw, FMT="(/,(T2,A))") &
+                     "DEBUG| Analytical pv_virial [a.u.]"
+                  WRITE (UNIT=iw, FMT="((T2,A,T21,3(1X,F19.12)))") &
+                     ("DEBUG|", virial_analytical%pv_virial(i, 1:3), i=1, 3)
+                  WRITE (UNIT=iw, FMT="(/,(T2,A))") &
+                     "DEBUG| Difference pv_virial [a.u.]"
+                  WRITE (UNIT=iw, FMT="((T2,A,T21,3(1X,F19.12)))") &
+                     ("DEBUG|", virial_numerical%pv_virial(i, 1:3) - virial_analytical%pv_virial(i, 1:3), i=1, 3)
+                  WRITE (UNIT=iw, FMT="(T2,A,T61,F20.12)") &
+                     "DEBUG| Sum of differences", &
+                     SUM(ABS(virial_numerical%pv_virial(:, :) - virial_analytical%pv_virial(:, :)))
                END IF
-            END IF
+
+               ! Check and abort on failure
+               check_failed = .FALSE.
+               IF (iw > 0) THEN
+                  WRITE (UNIT=iw, FMT="(/T2,A)") &
+                     "DEBUG| Relative error pv_virial"
+                  WRITE (UNIT=iw, FMT="(T2,A,T61,ES20.8)") &
+                     "DEBUG| Threshold value for error check [a.u.]", eps_no_error_check
+               END IF
+               DO i = 1, 3
+                  err(:) = 0.0_dp
+                  DO k = 1, 3
+                     IF (ABS(virial_analytical%pv_virial(i, k)) >= eps_no_error_check) THEN
+                        err(k) = 100.0_dp*(virial_numerical%pv_virial(i, k) - virial_analytical%pv_virial(i, k))/ &
+                                 virial_analytical%pv_virial(i, k)
+                        WRITE (UNIT=line(20*(k - 1) + 1:20*k), FMT="(1X,F17.2,A2)") err(k), " %"
+                     ELSE
+                        WRITE (UNIT=line(20*(k - 1) + 1:20*k), FMT="(17X,A3)") "- %"
+                     END IF
+                  END DO
+                  IF (iw > 0) THEN
+                     WRITE (UNIT=iw, FMT="(T2,A,T21,A60)") &
+                        "DEBUG|", line
+                  END IF
+                  IF (ANY(ABS(err(1:3)) > maxerr)) check_failed = .TRUE.
+               END DO
+               IF (iw > 0) THEN
+                  WRITE (UNIT=iw, FMT="(T2,A,T61,F18.2,A2)") &
+                     "DEBUG| Maximum accepted error", maxerr, " %"
+               END IF
+               IF (check_failed) THEN
+                  message = "A mismatch between the analytical and the numerical "// &
+                            "stress tensor has been detected. Check the implementation "// &
+                            "of the stress tensor"
+                  IF (stop_on_mismatch) THEN
+                     CPABORT(TRIM(message))
+                  ELSE
+                     CPWARN(TRIM(message))
+                  END IF
+               END IF
+            END BLOCK
          END IF
       END IF
 
@@ -238,7 +252,7 @@ CONTAINS
             CALL get_qs_env(force_env%qs_env, qs_kind_set=qs_kind_set)
             CALL write_qs_particle_coordinates(particles, qs_kind_set, subsys_section, "DEBUG")
          CASE DEFAULT
-            CALL write_fist_particle_coordinates(particles, subsys_section, charges=Null())
+            CALL write_fist_particle_coordinates(particles, subsys_section)
          END SELECT
          ! First evaluate energy and forces
          CALL force_env_calc_energy_force(force_env, &
@@ -265,7 +279,7 @@ CONTAINS
                      CALL get_qs_env(force_env%qs_env, qs_kind_set=qs_kind_set)
                      CALL write_qs_particle_coordinates(particles, qs_kind_set, subsys_section, "DEBUG")
                   CASE DEFAULT
-                     CALL write_fist_particle_coordinates(particles, subsys_section, charges=Null())
+                     CALL write_fist_particle_coordinates(particles, subsys_section)
                   END SELECT
                   ! Compute energy
                   CALL force_env_calc_energy_force(force_env, &
@@ -277,7 +291,7 @@ CONTAINS
                particles(ip)%r(k) = std_value
                numer_forces(ip, k) = -0.5_dp*(numer_energy(1) - numer_energy(2))/dx
                IF (iw > 0) THEN
-                  WRITE (UNIT=iw, FMT="(T2,A,T17,A,F7.4,A,T34,A,F7.4,A,T52,A,T68,A)") &
+                  WRITE (UNIT=iw, FMT="(/,T2,A,T17,A,F7.4,A,T34,A,F7.4,A,T52,A,T68,A)") &
                      "DEBUG| Atom", "E("//ACHAR(119 + k)//" +", dx, ")", &
                      "E("//ACHAR(119 + k)//" -", dx, ")", &
                      "f(numerical)", "f(analytical)"
@@ -358,7 +372,7 @@ CONTAINS
             poldir = (/0.0_dp, 0.0_dp, 1.0_dp/)
             amplitude = 0.0_dp
             CALL set_efield(dft_control, amplitude, poldir)
-            CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
+            CALL force_env_calc_energy_force(force_env, calc_force=.TRUE.)
             CALL get_qs_env(force_env%qs_env, results=results)
             description = "[DIPOLE]"
             IF (test_for_result(results, description=description)) THEN
@@ -390,14 +404,27 @@ CONTAINS
                      WRITE (UNIT=iw, FMT="(T13,A1,T21,F16.8,T38,F16.8,T56,G12.3,T72,F9.3)") &
                         ACHAR(119 + k), dipole_numer(k), dipole_moment(k), dd, derr
                   ELSE
+                     derr = 0.0_dp
                      WRITE (UNIT=iw, FMT="(T13,A1,T21,F16.8,T38,F16.8,T56,G12.3)") &
                         ACHAR(119 + k), dipole_numer(k), dipole_moment(k), dd
                   END IF
+                  err(k) = derr
                END DO
                WRITE (UNIT=iw, FMT="((T2,A))") &
                   "DEBUG|========================================================================="
-               WRITE (UNIT=iw, FMT="(T2,A,T61,E20.12)") ' DIPOLE : CheckSum  =', SUM(dipole_moment)
+               WRITE (UNIT=iw, FMT="(T2,A,T61,E20.12)") 'DIPOLE : CheckSum  =', SUM(dipole_moment)
+               IF (ANY(ABS(err(1:3)) > 0.1_dp)) THEN
+                  message = "A mismatch between analytical and numerical dipoles "// &
+                            "has been detected. Check the implementation of the "// &
+                            "analytical dipole calculation"
+                  IF (stop_on_mismatch) THEN
+                     CPABORT(message)
+                  ELSE
+                     CPWARN(message)
+                  END IF
+               END IF
             END IF
+
          ELSE
             CALL cp_warn(__LOCATION__, "Debug of dipole moments only for Quickstep code available")
          END IF

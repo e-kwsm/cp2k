@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -202,8 +204,6 @@ CONTAINS
    SUBROUTINE init_topology(topology)
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_topology', routineP = moduleN//':'//routineN
-
 !-----------------------------------------------------------------------------
 ! 1. Nullify and allocate things in topology
 !-----------------------------------------------------------------------------
@@ -304,9 +304,6 @@ CONTAINS
    SUBROUTINE init_constraint(constraint_info)
       TYPE(constraint_info_type), POINTER                :: constraint_info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_constraint', &
-         routineP = moduleN//':'//routineN
-
 ! Bonds involving Hydrogens
 
       constraint_info%hbonds_restraint = .FALSE.
@@ -391,9 +388,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_topology(topology)
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_topology', &
-         routineP = moduleN//':'//routineN
 
 !-----------------------------------------------------------------------------
 ! 1. DEALLOCATE things in topology%atom_info
@@ -550,9 +544,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_constraint(constraint_info)
       TYPE(constraint_info_type), POINTER                :: constraint_info
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_constraint', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -767,9 +758,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pre_read_topology(topology)
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pre_read_topology', &
-         routineP = moduleN//':'//routineN
 
       TYPE(atom_info_type), POINTER                      :: atom_info
 

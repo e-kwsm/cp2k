@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -25,12 +27,12 @@ MODULE qs_scf_lanczos
    USE cp_fm_types,                     ONLY: &
         cp_fm_create, cp_fm_get_submatrix, cp_fm_p_type, cp_fm_release, cp_fm_set_all, &
         cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_type, cp_fm_vectorsnorm
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_to_string
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_scf_types,                    ONLY: krylov_space_type
    USE scf_control_types,               ONLY: scf_control_type
 #include "./base/base_uses.f90"
@@ -60,10 +62,9 @@ CONTAINS
 
       TYPE(krylov_space_type), POINTER                   :: krylov_space
       TYPE(scf_control_type), POINTER                    :: scf_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'krylov_space_allocate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'krylov_space_allocate'
 
       INTEGER                                            :: handle, ik, ispin, max_nmo, nao, nblock, &
                                                             ndim, nk, nmo, nspin
@@ -90,13 +91,15 @@ CONTAINS
          ALLOCATE (krylov_space%c_vec(nspin))
          max_nmo = 0
          DO ispin = 1, nspin
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+            ALLOCATE (krylov_space%mo_conv(ispin)%matrix, krylov_space%mo_refine(ispin)%matrix)
             CALL cp_fm_create(krylov_space%mo_conv(ispin)%matrix, mo_coeff%matrix_struct)
             CALL cp_fm_create(krylov_space%mo_refine(ispin)%matrix, mo_coeff%matrix_struct)
             NULLIFY (fm_struct_tmp)
             CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nmo, ncol_global=nmo, &
                                      para_env=mo_coeff%matrix_struct%para_env, &
                                      context=mo_coeff%matrix_struct%context)
+            ALLOCATE (krylov_space%chc_mat(ispin)%matrix, krylov_space%c_vec(ispin)%matrix)
             CALL cp_fm_create(krylov_space%chc_mat(ispin)%matrix, fm_struct_tmp, "chc")
             CALL cp_fm_create(krylov_space%c_vec(ispin)%matrix, fm_struct_tmp, "vec")
             CALL cp_fm_struct_release(fm_struct_tmp)
@@ -113,9 +116,11 @@ CONTAINS
                                   para_env=mo_coeff%matrix_struct%para_env, &
                                   context=mo_coeff%matrix_struct%context)
          DO ik = 1, nk
+            ALLOCATE (krylov_space%v_mat(ik)%matrix)
             CALL cp_fm_create(krylov_space%v_mat(ik)%matrix, matrix_struct=fm_struct_tmp, &
                               name="v_mat_"//TRIM(ADJUSTL(cp_to_string(ik))))
          END DO
+         ALLOCATE (krylov_space%tmp_mat)
          CALL cp_fm_create(krylov_space%tmp_mat, matrix_struct=fm_struct_tmp, &
                            name="tmp_mat")
          CALL cp_fm_struct_release(fm_struct_tmp)
@@ -126,10 +131,13 @@ CONTAINS
          CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nblock, ncol_global=nblock, &
                                   para_env=mo_coeff%matrix_struct%para_env, &
                                   context=mo_coeff%matrix_struct%context)
+         ALLOCATE (krylov_space%block1_mat)
          CALL cp_fm_create(krylov_space%block1_mat, matrix_struct=fm_struct_tmp, &
                            name="a_mat_"//TRIM(ADJUSTL(cp_to_string(ik))))
+         ALLOCATE (krylov_space%block2_mat)
          CALL cp_fm_create(krylov_space%block2_mat, matrix_struct=fm_struct_tmp, &
                            name="b_mat_"//TRIM(ADJUSTL(cp_to_string(ik))))
+         ALLOCATE (krylov_space%block3_mat)
          CALL cp_fm_create(krylov_space%block3_mat, matrix_struct=fm_struct_tmp, &
                            name="b2_mat_"//TRIM(ADJUSTL(cp_to_string(ik))))
          CALL cp_fm_struct_release(fm_struct_tmp)
@@ -139,8 +147,10 @@ CONTAINS
          CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=ndim, ncol_global=ndim, &
                                   para_env=mo_coeff%matrix_struct%para_env, &
                                   context=mo_coeff%matrix_struct%context)
+         ALLOCATE (krylov_space%block4_mat)
          CALL cp_fm_create(krylov_space%block4_mat, matrix_struct=fm_struct_tmp, &
                            name="t_mat")
+         ALLOCATE (krylov_space%block5_mat)
          CALL cp_fm_create(krylov_space%block5_mat, matrix_struct=fm_struct_tmp, &
                            name="t_vec")
          CALL cp_fm_struct_release(fm_struct_tmp)
@@ -174,15 +184,14 @@ CONTAINS
                                  eps_iter, ispin, check_moconv_only)
 
       TYPE(krylov_space_type), POINTER                   :: krylov_space
-      TYPE(cp_fm_type), POINTER                          :: ks, c0, c1
+      TYPE(cp_fm_type), INTENT(IN)                       :: ks, c0, c1
       REAL(dp), DIMENSION(:), POINTER                    :: eval
       INTEGER, INTENT(IN)                                :: nao
       REAL(dp), INTENT(IN)                               :: eps_iter
       INTEGER, INTENT(IN)                                :: ispin
       LOGICAL, INTENT(IN), OPTIONAL                      :: check_moconv_only
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lanczos_refinement', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'lanczos_refinement'
       REAL(KIND=dp), PARAMETER                           :: rmone = -1.0_dp, rone = 1.0_dp, &
                                                             rzero = 0.0_dp
 
@@ -195,15 +204,16 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: c_res, t_eval
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: v_mat
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: a_mat, b2_mat, b_mat, c2_tmp, c3_tmp, &
-                                                            c_tmp, chc, evec, hc, t_mat, t_vec
+      TYPE(cp_fm_type)                                   :: c2_tmp, c3_tmp, c_tmp, hc
+      TYPE(cp_fm_type), POINTER                          :: a_mat, b2_mat, b_mat, chc, evec, t_mat, &
+                                                            t_vec
 
       CALL timeset(routineN, handle)
 
       NULLIFY (fm_struct_tmp)
       NULLIFY (chc, evec)
       NULLIFY (c_res, t_eval)
-      NULLIFY (hc, t_mat, t_vec, c2_tmp)
+      NULLIFY (t_mat, t_vec)
       NULLIFY (a_mat, b_mat, b2_mat, v_mat)
 
       nmo = SIZE(eval, 1)
@@ -215,7 +225,7 @@ CONTAINS
       c_res => krylov_space%c_eval
       t_eval => krylov_space%t_eval
 
-      NULLIFY (fm_struct_tmp, c_tmp)
+      NULLIFY (fm_struct_tmp)
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nao, ncol_global=nmo, &
                                para_env=c0%matrix_struct%para_env, &
                                context=c0%matrix_struct%context)
@@ -226,8 +236,8 @@ CONTAINS
       CALL cp_fm_struct_release(fm_struct_tmp)
 
       !Compute (C^t)HC
-      CALL cp_gemm('N', 'N', nao, nmo, nao, rone, ks, c0, rzero, hc)
-      CALL cp_gemm('T', 'N', nmo, nmo, nao, rone, c0, hc, rzero, chc)
+      CALL parallel_gemm('N', 'N', nao, nmo, nao, rone, ks, c0, rzero, hc)
+      CALL parallel_gemm('T', 'N', nmo, nmo, nao, rone, c0, hc, rzero, chc)
 
       !Diagonalize  (C^t)HC
       CALL timeset(routineN//"diag_chc", hand1)
@@ -235,10 +245,10 @@ CONTAINS
       CALL timestop(hand1)
 
       !Rotate the C vectors
-      CALL cp_gemm('N', 'N', nao, nmo, nmo, rone, c0, evec, rzero, c1)
+      CALL parallel_gemm('N', 'N', nao, nmo, nmo, rone, c0, evec, rzero, c1)
 
       !Check for converged states
-      CALL cp_gemm('N', 'N', nao, nmo, nmo, rone, hc, evec, rzero, c_tmp)
+      CALL parallel_gemm('N', 'N', nao, nmo, nmo, rone, hc, evec, rzero, c_tmp)
       CALL cp_fm_to_fm(c1, c0, nmo, 1, 1)
       CALL cp_fm_column_scale(c1, eval)
       CALL cp_fm_scale_and_add(1.0_dp, c_tmp, rmone, c1)
@@ -311,6 +321,7 @@ CONTAINS
             ! Create local matrix of right size
             IF (nmob /= nblock) THEN
                NULLIFY (a_mat, b_mat, b2_mat, t_mat, t_vec, v_mat)
+               ALLOCATE (a_mat, b_mat, b2_mat, t_mat, t_vec)
                NULLIFY (fm_struct_tmp)
                CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nmob, ncol_global=nmob, &
                                         para_env=chc%matrix_struct%para_env, &
@@ -337,6 +348,7 @@ CONTAINS
                                         context=c0%matrix_struct%context)
                ALLOCATE (v_mat(krylov_space%nkrylov))
                DO ik = 1, krylov_space%nkrylov
+                  ALLOCATE (v_mat(ik)%matrix)
                   CALL cp_fm_create(v_mat(ik)%matrix, matrix_struct=fm_struct_tmp, &
                                     name="v_mat")
                END DO
@@ -359,14 +371,14 @@ CONTAINS
             CALL cp_fm_to_fm(c1, v_mat(1)%matrix, nmob, imo_low, 1)
 
             !Compute A =(V^t)HV
-            CALL cp_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(1)%matrix, rzero, hc)
-            CALL cp_gemm('T', 'N', nmob, nmob, nao, rone, v_mat(1)%matrix, hc, &
-                         rzero, a_mat)
+            CALL parallel_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(1)%matrix, rzero, hc)
+            CALL parallel_gemm('T', 'N', nmob, nmob, nao, rone, v_mat(1)%matrix, hc, &
+                               rzero, a_mat)
 
             !Compute the residual matrix R for next
             !factorisation
-            CALL cp_gemm('N', 'N', nao, nmob, nmob, rone, v_mat(1)%matrix, a_mat, &
-                         rzero, c_tmp)
+            CALL parallel_gemm('N', 'N', nao, nmob, nmob, rone, v_mat(1)%matrix, a_mat, &
+                               rzero, c_tmp)
             CALL cp_fm_scale_and_add(rmone, c_tmp, rone, hc)
 
             ! Build the block tridiagonal matrix
@@ -384,12 +396,12 @@ CONTAINS
                                               n_rows=nao, n_cols=nmob)
 
                !Compute A =(V^t)HV
-               CALL cp_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(ik)%matrix, rzero, hc)
-               CALL cp_gemm('T', 'N', nmob, nmob, nao, rone, v_mat(ik)%matrix, hc, rzero, a_mat)
+               CALL parallel_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(ik)%matrix, rzero, hc)
+               CALL parallel_gemm('T', 'N', nmob, nmob, nao, rone, v_mat(ik)%matrix, hc, rzero, a_mat)
 
                !Compute the !residual matrix R !for next !factorisation
-               CALL cp_gemm('N', 'N', nao, nmob, nmob, rone, v_mat(ik)%matrix, a_mat, &
-                            rzero, c_tmp)
+               CALL parallel_gemm('N', 'N', nao, nmob, nmob, rone, v_mat(ik)%matrix, a_mat, &
+                                  rzero, c_tmp)
                CALL cp_fm_scale_and_add(rmone, c_tmp, rone, hc)
                CALL cp_fm_to_fm(v_mat(ik - 1)%matrix, hc, nmob, 1, 1)
                CALL cp_fm_triangular_multiply(b_mat, hc, side='R', transpose_tr=.TRUE., &
@@ -422,13 +434,13 @@ CONTAINS
             CALL cp_fm_set_all(c2_tmp, rzero)
             DO ik = 1, krylov_space%nkrylov
                jt = (ik - 1)*nmob
-               CALL cp_gemm('N', 'N', nao, ndim, nmob, rone, v_mat(ik)%matrix, t_vec, rone, c2_tmp, &
-                            b_first_row=(jt + 1))
+               CALL parallel_gemm('N', 'N', nao, ndim, nmob, rone, v_mat(ik)%matrix, t_vec, rone, c2_tmp, &
+                                  b_first_row=(jt + 1))
             END DO
             DEALLOCATE (tvblock)
 
             CALL cp_fm_set_all(c3_tmp, rzero)
-            CALL cp_gemm('T', 'N', nmob, ndim, nao, rone, v_mat(1)%matrix, c2_tmp, rzero, c3_tmp)
+            CALL parallel_gemm('T', 'N', nmob, ndim, nao, rone, v_mat(1)%matrix, c2_tmp, rzero, c3_tmp)
 
             !Try to avoid linear dependencies
             ALLOCATE (q_mat(nmob, ndim))
@@ -463,8 +475,10 @@ CONTAINS
                CALL cp_fm_release(b2_mat)
                CALL cp_fm_release(t_mat)
                CALL cp_fm_release(t_vec)
+               DEALLOCATE (a_mat, b_mat, b2_mat, t_mat, t_vec)
                DO ik = 1, krylov_space%nkrylov
                   CALL cp_fm_release(v_mat(ik)%matrix)
+                  DEALLOCATE (v_mat(ik)%matrix)
                END DO
                DEALLOCATE (v_mat)
 
@@ -474,7 +488,7 @@ CONTAINS
          END DO ! ib
 
          CALL timeset(routineN//"_ortho", hand5)
-         CALL cp_gemm('T', 'N', nmo, nmo, nao, rone, c0, c0, rzero, chc)
+         CALL parallel_gemm('T', 'N', nmo, nmo, nao, rone, c0, c0, rzero, chc)
 
          CALL cp_fm_cholesky_decompose(chc, nmo)
          CALL cp_fm_triangular_multiply(chc, c0, 'R', invert_tr=.TRUE.)
@@ -511,15 +525,14 @@ CONTAINS
                                     eps_iter, ispin, check_moconv_only)
 
       TYPE(krylov_space_type), POINTER                   :: krylov_space
-      TYPE(cp_fm_type), POINTER                          :: ks, c0, c1
+      TYPE(cp_fm_type), INTENT(IN)                       :: ks, c0, c1
       REAL(dp), DIMENSION(:), POINTER                    :: eval
       INTEGER, INTENT(IN)                                :: nao
       REAL(dp), INTENT(IN)                               :: eps_iter
       INTEGER, INTENT(IN)                                :: ispin
       LOGICAL, INTENT(IN), OPTIONAL                      :: check_moconv_only
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lanczos_refinement_2v', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'lanczos_refinement_2v'
       REAL(KIND=dp), PARAMETER                           :: rmone = -1.0_dp, rone = 1.0_dp, &
                                                             rzero = 0.0_dp
 
@@ -536,17 +549,15 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: a_loc, b_loc
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: v_mat
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: b_mat, c2_tmp, c_tmp, chc, evec, hc, &
-                                                            v_tmp
+      TYPE(cp_fm_type)                                   :: b_mat, c2_tmp, c_tmp, hc, v_tmp
+      TYPE(cp_fm_type), POINTER                          :: chc, evec
 
       CALL timeset(routineN, handle)
 
       NULLIFY (fm_struct_tmp)
       NULLIFY (chc, evec)
       NULLIFY (c_res, t_eval)
-      NULLIFY (hc, c_tmp, c2_tmp)
-      NULLIFY (v_tmp)
-      NULLIFY (b_mat, v_mat)
+      NULLIFY (v_mat)
       NULLIFY (b_loc, a_loc)
 
       nmo = SIZE(eval, 1)
@@ -558,7 +569,7 @@ CONTAINS
       c_res => krylov_space%c_eval
       t_eval => krylov_space%t_eval
 
-      NULLIFY (fm_struct_tmp, c_tmp)
+      NULLIFY (fm_struct_tmp)
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nao, ncol_global=nmo, &
                                para_env=c0%matrix_struct%para_env, &
                                context=c0%matrix_struct%context)
@@ -569,8 +580,8 @@ CONTAINS
       CALL cp_fm_struct_release(fm_struct_tmp)
 
       !Compute (C^t)HC
-      CALL cp_gemm('N', 'N', nao, nmo, nao, rone, ks, c0, rzero, hc)
-      CALL cp_gemm('T', 'N', nmo, nmo, nao, rone, c0, hc, rzero, chc)
+      CALL parallel_gemm('N', 'N', nao, nmo, nao, rone, ks, c0, rzero, hc)
+      CALL parallel_gemm('T', 'N', nmo, nmo, nao, rone, c0, hc, rzero, chc)
 
       !Diagonalize  (C^t)HC
       CALL timeset(routineN//"diag_chc", hand1)
@@ -580,10 +591,10 @@ CONTAINS
 
       CALL timeset(routineN//"check_conv", hand6)
       !Rotate the C vectors
-      CALL cp_gemm('N', 'N', nao, nmo, nmo, rone, c0, evec, rzero, c1)
+      CALL parallel_gemm('N', 'N', nao, nmo, nmo, rone, c0, evec, rzero, c1)
 
       !Check for converged states
-      CALL cp_gemm('N', 'N', nao, nmo, nmo, rone, hc, evec, rzero, c_tmp)
+      CALL parallel_gemm('N', 'N', nao, nmo, nmo, rone, hc, evec, rzero, c_tmp)
       CALL cp_fm_to_fm(c1, c0, nmo, 1, 1)
       CALL cp_fm_column_scale(c1, eval)
       CALL cp_fm_scale_and_add(1.0_dp, c_tmp, rmone, c1)
@@ -669,6 +680,7 @@ CONTAINS
                                      context=c0%matrix_struct%context, &
                                      force_block=.TRUE.)
             DO ik = 1, krylov_space%nkrylov
+               ALLOCATE (v_mat(ik)%matrix)
                CALL cp_fm_create(v_mat(ik)%matrix, matrix_struct=fm_struct_tmp, &
                                  name="v_mat")
             END DO
@@ -701,7 +713,7 @@ CONTAINS
             ! Here starts the construction of krylov space
             CALL timeset(routineN//"_kry_loop", hand2)
             !Compute A =(V^t)HV
-            CALL cp_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(1)%matrix, rzero, hc)
+            CALL parallel_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(1)%matrix, rzero, hc)
 
             a_block = 0.0_dp
             a_loc => v_mat(1)%matrix%local_data
@@ -744,7 +756,7 @@ CONTAINS
                CALL cp_fm_get_submatrix(b_mat, b_block, 1, 1, nmob, nmob)
 
                !Compute A =(V^t)HV
-               CALL cp_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(ik)%matrix, rzero, hc)
+               CALL parallel_gemm('N', 'N', nao, nmob, nao, rone, ks, v_mat(ik)%matrix, rzero, hc)
 
                a_block = 0.0_dp
                IF (SIZE(hc%local_data, 2) == nmob) THEN
@@ -868,13 +880,14 @@ CONTAINS
             DEALLOCATE (b_block)
             DO ik = 1, krylov_space%nkrylov
                CALL cp_fm_release(v_mat(ik)%matrix)
+               DEALLOCATE (v_mat(ik)%matrix)
             END DO
             DEALLOCATE (v_mat)
 
          END DO ! ib
 
          CALL timeset(routineN//"_ortho", hand5)
-         CALL cp_gemm('T', 'N', nmo, nmo, nao, rone, c0, c0, rzero, chc)
+         CALL parallel_gemm('T', 'N', nmo, nmo, nao, rone, c0, c0, rzero, chc)
 
          CALL cp_fm_cholesky_decompose(chc, nmo)
          CALL cp_fm_triangular_multiply(chc, c0, 'R', invert_tr=.TRUE.)

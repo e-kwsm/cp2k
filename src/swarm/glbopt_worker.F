@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -89,9 +91,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: input_path
       INTEGER, INTENT(in)                                :: worker_id, iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_worker_init', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(kind=dp)                                      :: dist_in_angstrom
       TYPE(section_vals_type), POINTER                   :: glbopt_section
@@ -144,9 +143,6 @@ CONTAINS
       TYPE(swarm_message_type), INTENT(IN)               :: cmd
       TYPE(swarm_message_type), INTENT(INOUT)            :: report
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_worker_execute', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_string_length)               :: command
 
       CALL swarm_message_get(cmd, "command", command)
@@ -185,7 +181,7 @@ CONTAINS
       IF (iframe > 1) THEN
          CALL swarm_message_get(cmd, "positions", positions)
          CALL unpack_subsys_particles(worker%subsys, r=positions)
-      ENDIF
+      END IF
 
       ! setup mdctrl callback
       ALLOCATE (mdctrl_data%epot_history(worker%bump_steps_downwards + worker%bump_steps_upwards + 1))
@@ -337,7 +333,7 @@ CONTAINS
    END FUNCTION fix_fragmentation
 
 ! **************************************************************************************************
-!> \brief Helper routine for fix_fragmentation, calulates atomic distance
+!> \brief Helper routine for fix_fragmentation, calculates atomic distance
 !> \param positions ...
 !> \param i ...
 !> \param j ...
@@ -353,7 +349,7 @@ CONTAINS
    END FUNCTION diff
 
 ! **************************************************************************************************
-!> \brief Helper routine for fix_fragmentation, calulates vector norm
+!> \brief Helper routine for fix_fragmentation, calculates vector norm
 !> \param vec ...
 !> \return ...
 !> \author Ole Schuett
@@ -372,9 +368,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE glbopt_worker_finalize(worker)
       TYPE(glbopt_worker_type), INTENT(INOUT)            :: worker
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_worker_finalize', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ierr
 

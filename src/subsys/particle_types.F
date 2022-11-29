@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,9 +69,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER, INTENT(IN)                                :: nparticle
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_particle_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iparticle
 
       IF (ASSOCIATED(particle_set)) THEN
@@ -99,9 +98,6 @@ CONTAINS
    SUBROUTINE deallocate_particle_set(particle_set)
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_particle_set', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(particle_set)) THEN
          DEALLOCATE (particle_set)
       ELSE
@@ -123,13 +119,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE update_particle_set(particle_set, int_group, pos, vel, for, add)
 
-      TYPE(particle_type), POINTER                       :: particle_set(:)
+      TYPE(particle_type), INTENT(INOUT)                 :: particle_set(:)
       INTEGER, INTENT(IN)                                :: int_group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: pos(:, :), vel(:, :), for(:, :)
       LOGICAL, INTENT(IN), OPTIONAL                      :: add
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'update_particle_set', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'update_particle_set'
 
       INTEGER                                            :: handle, iparticle, nparticle
       LOGICAL                                            :: my_add, update_for, update_pos, &
@@ -199,7 +194,7 @@ CONTAINS
    FUNCTION get_particle_pos_or_vel(iatom, particle_set, vector) RESULT(x)
 
       INTEGER, INTENT(IN)                                :: iatom
-      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(particle_type), DIMENSION(:), INTENT(IN)      :: particle_set
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: vector
       REAL(KIND=dp), DIMENSION(3)                        :: x
 
@@ -236,7 +231,7 @@ CONTAINS
    SUBROUTINE update_particle_pos_or_vel(iatom, particle_set, x, vector)
 
       INTEGER, INTENT(IN)                                :: iatom
-      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(particle_type), DIMENSION(:), INTENT(IN)      :: particle_set
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: x
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: vector
 

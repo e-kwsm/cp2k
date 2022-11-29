@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -30,6 +32,7 @@ MODULE mulliken
 ! *** Public subroutines ***
 
    PUBLIC :: mulliken_charges, ao_charges, mulliken_restraint, compute_bond_order
+   PUBLIC :: compute_charges
 
    INTERFACE mulliken_charges
       MODULE PROCEDURE mulliken_charges_a, mulliken_charges_b, mulliken_charges_c, &
@@ -76,9 +79,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: ks_matrix, w_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_restraint', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: blk, iblock_col, iblock_row, ispin, &
                                                             nblock, nspin
       LOGICAL                                            :: found
@@ -104,10 +104,10 @@ CONTAINS
 
       IF (PRESENT(order_p)) THEN
          order_p = my_order_p
-      ENDIF
+      END IF
       IF (PRESENT(energy)) THEN
          energy = my_energy
-      ENDIF
+      END IF
 
       IF (PRESENT(ks_matrix)) THEN
 
@@ -126,11 +126,11 @@ CONTAINS
 
                ks_block = ks_block + mult*s_block
 
-            ENDDO
+            END DO
             CALL dbcsr_iterator_stop(iter)
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
       IF (PRESENT(w_matrix)) THEN
 
@@ -152,9 +152,9 @@ CONTAINS
 
             END DO
             CALL dbcsr_iterator_stop(iter)
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
       DEALLOCATE (charges)
       DEALLOCATE (charges_deriv)
@@ -191,7 +191,7 @@ CONTAINS
       DO I = 1, mulliken_restraint_control%natoms
          order_p = order_p + charges(mulliken_restraint_control%atoms(I), 1) &
                    - charges(mulliken_restraint_control%atoms(I), 2) ! spin density on the relevant atoms
-      ENDDO
+      END DO
       ! energy
       energy = mulliken_restraint_control%strength*(order_p - mulliken_restraint_control%target)**2
       ! derivative
@@ -199,7 +199,7 @@ CONTAINS
       DO I = 1, mulliken_restraint_control%natoms
          charges_deriv(mulliken_restraint_control%atoms(I), 1) = dum
          charges_deriv(mulliken_restraint_control%atoms(I), 2) = -dum
-      ENDDO
+      END DO
    END SUBROUTINE restraint_functional
 
 ! **************************************************************************************************
@@ -244,15 +244,15 @@ CONTAINS
                mult = 0.5_dp ! avoid double counting of diagonal blocks
             ELSE
                mult = 1.0_dp
-            ENDIF
+            END IF
             charges(iblock_row, ispin) = charges(iblock_row, ispin) + &
                                          mult*SUM(p_block*s_block)
             charges(iblock_col, ispin) = charges(iblock_col, ispin) + &
                                          mult*SUM(p_block*s_block)
 
-         ENDDO
+         END DO
          CALL dbcsr_iterator_stop(iter)
-      ENDDO
+      END DO
       CALL mp_sum(charges, para_env%group)
 
    END SUBROUTINE compute_charges
@@ -293,10 +293,10 @@ CONTAINS
             mult = 0.5_dp ! avoid double counting of diagonal blocks
          ELSE
             mult = 1.0_dp
-         ENDIF
+         END IF
          charges(iblock_row) = charges(iblock_row) + mult*SUM(p_block*s_block)
          charges(iblock_col) = charges(iblock_col) + mult*SUM(p_block*s_block)
-      ENDDO
+      END DO
       CALL dbcsr_iterator_stop(iter)
 
       CALL mp_sum(charges, para_env%group)
@@ -345,7 +345,7 @@ CONTAINS
                mult = 0.5_dp ! avoid double counting of diagonal blocks
             ELSE
                mult = 1.0_dp
-            ENDIF
+            END IF
             charges(iblock_row, ispin) = charges(iblock_row, ispin) + mult*SUM(p_block*s_block)
             charges(iblock_col, ispin) = charges(iblock_col, ispin) + mult*SUM(p_block*s_block)
             DO ider = 1, 3
@@ -355,9 +355,9 @@ CONTAINS
                dcharges(iblock_col, ider) = dcharges(iblock_col, ider) + mult*SUM(p_block*ds_block)
             END DO
 
-         ENDDO
+         END DO
          CALL dbcsr_iterator_stop(iter)
-      ENDDO
+      END DO
       CALL mp_sum(charges, para_env%group)
       CALL mp_sum(dcharges, para_env%group)
 
@@ -386,8 +386,7 @@ CONTAINS
       INTEGER                                            :: scr
       CHARACTER(LEN=*)                                   :: title
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_a', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_a'
 
       INTEGER                                            :: handle, nblock, nspin
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: charges
@@ -425,8 +424,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mcharge
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_b', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_b'
 
       INTEGER                                            :: handle
 
@@ -454,8 +452,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mcharge, dmcharge
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_c', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_c'
 
       INTEGER                                            :: handle
 
@@ -482,8 +479,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:)                        :: mcharge
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_s', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_s'
 
       INTEGER                                            :: handle
 
@@ -517,8 +513,7 @@ CONTAINS
       INTEGER                                            :: scr
       CHARACTER(LEN=*)                                   :: title
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_akp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_akp'
 
       INTEGER                                            :: handle, ic, nblock, nspin
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: charges, charges_im
@@ -530,8 +525,8 @@ CONTAINS
       CPASSERT(ASSOCIATED(p_matrix_kp))
       CPASSERT(ASSOCIATED(s_matrix_kp))
 
-      nspin = SIZE(p_matrix)
-      CALL dbcsr_get_info(s_matrix, nblkrows_total=nblock)
+      nspin = SIZE(p_matrix_kp, 1)
+      CALL dbcsr_get_info(s_matrix_kp(1, 1)%matrix, nblkrows_total=nblock)
       ALLOCATE (charges(nblock, nspin), charges_im(nblock, nspin))
       charges = 0.0_dp
 
@@ -565,8 +560,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mcharge
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_bkp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_bkp'
 
       INTEGER                                            :: handle, ic, natom, nspin
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mcharge_im
@@ -615,8 +609,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: mcharge, dmcharge
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_ckp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mulliken_charges_ckp'
 
       INTEGER                                            :: handle, ic, natom, nder, nspin
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: dmcharge_im, mcharge_im
@@ -680,7 +673,7 @@ CONTAINS
          IF (.NOT. (ASSOCIATED(sp) .AND. ASSOCIATED(ps))) CYCLE
 
          bond_order(iat, jat) = bond_order(iat, jat) + SUM(ps*sp)
-      ENDDO
+      END DO
       CALL dbcsr_iterator_stop(iter)
 
    END SUBROUTINE compute_bond_order
@@ -704,7 +697,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ao_charges_1', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ao_charges_1'
 
       INTEGER                                            :: blk, handle, i, iblock_col, iblock_row, &
                                                             ispin, j, nspin
@@ -741,9 +734,9 @@ CONTAINS
                   END DO
                END DO
             END IF
-         ENDDO
+         END DO
          CALL dbcsr_iterator_stop(iter)
-      ENDDO
+      END DO
       CALL mp_sum(charges, para_env%group)
 
       CALL timestop(handle)
@@ -767,7 +760,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: charges
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ao_charges_2', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ao_charges_2'
 
       INTEGER                                            :: blk, handle, i, iblock_col, iblock_row, &
                                                             ispin, j, nspin
@@ -804,9 +797,9 @@ CONTAINS
                END DO
             END IF
 
-         ENDDO
+         END DO
          CALL dbcsr_iterator_stop(iter)
-      ENDDO
+      END DO
       CALL mp_sum(charges, para_env%group)
 
       CALL timestop(handle)
@@ -828,7 +821,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ao_charges_kp', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ao_charges_kp'
 
       INTEGER                                            :: handle, ic, na
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: charge_im
@@ -874,8 +867,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: charges
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ao_charges_kp_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ao_charges_kp_2'
 
       INTEGER                                            :: handle, ic, na, nb
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: charge_im

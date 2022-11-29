@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,8 +48,7 @@ CONTAINS
    SUBROUTINE add_to_references(gt_elem)
       TYPE(global_tree_type), POINTER                    :: gt_elem
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'add_to_references', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'add_to_references'
 
       INTEGER                                            :: handle
       TYPE(gt_elem_list_type), POINTER                   :: tmp_pt_list_elem
@@ -97,8 +98,7 @@ CONTAINS
       TYPE(global_tree_type), POINTER                    :: gt_ptr
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'remove_gt_references', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'remove_gt_references'
 
       INTEGER                                            :: handle
 
@@ -129,8 +129,7 @@ CONTAINS
    SUBROUTINE remove_subtree_element_of_all_references(ptr)
       TYPE(tree_type), POINTER                           :: ptr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'remove_subtree_element_of_all_references', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'remove_subtree_element_of_all_references'
 
       CHARACTER(len=2000)                                :: list_of_nr
       INTEGER                                            :: handle, i
@@ -204,8 +203,7 @@ CONTAINS
       TYPE(tree_type), POINTER                           :: elem
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'search_and_remove_reference_in_list', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'search_and_remove_reference_in_list'
 
       INTEGER                                            :: handle
       TYPE(gt_elem_list_type), POINTER                   :: tmp_gt_list_last_ptr, tmp_gt_list_ptr

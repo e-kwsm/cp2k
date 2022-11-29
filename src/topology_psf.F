@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -81,8 +83,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: subsys_section
       INTEGER, INTENT(IN)                                :: psf_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_topology_psf', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'read_topology_psf'
 
       CHARACTER(LEN=2*default_string_length)             :: psf_format
       CHARACTER(LEN=3)                                   :: c_int
@@ -94,9 +95,9 @@ CONTAINS
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(connectivity_info_type), POINTER              :: conn_info
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser, logger)
+      NULLIFY (logger)
       logger => cp_get_default_logger()
       output_unit = cp_logger_get_default_io_unit(logger)
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/PSF_INFO", &
@@ -124,7 +125,7 @@ CONTAINS
             IF (psf_type == do_conn_psf) THEN
                ! X-PLOR PSF format "similar" to the plain CHARMM PSF format
                psf_format = '(I8,1X,A4,I5,1X,A4,1X,A4,1X,A4,1X,2G14.6,I8)'
-            ENDIF
+            END IF
          CASE ("EXT")
             IF (psf_type == do_conn_psf) THEN
                ! EXTEnded CHARMM31 format
@@ -132,7 +133,7 @@ CONTAINS
                c_int = 'I10'
             ELSE
                CPABORT("PSF_INFO| "//field(1:3)//" :: not available for UPSF format!")
-            ENDIF
+            END IF
          CASE DEFAULT
             CPABORT("PSF_INFO| "//field(1:3)//" :: Unimplemented keyword in CP2K PSF/UPSF format!")
          END SELECT
@@ -416,8 +417,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'psf_post_process', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'psf_post_process'
 
       INTEGER                                            :: handle, i, iatom, ibond, ionfo, iw, &
                                                             jatom, N, natom, nbond, nonfo, nphi, &
@@ -489,7 +489,7 @@ CONTAINS
       ALLOCATE (ex_bond_list(natom))
       DO I = 1, natom
          ALLOCATE (ex_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%bond_a)) N = SIZE(conn_info%bond_a)
       CALL reorder_structure(ex_bond_list, conn_info%bond_a, conn_info%bond_b, N)
@@ -497,7 +497,7 @@ CONTAINS
       ALLOCATE (ex_bend_list(natom))
       DO I = 1, natom
          ALLOCATE (ex_bend_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%theta_a)) N = SIZE(conn_info%theta_a)
       CALL reorder_structure(ex_bend_list, conn_info%theta_a, conn_info%theta_c, N)
@@ -512,18 +512,18 @@ CONTAINS
       ! deallocate bends
       DO I = 1, natom
          DEALLOCATE (ex_bend_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (ex_bend_list)
       ! deallocate bonds
       DO I = 1, natom
          DEALLOCATE (ex_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (ex_bond_list)
       ! Get unique onfo
       ALLOCATE (ex_bond_list(natom))
       DO I = 1, natom
          ALLOCATE (ex_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%onfo_a)) N = nonfo
       CALL reorder_structure(ex_bond_list, conn_info%onfo_a, conn_info%onfo_b, N)
@@ -542,7 +542,7 @@ CONTAINS
       END DO
       DO I = 1, natom
          DEALLOCATE (ex_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (ex_bond_list)
       CALL reallocate(conn_info%onfo_a, 1, nonfo)
       CALL reallocate(conn_info%onfo_b, 1, nonfo)
@@ -563,7 +563,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: section, subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'idm_psf', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'idm_psf'
 
       INTEGER                                            :: handle, i, iend, iend1, istart, istart1, &
                                                             item, iw, j, mol_id, n_rep, natom, &
@@ -613,7 +613,7 @@ CONTAINS
             ALLOCATE (wrk(natom))
             DO j = 1, natom
                ALLOCATE (ex_bond_list(j)%array1(0))
-            ENDDO
+            END DO
             CALL reorder_structure(ex_bond_list, conn_info%bond_a, conn_info%bond_b, nbond + n_rep)
             ! Loop over atoms to possiblyt change molecule name
             tag_mols = -1
@@ -649,7 +649,7 @@ CONTAINS
             ! Deallocate bonds
             DO i = 1, natom
                DEALLOCATE (ex_bond_list(i)%array1)
-            ENDDO
+            END DO
             DEALLOCATE (ex_bond_list)
             DEALLOCATE (tag_mols)
             DEALLOCATE (wrk)
@@ -723,8 +723,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section, force_env_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_topology_psf', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_topology_psf'
 
       CHARACTER(LEN=2*default_string_length)             :: psf_format
       CHARACTER(LEN=default_string_length)               :: c_int, my_tag1, my_tag2, my_tag3, record
@@ -776,7 +775,7 @@ CONTAINS
       ! fixup for topology output
       DO j = 1, topology%natoms
          IF (charges(j) .EQ. -HUGE(0.0_dp)) charges(j) = -99.0_dp
-      ENDDO
+      END DO
       record = cp_print_key_generate_filename(logger, print_key, &
                                               extension=".psf", my_local=.FALSE.)
       ! build the EXT format

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -85,13 +87,16 @@ MODULE qs_neighbor_lists
         get_iterator_task, neighbor_list_iterate, neighbor_list_iterator_create, &
         neighbor_list_iterator_p_type, neighbor_list_iterator_release, neighbor_list_p_type, &
         neighbor_list_set_p_type, neighbor_list_set_type, release_neighbor_list_sets
-   USE string_utilities,                ONLY: compress
+   USE string_utilities,                ONLY: compress,&
+                                              uppercase
    USE subcell_types,                   ONLY: allocate_subcell,&
                                               deallocate_subcell,&
                                               give_ijk_subcell,&
                                               subcell_type
    USE util,                            ONLY: locate,&
                                               sort
+   USE xtb_types,                       ONLY: get_xtb_atom_param,&
+                                              xtb_atom_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -128,7 +133,7 @@ CONTAINS
    SUBROUTINE atom2d_cleanup(atom2d)
       TYPE(local_atoms_type), DIMENSION(:)               :: atom2d
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom2d_cleanup', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom2d_cleanup'
 
       INTEGER                                            :: handle, ikind
 
@@ -176,7 +181,7 @@ CONTAINS
       LOGICAL                                            :: molecule_only
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom2d_build', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom2d_build'
 
       INTEGER                                            :: atom_a, handle, ia, iat, iatom, &
                                                             iatom_local, ikind, imol, natom, &
@@ -199,9 +204,9 @@ CONTAINS
          DO imol = 1, SIZE(molecule_set)
             DO iat = molecule_set(imol)%first_atom, molecule_set(imol)%last_atom
                atom2mol(iat) = imol
-            ENDDO
+            END DO
          END DO
-      ENDIF
+      END IF
 
       DO ikind = 1, nkind
          NULLIFY (atom2d(ikind)%list)
@@ -265,7 +270,7 @@ CONTAINS
 
          DEALLOCATE (listsort, listindex)
 
-      ENDDO
+      END DO
 
       DEALLOCATE (atom_of_kind)
 
@@ -291,18 +296,18 @@ CONTAINS
       LOGICAL, OPTIONAL                                  :: molecular
       TYPE(section_vals_type), POINTER                   :: force_env_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_qs_neighbor_lists', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_qs_neighbor_lists'
 
+      CHARACTER(LEN=2)                                   :: element_symbol, element_symbol2
       CHARACTER(LEN=default_string_length)               :: print_key_path
-      INTEGER                                            :: handle, ikind, iw, maxatom, nkind, &
-                                                            numshells, zat
+      INTEGER                                            :: handle, ikind, ingp, iw, jkind, maxatom, &
+                                                            ngp, nkind, numshells, zat
       LOGICAL :: all_potential_present, almo, dftb, do_hfx, dokp, explicit, gth_potential_present, &
          lri_optbas, lrigpw, mic, molecule_only, nddo, paw_atom, paw_atom_present, rigpw, &
          sgp_potential_present, xtb
       LOGICAL, ALLOCATABLE, DIMENSION(:) :: all_present, aux_fit_present, aux_present, &
-         core_present, default_present, oce_present, orb_present, ppl_present, ppnl_present, &
-         ri_present, xb1_atom, xb2_atom
+         core_present, default_present, nonbond1_atom, nonbond2_atom, oce_present, orb_present, &
+         ppl_present, ppnl_present, ri_present, xb1_atom, xb2_atom
       REAL(dp)                                           :: almo_rcov, almo_rvdw, rcut, roperator, &
                                                             subcells
       REAL(dp), ALLOCATABLE, DIMENSION(:) :: all_pot_rad, aux_fit_radius, c_radius, calpha, &
@@ -323,9 +328,9 @@ CONTAINS
       TYPE(local_atoms_type), ALLOCATABLE, DIMENSION(:)  :: atom2d
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(neighbor_list_set_p_type), DIMENSION(:), POINTER :: saa_list, sab_all, sab_almo, &
-         sab_aux_fit, sab_aux_fit_asymm, sab_aux_fit_vs_orb, sab_cn, sab_core, sab_gcp, sab_kp, &
-         sab_lrc, sab_orb, sab_scp, sab_se, sab_tbe, sab_vdw, sab_xb, sac_ae, sac_lri, sac_ppl, &
-         sap_oce, sap_ppnl, soa_list, soo_list
+         sab_cn, sab_core, sab_gcp, sab_kp, sab_lrc, sab_orb, sab_scp, sab_se, sab_tbe, sab_vdw, &
+         sab_xb, sab_xtb_nonbond, sab_xtbe, sac_ae, sac_lri, sac_ppl, sap_oce, sap_ppnl, soa_list, &
+         soo_list
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(paw_proj_set_type), POINTER                   :: paw_proj
       TYPE(qs_dftb_atom_type), POINTER                   :: dftb_atom
@@ -335,6 +340,7 @@ CONTAINS
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(section_vals_type), POINTER                   :: hfx_sections, neighbor_list_section
       TYPE(sgp_potential_type), POINTER                  :: sgp_potential
+      TYPE(xtb_atom_type), POINTER                       :: xtb_atom
 
       CALL timeset(routineN, handle)
       NULLIFY (logger)
@@ -353,13 +359,13 @@ CONTAINS
       NULLIFY (sab_se)
       NULLIFY (sab_lrc)
       NULLIFY (sab_tbe)
+      NULLIFY (sab_xtbe)
       NULLIFY (sab_core)
       NULLIFY (sab_xb)
+      NULLIFY (sab_xtb_nonbond)
       NULLIFY (sab_all)
       NULLIFY (sab_vdw)
       NULLIFY (sab_cn)
-      NULLIFY (sab_aux_fit)
-      NULLIFY (sab_aux_fit_vs_orb)
       NULLIFY (soo_list)
       NULLIFY (sab_scp)
       NULLIFY (sab_almo)
@@ -386,9 +392,6 @@ CONTAINS
 
       CALL get_ks_env(ks_env=ks_env, &
                       sab_orb=sab_orb, &
-                      sab_aux_fit=sab_aux_fit, &
-                      sab_aux_fit_vs_orb=sab_aux_fit_vs_orb, &
-                      sab_aux_fit_asymm=sab_aux_fit_asymm, &
                       sac_ae=sac_ae, &
                       sac_ppl=sac_ppl, &
                       sac_lri=sac_lri, &
@@ -398,8 +401,10 @@ CONTAINS
                       sab_se=sab_se, &
                       sab_lrc=sab_lrc, &
                       sab_tbe=sab_tbe, &
+                      sab_xtbe=sab_xtbe, &
                       sab_core=sab_core, &
                       sab_xb=sab_xb, &
+                      sab_xtb_nonbond=sab_xtb_nonbond, &
                       sab_scp=sab_scp, &
                       sab_all=sab_all, &
                       sab_almo=sab_almo, &
@@ -500,14 +505,14 @@ CONTAINS
                CALL get_gto_basis_set(gto_basis_set=orb_basis_set, kind_radius=orb_radius(ikind))
             ELSE
                orb_present(ikind) = .FALSE.
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          IF (ASSOCIATED(aux_basis_set)) THEN
             aux_present(ikind) = .TRUE.
          ELSE
             aux_present(ikind) = .FALSE.
-         ENDIF
+         END IF
 
          IF (ASSOCIATED(aux_fit_basis_set)) THEN
             aux_fit_present(ikind) = .TRUE.
@@ -589,7 +594,7 @@ CONTAINS
          CALL build_neighbor_lists(sab_all, particle_set, atom2d, cell, pair_radius, &
                                    mic=mic, symmetric=.FALSE., subcells=subcells, molecular=molecule_only, nlname="sab_all")
          CALL set_ks_env(ks_env=ks_env, sab_all=sab_all)
-      ENDIF
+      END IF
 
       ! Build the core-core overlap neighbor lists
       IF (.NOT. (nddo .OR. dftb .OR. xtb)) THEN
@@ -599,28 +604,6 @@ CONTAINS
          CALL set_ks_env(ks_env=ks_env, sab_core=sab_core)
          CALL write_neighbor_lists(sab_core, particle_set, cell, para_env, neighbor_list_section, &
                                    "/SAB_CORE", "sab_core", "CORE CORE")
-      ENDIF
-
-      IF (dft_control%do_admm) THEN
-         CALL pair_radius_setup(aux_fit_present, aux_fit_present, aux_fit_radius, aux_fit_radius, pair_radius)
-         CALL build_neighbor_lists(sab_aux_fit, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, molecular=molecule_only, subcells=subcells, nlname="sab_aux_fit")
-         CALL build_neighbor_lists(sab_aux_fit_asymm, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
-                                   nlname="sab_aux_fit_asymm")
-         CALL pair_radius_setup(aux_fit_present, orb_present, aux_fit_radius, orb_radius, pair_radius)
-         CALL build_neighbor_lists(sab_aux_fit_vs_orb, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
-                                   nlname="sab_aux_fit_vs_orb")
-
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit=sab_aux_fit)
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit_vs_orb=sab_aux_fit_vs_orb)
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit_asymm=sab_aux_fit_asymm)
-
-         CALL write_neighbor_lists(sab_aux_fit, particle_set, cell, para_env, neighbor_list_section, &
-                                   "/SAB_AUX_FIT", "sab_aux_fit", "AUX_FIT_ORBITAL AUX_FIT_ORBITAL")
-         CALL write_neighbor_lists(sab_aux_fit_vs_orb, particle_set, cell, para_env, neighbor_list_section, &
-                                   "/SAB_AUX_FIT_VS_ORB", "sab_aux_fit_vs_orb", "ORBITAL AUX_FIT_ORBITAL")
       END IF
 
       IF (dokp) THEN
@@ -780,6 +763,16 @@ CONTAINS
                                       subcells=subcells, nlname="sab_tbe")
             CALL set_ks_env(ks_env=ks_env, sab_tbe=sab_tbe)
          END IF
+         ! SR part of Coulomb interaction
+         DO ikind = 1, nkind
+            CALL get_qs_kind(qs_kind_set(ikind), xtb_parameter=xtb_atom)
+            CALL get_xtb_atom_param(xtb_parameter=xtb_atom, rcut=c_radius(ikind))
+         END DO
+         default_present = .TRUE.
+         CALL pair_radius_setup(default_present, default_present, c_radius, c_radius, pair_radius)
+         CALL build_neighbor_lists(sab_xtbe, particle_set, atom2d, cell, pair_radius, &
+                                   subcells=subcells, nlname="sab_xtbe")
+         CALL set_ks_env(ks_env=ks_env, sab_xtbe=sab_xtbe)
          ! XB list
          ALLOCATE (xb1_atom(nkind), xb2_atom(nkind))
          c_radius = 0.5_dp*dft_control%qs_control%xtb_control%xb_radius
@@ -800,6 +793,40 @@ CONTAINS
          CALL build_neighbor_lists(sab_xb, particle_set, atom2d, cell, pair_radius, &
                                    symmetric=.FALSE., subcells=subcells, operator_type="PP", nlname="sab_xb")
          CALL set_ks_env(ks_env=ks_env, sab_xb=sab_xb)
+         CALL write_neighbor_lists(sab_xb, particle_set, cell, para_env, neighbor_list_section, &
+                                   "/SAB_XB", "sab_xb", "XB bonding")
+
+         ! nonbonded interactions list
+         IF (dft_control%qs_control%xtb_control%do_nonbonded) THEN
+            ngp = SIZE(dft_control%qs_control%xtb_control%nonbonded%pot)
+            ALLOCATE (nonbond1_atom(nkind), nonbond2_atom(nkind))
+            nonbond1_atom = .FALSE.
+            nonbond2_atom = .FALSE.
+            DO ingp = 1, ngp
+               DO ikind = 1, nkind
+                  rcut = SQRT(dft_control%qs_control%xtb_control%nonbonded%pot(ingp)%pot%rcutsq)
+                  c_radius = rcut
+                  CALL get_atomic_kind(atomic_kind_set(ikind), element_symbol=element_symbol)
+                  CALL uppercase(element_symbol)
+                  IF (TRIM(dft_control%qs_control%xtb_control%nonbonded%pot(ingp)%pot%at1) == TRIM(element_symbol)) THEN
+                     nonbond1_atom(ikind) = .TRUE.
+                     DO jkind = 1, nkind
+                        CALL get_atomic_kind(atomic_kind_set(jkind), element_symbol=element_symbol2)
+                        CALL uppercase(element_symbol2)
+                        IF (TRIM(dft_control%qs_control%xtb_control%nonbonded%pot(ingp)%pot%at2) == TRIM(element_symbol2)) THEN
+                           nonbond2_atom(jkind) = .TRUE.
+                        END IF
+                     END DO
+                  END IF
+               END DO
+               CALL pair_radius_setup(nonbond1_atom, nonbond2_atom, c_radius, c_radius, pair_radius)
+               CALL build_neighbor_lists(sab_xtb_nonbond, particle_set, atom2d, cell, pair_radius, &
+                                         symmetric=.FALSE., subcells=subcells, operator_type="PP", nlname="sab_xtb_nonbond")
+               CALL set_ks_env(ks_env=ks_env, sab_xtb_nonbond=sab_xtb_nonbond)
+               CALL write_neighbor_lists(sab_xtb_nonbond, particle_set, cell, para_env, neighbor_list_section, &
+                                         "/SAB_XTB_NONBOND", "sab_xtb_nonbond", "XTB NONBONDED INTERACTIONS")
+            END DO
+         END IF
       END IF
 
       ! Build the neighbor lists for the vdW pair potential
@@ -866,7 +893,7 @@ CONTAINS
                CALL get_gto_basis_set(gto_basis_set=ri_basis_set, kind_radius=ri_radius(ikind))
             ELSE
                ri_present(ikind) = .FALSE.
-            ENDIF
+            END IF
          END DO
          ! set neighborlists in lri_env environment
          CALL pair_radius_setup(orb_present, orb_present, orb_radius, orb_radius, pair_radius)
@@ -902,7 +929,7 @@ CONTAINS
          CALL build_neighbor_lists(sab_almo, particle_set, atom2d, cell, pair_radius, &
                                    subcells=subcells, operator_type="PP", nlname="sab_almo")
          CALL set_ks_env(ks_env=ks_env, sab_almo=sab_almo)
-      ENDIF
+      END IF
 
       ! Print particle distribution
       print_key_path = "PRINT%DISTRIBUTION"
@@ -934,7 +961,7 @@ CONTAINS
       END IF
       IF (paw_atom_present) THEN
          DEALLOCATE (oce_present, oce_radius)
-      ENDIF
+      END IF
       IF (all_potential_present .OR. sgp_potential_present) THEN
          DEALLOCATE (all_present, all_pot_rad)
       END IF
@@ -984,8 +1011,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: nlname
       INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL        :: atomb_to_keep
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_neighbor_lists', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_neighbor_lists'
 
       TYPE local_lists
          INTEGER, DIMENSION(:), POINTER           :: list
@@ -1074,7 +1100,7 @@ CONTAINS
       ALLOCATE (r_pbc(3, natom))
       DO i = 1, natom
          r_pbc(1:3, i) = pbc(particle_set(i)%r(1:3), cell)
-      ENDDO
+      END DO
 
       ! setup the local lists of atoms
       maxat = 0
@@ -1310,12 +1336,13 @@ CONTAINS
                                           include_ab = .TRUE.
                                           IF (my_mic) THEN
                                              ! only if rab is minimum image the pair will be included
-                                             ! ideally the range of the pair list is < L/2 so that this never triggers
+                                             ! ideally the range of the pair list is < L/2 so
+                                             ! that this never triggers
                                              rab_pbc(:) = pbc(rab(:), cell)
                                              IF (SUM((rab_pbc - rab)**2) > EPSILON(1.0_dp)) THEN
                                                 include_ab = .FALSE.
-                                             ENDIF
-                                          ENDIF
+                                             END IF
+                                          END IF
                                           IF (include_ab) THEN
                                              CALL add_neighbor_node( &
                                                 neighbor_list=kind_a(iatom_local)%neighbor_list, &
@@ -1323,7 +1350,7 @@ CONTAINS
                                                 cell=cell_b, &
                                                 r=rab, &
                                                 nkind=nkind)
-                                          ENDIF
+                                          END IF
                                        END IF
                                     END IF
                                  END DO
@@ -1356,7 +1383,6 @@ CONTAINS
       DEALLOCATE (index_list)
       DEALLOCATE (r_pbc)
 
-!deb
       nentry = 0
       CALL neighbor_list_iterator_create(nl_iterator, ab_list)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
@@ -1388,7 +1414,6 @@ CONTAINS
          END IF
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
-!deb
 
       CALL timestop(handle)
 
@@ -1418,9 +1443,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: mic, symmetric, molecular
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: operator_type
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_neighbor_list', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=4)                                   :: otype
       INTEGER                                            :: ikind, nkind
@@ -1525,8 +1547,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ikind
       TYPE(local_atoms_type), DIMENSION(:), INTENT(IN)   :: atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'combine_lists', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ib, na, nb
       INTEGER, DIMENSION(:), POINTER                     :: lista, listb
 
@@ -1559,7 +1579,7 @@ CONTAINS
             n = n + 1
             list(n) = listb(ib)
          END DO loopb
-      ENDIF
+      END IF
    END SUBROUTINE combine_lists
 
 ! **************************************************************************************************
@@ -1576,9 +1596,6 @@ CONTAINS
       LOGICAL, DIMENSION(:), INTENT(IN)                  :: present_a, present_b
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: radius_a, radius_b
       REAL(dp), DIMENSION(:, :), INTENT(OUT)             :: pair_radius
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pair_radius_setup', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, nkind
 
@@ -1613,8 +1630,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: output_unit
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_neighbor_distribution', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_neighbor_distribution'
       LOGICAL, PARAMETER                                 :: full_output = .FALSE.
 
       INTEGER                                            :: group, handle, ikind, inode, ipe, jkind, &
@@ -1674,7 +1690,7 @@ CONTAINS
          tmp = (/nblock_max, nelement_max/)
          CALL mp_max(tmp, group)
          nblock_max = tmp(1); nelement_max = tmp(2)
-      ENDIF
+      END IF
 
       IF (output_unit > 0) THEN
          IF (full_output) THEN
@@ -1693,7 +1709,7 @@ CONTAINS
             WRITE (UNIT=output_unit, FMT="(T15,A,T68,I13)") "Maximum number of particle pairs:", nblock_max
             WRITE (UNIT=output_unit, FMT="(T15,A,T68,I13)") "Average number of matrix element:", (nelement_sum + npe - 1)/npe
             WRITE (UNIT=output_unit, FMT="(T15,A,T68,I13)") "Maximum number of matrix elements:", nelement_max
-         ENDIF
+         END IF
       END IF
 
       ! Release work storage

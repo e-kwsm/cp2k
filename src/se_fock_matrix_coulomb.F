@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -123,8 +125,7 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: calculate_forces
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coulomb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coulomb'
 
       INTEGER :: atom_a, atom_b, handle, iatom, ikind, inode, ispin, itype, jatom, jkind, natom, &
          natorb_a, natorb_a2, natorb_b, natorb_b2, nkind, nspins
@@ -264,7 +265,7 @@ CONTAINS
                pa_b(1:natorb_a2) = RESHAPE(pa_block_b, (/natorb_a2/))
             END IF
 
-         ENDIF
+         END IF
 
          dr1 = DOT_PRODUCT(rij, rij)
          IF (dr1 > rij_threshold) THEN
@@ -488,8 +489,7 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: calculate_forces
       TYPE(semi_empirical_si_type), POINTER              :: store_int_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coulomb_lr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coulomb_lr'
 
       INTEGER :: atom_a, ewald_type, forces_g_size, handle, iatom, ikind, ilist, indi, indj, &
          ispin, itype, iw, jint, natoms, natorb_a, nkind, nlocal_particles, node, nparticle_local, &
@@ -853,8 +853,7 @@ CONTAINS
       TYPE(virial_type), POINTER                         :: virial
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(INOUT)      :: pv_glob
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coul_lrc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coul_lrc'
 
       INTEGER :: atom_a, atom_b, handle, iatom, ikind, inode, itype, jatom, jkind, natom, &
          natorb_a, natorb_a2, natorb_b, natorb_b2, nkind, nspins, size1, size2
@@ -917,6 +916,8 @@ CONTAINS
       CPASSERT(SIZE(ks_matrix) > 0)
       CPASSERT(ASSOCIATED(diagmat_p))
       CPASSERT(ASSOCIATED(diagmat_ks))
+      MARK_USED(ks_matrix)
+      MARK_USED(matrix_p)
 
       nkind = SIZE(atomic_kind_set)
       IF (calculate_forces) THEN
@@ -998,7 +999,7 @@ CONTAINS
                pa_b(1:natorb_a2) = RESHAPE(pa_block_b, (/natorb_a2/))
             END IF
 
-         ENDIF
+         END IF
 
          dr1 = DOT_PRODUCT(rij, rij)
          IF (dr1 > rij_threshold) THEN
@@ -1219,8 +1220,7 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coul_lr_r3', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_fock_matrix_coul_lr_r3'
 
       INTEGER :: atom_a, atom_b, ewald_type, handle, iatom, ikind, inode, ispin, itype, jatom, &
          jkind, natoms, natorb_a, natorb_a2, natorb_b, natorb_b2, nkind, nlocal_particles, nspins

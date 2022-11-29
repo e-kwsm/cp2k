@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,6 +24,7 @@ MODULE qs_mo_types
    USE cp_dbcsr_operations,             ONLY: dbcsr_copy_columns_hack
    USE cp_fm_pool_types,                ONLY: cp_fm_pool_type,&
                                               fm_pool_create_fm
+   USE cp_fm_struct,                    ONLY: cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
                                               cp_fm_release,&
@@ -41,34 +44,38 @@ MODULE qs_mo_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_mo_types'
 
    TYPE mo_set_type
-      ! the actual MO coefficients as a matrix
-      TYPE(cp_fm_type), POINTER                 :: mo_coeff
-      TYPE(dbcsr_type), POINTER              :: mo_coeff_b
+      ! The actual MO coefficients as a matrix
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff => NULL()
+      TYPE(dbcsr_type), POINTER                          :: mo_coeff_b => NULL()
       ! we are using the dbcsr mo_coeff_b
-      LOGICAL                                   :: use_mo_coeff_b
-      ! number of molecular orbitals (# cols in mo_coeff)
-      INTEGER                                   :: nmo
-      ! number of atomic orbitals (# rows in mo_coeff)
-      INTEGER                                   :: nao
-      ! occupation - eigenvalues  of the nmo states (if eigenstates)
-      REAL(KIND=dp), DIMENSION(:), POINTER    :: eigenvalues, occupation_numbers
-      ! maximum allowed occupation number of an MO (1 or 2)
-      REAL(KIND=dp)                           :: maxocc
-      ! number of electrons (taking occupation into account)
-      INTEGER                                   :: nelectron
-      REAL(KIND=dp)                             :: n_el_f
-      ! highest non-zero occupied orbital
-      INTEGER                                   :: homo
+      LOGICAL                                            :: use_mo_coeff_b = .FALSE.
+      ! Number of molecular orbitals (# cols in mo_coeff)
+      INTEGER                                            :: nmo = -1
+      ! Number of atomic orbitals (# rows in mo_coeff)
+      INTEGER                                            :: nao = -1
+      ! MO occupation numbers and MO eigenvalues (if eigenstates)
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues => NULL(), &
+                                                            occupation_numbers => NULL()
+      ! Maximum allowed occupation number of an MO, i.e.
+      ! 1 for spin unrestricted (polarized) and 2 for spin restricted
+      REAL(KIND=dp)                                      :: maxocc = -1
+      ! Number of electrons (taking occupations into account)
+      INTEGER                                            :: nelectron = -1
+      REAL(KIND=dp)                                      :: n_el_f = -1.0_dp
+      ! Highest orbital with non-zero occupation
+      INTEGER                                            :: homo = -1
       ! lowest non maxocc occupied orbital (e.g. fractional or zero)
-      INTEGER                                   :: lfomo
-      ! flag that indicates if the MOS have the same occupation number
-      LOGICAL                                   :: uniform_occupation
-      ! the entropic energy contribution
-      REAL(KIND=dp)                             :: kTS
+      INTEGER                                            :: lfomo = -1
+      ! True, if all allocated MOs have the same occupation number.
+      ! This is not the case for fractional occupations or for added MOs
+      ! with zero occupation.
+      LOGICAL                                            :: uniform_occupation = .FALSE.
+      ! The entropic energy contribution
+      REAL(KIND=dp)                                      :: kTS = -1.0_dp
       ! Fermi energy level
-      REAL(KIND=dp)                             :: mu
+      REAL(KIND=dp)                                      :: mu = 0.0_dp
       ! Threshold value for multiplicity change
-      REAL(KIND=dp)                             :: flexible_electron_count
+      REAL(KIND=dp)                                      :: flexible_electron_count = -1.0_dp
    END TYPE mo_set_type
 
    TYPE mo_set_p_type
@@ -80,12 +87,13 @@ MODULE qs_mo_types
 
    PUBLIC :: allocate_mo_set, &
              deallocate_mo_set, &
-             get_mo_set, &
-             init_mo_set, &
-             set_mo_set, &
-             mo_set_restrict, &
              duplicate_mo_set, &
-             reassign_allocated_mos
+             get_mo_set, &
+             has_uniform_occupation, &
+             init_mo_set, &
+             mo_set_restrict, &
+             reassign_allocated_mos, &
+             set_mo_set
 
 CONTAINS
 
@@ -98,10 +106,7 @@ CONTAINS
 !> \author Soumya Ghosh
 ! **************************************************************************************************
    SUBROUTINE reassign_allocated_mos(mo_set_new, mo_set_old)
-      TYPE(mo_set_type), POINTER                         :: mo_set_new, mo_set_old
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'reassign_allocated_mos', &
-         routineP = moduleN//':'//routineN
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set_new, mo_set_old
 
       INTEGER                                            :: nmo
 
@@ -123,7 +128,7 @@ CONTAINS
 
       !IF (ASSOCIATED(mo_set_old%mo_coeff_b)) THEN
       !   CALL dbcsr_copy(mo_set_new%mo_coeff_b, mo_set_old%mo_coeff_b)
-      !ENDIF
+      !END IF
       !mo_set_new%use_mo_coeff_b = mo_set_old%use_mo_coeff_b
 
       mo_set_new%eigenvalues = mo_set_old%eigenvalues
@@ -141,14 +146,10 @@ CONTAINS
 !> \author Joost VandeVondele
 ! **************************************************************************************************
    SUBROUTINE duplicate_mo_set(mo_set_new, mo_set_old)
-      TYPE(mo_set_type), POINTER                         :: mo_set_new, mo_set_old
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'duplicate_mo_set', &
-         routineP = moduleN//':'//routineN
+      TYPE(mo_set_type), INTENT(OUT)                     :: mo_set_new
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set_old
 
       INTEGER                                            :: nmo
-
-      ALLOCATE (mo_set_new)
 
       mo_set_new%maxocc = mo_set_old%maxocc
       mo_set_new%nelectron = mo_set_old%nelectron
@@ -165,6 +166,7 @@ CONTAINS
       nmo = mo_set_new%nmo
 
       NULLIFY (mo_set_new%mo_coeff)
+      ALLOCATE (mo_set_new%mo_coeff)
       CALL cp_fm_create(mo_set_new%mo_coeff, mo_set_old%mo_coeff%matrix_struct)
       CALL cp_fm_to_fm(mo_set_old%mo_coeff, mo_set_new%mo_coeff)
 
@@ -172,7 +174,7 @@ CONTAINS
       IF (ASSOCIATED(mo_set_old%mo_coeff_b)) THEN
          CALL dbcsr_init_p(mo_set_new%mo_coeff_b)
          CALL dbcsr_copy(mo_set_new%mo_coeff_b, mo_set_old%mo_coeff_b)
-      ENDIF
+      END IF
       mo_set_new%use_mo_coeff_b = mo_set_old%use_mo_coeff_b
 
       ALLOCATE (mo_set_new%eigenvalues(nmo))
@@ -185,7 +187,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Allocates a mo set and partially initializes it (nao,nmo,nelectron,
-!>        and flexible_electron_count are vaild).
+!>        and flexible_electron_count are valid).
 !>        For the full initialization you need to call init_mo_set
 !> \param mo_set the mo_set to allocate
 !> \param nao number of atom orbitals
@@ -202,16 +204,9 @@ CONTAINS
    SUBROUTINE allocate_mo_set(mo_set, nao, nmo, nelectron, n_el_f, maxocc, &
                               flexible_electron_count)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
       INTEGER, INTENT(IN)                                :: nao, nmo, nelectron
       REAL(KIND=dp), INTENT(IN)                          :: n_el_f, maxocc, flexible_electron_count
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_mo_set', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(mo_set)) CALL deallocate_mo_set(mo_set)
-
-      ALLOCATE (mo_set)
 
       mo_set%maxocc = maxocc
       mo_set%nelectron = nelectron
@@ -240,34 +235,38 @@ CONTAINS
 !> \param mo_set the mo_set to initialize
 !> \param fm_pool a pool out which you initialize the mo_set
 !> \param fm_ref  a reference  matrix from which you initialize the mo_set
+!> \param fm_struct ...
 !> \param name ...
 !> \par History
 !>      11.2002 rewamped [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE init_mo_set(mo_set, fm_pool, fm_ref, name)
+   SUBROUTINE init_mo_set(mo_set, fm_pool, fm_ref, fm_struct, name)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_pool_type), OPTIONAL, POINTER           :: fm_pool
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: fm_ref
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
+      TYPE(cp_fm_pool_type), INTENT(IN), OPTIONAL        :: fm_pool
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: fm_ref
+      TYPE(cp_fm_struct_type), OPTIONAL, POINTER         :: fm_struct
       CHARACTER(LEN=*), INTENT(in)                       :: name
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_mo_set', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nao, nmo, nomo
 
-      CPASSERT(ASSOCIATED(mo_set))
       CPASSERT(.NOT. ASSOCIATED(mo_set%eigenvalues))
       CPASSERT(.NOT. ASSOCIATED(mo_set%occupation_numbers))
       CPASSERT(.NOT. ASSOCIATED(mo_set%mo_coeff))
 
-      CPASSERT(PRESENT(fm_pool) .OR. PRESENT(fm_ref))
+      CPASSERT(PRESENT(fm_pool) .NEQV. (PRESENT(fm_ref) .NEQV. PRESENT(fm_struct)))
+      NULLIFY (mo_set%mo_coeff)
       IF (PRESENT(fm_pool)) THEN
-         CPASSERT(ASSOCIATED(fm_pool))
+         ALLOCATE (mo_set%mo_coeff)
          CALL fm_pool_create_fm(fm_pool, mo_set%mo_coeff, name=name)
       ELSE IF (PRESENT(fm_ref)) THEN
-         CPASSERT(ASSOCIATED(fm_ref))
+         ALLOCATE (mo_set%mo_coeff)
          CALL cp_fm_create(mo_set%mo_coeff, fm_ref%matrix_struct, name=name)
+      ELSE IF (PRESENT(fm_struct)) THEN
+         ALLOCATE (mo_set%mo_coeff)
+         CPASSERT(ASSOCIATED(fm_struct))
+         CALL cp_fm_create(mo_set%mo_coeff, fm_struct, name=name)
       END IF
       CALL cp_fm_get_info(mo_set%mo_coeff, nrow_global=nao, ncol_global=nmo)
 
@@ -313,11 +312,10 @@ CONTAINS
 !>      10.2004 created [Joost VandeVondele]
 ! **************************************************************************************************
    SUBROUTINE mo_set_restrict(mo_array, convert_dbcsr)
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(2), INTENT(IN)        :: mo_array
       LOGICAL, INTENT(in), OPTIONAL                      :: convert_dbcsr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mo_set_restrict', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'mo_set_restrict'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: my_convert_dbcsr
@@ -327,19 +325,17 @@ CONTAINS
       my_convert_dbcsr = .FALSE.
       IF (PRESENT(convert_dbcsr)) my_convert_dbcsr = convert_dbcsr
 
-      CPASSERT(ASSOCIATED(mo_array))
-      CPASSERT(SIZE(mo_array) .EQ. 2)
-      CPASSERT(mo_array(1)%mo_set%nmo >= mo_array(2)%mo_set%nmo)
+      CPASSERT(mo_array(1)%nmo >= mo_array(2)%nmo)
 
       ! first nmo_beta orbitals are copied from alpha to beta
       IF (my_convert_dbcsr) THEN !fm->dbcsr
-         CALL dbcsr_copy_columns_hack(mo_array(2)%mo_set%mo_coeff_b, mo_array(1)%mo_set%mo_coeff_b, & !fm->dbcsr
-                                      mo_array(2)%mo_set%nmo, 1, 1, & !fm->dbcsr
-                                      para_env=mo_array(1)%mo_set%mo_coeff%matrix_struct%para_env, & !fm->dbcsr
-                                      blacs_env=mo_array(1)%mo_set%mo_coeff%matrix_struct%context) !fm->dbcsr
+         CALL dbcsr_copy_columns_hack(mo_array(2)%mo_coeff_b, mo_array(1)%mo_coeff_b, & !fm->dbcsr
+                                      mo_array(2)%nmo, 1, 1, & !fm->dbcsr
+                                      para_env=mo_array(1)%mo_coeff%matrix_struct%para_env, & !fm->dbcsr
+                                      blacs_env=mo_array(1)%mo_coeff%matrix_struct%context) !fm->dbcsr
       ELSE !fm->dbcsr
-         CALL cp_fm_to_fm(mo_array(1)%mo_set%mo_coeff, mo_array(2)%mo_set%mo_coeff, mo_array(2)%mo_set%nmo)
-      ENDIF
+         CALL cp_fm_to_fm(mo_array(1)%mo_coeff, mo_array(2)%mo_coeff, mo_array(2)%nmo)
+      END IF
 
       CALL timestop(handle)
 
@@ -354,22 +350,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_mo_set(mo_set)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_mo_set', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(mo_set)) THEN
-         IF (ASSOCIATED(mo_set%eigenvalues)) THEN
-            DEALLOCATE (mo_set%eigenvalues)
-         END IF
-         IF (ASSOCIATED(mo_set%occupation_numbers)) THEN
-            DEALLOCATE (mo_set%occupation_numbers)
-         END IF
-         CALL cp_fm_release(mo_set%mo_coeff)
-         IF (ASSOCIATED(mo_set%mo_coeff_b)) CALL dbcsr_release_p(mo_set%mo_coeff_b)
-         DEALLOCATE (mo_set)
+      IF (ASSOCIATED(mo_set%eigenvalues)) THEN
+         DEALLOCATE (mo_set%eigenvalues)
+         NULLIFY (mo_set%eigenvalues)
       END IF
+      IF (ASSOCIATED(mo_set%occupation_numbers)) THEN
+         DEALLOCATE (mo_set%occupation_numbers)
+         NULLIFY (mo_set%occupation_numbers)
+      END IF
+      IF (ASSOCIATED(mo_set%mo_coeff)) THEN
+         CALL cp_fm_release(mo_set%mo_coeff)
+         DEALLOCATE (mo_set%mo_coeff)
+         NULLIFY (mo_set%mo_coeff)
+      END IF
+      IF (ASSOCIATED(mo_set%mo_coeff_b)) CALL dbcsr_release_p(mo_set%mo_coeff_b)
 
    END SUBROUTINE deallocate_mo_set
 
@@ -399,7 +395,7 @@ CONTAINS
                          eigenvalues, occupation_numbers, mo_coeff, mo_coeff_b, &
                          uniform_occupation, kTS, mu, flexible_electron_count)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: maxocc
       INTEGER, INTENT(OUT), OPTIONAL                     :: homo, lfomo, nao, nelectron
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: n_el_f
@@ -454,7 +450,7 @@ CONTAINS
                          eigenvalues, occupation_numbers, uniform_occupation, &
                          kTS, mu, flexible_electron_count)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: maxocc
       INTEGER, INTENT(IN), OPTIONAL                      :: homo, lfomo, nao, nelectron
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: n_el_f
@@ -462,8 +458,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: eigenvalues, occupation_numbers
       LOGICAL, INTENT(IN), OPTIONAL                      :: uniform_occupation
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: kTS, mu, flexible_electron_count
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_set', routineP = moduleN//':'//routineN
 
       IF (PRESENT(maxocc)) mo_set%maxocc = maxocc
       IF (PRESENT(homo)) mo_set%homo = homo
@@ -490,5 +484,61 @@ CONTAINS
       IF (PRESENT(flexible_electron_count)) mo_set%flexible_electron_count = flexible_electron_count
 
    END SUBROUTINE set_mo_set
+
+! **************************************************************************************************
+!> \brief   Check if the set of MOs in mo_set specifed by the MO index range [first_mo,last_mo]
+!>          an integer occupation within a tolerance.
+!> \param   mo_set :: MO set for which the uniform occupation will be checked
+!> \param   first_mo :: Index of first MO for the checked MO range
+!> \param   last_mo :: Index of last MO for the checked MO range
+!> \param   occupation :: Requested uniform MO occupation with the MO range
+!> \param   tolerance :: Requested numerical tolerance for an integer occupation
+!> \return  has_uniform_occupation :: boolean, true if an integer occupation is found otherwise false
+!> \par History
+!>      04.08.2021 Created (MK)
+!> \author  Matthias Krack (MK)
+!> \version 1.0
+! **************************************************************************************************
+   FUNCTION has_uniform_occupation(mo_set, first_mo, last_mo, occupation, tolerance)
+
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      INTEGER, INTENT(IN), OPTIONAL                      :: first_mo, last_mo
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: occupation, tolerance
+      LOGICAL                                            :: has_uniform_occupation
+
+      INTEGER                                            :: my_first_mo, my_last_mo
+      REAL(KIND=dp)                                      :: my_occupation, my_tolerance
+
+      has_uniform_occupation = .FALSE.
+
+      IF (PRESENT(first_mo)) THEN
+         CPASSERT(first_mo >= LBOUND(mo_set%eigenvalues, 1))
+         my_first_mo = first_mo
+      ELSE
+         my_first_mo = LBOUND(mo_set%eigenvalues, 1)
+      END IF
+
+      IF (PRESENT(last_mo)) THEN
+         CPASSERT(last_mo <= UBOUND(mo_set%eigenvalues, 1))
+         my_last_mo = last_mo
+      ELSE
+         my_last_mo = UBOUND(mo_set%eigenvalues, 1)
+      END IF
+
+      IF (PRESENT(occupation)) THEN
+         my_occupation = occupation
+      ELSE
+         my_occupation = mo_set%maxocc
+      END IF
+
+      IF (PRESENT(tolerance)) THEN
+         my_tolerance = tolerance
+      ELSE
+         my_tolerance = EPSILON(0.0_dp)
+      END IF
+
+      has_uniform_occupation = ALL(ABS(mo_set%occupation_numbers(my_first_mo:my_last_mo) - my_occupation) < my_tolerance)
+
+   END FUNCTION has_uniform_occupation
 
 END MODULE qs_mo_types

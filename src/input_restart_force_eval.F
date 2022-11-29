@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE input_restart_force_eval
@@ -24,6 +26,7 @@ MODULE input_restart_force_eval
                                               force_env_type,&
                                               multiple_fe_list,&
                                               use_eip_force,&
+                                              use_nnp_force,&
                                               use_qmmm,&
                                               use_qs_force
    USE input_constants,                 ONLY: do_coord_cp2k,&
@@ -49,6 +52,7 @@ MODULE input_restart_force_eval
    USE molecule_types,                  ONLY: get_molecule,&
                                               molecule_type
    USE multipole_types,                 ONLY: multipole_type
+   USE nnp_environment_types,           ONLY: nnp_env_get
    USE parallel_rng_types,              ONLY: rng_record_length
    USE particle_list_types,             ONLY: particle_list_type
    USE qmmm_ff_fist,                    ONLY: qmmm_ff_precond_only_qm
@@ -83,9 +87,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       LOGICAL, INTENT(IN)                                :: write_binary_restart_file
       LOGICAL, OPTIONAL                                  :: respa
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_force_eval', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_subsys, iforce_eval, myid, nforce_eval
       INTEGER, DIMENSION(:), POINTER                     :: i_force_eval
@@ -127,8 +128,8 @@ CONTAINS
                                                              i_rep_section=i_force_eval(iforce_eval))
                CALL update_subsys(subsys_section, force_env, skip_vel_section, &
                                   write_binary_restart_file)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
       END IF
 
       rng_section => section_vals_get_subs_vals(subsys_section, "RNG_INIT")
@@ -203,8 +204,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: qmmm_section
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_qmmm', routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: explicit
       REAL(KIND=dp), DIMENSION(:), POINTER               :: work
 
@@ -233,9 +232,6 @@ CONTAINS
 
       TYPE(section_vals_type), POINTER                   :: rng_section
       TYPE(force_env_type), POINTER                      :: force_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_rng_particle', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=rng_record_length)                   :: rng_record
       INTEGER                                            :: iparticle, iparticle_kind, &
@@ -298,7 +294,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: skip_vel_section, &
                                                             write_binary_restart_file
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_subsys', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'update_subsys'
 
       CHARACTER(LEN=default_string_length)               :: coord_file_name, unit_str
       INTEGER                                            :: coord_file_format, handle, output_unit
@@ -410,11 +406,13 @@ CONTAINS
          CALL get_qs_env(force_env%qs_env, cell_ref=cell, use_ref_cell=use_ref_cell)
       CASE (use_eip_force)
          CALL eip_env_get(force_env%eip_env, cell_ref=cell, use_ref_cell=use_ref_cell)
+      CASE (use_nnp_force)
+         CALL nnp_env_get(force_env%nnp_env, cell_ref=cell, use_ref_cell=use_ref_cell)
       END SELECT
       IF (use_ref_cell) THEN
          work_section => section_vals_get_subs_vals(subsys_section, "CELL%CELL_REF")
          CALL update_cell_section(cell, cell_section=work_section)
-      ENDIF
+      END IF
 
       ! Updating multipoles
       IF (ASSOCIATED(multipoles)) THEN
@@ -445,8 +443,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: cell_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_cell_section', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_cell_section'
 
       INTEGER                                            :: handle
       INTEGER, DIMENSION(:), POINTER                     :: iwork
@@ -505,8 +502,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       LOGICAL, INTENT(IN), OPTIONAL                      :: shell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_coord_val_set', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_coord_val_set'
 
       CHARACTER(LEN=2*default_string_length)             :: line
       CHARACTER(LEN=default_string_length)               :: my_tag, name
@@ -645,8 +641,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: dipoles
       TYPE(section_vals_type), POINTER                   :: dipoles_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_dipoles_section', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_dipoles_section'
 
       INTEGER                                            :: handle, ik, irk, Nlist, nloop
       REAL(KIND=dp), DIMENSION(:), POINTER               :: work
@@ -722,8 +717,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: quadrupoles
       TYPE(section_vals_type), POINTER                   :: quadrupoles_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_quadrupoles_section', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_quadrupoles_section'
 
       INTEGER                                            :: handle, i, ik, ind, irk, j, Nlist, nloop
       REAL(KIND=dp), DIMENSION(:), POINTER               :: work
@@ -818,8 +812,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(IN)                                :: core_or_shell, scaled_coordinates
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_coordinates_cp2k', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_coordinates_cp2k'
 
       CHARACTER(LEN=default_string_length)               :: kind_name, tag
       INTEGER                                            :: handle, imolecule, iparticle, last_atom

@@ -60,9 +60,9 @@
             PERIODIC NONE
         &END CELL
         &COORD
-            C       0.0000 	0.0000 	0.0000
-            H       0.0000 	1.0728 	0.0000
-            H       0.9291 	-0.5364 0.0000
+            C       0.0000   0.0000   0.0000
+            H       0.0000   1.0728   0.0000
+            H       0.9291   -0.5364 0.0000
             H      -0.9291 -0.5364 0.0000
         &END COORD
         &KIND H
@@ -78,7 +78,7 @@
     &END SUBSYS
 &END FORCE_EVAL
 &GLOBAL
-    PROJECT CH3-BP-MO_DIAG
+    PROJECT CH3-ADMM
     PRINT_LEVEL MEDIUM
     RUN_TYPE ENERGY
     &TIMINGS

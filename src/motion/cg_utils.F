@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -9,28 +11,29 @@
 !>      10.2005
 ! **************************************************************************************************
 MODULE cg_utils
-   USE cp_external_control,             ONLY: external_control
-   USE dimer_types,                     ONLY: dimer_env_type
-   USE dimer_utils,                     ONLY: dimer_thrs,&
-                                              rotate_dimer
-   USE global_types,                    ONLY: global_environment_type
-   USE gopt_f_types,                    ONLY: gopt_f_type
-   USE gopt_param_types,                ONLY: gopt_param_type
-   USE input_constants,                 ONLY: default_cell_method_id,&
-                                              default_minimization_method_id,&
-                                              default_shellcore_method_id,&
-                                              default_ts_method_id,&
-                                              ls_2pnt,&
-                                              ls_fit,&
-                                              ls_gold
-   USE kinds,                           ONLY: dp
-   USE mathconstants,                   ONLY: pi
-   USE memory_utilities,                ONLY: reallocate
+   USE cp_external_control, ONLY: external_control
+   USE dimer_types, ONLY: dimer_env_type
+   USE dimer_utils, ONLY: dimer_thrs, &
+                          rotate_dimer
+   USE global_types, ONLY: global_environment_type
+   USE gopt_f_types, ONLY: gopt_f_type
+   USE gopt_param_types, ONLY: gopt_param_type
+   USE input_constants, ONLY: default_cell_method_id, &
+                              default_minimization_method_id, &
+                              default_shellcore_method_id, &
+                              default_ts_method_id, &
+                              ls_2pnt, &
+                              ls_fit, &
+                              ls_gold
+   USE kinds, ONLY: dp
+   USE mathconstants, ONLY: pi
+   USE memory_utilities, ONLY: reallocate
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
-#include "gopt_f77_methods.h"
+
+   #:include "gopt_f77_methods.fypp"
 
    PUBLIC :: cg_linmin, get_conjugate_direction
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
@@ -62,7 +65,7 @@ CONTAINS
       TYPE(gopt_param_type), POINTER                     :: gopt_param
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cg_linmin', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cg_linmin'
 
       INTEGER                                            :: handle
 
@@ -145,7 +148,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: use_only_grad
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linmin_2pnt', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'linmin_2pnt'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: my_use_only_grad, &
@@ -245,7 +248,7 @@ CONTAINS
       TYPE(gopt_param_type), POINTER                     :: gopt_param
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'tslmin_2pnt', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'tslmin_2pnt'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: dx, dx_min, dx_min_acc, dx_min_save, &
@@ -326,7 +329,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x0, theta
       REAL(KIND=dp), INTENT(INOUT)                       :: opt_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotmin_2pnt', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rotmin_2pnt'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: a0, a1, angle, b1, curvature0, &
@@ -408,7 +411,7 @@ CONTAINS
       TYPE(gopt_param_type), POINTER                     :: gopt_param
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linmin_fit', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'linmin_fit'
 
       INTEGER                                            :: handle, loc_iter, odim
       LOGICAL                                            :: should_stop
@@ -499,7 +502,7 @@ CONTAINS
       INTEGER                                            :: output_unit
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linmin_gold', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'linmin_gold'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: ax, bx, xmin, xx
@@ -531,7 +534,7 @@ CONTAINS
    END SUBROUTINE linmin_gold
 
 ! **************************************************************************************************
-!> \brief Routine for intially bracketing a minimum based on the golden search
+!> \brief Routine for initially bracketing a minimum based on the golden search
 !>      minimum
 !> \param gopt_env ...
 !> \param ax ...
@@ -561,7 +564,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: histpoint
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cg_mnbrak', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cg_mnbrak'
 
       INTEGER                                            :: handle, loc_iter, odim
       LOGICAL                                            :: hist, should_stop
@@ -592,7 +595,7 @@ CONTAINS
          dum = fb
          fb = fa
          fa = dum
-      ENDIF
+      END IF
       cx = bx + gold*(bx - ax)
       IF (hist) THEN
          histpoint(3, 1) = cx
@@ -631,7 +634,7 @@ CONTAINS
                cx = u
                fc = fu
                EXIT
-            ENDIF
+            END IF
             u = cx + gold*(cx - bx)
             IF (hist) THEN
                odim = SIZE(histpoint, 1)
@@ -670,7 +673,7 @@ CONTAINS
                   fu = cg_eval1d(gopt_env, u, pcom, xicom)
                END IF
                loc_iter = loc_iter + 1
-            ENDIF
+            END IF
          ELSE IF ((u - ulim)*(ulim - cx) .GE. 0.) THEN
             u = ulim
             IF (hist) THEN
@@ -695,7 +698,7 @@ CONTAINS
                fu = cg_eval1d(gopt_env, u, pcom, xicom)
             END IF
             loc_iter = loc_iter + 1
-         ENDIF
+         END IF
          ax = bx
          bx = cx
          cx = u
@@ -750,7 +753,7 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       REAL(KIND=dp)                                      :: dbrent
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cg_dbrent', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cg_dbrent'
       REAL(KIND=dp), PARAMETER                           :: zeps = 1.0E-8_dp
 
       INTEGER                                            :: handle, iter, loc_iter
@@ -798,12 +801,12 @@ CONTAINS
                   d = d1
                ELSE
                   d = d2
-               ENDIF
+               END IF
             ELSE IF (ok1) THEN
                d = d1
             ELSE
                d = d2
-            ENDIF
+            END IF
             IF (.NOT. skip0) THEN
                IF (ABS(d) .GT. ABS(0.5_dp*olde)) skip0 = .TRUE.
                IF (.NOT. skip0) THEN
@@ -812,13 +815,13 @@ CONTAINS
                   skip1 = .TRUE.
                END IF
             END IF
-         ENDIF
+         END IF
          IF (.NOT. skip1) THEN
             IF (dx .GE. 0.0_dp) THEN
                e = a - x
             ELSE
                e = b - x
-            ENDIF
+            END IF
             d = 0.5_dp*e
          END IF
          IF (ABS(d) .GE. tol1) THEN
@@ -830,13 +833,13 @@ CONTAINS
             du = cg_deval1d(gopt_env, u, pcom, xicom, fu)
             loc_iter = loc_iter + 1
             IF (fu .GT. fx) EXIT
-         ENDIF
+         END IF
          IF (fu .LE. fx) THEN
             IF (u .GE. x) THEN
                a = x
             ELSE
                b = x
-            ENDIF
+            END IF
             v = w; fv = fw; dv = dw; w = x
             fw = fx; dw = dx; x = u; fx = fu; dx = du
          ELSE
@@ -844,7 +847,7 @@ CONTAINS
                a = u
             ELSE
                b = u
-            ENDIF
+            END IF
             IF (fu .LE. fw .OR. w .EQ. x) THEN
                v = w; fv = fw; dv = dw
                w = u; fw = fu; dw = du
@@ -852,8 +855,8 @@ CONTAINS
                v = u
                fv = fu
                dv = du
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END DO
       IF (output_unit > 0) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") REPEAT("*", 79)
@@ -889,7 +892,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: pcom, xicom
       REAL(KIND=dp)                                      :: my_val
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cg_eval1d', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cg_eval1d'
 
       INTEGER                                            :: handle
       REAL(KIND=dp), DIMENSION(:), POINTER               :: xvec
@@ -925,7 +928,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: pcom, xicom
       REAL(KIND=dp)                                      :: fval, my_val
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cg_deval1d', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cg_deval1d'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: energy
@@ -959,8 +962,6 @@ CONTAINS
    FUNCTION FindMin(x, y, dy) RESULT(res)
       REAL(kind=dp), DIMENSION(:)                        :: x, y, dy
       REAL(kind=dp)                                      :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'FindMin', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, info, iwork(8*3), lwork, min_pos, np
       REAL(kind=dp)                                      :: diag(3), res1(3), res2(3), res3(3), &
@@ -1032,8 +1033,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: Fletcher_Reeves
       REAL(KIND=dp), DIMENSION(:), POINTER               :: g, xi, h
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_conjugate_direction', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_conjugate_direction'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: check

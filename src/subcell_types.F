@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -55,9 +57,6 @@ CONTAINS
       INTEGER, DIMENSION(3), INTENT(IN)                  :: nsubcell
       INTEGER, INTENT(IN), OPTIONAL                      :: maxatom
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_subcell', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k, na, nb, nc
       REAL(dp)                                           :: a_max, a_min, b_max, b_min, c_max, &
@@ -122,9 +121,6 @@ CONTAINS
    SUBROUTINE deallocate_subcell(subcell)
 
       TYPE(subcell_type), DIMENSION(:, :, :), POINTER    :: subcell
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_subcell', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k
 

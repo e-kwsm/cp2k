@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -110,9 +112,9 @@ CONTAINS
 #if defined (__PW_FPGA)
       INTEGER :: stat
 
-#if defined (__PW_CUDA)
-#error "CUDA and FPGA cannot be configured concurrently!"
-      CPABORT("CUDA and FPGA cannot be configured concurrently!")
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+#error "OFFLOAD and FPGA cannot be configured concurrently! Recompile with -D__NO_OFFLOAD_PW."
+      CPABORT("OFFLOAD and FPGA cannot be configured concurrently! Recompile with -D__NO_OFFLOAD_PW.")
 #endif
       stat = pw_fpga_initialize()
       IF (stat /= 0) &

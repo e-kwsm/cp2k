@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,7 +69,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qs_subsys_create(subsys, para_env, root_section, force_env_section, subsys_section, &
                                use_motion_section, cp_subsys, cell, cell_ref, elkind)
-      TYPE(qs_subsys_type), POINTER                      :: subsys
+      TYPE(qs_subsys_type), INTENT(OUT)                  :: subsys
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), OPTIONAL, POINTER         :: root_section
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
@@ -75,9 +77,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: cp_subsys
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell, cell_ref
       LOGICAL, INTENT(IN), OPTIONAL                      :: elkind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_subsys_create', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: use_ref_cell
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
@@ -87,8 +86,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: cell_section, kind_section
 
       NULLIFY (atomic_kind_set, qs_kind_set, cell_section, kind_section, my_cell, my_cell_ref, my_cp_subsys)
-
-      IF (ASSOCIATED(subsys)) CPABORT("qs_subsys_create: subsys already associated")
 
       ! create cp_subsys
       IF (PRESENT(cp_subsys)) THEN
@@ -132,8 +129,6 @@ CONTAINS
       CALL num_ao_el_per_molecule(my_cp_subsys%molecule_kinds%els, &
                                   qs_kind_set)
 
-      ! finally create qs_subsys
-      ALLOCATE (subsys)
       CALL qs_subsys_set(subsys, &
                          cp_subsys=my_cp_subsys, &
                          cell_ref=my_cell_ref, &
@@ -160,9 +155,6 @@ CONTAINS
 
       TYPE(molecule_kind_type), DIMENSION(:), POINTER    :: molecule_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'num_ao_el_per_molecule', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: arbitrary_spin, iatom, ikind, imol, &
                                                             n_ao, natom, nmol_kind, nsgf, nspins, &
@@ -254,7 +246,7 @@ CONTAINS
                   CALL get_gto_basis_set(gto_basis_set=orb_basis_set, nsgf=nsgf)
                ELSE
                   nsgf = 0
-               ENDIF
+               END IF
                n_ao = n_ao + nsgf
 
             END DO ! iatom

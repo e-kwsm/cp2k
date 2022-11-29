@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,7 +44,8 @@ MODULE constraint
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
    USE input_constants,                 ONLY: npt_f_ensemble,&
-                                              npt_i_ensemble
+                                              npt_i_ensemble,&
+                                              npt_ia_ensemble
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_type
    USE kinds,                           ONLY: default_string_length,&
@@ -109,7 +112,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: group
       TYPE(distribution_1d_type), POINTER                :: local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_control', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'shake_control'
 
       INTEGER                                            :: handle, i, ikind, imol, ishake_ext, &
                                                             ishake_int, k, n3x3con, n4x6con, &
@@ -236,7 +239,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: group
       TYPE(distribution_1d_type), POINTER                :: local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rattle_control', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rattle_control'
 
       INTEGER                                            :: handle, i, ikind, imol, irattle_ext, &
                                                             irattle_int, k, n3x3con, n4x6con, &
@@ -358,8 +361,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(distribution_1d_type), POINTER                :: local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_roll_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_roll_control'
 
       INTEGER :: handle, i, ikind, imol, ishake_ext, ishake_int, k, lagrange_mult, log_unit, &
          n3x3con, n4x6con, nconstraint, nkind, nmol_per_kind, nvsitecon
@@ -379,7 +381,7 @@ CONTAINS
       lagrange_mult = simpar%lagrange_multipliers
       dump_lm = simpar%dump_lm
       ! setting up for roll
-      IF (simpar%ensemble == npt_i_ensemble) THEN
+      IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npt_ia_ensemble) THEN
          CALL get_roll_matrix('SHAKE', r_shake, v_shake, vector_r, vector_v)
       ELSE IF (simpar%ensemble == npt_f_ensemble) THEN
          CALL get_roll_matrix('SHAKE', r_shake, v_shake, vector_r, vector_v, u)
@@ -504,8 +506,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(distribution_1d_type), POINTER                :: local_particles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rattle_roll_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'rattle_roll_control'
 
       INTEGER :: handle, i, ikind, imol, irattle_ext, irattle_int, k, lagrange_mult, log_unit, &
          n3x3con, n4x6con, nconstraint, nkind, nmol_per_kind
@@ -527,7 +528,7 @@ CONTAINS
       lagrange_mult = simpar%lagrange_multipliers
       dump_lm = simpar%dump_lm
       ! setting up for roll
-      IF (simpar%ensemble == npt_i_ensemble) THEN
+      IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npt_ia_ensemble) THEN
          CALL get_roll_matrix('RATTLE', v_shake=r_rattle, vector_v=vector)
       ELSE IF (simpar%ensemble == npt_f_ensemble) THEN
          CALL get_roll_matrix('RATTLE', v_shake=r_rattle, vector_v=vector, u=u)
@@ -625,8 +626,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: group
       CHARACTER(LEN=1), INTENT(IN)                       :: id_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_lagrange_mult', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_lagrange_mult'
 
       CHARACTER(LEN=default_string_length)               :: label
       INTEGER                                            :: handle, i, ikind, imol, j, my_index, &
@@ -733,8 +733,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: log_unit, i, ishake_int
       REAL(KIND=dp), INTENT(IN)                          :: max_sigma
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_int_info', routineP = moduleN//':'//routineN
-
       IF (log_unit > 0) THEN
          ! Dump info if requested
          WRITE (log_unit, '("SHAKE_INFO|",2X,2(A,I6),A,F15.9)') &
@@ -759,8 +757,6 @@ CONTAINS
    SUBROUTINE shake_ext_info(log_unit, ishake_ext, max_sigma)
       INTEGER, INTENT(IN)                                :: log_unit, ishake_ext
       REAL(KIND=dp), INTENT(IN)                          :: max_sigma
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_ext_info', routineP = moduleN//':'//routineN
 
       IF (log_unit > 0) THEN
          ! Dump info if requested
@@ -788,9 +784,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: log_unit, i, irattle_int
       REAL(KIND=dp), INTENT(IN)                          :: max_sigma
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rattle_int_info', &
-         routineP = moduleN//':'//routineN
-
       IF (log_unit > 0) THEN
          ! Dump info if requested
          WRITE (log_unit, '("RATTLE_INFO|",1X,2(A,I6),A,F15.9)') &
@@ -815,9 +808,6 @@ CONTAINS
    SUBROUTINE rattle_ext_info(log_unit, irattle_ext, max_sigma)
       INTEGER, INTENT(IN)                                :: log_unit, irattle_ext
       REAL(KIND=dp), INTENT(IN)                          :: max_sigma
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rattle_ext_info', &
-         routineP = moduleN//':'//routineN
 
       IF (log_unit > 0) THEN
          ! Dump info if requested
@@ -854,8 +844,7 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: dt
       TYPE(section_vals_type), POINTER                   :: root_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_update_targets', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'shake_update_targets'
 
       INTEGER                                            :: handle, i, ikind, imol, nkind, &
                                                             nmol_per_kind

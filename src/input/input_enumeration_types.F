@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,14 +24,12 @@ MODULE input_enumeration_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_enumeration_types'
-   INTEGER, SAVE, PRIVATE :: last_enumeration_id = 0
 
    PUBLIC :: enumeration_type
    PUBLIC :: enum_create, enum_retain, enum_release, enum_i2c, enum_c2i
 
 ! **************************************************************************************************
 !> \brief represents an enumaration, i.e. a mapping between strings and numbers
-!> \param id_nr identification number (unique)
 !> \param ref_count reference count
 !> \param c_vals string values
 !> \param i_vals integer values
@@ -41,7 +41,7 @@ MODULE input_enumeration_types
    END TYPE char_array
 
    TYPE enumeration_type
-      INTEGER :: id_nr, ref_count
+      INTEGER :: ref_count
       CHARACTER(len=default_string_length), DIMENSION(:), POINTER :: c_vals
       TYPE(char_array), DIMENSION(:), POINTER :: desc => Null()
       INTEGER, DIMENSION(:), POINTER :: i_vals
@@ -68,18 +68,15 @@ CONTAINS
          OPTIONAL                                        :: desc
       LOGICAL, INTENT(in), OPTIONAL                      :: strict
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'enum_create', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, n
 
       CPASSERT(.NOT. ASSOCIATED(enum))
       CPASSERT(SIZE(c_vals) == SIZE(i_vals))
       ALLOCATE (enum)
-      last_enumeration_id = last_enumeration_id + 1
-      enum%id_nr = last_enumeration_id
       enum%ref_count = 1
       ALLOCATE (enum%c_vals(SIZE(c_vals)))
       DO i = 1, SIZE(enum%c_vals)
+         CPASSERT(LEN_TRIM(c_vals(i)) > 0)
          enum%c_vals(i) = c_vals(i)
          CALL uppercase(enum%c_vals(i))
       END DO
@@ -113,8 +110,6 @@ CONTAINS
    SUBROUTINE enum_retain(enum)
       TYPE(enumeration_type), POINTER                    :: enum
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'enum_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(enum))
       CPASSERT(enum%ref_count > 0)
       enum%ref_count = enum%ref_count + 1
@@ -127,8 +122,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE enum_release(enum)
       TYPE(enumeration_type), POINTER                    :: enum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'enum_release', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -160,8 +153,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: i
       CHARACTER(len=default_string_length)               :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'enum_i2c', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: j
       LOGICAL                                            :: found
 
@@ -181,7 +172,7 @@ CONTAINS
             DO j = 1, SIZE(enum%desc)
                PRINT *, TRIM(a2s(enum%desc(j)%chars))
                PRINT *, TRIM(enum%c_vals(j))
-            ENDDO
+            END DO
             PRINT *, enum%i_vals
          END IF
          IF (enum%strict) &
@@ -201,8 +192,6 @@ CONTAINS
       TYPE(enumeration_type), POINTER                    :: enum
       CHARACTER(len=*), INTENT(in)                       :: c
       INTEGER                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'enum_c2i', routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: upc
       INTEGER                                            :: iostat, j

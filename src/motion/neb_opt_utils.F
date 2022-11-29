@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,7 +46,7 @@ MODULE neb_opt_utils
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief Performes few basic operations for the NEB DIIS optimization
+!> \brief Performs few basic operations for the NEB DIIS optimization
 !> \param apply_diis ...
 !> \param n_diis ...
 !> \param err ...
@@ -67,9 +69,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: check_diis
       INTEGER, INTENT(IN)                                :: iw2
       LOGICAL                                            :: accepted
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'accept_diis_step', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: line
       INTEGER                                            :: i, iend, ind, indi, indj, info, istart, &
@@ -144,9 +143,9 @@ CONTAINS
                   S(k) = 0.0_dp
                ELSE
                   S(k) = 1.0_dp/S(k)
-               ENDIF
+               END IF
                VT(k, :) = VT(k, :)*S(k)
-            ENDDO
+            END DO
             CALL DGEMM('T', 'T', np, np, np, 1.0_dp, VT, np, U, np, 0.0_dp, wrk_inv, np)
             DEALLOCATE (iwork)
             DEALLOCATE (S)
@@ -228,9 +227,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(IN)                                :: check_diis
       LOGICAL                                            :: accepted
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_diis_solution', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: costh, norm1, norm2
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: tmp
@@ -319,8 +315,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: distances
       TYPE(section_vals_type), POINTER                   :: diis_section
       INTEGER, INTENT(IN)                                :: iw2
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_ls', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, np
       REAL(KIND=dp)                                      :: a, b, max_stepsize, xa, xb, xc_cray, ya, &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief Calculation of the nuclear attraction contribution to the core Hamiltonian
@@ -93,7 +95,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nimages
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_core_ae', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_core_ae'
 
       INTEGER :: atom_a, handle, iatom, icol, ikind, img, irow, iset, jatom, jkind, jset, katom, &
          kkind, ldai, ldsab, maxco, maxl, maxnset, maxsgf, mepos, na_plus, natom, nb_plus, ncoa, &
@@ -110,7 +112,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: habd, work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: hab, pab, verf, vnuc
       REAL(KIND=dp), DIMENSION(3)                        :: force_a, force_b, rab, rac, rbc
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_loc, pv_thread
+      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_thread
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: ap_iterator
       TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
@@ -134,7 +136,7 @@ CONTAINS
          CALL timeset(routineN//"_forces", handle)
       ELSE
          CALL timeset(routineN, handle)
-      ENDIF
+      END IF
 
       nkind = SIZE(atomic_kind_set)
       natom = SIZE(particle_set)
@@ -151,11 +153,8 @@ CONTAINS
             END DO
          END IF
       END IF
-      force_thread = 0.0_dp
 
-      IF (use_virial) THEN
-         pv_loc = virial%pv_virial
-      END IF
+      force_thread = 0.0_dp
       pv_thread = 0.0_dp
 
       ALLOCATE (basis_set_list(nkind))
@@ -477,8 +476,8 @@ CONTAINS
       END IF
 
       IF (calculate_forces .AND. use_virial) THEN
+         virial%pv_ppl = virial%pv_ppl + pv_thread
          virial%pv_virial = virial%pv_virial + pv_thread
-         virial%pv_ppl = virial%pv_virial - pv_loc
       END IF
 
       CALL timestop(handle)
@@ -511,8 +510,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: lb_max, lb_min, npgfb
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: zetb
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rab
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'verfc_force', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ic_a, ic_b, icam1, icam2, icam3, icap1, &
                                                             icap2, icap3, icax, icbm1, icbm2, &

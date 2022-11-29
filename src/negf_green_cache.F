@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -144,8 +146,10 @@ CONTAINS
          ncontacts = SIZE(cache%g_surf_contacts, 1)
          DO ipoint = SIZE(cache%g_surf_contacts, 2), 1, -1
             DO icontact = ncontacts, 1, -1
-               IF (ASSOCIATED(cache%g_surf_contacts(icontact, ipoint)%matrix)) &
+               IF (ASSOCIATED(cache%g_surf_contacts(icontact, ipoint)%matrix)) THEN
                   CALL cp_cfm_release(cache%g_surf_contacts(icontact, ipoint)%matrix)
+                  DEALLOCATE (cache%g_surf_contacts(icontact, ipoint)%matrix)
+               END IF
             END DO
          END DO
 

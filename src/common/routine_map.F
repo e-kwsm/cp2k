@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 MODULE routine_map
    USE kinds, ONLY: default_string_length, int_4, int_8
@@ -9,12 +11,12 @@ MODULE routine_map
    IMPLICIT NONE
    PRIVATE
 
-#:include 'hash_map.fypp'
+   #:include 'hash_map.fypp'
 
-#:call hash_map(prefix='routine_map', &
-                key_type='CHARACTER(LEN=default_string_length)', &
-                value_type='INTEGER(kind=int_4)')
-#:endcall hash_map
+   #:call hash_map(prefix='routine_map', &
+      key_type='CHARACTER(LEN=default_string_length)', &
+      value_type='INTEGER(kind=int_4)')
+   #:endcall hash_map
 
 ! **************************************************************************************************
 ! This is joaat_hash from string_table.F
@@ -42,7 +44,7 @@ MODULE routine_map
          hash = IAND(hash + ICHAR(key(i:i)), b32)
          hash = IAND(hash + IAND(ISHFT(hash, 10), b32), b32)
          hash = IAND(IEOR(hash, IAND(ISHFT(hash, -6), b32)), b32)
-      ENDDO
+      END DO
       hash = IAND(hash + IAND(ISHFT(hash, 3), b32), b32)
       hash = IAND(IEOR(hash, IAND(ISHFT(hash, -11), b32)), b32)
       hash = IAND(hash + IAND(ISHFT(hash, 15), b32), b32)

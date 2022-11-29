@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -118,8 +120,7 @@ CONTAINS
       TYPE(section_vals_type), OPTIONAL, POINTER         :: pp_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dispersion_pairpot_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dispersion_pairpot_init'
 
       CHARACTER(LEN=2)                                   :: symbol
       CHARACTER(LEN=default_string_length)               :: aname, filename
@@ -131,7 +132,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: exlist
       LOGICAL                                            :: at_end, explicit, found, is_available
       REAL(KIND=dp)                                      :: dum
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(qs_atom_dispersion_type), POINTER             :: disp
 
       CALL timeset(routineN, handle)
@@ -178,7 +178,7 @@ CONTAINS
                dum = 0.5_dp*dispersion_env%r2r4(i)*REAL(i, dp)**0.5_dp
                ! store it as sqrt because the geom. av. is taken
                dispersion_env%r2r4(i) = SQRT(dum)
-            ENDDO
+            END DO
             ! parameters
             dispersion_env%k1 = 16.0_dp
             dispersion_env%k2 = 4._dp/3._dp
@@ -240,24 +240,26 @@ CONTAINS
                   ! check on file
                   INQUIRE (FILE=filename, EXIST=is_available)
                   IF (is_available) THEN
-                     NULLIFY (parser)
-                     CALL parser_create(parser, filename, para_env=para_env)
-                     DO
-                        at_end = .FALSE.
-                        CALL parser_get_next_line(parser, 1, at_end)
-                        IF (at_end) EXIT
-                        CALL parser_get_object(parser, aname)
-                        IF (TRIM(aname) == TRIM(symbol)) THEN
-                           CALL parser_get_object(parser, disp%c6)
-                           ! we have to change the units J*nm^6*mol^-1 -> Hartree*Bohr^6
-                           disp%c6 = disp%c6*1000._dp*bohr**6/kjmol
-                           CALL parser_get_object(parser, disp%vdw_radii)
-                           disp%vdw_radii = disp%vdw_radii*bohr
-                           found = .TRUE.
-                           EXIT
-                        END IF
-                     END DO
-                     CALL parser_release(parser)
+                     BLOCK
+                        TYPE(cp_parser_type) :: parser
+                        CALL parser_create(parser, filename, para_env=para_env)
+                        DO
+                           at_end = .FALSE.
+                           CALL parser_get_next_line(parser, 1, at_end)
+                           IF (at_end) EXIT
+                           CALL parser_get_object(parser, aname)
+                           IF (TRIM(aname) == TRIM(symbol)) THEN
+                              CALL parser_get_object(parser, disp%c6)
+                              ! we have to change the units J*nm^6*mol^-1 -> Hartree*Bohr^6
+                              disp%c6 = disp%c6*1000._dp*bohr**6/kjmol
+                              CALL parser_get_object(parser, disp%vdw_radii)
+                              disp%vdw_radii = disp%vdw_radii*bohr
+                              found = .TRUE.
+                              EXIT
+                           END IF
+                        END DO
+                        CALL parser_release(parser)
+                     END BLOCK
                   END IF
                END IF
                IF (found) THEN
@@ -328,6 +330,16 @@ CONTAINS
                      disp%defined = .FALSE.
                   END DO
                END IF
+               CALL section_vals_val_get(pp_section, "D3_EXCLUDE_KIND_PAIR", n_rep_val=n_rep)
+               dispersion_env%nd3_exclude_pair = n_rep
+               IF (n_rep > 0) THEN
+                  ALLOCATE (dispersion_env%d3_exclude_pair(n_rep, 2))
+                  DO i = 1, n_rep
+                     CALL section_vals_val_get(pp_section, "D3_EXCLUDE_KIND_PAIR", i_rep_val=i, &
+                                               i_vals=exlist)
+                     dispersion_env%d3_exclude_pair(i, :) = exlist
+                  END DO
+               END IF
             END IF
 
          END SELECT
@@ -347,9 +359,6 @@ CONTAINS
    SUBROUTINE qs_scaling_init(scaling, vdw_section)
       REAL(KIND=dp), INTENT(inout)                       :: scaling
       TYPE(section_vals_type), POINTER                   :: vdw_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scaling_init', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: functional
 
@@ -391,9 +400,6 @@ CONTAINS
    SUBROUTINE qs_scaling_dftd3(s6, sr6, s8, vdw_section)
       REAL(KIND=dp), INTENT(inout)                       :: s6, sr6, s8
       TYPE(section_vals_type), POINTER                   :: vdw_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scaling_dftd3', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: functional
 
@@ -767,9 +773,6 @@ CONTAINS
    SUBROUTINE qs_scaling_dftd3bj(s6, a1, s8, a2, vdw_section)
       REAL(KIND=dp), INTENT(inout)                       :: s6, a1, s8, a2
       TYPE(section_vals_type), POINTER                   :: vdw_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scaling_dftd3bj', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: functional
 
@@ -1190,8 +1193,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: energy
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_dispersion_pairpot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_dispersion_pairpot'
 
       INTEGER :: atom_a, atom_b, atom_c, atom_d, handle, hashb, hashc, i, ia, iat, iatom, icx, &
          icy, icz, idmp, ikind, ilist, imol, jatom, jkind, katom, kkind, kstart, latom, lkind, &
@@ -1199,8 +1201,8 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, atomnumber, kind_of
       INTEGER, DIMENSION(3)                              :: cell_b, cell_c, ncell, periodic
       INTEGER, DIMENSION(:), POINTER                     :: atom_list
-      LOGICAL :: atenergy, atstress, debug, debugall, debugx, domol, floating_a, floating_b, &
-         floating_c, ghost_a, ghost_b, ghost_c, is000, use_virial
+      LOGICAL :: atenergy, atstress, debug, debugall, debugx, domol, exclude_pair, floating_a, &
+         floating_b, floating_c, ghost_a, ghost_b, ghost_c, is000, use_virial
       LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: dodisp, floating, ghost
       REAL(KIND=dp) :: a1, a2, alp6, alp8, ang, c6, c8, c9, cc6ab, cc6bc, cc6ca, cnum, dc6a, dc6b, &
          dc8a, dc8b, dcc6aba, dcc6abb, dcc6bcb, dcc6bcc, dcc6caa, dcc6cac, dd, de6, de8, de91, &
@@ -1272,9 +1274,7 @@ CONTAINS
          atener => atprop%atevdw
       END IF
       atstress = atprop%stress
-      IF (atstress) THEN
-         atstr => atprop%atstress
-      END IF
+      atstr => atprop%atstress
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)
@@ -1363,7 +1363,7 @@ CONTAINS
             DO imol = 1, SIZE(molecule_set)
                DO iat = molecule_set(imol)%first_atom, molecule_set(imol)%last_atom
                   atom2mol(iat) = imol
-               ENDDO
+               END DO
             END DO
          END IF
          ! damping type
@@ -1392,10 +1392,10 @@ CONTAINS
             WRITE (unit_nr, *) " Cutoff coordination numbers", eps_cn
             IF (dispersion_env%lrc) THEN
                WRITE (unit_nr, *) " Apply a long range correction"
-               WRITE (unit_nr, *) " SRB parameters (s,g,t1,t2) ", ssrb, gsrb, t1srb, t2srb
             END IF
             IF (dispersion_env%srb) THEN
                WRITE (unit_nr, *) " Apply a short range bond correction"
+               WRITE (unit_nr, *) " SRB parameters (s,g,t1,t2) ", ssrb, gsrb, t1srb, t2srb
             END IF
             IF (domol) THEN
                WRITE (unit_nr, *) " Inter-molecule scaling parameter (s8) ", kgc8
@@ -1550,6 +1550,10 @@ CONTAINS
                   atener(jatom) = atener(jatom) - 0.5_dp*xp*fdmp*fac
                END IF
             ELSE IF (disp_a%type == dftd3_pp .AND. dr > 0.001_dp) THEN
+               IF (dispersion_env%nd3_exclude_pair > 0) THEN
+                  CALL exclude_d3_kind_pair(dispersion_env%d3_exclude_pair, ikind, jkind, exclude=exclude_pair)
+                  IF (exclude_pair) CYCLE
+               END IF
                ! C6 coefficient
                CALL getc6(maxc, max_elem, dispersion_env%c6ab, dispersion_env%maxci, za, zb, &
                           cnumbers(iatom), cnumbers(jatom), dispersion_env%k3, c6, dc6a, dc6b)
@@ -1719,6 +1723,11 @@ CONTAINS
                               IF (r2ca >= rc2) CYCLE
                               r2abc = r2ab*r2bc*r2ca
                               IF (r2abc <= 0.001_dp) CYCLE
+                              IF (dispersion_env%nd3_exclude_pair > 0) THEN
+                                 CALL exclude_d3_kind_pair(dispersion_env%d3_exclude_pair, ikind, jkind, &
+                                                           kkind, exclude_pair)
+                                 IF (exclude_pair) CYCLE
+                              END IF
                               ! this is an empirical scaling
                               IF (r2abc <= 0.01*rc2*rc2*rc2) THEN
                                  kkind = kind_of(katom)
@@ -1962,6 +1971,10 @@ CONTAINS
                   CALL get_atomic_kind(atomic_kind_set(jkind), natom=nb, z=zb)
                   CALL get_qs_kind(qs_kind_set(jkind), dispersion=disp_b, ghost=ghost_b, floating=floating_b)
                   IF (.NOT. disp_b%defined .OR. ghost_b .OR. floating_b) CYCLE
+                  IF (dispersion_env%nd3_exclude_pair > 0) THEN
+                     CALL exclude_d3_kind_pair(dispersion_env%d3_exclude_pair, ikind, jkind, exclude=exclude_pair)
+                     IF (exclude_pair) CYCLE
+                  END IF
                   CALL getc6(maxc, max_elem, dispersion_env%c6ab, dispersion_env%maxci, za, zb, &
                              cnkind(ikind), cnkind(jkind), dispersion_env%k3, cc6ab, dcc6aba, dcc6abb)
                   elrc6 = elrc6 - s6*twopi*REAL(na*nb, KIND=dp)*cc6ab/(3._dp*rcut**3*cell%deth)
@@ -1972,6 +1985,10 @@ CONTAINS
                         CALL get_atomic_kind(atomic_kind_set(kkind), natom=nc, z=zc)
                         CALL get_qs_kind(qs_kind_set(kkind), dispersion=disp_c, ghost=ghost_c, floating=floating_c)
                         IF (.NOT. disp_c%defined .OR. ghost_c .OR. floating_c) CYCLE
+                        IF (dispersion_env%nd3_exclude_pair > 0) THEN
+                           CALL exclude_d3_kind_pair(dispersion_env%d3_exclude_pair, ikind, jkind, kkind, exclude_pair)
+                           IF (exclude_pair) CYCLE
+                        END IF
                         CALL getc6(maxc, max_elem, dispersion_env%c6ab, dispersion_env%maxci, za, zb, &
                                    cnkind(ikind), cnkind(jkind), dispersion_env%k3, cc6ab, dcc6aba, dcc6abb)
                         CALL getc6(maxc, max_elem, dispersion_env%c6ab, dispersion_env%maxci, zc, za, &
@@ -1985,9 +2002,11 @@ CONTAINS
                END DO
             END DO
             IF (use_virial) THEN
-               DO i = 1, 3
-                  virial%pv_virial(i, i) = virial%pv_virial(i, i) + (elrc6 + elrc8 + 2._dp*elrc9)
-               END DO
+               IF (para_env%ionode) THEN
+                  DO i = 1, 3
+                     virial%pv_virial(i, i) = virial%pv_virial(i, i) + (elrc6 + elrc8 + 2._dp*elrc9)
+                  END DO
+               END IF
             END IF
             DEALLOCATE (cnkind)
          END IF
@@ -2086,7 +2105,7 @@ CONTAINS
       END IF
 
       IF (calculate_forces .AND. use_virial) THEN
-         virial%pv_vdw = virial%pv_virial - pv_loc
+         virial%pv_vdw = virial%pv_vdw + (virial%pv_virial - pv_loc)
       END IF
 
       IF (ASSOCIATED(dispersion_env%dftd_section)) THEN
@@ -2106,8 +2125,6 @@ CONTAINS
    FUNCTION cellhash(cell, ncell) RESULT(hash)
       INTEGER, DIMENSION(3), INTENT(IN)                  :: cell, ncell
       INTEGER                                            :: hash
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cellhash', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ix, iy, iz, nx, ny, nz
 
@@ -2146,7 +2163,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(inout)                       :: c6, r
       LOGICAL, INTENT(inout)                             :: found
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dftd2_param', routineP = moduleN//':'//routineN
       REAL(KIND=dp), DIMENSION(54), PARAMETER :: c6val = (/0.14_dp, 0.08_dp, 1.61_dp, 1.61_dp, &
          3.13_dp, 1.75_dp, 1.23_dp, 0.70_dp, 0.75_dp, 0.63_dp, 5.71_dp, 5.71_dp, 10.79_dp, 9.23_dp,&
          7.84_dp, 5.57_dp, 5.07_dp, 4.61_dp, 10.80_dp, 10.80_dp, 10.80_dp, 10.80_dp, 10.80_dp, &
@@ -2197,8 +2213,6 @@ CONTAINS
       CHARACTER(LEN=*)                                   :: filename
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dftd3_c6_param', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: funit, iadr, iat, jadr, jat, kk, nl, &
                                                             nlines, nn
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: pars
@@ -2235,7 +2249,7 @@ CONTAINS
          c6ab(jat, iat, jadr, iadr, 2) = pars(kk + 4)
          c6ab(jat, iat, jadr, iadr, 3) = pars(kk + 3)
          kk = (nn*5) + 1
-      ENDDO
+      END DO
 
       DEALLOCATE (pars)
 
@@ -2259,13 +2273,13 @@ CONTAINS
       DO WHILE (iat .GT. 100)
          iat = iat - 100
          iadr = iadr + 1
-      ENDDO
+      END DO
 
       i = 100
       DO WHILE (jat .GT. 100)
          jat = jat - 100
          jadr = jadr + 1
-      ENDDO
+      END DO
    END SUBROUTINE limit
 
 ! **************************************************************************************************
@@ -3055,8 +3069,8 @@ CONTAINS
             k = k + 1
             rout(i, j) = r0ab(k)*bohr
             rout(j, i) = r0ab(k)*bohr
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! covalent radii (taken from Pyykko and Atsumi, Chem. Eur. J. 15, 2009, 188-197)
       ! values for metals decreased by 10 %
@@ -3250,7 +3264,7 @@ CONTAINS
                IF (r < rsave) THEN
                   rsave = r
                   c6mem = c6
-               ENDIF
+               END IF
                tmp1 = EXP(k3*r)
                dtmpa = -2.0_dp*k3*(cn1 - nci)*tmp1
                dtmpb = -2.0_dp*k3*(cn2 - ncj)*tmp1
@@ -3260,9 +3274,9 @@ CONTAINS
                dwa = dwa + dtmpa
                dzb = dzb + dtmpb*c6
                dwb = dwb + dtmpb
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
       IF (c6 == 0.0_dp) c6mem = 0.0_dp
 
@@ -3274,7 +3288,7 @@ CONTAINS
          c6 = c6mem
          dc6a = 0._dp
          dc6b = 0._dp
-      ENDIF
+      END IF
 
    END SUBROUTINE getc6
 
@@ -3287,9 +3301,6 @@ CONTAINS
 
       TYPE(dcnum_type), DIMENSION(:)                     :: dcnum
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dcnum_distribute', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: group, i, ia, ipe, jn, n, natom, ntmax, &
                                                             ntot
@@ -3378,10 +3389,11 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: atomnumber
       LOGICAL, INTENT(IN)                                :: calculate_forces, debugall
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'd3_cnumber', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'd3_cnumber'
 
       INTEGER                                            :: handle, iatom, ikind, jatom, jkind, &
                                                             mepos, natom, ni, nj, num_pe, za, zb
+      LOGICAL                                            :: exclude_pair
       REAL(KIND=dp)                                      :: cnab, dcnab, eps_cn, rcc, rcova, rcovb
       REAL(KIND=dp), DIMENSION(3)                        :: rij
       TYPE(neighbor_list_iterator_p_type), &
@@ -3416,7 +3428,7 @@ CONTAINS
 !$OMP          PRIVATE( mepos                                         &
 !$OMP                 , ikind, jkind, iatom, jatom, rij, rcc          &
 !$OMP                 , za, zb, rcova, rcovb, cnab, dcnab             &
-!$OMP                 , ni, nj                                        &
+!$OMP                 , ni, nj, exclude_pair                          &
 !$OMP                 )
 
 !$OMP SINGLE
@@ -3435,6 +3447,10 @@ CONTAINS
 
          CALL get_iterator_info(nl_iterator, mepos=mepos, ikind=ikind, jkind=jkind, iatom=iatom, jatom=jatom, r=rij)
          IF (ghost(ikind) .OR. ghost(jkind) .OR. floating(ikind) .OR. floating(jkind)) CYCLE
+         IF (dispersion_env%nd3_exclude_pair > 0) THEN
+            CALL exclude_d3_kind_pair(dispersion_env%d3_exclude_pair, ikind, jkind, exclude=exclude_pair)
+            IF (exclude_pair) CYCLE
+         END IF
 
          rcc = SQRT(rij(1)*rij(1) + rij(2)*rij(2) + rij(3)*rij(3))
          IF (rcc > 1.e-6_dp) THEN
@@ -3501,5 +3517,47 @@ CONTAINS
    END SUBROUTINE d3_cnumber
 
 ! **************************************************************************************************
+
+! **************************************************************************************************
+!> \brief ...
+!> \param exclude_list List of kind pairs to exclude
+!> \param za first kind
+!> \param zb second kind
+!> \param zc third kind in case of the three-body term
+!> \param exclude whether to exclude the interaction or not
+! **************************************************************************************************
+   SUBROUTINE exclude_d3_kind_pair(exclude_list, za, zb, zc, exclude)
+
+      INTEGER, DIMENSION(:, :), INTENT(IN)               :: exclude_list
+      INTEGER, INTENT(in)                                :: za, zb
+      INTEGER, INTENT(in), OPTIONAL                      :: zc
+      LOGICAL, INTENT(out)                               :: exclude
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'exclude_d3_kind_pair'
+
+      INTEGER                                            :: handle, i
+
+      CALL timeset(routineN, handle)
+      exclude = .FALSE.
+      DO i = 1, SIZE(exclude_list, 1)
+         IF (exclude_list(i, 1) == za .AND. exclude_list(i, 2) == zb .OR. &
+             exclude_list(i, 1) == zb .AND. exclude_list(i, 2) == za) THEN
+            exclude = .TRUE.
+            EXIT
+         END IF
+         IF (PRESENT(zc)) THEN
+            IF (exclude_list(i, 1) == za .AND. exclude_list(i, 2) == zc .OR. &
+                exclude_list(i, 1) == zc .AND. exclude_list(i, 2) == za .OR. &
+                exclude_list(i, 1) == zb .AND. exclude_list(i, 2) == zc .OR. &
+                exclude_list(i, 1) == zc .AND. exclude_list(i, 2) == zb) THEN
+               exclude = .TRUE.
+               EXIT
+            END IF
+         END IF
+      END DO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE exclude_d3_kind_pair
 
 END MODULE qs_dispersion_pairpot

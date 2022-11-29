@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -70,9 +72,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: map_index
       TYPE(section_vals_type), POINTER                   :: mapping_section
       LOGICAL, INTENT(IN)                                :: overwrite
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_map_forces', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: description
       INTEGER                                            :: iparticle, jparticle, natom, nres
@@ -145,9 +144,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: map_index
       LOGICAL, OPTIONAL                                  :: force_eval_embed
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_subsys_map_index', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iatom, ival, j, jval, k, n_rep, &
                                                             n_rep_loc, n_rep_map, n_rep_sys, tmp
       INTEGER, DIMENSION(:), POINTER                     :: index_glo, index_loc, list
@@ -169,7 +165,7 @@ CONTAINS
             map_full_sys => section_vals_get_subs_vals(mapping_section, "FORCE_EVAL_MIXED")
          ELSE
             map_full_sys => section_vals_get_subs_vals(mapping_section, "FORCE_EVAL_EMBED")
-         ENDIF
+         END IF
          map_force_ev => section_vals_get_subs_vals(mapping_section, "FORCE_EVAL")
          CALL section_vals_get(map_full_sys, explicit=explicit)
          CPASSERT(explicit)
@@ -181,6 +177,7 @@ CONTAINS
             IF (ival == iforce_eval) EXIT
          END DO
          CPASSERT(i <= nforce_eval)
+         MARK_USED(nforce_eval)
          fragments_sys => section_vals_get_subs_vals(map_full_sys, "FRAGMENT")
          fragments_loc => section_vals_get_subs_vals(map_force_ev, "FRAGMENT", i_rep_section=i)
          !Perform few check on the structure of the input mapping section. as provided by the user

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief Routines useful for iterative matrix calculations
@@ -9,30 +11,32 @@
 !> \author Joost VandeVondele
 ! **************************************************************************************************
 MODULE iterate_matrix
-   USE arnoldi_api,                     ONLY: arnoldi_data_type,&
-                                              arnoldi_extremal
-   USE bibliography,                    ONLY: Richters2018,&
-                                              cite_reference
-   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
-                                              cp_logger_get_default_unit_nr,&
-                                              cp_logger_type
-   USE dbcsr_api,                       ONLY: &
-        dbcsr_add, dbcsr_add_on_diag, dbcsr_copy, dbcsr_create, dbcsr_desymmetrize, &
-        dbcsr_distribution_get, dbcsr_distribution_type, dbcsr_filter, dbcsr_frobenius_norm, &
-        dbcsr_gershgorin_norm, dbcsr_get_diag, dbcsr_get_info, dbcsr_get_matrix_type, &
-        dbcsr_get_occupation, dbcsr_multiply, dbcsr_norm, dbcsr_norm_maxabsnorm, dbcsr_p_type, &
-        dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_set_diag, dbcsr_trace, dbcsr_transposed, &
-        dbcsr_type, dbcsr_type_no_symmetry
-   USE input_constants,                 ONLY: ls_scf_submatrix_sign_direct,&
-                                              ls_scf_submatrix_sign_ns
-   USE kinds,                           ONLY: dp,&
-                                              int_8
-   USE machine,                         ONLY: m_flush,&
-                                              m_walltime
-   USE mathconstants,                   ONLY: ifac
-   USE mathlib,                         ONLY: abnormal_value
-   USE message_passing,                 ONLY: mp_sum
-   USE submatrix_dissection,            ONLY: submatrix_dissection_type
+   USE arnoldi_api, ONLY: arnoldi_data_type, &
+                          arnoldi_extremal
+   USE bibliography, ONLY: Richters2018, &
+                           cite_reference
+   USE cp_log_handling, ONLY: cp_get_default_logger, &
+                              cp_logger_get_default_unit_nr, &
+                              cp_logger_type
+   USE dbcsr_api, ONLY: &
+      dbcsr_add, dbcsr_add_on_diag, dbcsr_copy, dbcsr_create, dbcsr_desymmetrize, &
+      dbcsr_distribution_get, dbcsr_distribution_type, dbcsr_filter, dbcsr_frobenius_norm, &
+      dbcsr_gershgorin_norm, dbcsr_get_diag, dbcsr_get_info, dbcsr_get_matrix_type, &
+      dbcsr_get_occupation, dbcsr_multiply, dbcsr_norm, dbcsr_norm_maxabsnorm, dbcsr_p_type, &
+      dbcsr_release, dbcsr_scale, dbcsr_set, dbcsr_set_diag, dbcsr_trace, dbcsr_transposed, &
+      dbcsr_type, dbcsr_type_no_symmetry
+   USE input_constants, ONLY: ls_scf_submatrix_sign_direct, &
+                              ls_scf_submatrix_sign_direct_muadj, &
+                              ls_scf_submatrix_sign_direct_muadj_lowmem, &
+                              ls_scf_submatrix_sign_ns
+   USE kinds, ONLY: dp, &
+                    int_8
+   USE machine, ONLY: m_flush, &
+                      m_walltime
+   USE mathconstants, ONLY: ifac
+   USE mathlib, ONLY: abnormal_value
+   USE message_passing, ONLY: mp_sum
+   USE submatrix_dissection, ONLY: submatrix_dissection_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -41,13 +45,18 @@ MODULE iterate_matrix
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'iterate_matrix'
 
+   TYPE :: eigbuf
+      REAL(KIND=dp), DIMENSION(:), ALLOCATABLE    :: eigvals
+      REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: eigvecs
+   END TYPE eigbuf
+
    INTERFACE purify_mcweeny
       MODULE PROCEDURE purify_mcweeny_orth, purify_mcweeny_nonorth
    END INTERFACE
 
    PUBLIC :: invert_Hotelling, matrix_sign_Newton_Schulz, matrix_sqrt_Newton_Schulz, &
-             matrix_sqrt_proot, matrix_sign_proot, matrix_sign_submatrix, &
-             purify_mcweeny, invert_Taylor, determinant
+             matrix_sqrt_proot, matrix_sign_proot, matrix_sign_submatrix, matrix_exponential, &
+             matrix_sign_submatrix_mu_adjust, purify_mcweeny, invert_Taylor, determinant
 
 CONTAINS
 
@@ -73,7 +82,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: det
       REAL(KIND=dp), INTENT(IN)                          :: threshold
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'determinant', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'determinant'
 
       INTEGER                                            :: group, handle, i, max_iter_lanczos, &
                                                             nsize, order_lanczos, sign_iter, &
@@ -94,7 +103,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! Note: tmp1 and tmp2 have the same matrix type as the
       ! initial matrix (tmp3 does not have symmetry constraints)
@@ -145,11 +154,11 @@ CONTAINS
          ELSE
             WRITE (unit_nr, '(T6,A28,1X,I15)') &
                "Recursive iteration:", recursion_depth
-         ENDIF
+         END IF
          WRITE (unit_nr, '(T6,A28,1X,F15.10)') &
             "Frobenius norm:", frobnorm
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       IF (frobnorm .GE. 1.0_dp) THEN
 
@@ -215,19 +224,19 @@ CONTAINS
                   det, t2 - t1, &
                   flop1/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
                CALL m_flush(unit_nr)
-            ENDIF
+            END IF
 
             ! exit if the trace is close to zero
             IF (maxnorm < threshold) EXIT
 
-         ENDDO ! end iterations
+         END DO ! end iterations
 
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '()')
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
-      ENDIF ! decide to do sqrt or not
+      END IF ! decide to do sqrt or not
 
       IF (unit_nr > 0) THEN
          IF (recursion_depth .EQ. 0) THEN
@@ -237,9 +246,9 @@ CONTAINS
          ELSE
             WRITE (unit_nr, '(T6,A28,1X,F15.10)') &
                "Recursive determinant:", det
-         ENDIF
+         END IF
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
@@ -278,7 +287,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: eps_lanczos
       LOGICAL, INTENT(IN), OPTIONAL                      :: silent
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_Taylor', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_Taylor'
 
       INTEGER                                            :: accelerator_type, handle, i, &
                                                             my_max_iter_lanczos, nrows, unit_nr
@@ -297,7 +306,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
       IF (PRESENT(silent)) THEN
          IF (silent) unit_nr = -1
       END IF
@@ -339,8 +348,8 @@ CONTAINS
             DO i = 1, nrows
                IF (p_diagonal(i) .NE. 0.0_dp) THEN
                   p_diagonal(i) = 1.0_dp/p_diagonal(i)
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             CALL dbcsr_set(matrix_inverse, 0.0_dp)
             CALL dbcsr_add_on_diag(matrix_inverse, 1.0_dp)
             CALL dbcsr_set_diag(matrix_inverse, p_diagonal)
@@ -352,7 +361,7 @@ CONTAINS
 
          CPABORT("Guess is NYI")
 
-      ENDIF
+      END IF
 
       CALL dbcsr_multiply("N", "N", 1.0_dp, tmp1, matrix_inverse, &
                           0.0_dp, tmp2, filter_eps=filter_eps)
@@ -391,16 +400,16 @@ CONTAINS
                maxnorm_matrix, t2 - t1, &
                flop2/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          IF (maxnorm_matrix < convergence) THEN
             converged = .TRUE.
             EXIT
-         ENDIF
+         END IF
 
          t1 = m_walltime()
 
-      ENDDO
+      END DO
 
       !last convergence check
       CALL dbcsr_multiply("N", "N", 1.0_dp, matrix, matrix_inverse, 0.0_dp, tmp1, &
@@ -412,17 +421,17 @@ CONTAINS
          WRITE (unit_nr, '(T6,A,E12.5)') "Final Taylor error", maxnorm_matrix
          WRITE (unit_nr, '()')
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
       IF (maxnorm_matrix > convergence) THEN
          converged = .FALSE.
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, *) 'Final convergence check failed'
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (.NOT. converged) THEN
          CPABORT("Taylor inversion did not converge")
-      ENDIF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
@@ -465,8 +474,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: eps_lanczos
       LOGICAL, INTENT(IN), OPTIONAL                      :: silent
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_Hotelling', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_Hotelling'
 
       INTEGER                                            :: accelerator_type, handle, i, &
                                                             my_max_iter_lanczos, unit_nr
@@ -474,7 +482,7 @@ CONTAINS
       LOGICAL                                            :: arnoldi_converged, converged, &
                                                             use_inv_guess
       REAL(KIND=dp) :: convergence, frob_matrix, gershgorin_norm, max_ev, maxnorm_matrix, min_ev, &
-         my_eps_lanczos, my_filter_eps, occ_matrix, scalingf, t1, t2
+                       my_eps_lanczos, my_filter_eps, occ_matrix, scalingf, t1, t2
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_type), TARGET                           :: tmp1, tmp2
 
@@ -488,7 +496,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
       IF (PRESENT(silent)) THEN
          IF (silent) unit_nr = -1
       END IF
@@ -537,7 +545,7 @@ CONTAINS
          ! be non symmetric
          CALL dbcsr_create(tmp1, template=matrix_inverse, matrix_type=dbcsr_type_no_symmetry)
 
-      ENDIF
+      END IF
 
       CALL dbcsr_create(tmp2, template=matrix_inverse)
 
@@ -567,7 +575,7 @@ CONTAINS
             WRITE (unit_nr, '(T6,A,1X,L1,A,E12.3)') "Lanczos converged: ", arnoldi_converged, " threshold:", my_eps_lanczos
             WRITE (unit_nr, '(T6,A,1X,E12.3,E12.3)') "Est. extremal eigenvalues:", max_eV, min_eV
             WRITE (unit_nr, '(T6,A,1X,E12.3)') "Est. condition number :", max_eV/MAX(min_eV, EPSILON(min_eV))
-         ENDIF
+         END IF
 
          ! 2.0 would be the correct scaling however, we should make sure here, that we are in the convergence radius
          scalingf = 1.9_dp/(max_eV + min_eV)
@@ -575,7 +583,7 @@ CONTAINS
          CALL dbcsr_scale(matrix_inverse, scalingf)
          min_ev = min_ev*scalingf
 
-      ENDIF
+      END IF
 
       ! done with the initial guess, start iterations
       converged = .FALSE.
@@ -603,35 +611,35 @@ CONTAINS
          IF (accelerator_type == 1) THEN
             min_ev = min_ev*(2.0_dp - min_ev)
             IF (PRESENT(norm_convergence)) maxnorm_matrix = ABS(min_eV - 1.0_dp)
-         ENDIF
+         END IF
 
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(T6,A,1X,I3,1X,F10.8,E12.3,F12.3,F13.3)') "Hotelling iter", i, occ_matrix, &
                maxnorm_matrix, t2 - t1, &
                (flop1 + flop2)/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          IF (maxnorm_matrix < convergence) THEN
             converged = .TRUE.
             EXIT
-         ENDIF
+         END IF
 
          ! scale the matrix for improved convergence
          IF (accelerator_type == 1) THEN
             min_ev = min_ev*2.0_dp/(min_ev + 1.0_dp)
             CALL dbcsr_scale(matrix_inverse, 2.0_dp/(min_ev + 1.0_dp))
-         ENDIF
+         END IF
 
          t1 = m_walltime()
          CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_inverse, matrix, &
                              0.0_dp, tmp1, flop=flop1, filter_eps=my_filter_eps)
 
-      ENDDO
+      END DO
 
       IF (.NOT. converged) THEN
          CPABORT("Hotelling inversion did not converge")
-      ENDIF
+      END IF
 
       ! try to symmetrize the output matrix
       IF (dbcsr_get_matrix_type(matrix_inverse) == dbcsr_type_no_symmetry) THEN
@@ -645,7 +653,7 @@ CONTAINS
 !              maxnorm_matrix
          WRITE (unit_nr, '()')
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
@@ -671,8 +679,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: threshold
       INTEGER, INTENT(IN), OPTIONAL                      :: sign_order
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_Newton_Schulz', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_Newton_Schulz'
 
       INTEGER                                            :: count, handle, i, order, unit_nr
       INTEGER(KIND=int_8)                                :: flops
@@ -690,23 +697,23 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       IF (PRESENT(sign_order)) THEN
          order = sign_order
       ELSE
          order = 2
-      ENDIF
+      END IF
 
       CALL dbcsr_create(tmp1, template=matrix_sign)
 
       CALL dbcsr_create(tmp2, template=matrix_sign)
-      IF (order .GE. 4) THEN
+      IF (ABS(order) .GE. 4) THEN
          CALL dbcsr_create(tmp3, template=matrix_sign)
-      ENDIF
-      IF (order .GE. 7) THEN
+      END IF
+      IF (ABS(order) .GT. 4) THEN
          CALL dbcsr_create(tmp4, template=matrix_sign)
-      ENDIF
+      END IF
 
       CALL dbcsr_copy(matrix_sign, matrix)
       CALL dbcsr_filter(matrix_sign, threshold)
@@ -814,13 +821,13 @@ CONTAINS
 
             CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 48.0_dp/35.0_dp)
 
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp2, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp4, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
 
-            CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 8.0_dp/7.0_dp)
+            CALL dbcsr_add(tmp1, tmp4, 1.0_dp, 8.0_dp/7.0_dp)
 
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 1.0_dp, tmp1, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp4, tmp3, 1.0_dp, tmp1, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
 
@@ -843,17 +850,18 @@ CONTAINS
             ! tmp3=z
             CALL dbcsr_copy(tmp3, tmp1)
             CALL dbcsr_add_on_diag(tmp3, a0)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, tmp1, 0.0_dp, tmp3, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, tmp1, 0.0_dp, tmp2, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
-            CALL dbcsr_add_on_diag(tmp3, a1)
+            CALL dbcsr_add_on_diag(tmp2, a1)
 
             CALL dbcsr_add_on_diag(tmp1, a2)
-            CALL dbcsr_add(tmp1, tmp3, 1.0_dp, 1.0_dp)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp1, tmp3, 0.0_dp, tmp1, &
+            CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 1.0_dp)
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp1, tmp2, 0.0_dp, tmp3, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
-            CALL dbcsr_add_on_diag(tmp1, a3)
+            CALL dbcsr_add_on_diag(tmp3, a3)
+            CALL dbcsr_copy(tmp1, tmp3)
 
             prefactor = 35.0_dp/128.0_dp
          ELSE IF (order .EQ. 6) THEN
@@ -871,13 +879,13 @@ CONTAINS
 
             CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 32.0_dp/21.0_dp)
 
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp2, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp4, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
 
-            CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 80.0_dp/63.0_dp)
+            CALL dbcsr_add(tmp1, tmp4, 1.0_dp, 80.0_dp/63.0_dp)
 
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp2, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp4, tmp3, 0.0_dp, tmp2, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
 
@@ -906,22 +914,22 @@ CONTAINS
             ! tmp3=z
             CALL dbcsr_copy(tmp3, tmp1)
             CALL dbcsr_add_on_diag(tmp3, a0)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, tmp1, 0.0_dp, tmp3, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, tmp1, 0.0_dp, tmp2, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
-            CALL dbcsr_add_on_diag(tmp3, a1)
+            CALL dbcsr_add_on_diag(tmp2, a1)
 
             ! tmp4=w
             CALL dbcsr_copy(tmp4, tmp1)
             CALL dbcsr_add_on_diag(tmp4, a2)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp4, tmp3, 0.0_dp, tmp4, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp4, tmp2, 0.0_dp, tmp3, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
-            CALL dbcsr_add_on_diag(tmp4, a3)
+            CALL dbcsr_add_on_diag(tmp3, a3)
 
-            CALL dbcsr_add(tmp3, tmp4, 1.0_dp, 1.0_dp)
-            CALL dbcsr_add_on_diag(tmp3, a4)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, tmp4, 0.0_dp, tmp1, &
+            CALL dbcsr_add(tmp2, tmp3, 1.0_dp, 1.0_dp)
+            CALL dbcsr_add_on_diag(tmp2, a4)
+            CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, tmp3, 0.0_dp, tmp1, &
                                 filter_eps=threshold, flop=flops)
             floptot = floptot + flops
             CALL dbcsr_add_on_diag(tmp1, a5)
@@ -929,7 +937,7 @@ CONTAINS
             prefactor = 231.0_dp/1024.0_dp
          ELSE
             CPABORT("requested order is not implemented.")
-         ENDIF
+         END IF
 
          ! tmp2 = X * prefactor *
          CALL dbcsr_multiply("N", "N", prefactor, matrix_sign, tmp1, 0.0_dp, tmp2, &
@@ -948,12 +956,12 @@ CONTAINS
                frob_matrix/frob_matrix_base, t2 - t1, &
                floptot/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          ! frob_matrix/frob_matrix_base < SQRT(threshold)
          IF (frob_matrix*frob_matrix < (threshold*frob_matrix_base*frob_matrix_base)) EXIT
 
-      ENDDO
+      END DO
 
       ! this check is not really needed
       CALL dbcsr_multiply("N", "N", +1.0_dp, matrix_sign, matrix_sign, 0.0_dp, tmp1, &
@@ -967,16 +975,16 @@ CONTAINS
             frob_matrix/frob_matrix_base
          WRITE (unit_nr, '()')
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
-      IF (order .GE. 4) THEN
+      IF (ABS(order) .GE. 4) THEN
          CALL dbcsr_release(tmp3)
-      ENDIF
-      IF (order .GE. 7) THEN
+      END IF
+      IF (ABS(order) .GT. 4) THEN
          CALL dbcsr_release(tmp4)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -999,8 +1007,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: threshold
       INTEGER, INTENT(IN), OPTIONAL                      :: sign_order
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_proot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_proot'
 
       INTEGER                                            :: handle, order, unit_nr
       INTEGER(KIND=int_8)                                :: flop0, flop1, flop2
@@ -1019,13 +1026,13 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       IF (PRESENT(sign_order)) THEN
          order = sign_order
       ELSE
          order = 2
-      ENDIF
+      END IF
 
       CALL dbcsr_create(tmp1, template=matrix_sign)
 
@@ -1066,7 +1073,7 @@ CONTAINS
             frob_matrix/frob_matrix_base
          WRITE (unit_nr, '()')
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
@@ -1095,8 +1102,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: threshold
       INTEGER, INTENT(IN), OPTIONAL                      :: sign_order
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dense_matrix_sign_Newton_Schulz', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dense_matrix_sign_Newton_Schulz'
 
       INTEGER                                            :: handle, i, j, sz, unit_nr
       LOGICAL                                            :: converged
@@ -1130,7 +1136,7 @@ CONTAINS
          frob_matrix_base = dlange('F', sz, sz, tmp1, sz, work)
          DO j = 1, sz
             tmp1(j, j) = tmp1(j, j) + 1.0_dp
-         ENDDO
+         END DO
          frob_matrix = dlange('F', sz, sz, tmp1, sz, work)
 
          IF (sign_order .EQ. 2) THEN
@@ -1138,18 +1144,18 @@ CONTAINS
             ! update the above to 3*I-X*X
             DO j = 1, sz
                tmp1(j, j) = tmp1(j, j) + 2.0_dp
-            ENDDO
+            END DO
          ELSE IF (sign_order .EQ. 3) THEN
             tmp2(:, :) = tmp1
             tmp1 = tmp1*4.0_dp/3.0_dp
             DO j = 1, sz
                tmp1(j, j) = tmp1(j, j) + 8.0_dp/3.0_dp
-            ENDDO
+            END DO
             CALL dgemm('N', 'N', sz, sz, sz, 1.0_dp, tmp2, sz, tmp2, sz, 1.0_dp, tmp1, sz)
             prefactor = 3.0_dp/8.0_dp
          ELSE
             CPABORT("requested order is not implemented.")
-         ENDIF
+         END IF
 
          CALL dgemm('N', 'N', sz, sz, sz, prefactor, matrix_sign, sz, tmp1, sz, 0.0_dp, tmp2, sz)
          matrix_sign = tmp2
@@ -1161,8 +1167,8 @@ CONTAINS
             CALL m_flush(unit_nr)
             converged = .TRUE.
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       IF (.NOT. converged) &
          CPABORT("dense_matrix_sign_Newton_Schulz did not converge within 100 iterations")
@@ -1175,34 +1181,40 @@ CONTAINS
    END SUBROUTINE dense_matrix_sign_Newton_Schulz
 
 ! **************************************************************************************************
-!> \brief Calculate the sign matrix by direct calculation of all eigenvalues and eigenvectors
-!> \param sm_sign ...
+!> \brief Perform eigendecomposition of a dense matrix
 !> \param sm ...
 !> \param N ...
+!> \param eigvals ...
+!> \param eigvecs ...
+!> \par History
+!>       2020.05 Extracted from dense_matrix_sign_direct [Michael Lass]
 !> \author Michael Lass, Robert Schade
 ! **************************************************************************************************
-   SUBROUTINE dense_matrix_sign_direct(sm_sign, sm, N)
+   SUBROUTINE eigdecomp(sm, N, eigvals, eigvecs)
       INTEGER, INTENT(IN)                                :: N
       REAL(KIND=dp), INTENT(IN)                          :: sm(N, N)
-      REAL(KIND=dp), INTENT(INOUT)                       :: sm_sign(N, N)
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), &
+         INTENT(OUT)                           :: eigvals
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :), &
+         INTENT(OUT)                           :: eigvecs
 
-      INTEGER                                            :: i, info, liwork, lwork
+      INTEGER                                            :: info, liwork, lwork
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iwork
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: W, work
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: tmp, U
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: tmp
 
-      ALLOCATE (U(N, N), tmp(N, N))
-      ALLOCATE (W(N))
+      ALLOCATE (eigvecs(N, N), tmp(N, N))
+      ALLOCATE (eigvals(N))
 
       ! symmetrize sm
-      U(:, :) = 0.5*(sm + TRANSPOSE(sm))
+      eigvecs(:, :) = 0.5*(sm + TRANSPOSE(sm))
 
       ! probe optimal sizes for WORK and IWORK
       LWORK = -1
       LIWORK = -1
       ALLOCATE (WORK(1))
       ALLOCATE (IWORK(1))
-      CALL dsyevd('V', 'U', N, U, N, W, WORK, LWORK, IWORK, LIWORK, INFO)
+      CALL dsyevd('V', 'U', N, eigvecs, N, eigvals, WORK, LWORK, IWORK, LIWORK, INFO)
       LWORK = INT(WORK(1))
       LIWORK = INT(IWORK(1))
       DEALLOCATE (IWORK)
@@ -1211,31 +1223,119 @@ CONTAINS
       ! calculate eigenvalues and eigenvectors
       ALLOCATE (WORK(LWORK))
       ALLOCATE (IWORK(LIWORK))
-      CALL dsyevd('V', 'U', N, U, N, W, WORK, LWORK, IWORK, LIWORK, INFO)
+      CALL dsyevd('V', 'U', N, eigvecs, N, eigvals, WORK, LWORK, IWORK, LIWORK, INFO)
       DEALLOCATE (IWORK)
       DEALLOCATE (WORK)
-
       IF (INFO .NE. 0) CPABORT("dsyevd did not succeed")
+
+      DEALLOCATE (tmp)
+   END SUBROUTINE eigdecomp
+
+! **************************************************************************************************
+!> \brief Calculate the sign matrix from eigenvalues and eigenvectors of a matrix
+!> \param sm_sign ...
+!> \param eigvals ...
+!> \param eigvecs ...
+!> \param N ...
+!> \param mu_correction ...
+!> \par History
+!>       2020.05 Extracted from dense_matrix_sign_direct [Michael Lass]
+!> \author Michael Lass, Robert Schade
+! **************************************************************************************************
+   SUBROUTINE sign_from_eigdecomp(sm_sign, eigvals, eigvecs, N, mu_correction)
+      INTEGER                          :: N
+      REAL(KIND=dp), INTENT(IN)        :: mu_correction
+      REAL(KIND=dp), INTENT(INOUT)     :: sm_sign(N, N)
+      REAL(KIND=dp), INTENT(IN)        :: eigvals(N)
+      REAL(KIND=dp), INTENT(IN)        :: eigvecs(N, N)
+      INTEGER                          :: i
+      REAL(KIND=dp)                    :: tmp(N, N), modified_eigval
 
       sm_sign = 0
       DO i = 1, N
-         IF (W(i) > 0) THEN
+         modified_eigval = eigvals(i) - mu_correction
+         IF (modified_eigval > 0) THEN
             sm_sign(i, i) = 1.0
-         ELSE IF (W(i) < 0) THEN
+         ELSE IF (modified_eigval < 0) THEN
             sm_sign(i, i) = -1.0
          ELSE
             sm_sign(i, i) = 0.0
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! Create matrix with eigenvalues in {-1,0,1} and eigenvectors of sm:
-      ! sm_sign = U * sm_sign * U.T
-      CALL dgemm('N', 'N', N, N, N, 1.0_dp, U, N, sm_sign, N, 0.0_dp, tmp, N)
-      CALL dgemm('N', 'T', N, N, N, 1.0_dp, tmp, N, U, N, 0.0_dp, sm_sign, N)
+      ! sm_sign = eigvecs * sm_sign * eigvecs.T
+      CALL dgemm('N', 'N', N, N, N, 1.0_dp, eigvecs, N, sm_sign, N, 0.0_dp, tmp, N)
+      CALL dgemm('N', 'T', N, N, N, 1.0_dp, tmp, N, eigvecs, N, 0.0_dp, sm_sign, N)
+   END SUBROUTINE sign_from_eigdecomp
 
-      DEALLOCATE (W)
-      DEALLOCATE (tmp)
-      DEALLOCATE (U)
+! **************************************************************************************************
+!> \brief Compute partial trace of a matrix from its eigenvalues and eigenvectors
+!> \param eigvals ...
+!> \param eigvecs ...
+!> \param firstcol ...
+!> \param lastcol ...
+!> \param mu_correction ...
+!> \return ...
+!> \par History
+!>       2020.05 Created [Michael Lass]
+!> \author Michael Lass
+! **************************************************************************************************
+   FUNCTION trace_from_eigdecomp(eigvals, eigvecs, firstcol, lastcol, mu_correction) result(trace)
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:), INTENT(IN)   :: eigvals
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :), INTENT(IN) :: eigvecs
+      INTEGER, INTENT(IN)                                    :: firstcol, lastcol
+      REAL(KIND=dp), INTENT(IN)                              :: mu_correction
+      INTEGER                                                :: sm_size, i, j
+      REAL(KIND=dp)                                          :: trace, modified_eigval, tmpsum
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)               :: mapped_eigvals
+
+      sm_size = SIZE(eigvals)
+      ALLOCATE (mapped_eigvals(sm_size))
+
+      DO i = 1, sm_size
+         modified_eigval = eigvals(i) - mu_correction
+         IF (modified_eigval > 0) THEN
+            mapped_eigvals(i) = 1.0
+         ELSE IF (modified_eigval < 0) THEN
+            mapped_eigvals(i) = -1.0
+         ELSE
+            mapped_eigvals(i) = 0.0
+         END IF
+      END DO
+
+      trace = 0.0_dp
+      DO i = firstcol, lastcol
+         tmpsum = 0.0_dp
+         DO j = 1, sm_size
+            tmpsum = tmpsum + (eigvecs(i, j)*mapped_eigvals(j)*eigvecs(i, j))
+         END DO
+         trace = trace - 0.5_dp*tmpsum + 0.5_dp
+      END DO
+   END FUNCTION trace_from_eigdecomp
+
+! **************************************************************************************************
+!> \brief Calculate the sign matrix by direct calculation of all eigenvalues and eigenvectors
+!> \param sm_sign ...
+!> \param sm ...
+!> \param N ...
+!> \par History
+!>       2020.02 Created [Michael Lass, Robert Schade]
+!>       2020.05 Extracted eigdecomp and sign_from_eigdecomp [Michael Lass]
+!> \author Michael Lass, Robert Schade
+! **************************************************************************************************
+   SUBROUTINE dense_matrix_sign_direct(sm_sign, sm, N)
+      INTEGER, INTENT(IN)                                :: N
+      REAL(KIND=dp), INTENT(IN)                          :: sm(N, N)
+      REAL(KIND=dp), INTENT(INOUT)                       :: sm_sign(N, N)
+
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigvals
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: eigvecs
+
+      CALL eigdecomp(sm, N, eigvals, eigvecs)
+      CALL sign_from_eigdecomp(sm_sign, eigvals, eigvecs, N, 0.0_dp)
+
+      DEALLOCATE (eigvals, eigvecs)
    END SUBROUTINE dense_matrix_sign_direct
 
 ! **************************************************************************************************
@@ -1257,8 +1357,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: sign_order
       INTEGER, INTENT(IN)                                :: submatrix_sign_method
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_submatrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_submatrix'
 
       INTEGER                                            :: group, handle, i, myrank, nblkcols, &
                                                             order, sm_size, unit_nr
@@ -1278,7 +1377,7 @@ CONTAINS
          order = sign_order
       ELSE
          order = 2
-      ENDIF
+      END IF
 
       CALL dbcsr_get_info(matrix=matrix, nblkcols_total=nblkcols, distribution=dist, group=group)
       CALL dbcsr_distribution_get(dist=dist, mynode=myrank)
@@ -1286,7 +1385,15 @@ CONTAINS
       CALL dissection%init(matrix)
       CALL dissection%get_sm_ids_for_rank(myrank, my_sms)
 
-      !$OMP PARALLEL DEFAULT(NONE) PRIVATE(sm, sm_sign, sm_size) &
+! gfortran before 8.3 complains about internal symbols not being specified in
+! any data clause when using DEFAULT(NONE) and OOP procedures are called from
+! within the parallel region.
+#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
+      !$OMP PARALLEL DEFAULT(SHARED) &
+#else
+      !$OMP PARALLEL DEFAULT(NONE) &
+#endif
+      !$OMP          PRIVATE(sm, sm_sign, sm_size) &
       !$OMP          SHARED(dissection, myrank, my_sms, order, submatrix_sign_method, threshold, unit_nr)
       !$OMP DO SCHEDULE(GUIDED)
       DO i = 1, SIZE(my_sms)
@@ -1297,14 +1404,14 @@ CONTAINS
          SELECT CASE (submatrix_sign_method)
          CASE (ls_scf_submatrix_sign_ns)
             CALL dense_matrix_sign_Newton_Schulz(sm_sign, sm, my_sms(i), threshold, order)
-         CASE (ls_scf_submatrix_sign_direct)
+         CASE (ls_scf_submatrix_sign_direct, ls_scf_submatrix_sign_direct_muadj, ls_scf_submatrix_sign_direct_muadj_lowmem)
             CALL dense_matrix_sign_direct(sm_sign, sm, sm_size)
          CASE DEFAULT
             CPABORT("Unkown submatrix sign method.")
          END SELECT
          CALL dissection%copy_resultcol(my_sms(i), sm_sign)
          DEALLOCATE (sm, sm_sign)
-      ENDDO
+      END DO
       !$OMP END DO
       !$OMP END PARALLEL
 
@@ -1314,6 +1421,211 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE matrix_sign_submatrix
+
+! **************************************************************************************************
+!> \brief Submatrix method with internal adjustment of chemical potential
+!> \param matrix_sign ...
+!> \param matrix ...
+!> \param mu ...
+!> \param nelectron ...
+!> \param threshold ...
+!> \param variant ...
+!> \par History
+!>       2020.05 Created [Michael Lass]
+!> \author Robert Schade, Michael Lass
+! **************************************************************************************************
+   SUBROUTINE matrix_sign_submatrix_mu_adjust(matrix_sign, matrix, mu, nelectron, threshold, variant)
+
+      TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_sign, matrix
+      REAL(KIND=dp), INTENT(INOUT)                       :: mu
+      INTEGER, INTENT(IN)                                :: nelectron
+      REAL(KIND=dp), INTENT(IN)                          :: threshold
+      INTEGER, INTENT(IN)                                :: variant
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sign_submatrix_mu_adjust'
+
+      INTEGER                                            :: group, handle, i, j, myrank, nblkcols, &
+                                                            sm_size, unit_nr, sm_firstcol, sm_lastcol
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: my_sms
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: sm, sm_sign, tmp
+      TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(dbcsr_distribution_type)                      :: dist
+      TYPE(submatrix_dissection_type)                    :: dissection
+      REAL(KIND=dp)                                      :: trace, increment, new_mu, mu_low, mu_high
+      TYPE(eigbuf), DIMENSION(:), ALLOCATABLE            :: eigbufs
+      LOGICAL                                            :: has_mu_low, has_mu_high
+
+      REAL(KIND=dp), PARAMETER                           :: initial_increment = 0.01_dp
+
+      CALL timeset(routineN, handle)
+
+      ! print output on all ranks
+      logger => cp_get_default_logger()
+      unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+
+      CALL dbcsr_get_info(matrix=matrix, nblkcols_total=nblkcols, distribution=dist, group=group)
+      CALL dbcsr_distribution_get(dist=dist, mynode=myrank)
+
+      CALL dissection%init(matrix)
+      CALL dissection%get_sm_ids_for_rank(myrank, my_sms)
+
+      ALLOCATE (eigbufs(SIZE(my_sms)))
+
+      trace = 0.0_dp
+
+! gfortran before 8.3 complains about internal symbols not being specified in
+! any data clause when using DEFAULT(NONE) and OOP procedures are called from
+! within the parallel region.
+#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
+      !$OMP PARALLEL DEFAULT(SHARED) &
+#else
+      !$OMP PARALLEL DEFAULT(NONE) &
+#endif
+      !$OMP          PRIVATE(sm, sm_sign, sm_size, sm_firstcol, sm_lastcol, j, tmp) &
+      !$OMP          SHARED(dissection, myrank, my_sms, unit_nr, eigbufs, threshold, variant) &
+      !$OMP          REDUCTION(+:trace)
+      !$OMP DO SCHEDULE(GUIDED)
+      DO i = 1, SIZE(my_sms)
+         CALL dissection%generate_submatrix(my_sms(i), sm)
+         sm_size = SIZE(sm, 1)
+         WRITE (unit_nr, *) "Rank", myrank, "processing submatrix", my_sms(i), "size", sm_size
+
+         CALL dissection%get_relevant_sm_columns(my_sms(i), sm_firstcol, sm_lastcol)
+
+         IF (variant .EQ. ls_scf_submatrix_sign_direct_muadj) THEN
+            ! Store all eigenvectors in buffer. We will use it to compute sm_sign at the end.
+            CALL eigdecomp(sm, sm_size, eigvals=eigbufs(i)%eigvals, eigvecs=eigbufs(i)%eigvecs)
+         ELSE
+            ! Only store eigenvectors that are required for mu adjustment.
+            ! Calculate sm_sign right away in the hope that mu is already correct.
+            CALL eigdecomp(sm, sm_size, eigvals=eigbufs(i)%eigvals, eigvecs=tmp)
+            ALLOCATE (eigbufs(i)%eigvecs(sm_firstcol:sm_lastcol, 1:sm_size))
+            eigbufs(i)%eigvecs(:, :) = tmp(sm_firstcol:sm_lastcol, 1:sm_size)
+
+            ALLOCATE (sm_sign(sm_size, sm_size))
+            CALL sign_from_eigdecomp(sm_sign, eigbufs(i)%eigvals, tmp, sm_size, 0.0_dp)
+            CALL dissection%copy_resultcol(my_sms(i), sm_sign)
+            DEALLOCATE (sm_sign, tmp)
+         END IF
+
+         DEALLOCATE (sm)
+         trace = trace + trace_from_eigdecomp(eigbufs(i)%eigvals, eigbufs(i)%eigvecs, sm_firstcol, sm_lastcol, 0.0_dp)
+      END DO
+      !$OMP END DO
+      !$OMP END PARALLEL
+
+      has_mu_low = .FALSE.
+      has_mu_high = .FALSE.
+      increment = initial_increment
+      new_mu = mu
+      DO i = 1, 30
+         CALL mp_sum(trace, group)
+         IF (unit_nr > 0) WRITE (unit_nr, '(T2,A,1X,F13.9,1X,F15.9)') &
+            "Density matrix:  mu, trace error: ", new_mu, trace - nelectron
+         IF (ABS(trace - nelectron) < 0.5_dp) EXIT
+         IF (trace < nelectron) THEN
+            mu_low = new_mu
+            new_mu = new_mu + increment
+            has_mu_low = .TRUE.
+            increment = increment*2
+         ELSE
+            mu_high = new_mu
+            new_mu = new_mu - increment
+            has_mu_high = .TRUE.
+            increment = increment*2
+         END IF
+
+         IF (has_mu_low .AND. has_mu_high) THEN
+            new_mu = (mu_low + mu_high)/2
+            IF (ABS(mu_high - mu_low) < threshold) EXIT
+         END IF
+
+         trace = 0
+! gfortran before 8.3 complains about internal symbols not being specified in
+! any data clause when using DEFAULT(NONE) and OOP procedures are called from
+! within the parallel region.
+#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
+         !$OMP PARALLEL DEFAULT(SHARED) &
+#else
+         !$OMP PARALLEL DEFAULT(NONE) &
+#endif
+         !$OMP          PRIVATE(i, sm_sign, tmp, sm_size, sm_firstcol, sm_lastcol) &
+         !$OMP          SHARED(dissection, my_sms, unit_nr, eigbufs, mu, new_mu, nelectron) &
+         !$OMP          REDUCTION(+:trace)
+         !$OMP DO SCHEDULE(GUIDED)
+         DO j = 1, SIZE(my_sms)
+            sm_size = SIZE(eigbufs(j)%eigvals)
+            CALL dissection%get_relevant_sm_columns(my_sms(j), sm_firstcol, sm_lastcol)
+            trace = trace + trace_from_eigdecomp(eigbufs(j)%eigvals, eigbufs(j)%eigvecs, sm_firstcol, sm_lastcol, new_mu - mu)
+         END DO
+         !$OMP END DO
+         !$OMP END PARALLEL
+      END DO
+
+      ! Finalize sign matrix from eigendecompositions if we kept all eigenvectors
+      IF (variant .EQ. ls_scf_submatrix_sign_direct_muadj) THEN
+! gfortran before 8.3 complains about internal symbols not being specified in
+! any data clause when using DEFAULT(NONE) and OOP procedures are called from
+! within the parallel region.
+#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
+         !$OMP PARALLEL DEFAULT(SHARED) &
+#else
+         !$OMP PARALLEL DEFAULT(NONE) &
+#endif
+         !$OMP          PRIVATE(sm, sm_sign, sm_size, sm_firstcol, sm_lastcol, j) &
+         !$OMP          SHARED(dissection, myrank, my_sms, unit_nr, eigbufs, mu, new_mu)
+         !$OMP DO SCHEDULE(GUIDED)
+         DO i = 1, SIZE(my_sms)
+            WRITE (unit_nr, '(T3,A,1X,I4,1X,A,1X,I6)') "Rank", myrank, "finalizing submatrix", my_sms(i)
+            sm_size = SIZE(eigbufs(i)%eigvals)
+            ALLOCATE (sm_sign(sm_size, sm_size))
+            CALL sign_from_eigdecomp(sm_sign, eigbufs(i)%eigvals, eigbufs(i)%eigvecs, sm_size, new_mu - mu)
+            CALL dissection%copy_resultcol(my_sms(i), sm_sign)
+            DEALLOCATE (sm_sign)
+         END DO
+         !$OMP END DO
+         !$OMP END PARALLEL
+      END IF
+
+      DEALLOCATE (eigbufs)
+
+      ! If we only stored parts of the eigenvectors and mu has changed, we need to recompute sm_sign
+      IF ((variant .EQ. ls_scf_submatrix_sign_direct_muadj_lowmem) .AND. (mu .NE. new_mu)) THEN
+! gfortran before 8.3 complains about internal symbols not being specified in
+! any data clause when using DEFAULT(NONE) and OOP procedures are called from
+! within the parallel region.
+#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
+         !$OMP PARALLEL DEFAULT(SHARED) &
+#else
+         !$OMP PARALLEL DEFAULT(NONE) &
+#endif
+         !$OMP          PRIVATE(sm, sm_sign, sm_size, sm_firstcol, sm_lastcol, j) &
+         !$OMP          SHARED(dissection, myrank, my_sms, unit_nr, eigbufs, mu, new_mu)
+         !$OMP DO SCHEDULE(GUIDED)
+         DO i = 1, SIZE(my_sms)
+            WRITE (unit_nr, '(T3,A,1X,I4,1X,A,1X,I6)') "Rank", myrank, "reprocessing submatrix", my_sms(i)
+            CALL dissection%generate_submatrix(my_sms(i), sm)
+            sm_size = SIZE(sm, 1)
+            DO j = 1, sm_size
+               sm(j, j) = sm(j, j) + mu - new_mu
+            END DO
+            ALLOCATE (sm_sign(sm_size, sm_size))
+            CALL dense_matrix_sign_direct(sm_sign, sm, sm_size)
+            CALL dissection%copy_resultcol(my_sms(i), sm_sign)
+            DEALLOCATE (sm, sm_sign)
+         END DO
+         !$OMP END DO
+         !$OMP END PARALLEL
+      END IF
+
+      mu = new_mu
+
+      CALL dissection%communicate_results(matrix_sign)
+      CALL dissection%final
+
+      CALL timestop(handle)
+
+   END SUBROUTINE matrix_sign_submatrix_mu_adjust
 
 ! **************************************************************************************************
 !> \brief compute the sqrt of a matrix via the sign function and the corresponding Newton-Schulz iterations
@@ -1340,8 +1652,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: max_iter_lanczos
       LOGICAL, OPTIONAL                                  :: symmetrize, converged
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sqrt_Newton_Schulz', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sqrt_Newton_Schulz'
 
       INTEGER                                            :: handle, i, unit_nr
       INTEGER(KIND=int_8)                                :: flop1, flop2, flop3, flop4, flop5
@@ -1360,21 +1671,21 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       IF (PRESENT(converged)) converged = .FALSE.
       IF (PRESENT(symmetrize)) THEN
          tsym = symmetrize
       ELSE
          tsym = .TRUE.
-      ENDIF
+      END IF
 
       ! for stability symmetry can not be assumed
       CALL dbcsr_create(tmp1, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(tmp2, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       IF (order .GE. 4) THEN
          CALL dbcsr_create(tmp3, template=matrix, matrix_type=dbcsr_type_no_symmetry)
-      ENDIF
+      END IF
 
       CALL dbcsr_set(matrix_sqrt_inv, 0.0_dp)
       CALL dbcsr_add_on_diag(matrix_sqrt_inv, 1.0_dp)
@@ -1398,19 +1709,19 @@ CONTAINS
             WRITE (unit_nr, '(T6,A,1X,L1,A,E12.3)') "Lanczos converged: ", arnoldi_converged, " threshold:", eps_lanczos
             WRITE (unit_nr, '(T6,A,1X,E12.3,E12.3)') "Est. extremal eigenvalues:", max_ev, min_ev
             WRITE (unit_nr, '(T6,A,1X,E12.3)') "Est. condition number :", max_ev/MAX(min_ev, EPSILON(min_ev))
-         ENDIF
+         END IF
          ! conservatively assume we get a relatively large error (100*threshold_lanczos) in the estimates
          ! and adjust the scaling to be on the safe side
          scaling = 2.0_dp/(max_ev + min_ev + 100*eps_lanczos)
 
-      ENDIF
+      END IF
 
       CALL dbcsr_scale(matrix_sqrt, scaling)
       CALL dbcsr_filter(matrix_sqrt, threshold)
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)
          WRITE (unit_nr, *) "Order=", order
-      ENDIF
+      END IF
 
       DO i = 1, 100
 
@@ -1511,7 +1822,7 @@ CONTAINS
                conv, t2 - t1, &
                (flop1 + flop2 + flop3 + flop4 + flop5)/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          IF (abnormal_value(conv)) &
             CPABORT("conv is an abnormal value (NaN/Inf).")
@@ -1520,20 +1831,20 @@ CONTAINS
          IF ((conv*conv) < threshold) THEN
             IF (PRESENT(converged)) converged = .TRUE.
             EXIT
-         ENDIF
+         END IF
 
-      ENDDO
+      END DO
 
       ! symmetrize the matrices as this is not guaranteed by the algorithm
       IF (tsym) THEN
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(T6,A20)') "Symmetrizing Results"
-         ENDIF
+         END IF
          CALL dbcsr_transposed(tmp1, matrix_sqrt_inv)
          CALL dbcsr_add(matrix_sqrt_inv, tmp1, 0.5_dp, 0.5_dp)
          CALL dbcsr_transposed(tmp1, matrix_sqrt)
          CALL dbcsr_add(matrix_sqrt, tmp1, 0.5_dp, 0.5_dp)
-      ENDIF
+      END IF
 
       ! this check is not really needed
       CALL dbcsr_multiply("N", "N", +1.0_dp, matrix_sqrt_inv, matrix_sqrt, 0.0_dp, tmp1, &
@@ -1547,7 +1858,7 @@ CONTAINS
             frob_matrix/frob_matrix_base
          WRITE (unit_nr, '()')
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
 
       ! scale to proper end results
       CALL dbcsr_scale(matrix_sqrt, 1/SQRT(scaling))
@@ -1557,7 +1868,7 @@ CONTAINS
       CALL dbcsr_release(tmp2)
       IF (order .GE. 4) THEN
          CALL dbcsr_release(tmp3)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1588,8 +1899,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: max_iter_lanczos
       LOGICAL, OPTIONAL                                  :: symmetrize, converged
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sqrt_proot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_sqrt_proot'
 
       INTEGER                                            :: choose, handle, i, ii, j, unit_nr
       INTEGER(KIND=int_8)                                :: f, flop1, flop2, flop3, flop4, flop5
@@ -1598,7 +1908,7 @@ CONTAINS
                                                             max_ev, min_ev, occ_matrix, scaling, &
                                                             t1, t2
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(dbcsr_type)                                   :: BK2A, matrixS, Rmat, tmp1, tmp2
+      TYPE(dbcsr_type)                                   :: BK2A, matrixS, Rmat, tmp1, tmp2, tmp3
 
       CALL cite_reference(Richters2018)
 
@@ -1611,18 +1921,19 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       IF (PRESENT(converged)) converged = .FALSE.
       IF (PRESENT(symmetrize)) THEN
          tsym = symmetrize
       ELSE
          tsym = .TRUE.
-      ENDIF
+      END IF
 
       ! for stability symmetry can not be assumed
       CALL dbcsr_create(tmp1, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(tmp2, template=matrix, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_create(tmp3, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(Rmat, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(matrixS, template=matrix, matrix_type=dbcsr_type_no_symmetry)
 
@@ -1636,7 +1947,7 @@ CONTAINS
             WRITE (unit_nr, '(T6,A,1X,L1,A,E12.3)') "Lanczos converged: ", arnoldi_converged, " threshold:", eps_lanczos
             WRITE (unit_nr, '(T6,A,1X,E12.3,E12.3)') "Est. extremal eigenvalues:", max_ev, min_ev
             WRITE (unit_nr, '(T6,A,1X,E12.3)') "Est. condition number :", max_ev/MAX(min_ev, EPSILON(min_ev))
-         ENDIF
+         END IF
          ! conservatively assume we get a relatively large error (100*threshold_lanczos) in the estimates
          ! and adjust the scaling to be on the safe side
          scaling = 2.0_dp/(max_ev + min_ev + 100*eps_lanczos)
@@ -1644,7 +1955,7 @@ CONTAINS
          CALL dbcsr_filter(matrixS, threshold)
       ELSE
          scaling = 1.0_dp
-      ENDIF
+      END IF
 
       CALL dbcsr_set(matrix_sqrt_inv, 0.0_dp)
       CALL dbcsr_add_on_diag(matrix_sqrt_inv, 1.0_dp)
@@ -1653,7 +1964,7 @@ CONTAINS
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)
          WRITE (unit_nr, *) "Order=", order
-      ENDIF
+      END IF
 
       DO i = 1, 100
 
@@ -1678,17 +1989,18 @@ CONTAINS
                   CALL dbcsr_copy(tmp2, Rmat)
                ELSE
                   f = 0
-                  CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, Rmat, 0.0_dp, tmp2, &
+                  CALL dbcsr_copy(tmp3, tmp2)
+                  CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, Rmat, 0.0_dp, tmp2, &
                                       filter_eps=threshold, flop=f)
                   flop3 = flop3 + f
-               ENDIF
+               END IF
                CALL dbcsr_add(tmp1, tmp2, 1.0_dp, 1.0_dp)
-            ENDDO
+            END DO
          ELSE
             CALL dbcsr_create(BK2A, template=matrix, matrix_type=dbcsr_type_no_symmetry)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_sqrt_inv, matrixS, 0.0_dp, BK2A, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_sqrt_inv, matrixS, 0.0_dp, tmp3, &
                                 filter_eps=threshold, flop=flop1)
-            CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_sqrt_inv, BK2A, 0.0_dp, BK2A, &
+            CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_sqrt_inv, tmp3, 0.0_dp, BK2A, &
                                 filter_eps=threshold, flop=flop2)
             CALL dbcsr_copy(Rmat, BK2A)
             CALL dbcsr_add_on_diag(Rmat, -1.0_dp)
@@ -1706,15 +2018,17 @@ CONTAINS
                CALL dbcsr_add(tmp1, tmp2, 1.0_dp, -1.0_dp*(-1)**j*choose)
                IF (j .LT. order) THEN
                   f = 0
-                  CALL dbcsr_multiply("N", "N", 1.0_dp, tmp2, BK2A, 0.0_dp, tmp2, &
+                  CALL dbcsr_copy(tmp3, tmp2)
+                  CALL dbcsr_multiply("N", "N", 1.0_dp, tmp3, BK2A, 0.0_dp, tmp2, &
                                       filter_eps=threshold, flop=f)
                   flop3 = flop3 + f
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             CALL dbcsr_release(BK2A)
-         ENDIF
+         END IF
 
-         CALL dbcsr_multiply("N", "N", 0.5_dp, matrix_sqrt_inv, tmp1, 0.0_dp, matrix_sqrt_inv, &
+         CALL dbcsr_copy(tmp3, matrix_sqrt_inv)
+         CALL dbcsr_multiply("N", "N", 0.5_dp, tmp3, tmp1, 0.0_dp, matrix_sqrt_inv, &
                              filter_eps=threshold, flop=flop4)
 
          occ_matrix = dbcsr_get_occupation(matrix_sqrt_inv)
@@ -1729,7 +2043,7 @@ CONTAINS
                conv, t2 - t1, &
                (flop1 + flop2 + flop3 + flop4 + flop5)/(1.0E6_dp*MAX(0.001_dp, t2 - t1))
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          IF (abnormal_value(conv)) &
             CPABORT("conv is an abnormal value (NaN/Inf).")
@@ -1738,9 +2052,9 @@ CONTAINS
          IF ((conv*conv) < threshold) THEN
             IF (PRESENT(converged)) converged = .TRUE.
             EXIT
-         ENDIF
+         END IF
 
-      ENDDO
+      END DO
 
       ! scale to proper end results
       CALL dbcsr_scale(matrix_sqrt_inv, SQRT(scaling))
@@ -1751,12 +2065,12 @@ CONTAINS
       IF (tsym) THEN
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(A20)') "SYMMETRIZING RESULTS"
-         ENDIF
+         END IF
          CALL dbcsr_transposed(tmp1, matrix_sqrt_inv)
          CALL dbcsr_add(matrix_sqrt_inv, tmp1, 0.5_dp, 0.5_dp)
          CALL dbcsr_transposed(tmp1, matrix_sqrt)
          CALL dbcsr_add(matrix_sqrt, tmp1, 0.5_dp, 0.5_dp)
-      ENDIF
+      END IF
 
       ! this check is not really needed
       IF (test) THEN
@@ -1771,7 +2085,7 @@ CONTAINS
                frob_matrix/frob_matrix_base
             WRITE (unit_nr, '()')
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          ! this check is not really needed
          CALL dbcsr_multiply("N", "N", +1.0_dp, matrix_sqrt_inv, matrix_sqrt_inv, 0.0_dp, tmp2, &
@@ -1787,11 +2101,12 @@ CONTAINS
                frob_matrix/frob_matrix_base
             WRITE (unit_nr, '()')
             CALL m_flush(unit_nr)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
+      CALL dbcsr_release(tmp3)
       CALL dbcsr_release(Rmat)
       CALL dbcsr_release(matrixS)
 
@@ -1811,8 +2126,7 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_exp, matrix
       REAL(KIND=dp), INTENT(IN)                          :: omega, alpha, threshold
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_exponential', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'matrix_exponential'
       REAL(dp), PARAMETER                                :: one = 1.0_dp, toll = 1.E-17_dp, &
                                                             zero = 0.0_dp
 
@@ -1828,7 +2142,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! Calculate the norm of the matrix alpha*matrix, and scale it until it is less than 1.0
       norm_scalar = ABS(alpha)*dbcsr_frobenius_norm(matrix)
@@ -1862,7 +2176,7 @@ CONTAINS
       ! Calculate the norm of C and moltiply by toll to be used as a threshold
       norm_C = toll*dbcsr_frobenius_norm(matrix)
 
-      ! iteration for the trucated taylor series expansion
+      ! iteration for the truncated taylor series expansion
       CALL dbcsr_create(D_product, template=matrix, matrix_type=dbcsr_type_no_symmetry)
       i = 1
       DO
@@ -1900,6 +2214,12 @@ CONTAINS
       CALL dbcsr_scale(matrix_exp, alpha_scalar=omega)
       ! write(*,*) alpha,omega
 
+      CALL dbcsr_release(B)
+      CALL dbcsr_release(C)
+      CALL dbcsr_release(D)
+      CALL dbcsr_release(D_product)
+      CALL dbcsr_release(B_square)
+
       CALL timestop(handle)
 
    END SUBROUTINE matrix_exponential
@@ -1919,8 +2239,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: threshold
       INTEGER                                            :: max_steps
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'purify_mcweeny_orth', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'purify_mcweeny_orth'
 
       INTEGER                                            :: handle, i, ispin, unit_nr
       REAL(KIND=dp)                                      :: frob_norm, trace
@@ -1933,7 +2252,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL dbcsr_create(matrix_pp, template=matrix_p(1), matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(matrix_tmp, template=matrix_p(1), matrix_type=dbcsr_type_no_symmetry)
@@ -1984,8 +2303,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: threshold
       INTEGER                                            :: max_steps
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'purify_mcweeny_nonorth', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'purify_mcweeny_nonorth'
 
       INTEGER                                            :: handle, i, ispin, unit_nr
       REAL(KIND=dp)                                      :: frob_norm, trace
@@ -1999,7 +2317,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL dbcsr_create(matrix_ps, template=matrix_p(1), matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(matrix_psp, template=matrix_p(1), matrix_type=dbcsr_type_no_symmetry)

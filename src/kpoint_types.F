@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -35,7 +37,7 @@ MODULE kpoint_types
    USE qs_matrix_pools,                 ONLY: mpools_release,&
                                               qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE string_utilities,                ONLY: uppercase
 #include "./base/base_uses.f90"
@@ -70,7 +72,7 @@ MODULE kpoint_types
       REAL(KIND=dp)                                     :: wkp
       REAL(KIND=dp), DIMENSION(3)                       :: xkp
       LOGICAL                                           :: is_local
-      TYPE(mo_set_p_type), DIMENSION(:, :), POINTER     :: mos
+      TYPE(mo_set_type), DIMENSION(:, :), POINTER     :: mos
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER      :: pmat
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER      :: wmat
    END TYPE kpoint_env_type
@@ -182,8 +184,6 @@ CONTAINS
    SUBROUTINE kpoint_create(kpoint)
       TYPE(kpoint_type), POINTER                         :: kpoint
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(kpoint))
 
       ALLOCATE (kpoint)
@@ -231,8 +231,6 @@ CONTAINS
    SUBROUTINE kpoint_release(kpoint)
       TYPE(kpoint_type), POINTER                         :: kpoint
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_release', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ik
 
       IF (ASSOCIATED(kpoint)) THEN
@@ -245,7 +243,7 @@ CONTAINS
          END IF
          IF (ASSOCIATED(kpoint%kp_dist)) THEN
             DEALLOCATE (kpoint%kp_dist)
-         ENDIF
+         END IF
 
          CALL mpools_release(kpoint%mpools)
          CALL cp_blacs_env_release(kpoint%blacs_env)
@@ -318,7 +316,7 @@ CONTAINS
                               full_grid, use_real_wfn, eps_geo, parallel_group_size, kp_range, nkp, xkp, wkp, &
                               para_env, blacs_env_all, cart, para_env_full, para_env_kp, para_env_inter_kp, blacs_env, &
                               kp_env, mpools, iogrp, nkp_groups, kp_dist, cell_to_index, sab_nl)
-      TYPE(kpoint_type), POINTER                         :: kpoint
+      TYPE(kpoint_type), INTENT(IN)                      :: kpoint
       CHARACTER(LEN=*), OPTIONAL                         :: kp_scheme
       INTEGER, DIMENSION(3), OPTIONAL                    :: nkp_grid
       REAL(KIND=dp), DIMENSION(3), OPTIONAL              :: kp_shift
@@ -345,11 +343,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :, :), OPTIONAL, POINTER     :: cell_to_index
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: sab_nl
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_kpoint_info', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(kpoint))
 
       IF (PRESENT(kp_scheme)) kp_scheme = kpoint%kp_scheme
       IF (PRESENT(nkp_grid)) nkp_grid = kpoint%nkp_grid
@@ -424,7 +417,7 @@ CONTAINS
                               full_grid, use_real_wfn, eps_geo, parallel_group_size, kp_range, nkp, xkp, wkp, &
                               para_env, blacs_env_all, cart, para_env_full, para_env_kp, para_env_inter_kp, blacs_env, &
                               kp_env, mpools, iogrp, nkp_groups, kp_dist, cell_to_index, sab_nl)
-      TYPE(kpoint_type), POINTER                         :: kpoint
+      TYPE(kpoint_type), INTENT(INOUT)                   :: kpoint
       CHARACTER(LEN=*), OPTIONAL                         :: kp_scheme
       INTEGER, DIMENSION(3), OPTIONAL                    :: nkp_grid
       REAL(KIND=dp), DIMENSION(3), OPTIONAL              :: kp_shift
@@ -451,11 +444,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :, :), OPTIONAL, POINTER     :: cell_to_index
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: sab_nl
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_kpoint_info', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(kpoint))
 
       IF (PRESENT(kp_scheme)) kpoint%kp_scheme = kp_scheme
       IF (PRESENT(nkp_grid)) kpoint%nkp_grid = nkp_grid
@@ -491,7 +479,7 @@ CONTAINS
       IF (PRESENT(cell_to_index)) THEN
          IF (ASSOCIATED(kpoint%cell_to_index)) DEALLOCATE (kpoint%cell_to_index)
          kpoint%cell_to_index => cell_to_index
-      ENDIF
+      END IF
 
    END SUBROUTINE set_kpoint_info
 
@@ -503,12 +491,9 @@ CONTAINS
 !> \author JGH
 ! **************************************************************************************************
    SUBROUTINE read_kpoint_section(kpoint, kpoint_section, a_vec)
-      TYPE(kpoint_type), POINTER                         :: kpoint
+      TYPE(kpoint_type), INTENT(INOUT)                   :: kpoint
       TYPE(section_vals_type), POINTER                   :: kpoint_section
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: a_vec
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_kpoint_section', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: ustr
       CHARACTER(LEN=default_string_length), &
@@ -517,8 +502,6 @@ CONTAINS
       LOGICAL                                            :: available
       REAL(KIND=dp)                                      :: ff
       REAL(KIND=dp), DIMENSION(:), POINTER               :: reallist
-
-      CPASSERT(ASSOCIATED(kpoint))
 
       CALL section_vals_get(kpoint_section, explicit=available)
 
@@ -610,16 +593,11 @@ CONTAINS
 !> \author JGH
 ! **************************************************************************************************
    SUBROUTINE write_kpoint_info(kpoint, dft_section)
-      TYPE(kpoint_type), POINTER                         :: kpoint
-      TYPE(section_vals_type), POINTER                   :: dft_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_kpoint_info', &
-         routineP = moduleN//':'//routineN
+      TYPE(kpoint_type), INTENT(IN)                      :: kpoint
+      TYPE(section_vals_type), INTENT(IN)                :: dft_section
 
       INTEGER                                            :: i, punit
       TYPE(cp_logger_type), POINTER                      :: logger
-
-      CPASSERT(ASSOCIATED(kpoint))
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -688,9 +666,6 @@ CONTAINS
    SUBROUTINE kpoint_env_create(kp_env)
       TYPE(kpoint_env_type), POINTER                     :: kp_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_env_create', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(kp_env))
 
       ALLOCATE (kp_env)
@@ -714,9 +689,6 @@ CONTAINS
    SUBROUTINE kpoint_env_release(kp_env)
       TYPE(kpoint_env_type), POINTER                     :: kp_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_env_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ic, is
 
       IF (ASSOCIATED(kp_env)) THEN
@@ -724,7 +696,7 @@ CONTAINS
          IF (ASSOCIATED(kp_env%mos)) THEN
             DO is = 1, SIZE(kp_env%mos, 2)
                DO ic = 1, SIZE(kp_env%mos, 1)
-                  CALL deallocate_mo_set(kp_env%mos(ic, is)%mo_set)
+                  CALL deallocate_mo_set(kp_env%mos(ic, is))
                END DO
             END DO
             DEALLOCATE (kp_env%mos)
@@ -734,6 +706,7 @@ CONTAINS
             DO is = 1, SIZE(kp_env%pmat, 2)
                DO ic = 1, SIZE(kp_env%pmat, 1)
                   CALL cp_fm_release(kp_env%pmat(ic, is)%matrix)
+                  DEALLOCATE (kp_env%pmat(ic, is)%matrix)
                END DO
             END DO
             DEALLOCATE (kp_env%pmat)
@@ -743,6 +716,7 @@ CONTAINS
             DO is = 1, SIZE(kp_env%wmat, 2)
                DO ic = 1, SIZE(kp_env%wmat, 1)
                   CALL cp_fm_release(kp_env%wmat(ic, is)%matrix)
+                  DEALLOCATE (kp_env%wmat(ic, is)%matrix)
                END DO
             END DO
             DEALLOCATE (kp_env%wmat)
@@ -765,17 +739,13 @@ CONTAINS
 !> \author JGH
 ! **************************************************************************************************
    SUBROUTINE get_kpoint_env(kpoint_env, nkpoint, wkp, xkp, is_local, mos)
-      TYPE(kpoint_env_type), POINTER                     :: kpoint_env
+      TYPE(kpoint_env_type), INTENT(IN)                  :: kpoint_env
       INTEGER, OPTIONAL                                  :: nkpoint
       REAL(KIND=dp), OPTIONAL                            :: wkp
       REAL(KIND=dp), DIMENSION(3), OPTIONAL              :: xkp
       LOGICAL, OPTIONAL                                  :: is_local
-      TYPE(mo_set_p_type), DIMENSION(:, :), OPTIONAL, &
+      TYPE(mo_set_type), DIMENSION(:, :), OPTIONAL, &
          POINTER                                         :: mos
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_kpoint_env', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(kpoint_env))
 
       IF (PRESENT(nkpoint)) nkpoint = kpoint_env%nkpoint
       IF (PRESENT(wkp)) wkp = kpoint_env%wkp
@@ -792,9 +762,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE kpoint_sym_create(kp_sym)
       TYPE(kpoint_sym_type), POINTER                     :: kp_sym
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_sym_create', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(.NOT. ASSOCIATED(kp_sym))
 
@@ -816,9 +783,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE kpoint_sym_release(kp_sym)
       TYPE(kpoint_sym_type), POINTER                     :: kp_sym
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_sym_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(kp_sym)) THEN
 

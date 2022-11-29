@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -336,7 +338,7 @@ CONTAINS
                i1 = ic
             ELSE
                i2 = ic
-            ENDIF
+            END IF
          END DO
       END IF
    END FUNCTION
@@ -390,7 +392,7 @@ CONTAINS
 
       ! compute index
       i = INT((x - x1)/(xn - x1)*(n - 1)) + 1
-      ! reset if ouside 1..n
+      ! reset if outside 1..n
       IF (i < 1) i = 1
       IF (i > n - 1) i = n - 1
       iixun = i

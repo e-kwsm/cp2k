@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -9,9 +11,9 @@
 ! **************************************************************************************************
 MODULE rt_propagation_methods
    USE bibliography,                    ONLY: Kolafa2004,&
+                                              Kuhne2007,&
                                               cite_reference
    USE cp_cfm_basic_linalg,             ONLY: cp_cfm_cholesky_decompose,&
-                                              cp_cfm_gemm,&
                                               cp_cfm_triangular_multiply
    USE cp_cfm_types,                    ONLY: cp_cfm_create,&
                                               cp_cfm_release,&
@@ -43,7 +45,7 @@ MODULE rt_propagation_methods
         dbcsr_filter, dbcsr_frobenius_norm, dbcsr_get_block_p, dbcsr_init_p, &
         dbcsr_iterator_blocks_left, dbcsr_iterator_next_block, dbcsr_iterator_start, &
         dbcsr_iterator_stop, dbcsr_iterator_type, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
-        dbcsr_scale, dbcsr_set, dbcsr_transposed, dbcsr_type
+        dbcsr_scale, dbcsr_set, dbcsr_transposed, dbcsr_type, dbcsr_type_antisymmetric
    USE input_constants,                 ONLY: do_arnoldi,&
                                               do_bch,&
                                               do_em,&
@@ -53,6 +55,7 @@ MODULE rt_propagation_methods
    USE kinds,                           ONLY: dp
    USE ls_matrix_exp,                   ONLY: cp_complex_dbcsr_gemm_3
    USE mathlib,                         ONLY: binomial
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_energy_init,                  ONLY: qs_energies_init
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -70,6 +73,7 @@ MODULE rt_propagation_methods
    USE rt_propagation_utils,            ONLY: calc_S_derivs,&
                                               calc_update_rho,&
                                               calc_update_rho_sparse
+   USE rt_propagation_velocity_gauge,   ONLY: velocity_gauge_ks_matrix
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -86,7 +90,7 @@ MODULE rt_propagation_methods
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief performes a single propagation step a(t+Dt)=U(t+Dt,t)*a(0)
+!> \brief performs a single propagation step a(t+Dt)=U(t+Dt,t)*a(0)
 !>        and calculates the new exponential
 !> \param qs_env ...
 !> \param rtp ...
@@ -100,8 +104,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'propagation_step', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'propagation_step'
 
       INTEGER                                            :: aspc_order, handle, i, im, re, unit_nr
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: delta_mos, mos_new
@@ -117,7 +120,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       NULLIFY (delta_P, rho_new, delta_mos, mos_new)
       NULLIFY (ks_mix, ks_mix_im)
@@ -125,6 +128,12 @@ CONTAINS
       CALL get_qs_env(qs_env, matrix_s=matrix_s)
       IF (rtp%iter == 1) THEN
          CALL qs_energies_init(qs_env, .FALSE.)
+         ! add additional terms for the velocity gauge to matrix_h and matrix_h_im
+         ! should be called imediately after qs_energies_init and before qs_ks_update_qs_env
+         IF (rtp_control%velocity_gauge) THEN
+            CALL velocity_gauge_ks_matrix(qs_env, subtract_nl_term=.FALSE.)
+         END IF
+
          CALL get_qs_env(qs_env, matrix_s=matrix_s)
          IF (.NOT. rtp_control%fixed_ions) THEN
             CALL s_matrices_create(matrix_s, rtp)
@@ -138,7 +147,7 @@ CONTAINS
             CALL calc_update_rho_sparse(qs_env)
          ELSE
             CALL calc_update_rho(qs_env)
-         ENDIF
+         END IF
          CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE.)
       END IF
       IF (.NOT. rtp_control%fixed_ions) THEN
@@ -161,12 +170,13 @@ CONTAINS
          CALL get_rtp(rtp=rtp, mos_new=mos_new)
          ALLOCATE (delta_mos(SIZE(mos_new)))
          DO i = 1, SIZE(mos_new)
+            ALLOCATE (delta_mos(i)%matrix)
             CALL cp_fm_create(delta_mos(i)%matrix, &
                               matrix_struct=mos_new(i)%matrix%matrix_struct, &
                               name="delta_mos"//TRIM(ADJUSTL(cp_to_string(i))))
             CALL cp_fm_to_fm(mos_new(i)%matrix, delta_mos(i)%matrix)
          END DO
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env, &
                       matrix_ks=matrix_ks, &
@@ -176,15 +186,15 @@ CONTAINS
       IF (rtp%mixing) THEN
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(t3,a,2f16.8)') "Mixing the Hamiltonians to improve robustness, mixing factor: ", rtp%mixing_factor
-         ENDIF
+         END IF
          CALL dbcsr_allocate_matrix_set(ks_mix, SIZE(matrix_ks))
          CALL dbcsr_allocate_matrix_set(ks_mix_im, SIZE(matrix_ks))
          DO i = 1, SIZE(matrix_ks)
             CALL dbcsr_init_p(ks_mix(i)%matrix)
             CALL dbcsr_create(ks_mix(i)%matrix, template=matrix_ks(1)%matrix)
             CALL dbcsr_init_p(ks_mix_im(i)%matrix)
-            CALL dbcsr_create(ks_mix_im(i)%matrix, template=matrix_ks(1)%matrix)
-         ENDDO
+            CALL dbcsr_create(ks_mix_im(i)%matrix, template=matrix_ks(1)%matrix, matrix_type=dbcsr_type_antisymmetric)
+         END DO
          DO i = 1, SIZE(matrix_ks)
             re = 2*i - 1
             im = 2*i
@@ -193,8 +203,8 @@ CONTAINS
             IF (rtp%do_hfx) THEN
                CALL dbcsr_add(ks_mix_im(i)%matrix, matrix_ks_im(i)%matrix, 0.0_dp, rtp%mixing_factor)
                CALL dbcsr_add(ks_mix_im(i)%matrix, H_last_iter(im)%matrix, 1.0_dp, 1.0_dp - rtp%mixing_factor)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          CALL calc_SinvH(rtp, ks_mix, ks_mix_im, rtp_control)
          DO i = 1, SIZE(matrix_ks)
             re = 2*i - 1
@@ -202,8 +212,8 @@ CONTAINS
             CALL dbcsr_copy(H_last_iter(re)%matrix, ks_mix(i)%matrix)
             IF (rtp%do_hfx) THEN
                CALL dbcsr_copy(H_last_iter(im)%matrix, ks_mix_im(i)%matrix)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          CALL dbcsr_deallocate_matrix_set(ks_mix)
          CALL dbcsr_deallocate_matrix_set(ks_mix_im)
       ELSE
@@ -214,9 +224,9 @@ CONTAINS
             CALL dbcsr_copy(H_last_iter(re)%matrix, matrix_ks(i)%matrix)
             IF (rtp%do_hfx) THEN
                CALL dbcsr_copy(H_last_iter(im)%matrix, matrix_ks_im(i)%matrix)
-            ENDIF
-         ENDDO
-      ENDIF
+            END IF
+         END DO
+      END IF
 
       CALL compute_propagator_matrix(rtp, rtp_control%propagator)
 
@@ -241,14 +251,14 @@ CONTAINS
          CALL dbcsr_deallocate_matrix_set(delta_P)
       ELSE
          CALL cp_fm_vect_dealloc(delta_mos)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
    END SUBROUTINE propagation_step
 
 ! **************************************************************************************************
-!> \brief Performes all the stuff to finish the step:
+!> \brief Performs all the stuff to finish the step:
 !>        convergence checks
 !>        copying stuff into right place for the next step
 !>        updating the history for extrapolation
@@ -265,7 +275,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: delta_mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: delta_P
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'step_finalize', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'step_finalize'
 
       INTEGER                                            :: handle, i, ihist
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new, mos_old
@@ -295,8 +305,8 @@ CONTAINS
             IF (rtp%delta_iter/rtp%delta_iter_old > 0.9) THEN
                rtp%mixing_factor = MAX(rtp%mixing_factor/2.0_dp, 0.125_dp)
                rtp%mixing = .TRUE.
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END IF
 
       IF (rtp%converged) THEN
@@ -314,7 +324,7 @@ CONTAINS
             DO i = 1, SIZE(mos_new)
                CALL cp_fm_to_fm(mos_new(i)%matrix, mos_old(i)%matrix)
             END DO
-         ENDIF
+         END IF
          IF (rtp_control%propagator == do_em) CALL calc_SinvH(rtp, matrix_ks, matrix_ks_im, rtp_control)
          DO i = 1, SIZE(exp_H_new)
             CALL dbcsr_copy(exp_H_old(i)%matrix, exp_H_new(i)%matrix)
@@ -344,8 +354,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       INTEGER                                            :: propagator
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_propagator_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_propagator_matrix'
 
       INTEGER                                            :: handle, i
       REAL(Kind=dp)                                      :: dt, prefac
@@ -381,7 +390,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_ks_im
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_SinvH', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'calc_SinvH'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, im, ispin, re
@@ -438,7 +447,7 @@ CONTAINS
             re = ispin*2 - 1
             im = ispin*2
             CALL dbcsr_set(exp_H(re)%matrix, zero)
-         ENDDO
+         END DO
       END IF
       CALL dbcsr_release(matrix_ks_nosym)
       CALL timestop(handle)
@@ -457,8 +466,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: s_mat
       TYPE(rt_prop_type), POINTER                        :: rtp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 's_matrices_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 's_matrices_create'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle
@@ -480,7 +488,7 @@ CONTAINS
                                           blacs_env=rtp%ao_ao_fmstruct%context)
          CALL cp_dbcsr_cholesky_invert(S_inv, para_env=rtp%ao_ao_fmstruct%para_env, &
                                        blacs_env=rtp%ao_ao_fmstruct%context, upper_to_full=.TRUE.)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE s_matrices_create
@@ -498,8 +506,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(out)                         :: frob_norm
       TYPE(dbcsr_type), POINTER                          :: mat_re, mat_im
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'complex_frobenius_norm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'complex_frobenius_norm'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: col_atom, handle, row_atom
@@ -524,11 +531,11 @@ CONTAINS
          CALL dbcsr_get_block_p(mat_re, row_atom, col_atom, block_values2, found=found)
          IF (found) THEN
             block_values = block_values2*block_values2
-         ENDIF
+         END IF
          CALL dbcsr_get_block_p(mat_im, row_atom, col_atom, block_values2, found=found)
          IF (found) THEN
             block_values = block_values + block_values2*block_values2
-         ENDIF
+         END IF
          block_values = SQRT(block_values)
       END DO
       CALL dbcsr_iterator_stop(iter)
@@ -558,8 +565,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: max_iter
       REAL(KIND=dp), INTENT(in)                          :: threshold
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'purify_mcweeny_complex_nonorth', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'purify_mcweeny_complex_nonorth'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, im, imax, ispin, re, unit_nr
@@ -574,7 +580,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       NULLIFY (tmp, PS, PSP)
       CALL dbcsr_allocate_matrix_set(tmp, SIZE(P))
@@ -587,11 +593,11 @@ CONTAINS
          CALL dbcsr_create(PSP(i)%matrix, template=P(1)%matrix)
          CALL dbcsr_init_p(tmp(i)%matrix)
          CALL dbcsr_create(tmp(i)%matrix, template=P(1)%matrix)
-      ENDDO
+      END DO
       IF (SIZE(P) == 2) THEN
          CALL dbcsr_scale(P(1)%matrix, one/2)
          CALL dbcsr_scale(P(2)%matrix, one/2)
-      ENDIF
+      END IF
       DO ispin = 1, SIZE(P)/2
          re = 2*ispin - 1
          im = 2*ispin
@@ -636,7 +642,7 @@ CONTAINS
       IF (SIZE(P) == 2) THEN
          CALL dbcsr_scale(P(1)%matrix, one*2)
          CALL dbcsr_scale(P(2)%matrix, one*2)
-      ENDIF
+      END IF
       CALL dbcsr_deallocate_matrix_set(tmp)
       CALL dbcsr_deallocate_matrix_set(PS)
       CALL dbcsr_deallocate_matrix_set(PSP)
@@ -656,8 +662,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       INTEGER, INTENT(in)                                :: aspc_order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'aspc_extrapolate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'aspc_extrapolate'
       COMPLEX(KIND=dp), PARAMETER                        :: cone = (1.0_dp, 0.0_dp), &
                                                             czero = (0.0_dp, 0.0_dp)
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
@@ -666,23 +671,24 @@ CONTAINS
                                                             imat, k, kdbl, n, naspc, ncol_local, &
                                                             nmat
       REAL(KIND=dp)                                      :: alpha
-      TYPE(cp_cfm_type), POINTER                         :: cfm_tmp, cfm_tmp1, csc
+      TYPE(cp_cfm_type)                                  :: cfm_tmp, cfm_tmp1, csc
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: mo_hist
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct, matrix_struct_new
-      TYPE(cp_fm_type), POINTER                          :: fm_tmp, fm_tmp1, fm_tmp2
+      TYPE(cp_fm_type)                                   :: fm_tmp, fm_tmp1, fm_tmp2
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_new, s_hist
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: rho_hist
 
       NULLIFY (rho_hist)
       CALL timeset(routineN, handle)
       CALL cite_reference(Kolafa2004)
+      CALL cite_reference(Kuhne2007)
 
       IF (rtp%linear_scaling) THEN
          CALL get_rtp(rtp=rtp, rho_new=rho_new)
       ELSE
          CALL get_rtp(rtp=rtp, mos_new=mos_new)
-      ENDIF
+      END IF
 
       naspc = MIN(rtp%istep, aspc_order)
       IF (rtp%linear_scaling) THEN
@@ -719,7 +725,7 @@ CONTAINS
          mo_hist => rtp%history%mo_history
          s_hist => rtp%history%s_history
          DO i = 1, SIZE(mos_new)/2
-            NULLIFY (matrix_struct, matrix_struct_new, csc, fm_tmp, fm_tmp1, fm_tmp2, cfm_tmp, cfm_tmp1)
+            NULLIFY (matrix_struct, matrix_struct_new)
 
             CALL cp_fm_struct_double(matrix_struct, &
                                      mos_new(2*i)%matrix%matrix_struct, &
@@ -765,7 +771,7 @@ CONTAINS
                cfm_tmp1%local_data(:, icol_local) = CMPLX(mos_new(2*i - 1)%matrix%local_data(:, icol_local), &
                                                           mos_new(2*i)%matrix%local_data(:, icol_local), dp)
             END DO
-            CALL cp_cfm_gemm('C', 'N', k, k, n, cone, cfm_tmp1, cfm_tmp, czero, csc)
+            CALL parallel_gemm('C', 'N', k, k, n, cone, cfm_tmp1, cfm_tmp, czero, csc)
             CALL cp_cfm_cholesky_decompose(csc)
             CALL cp_cfm_triangular_multiply(csc, cfm_tmp1, n_cols=k, side='R', invert_tr=.TRUE.)
             DO icol_local = 1, ncol_local
@@ -775,7 +781,6 @@ CONTAINS
 
 ! deallocate work matrices
             CALL cp_cfm_release(csc)
-            CALL cp_fm_release(fm_tmp)
             CALL cp_fm_release(fm_tmp)
             CALL cp_fm_release(fm_tmp1)
             CALL cp_fm_release(fm_tmp2)
@@ -804,9 +809,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: s_mat
       INTEGER                                            :: ihist
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'put_data_to_history', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -57,8 +59,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: storageform
       REAL(KIND=dp), INTENT(OUT)                         :: eigenvalues(:), eigenvectors(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'diagonalise_ssyev', &
-         routineP = moduleN//':'//routineN
       CHARACTER, PARAMETER                               :: jobz = "V"
 
       CHARACTER                                          :: uplo
@@ -107,8 +107,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: eigenvalues(:)
       COMPLEX(KIND=dp), INTENT(OUT)                      :: eigenvectors(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'diagonalise_chpev', &
-         routineP = moduleN//':'//routineN
       CHARACTER, PARAMETER                               :: jobz = "V"
 
       CHARACTER                                          :: uplo
@@ -152,7 +150,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: mrow, ncol
       REAL(KIND=dp), INTENT(OUT)                         :: uvec(:, :), vtvec(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp2k_sgesvd', routineP = moduleN//':'//routineN
       CHARACTER, PARAMETER                               :: jobu = "A", jobvt = "A"
 
       INTEGER                                            :: info, lda, ldu, ldvt, lwork
@@ -187,7 +184,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: mrow, ncol
       COMPLEX(KIND=dp), INTENT(OUT)                      :: uvec(:, :), vtvec(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp2k_cgesvd', routineP = moduleN//':'//routineN
       CHARACTER, PARAMETER                               :: jobu = "A", jobvt = "A"
 
       INTEGER                                            :: info, lda, ldu, ldvt, lwork

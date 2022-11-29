@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -58,7 +60,6 @@ MODULE negf_env_types
                                               pw_pool_type
    USE pw_types,                        ONLY: REALDATA3D,&
                                               REALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qs_density_mixing_types,         ONLY: mixing_storage_create,&
                                               mixing_storage_release,&
@@ -69,7 +70,7 @@ MODULE negf_env_types
                                               qs_environment_type
    USE qs_integrate_potential,          ONLY: integrate_v_rspace
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
@@ -166,8 +167,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: negf_mixing_section
       INTEGER, INTENT(in)                                :: log_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'negf_env_create'
 
       CHARACTER(len=default_string_length)               :: contact_str, force_env_str, &
                                                             n_force_env_str
@@ -299,6 +299,7 @@ CONTAINS
       CALL section_vals_val_get(negf_mixing_section, "METHOD", i_val=negf_env%mixing_method)
 
       CALL get_qs_env(qs_env, dft_control=dft_control)
+      ALLOCATE (negf_env%mixing_storage)
       CALL mixing_storage_create(negf_env%mixing_storage, negf_mixing_section, &
                                  negf_env%mixing_method, dft_control%qs_control%cutoff)
 
@@ -324,8 +325,7 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: eps_geometry
       TYPE(qs_subsys_type), POINTER                      :: subsys_device, subsys_contact
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_maps', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_maps'
 
       INTEGER                                            :: handle, natoms
 
@@ -391,8 +391,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env_contact
       TYPE(dbcsr_type), POINTER                          :: matrix_s_device
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_matrices'
 
       INTEGER                                            :: handle, iatom, ispin, nao, natoms, &
                                                             nimages, nspins
@@ -461,7 +460,7 @@ CONTAINS
       CALL cp_fm_struct_create(fm_struct, nrow_global=nao, ncol_global=nao, context=sub_env%blacs_env)
 
       ! ++ create matrices: s_00, s_01
-      NULLIFY (contact_env%s_00, contact_env%s_01)
+      ALLOCATE (contact_env%s_00, contact_env%s_01)
       CALL cp_fm_create(contact_env%s_00, fm_struct)
       CALL cp_fm_create(contact_env%s_01, fm_struct)
 
@@ -469,10 +468,10 @@ CONTAINS
       ALLOCATE (contact_env%h_00(nspins), contact_env%h_01(nspins))
       ALLOCATE (contact_env%rho_00(nspins), contact_env%rho_01(nspins))
       DO ispin = 1, nspins
-         NULLIFY (contact_env%h_00(ispin)%matrix)
-         NULLIFY (contact_env%h_01(ispin)%matrix)
-         NULLIFY (contact_env%rho_00(ispin)%matrix)
-         NULLIFY (contact_env%rho_01(ispin)%matrix)
+         ALLOCATE (contact_env%h_00(ispin)%matrix)
+         ALLOCATE (contact_env%h_01(ispin)%matrix)
+         ALLOCATE (contact_env%rho_00(ispin)%matrix)
+         ALLOCATE (contact_env%rho_01(ispin)%matrix)
 
          CALL cp_fm_create(contact_env%h_00(ispin)%matrix, fm_struct)
          CALL cp_fm_create(contact_env%h_01(ispin)%matrix, fm_struct)
@@ -550,8 +549,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(kind=dp), INTENT(in)                          :: eps_geometry
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_matrices_gamma', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_contact_init_matrices_gamma'
 
       INTEGER                                            :: handle, iatom, icell, ispin, nao_c, &
                                                             nspins
@@ -646,16 +644,16 @@ CONTAINS
       ALLOCATE (contact_env%h_00(nspins), contact_env%h_01(nspins))
       ALLOCATE (contact_env%rho_00(nspins), contact_env%rho_01(nspins))
       DO ispin = 1, nspins
-         NULLIFY (contact_env%h_00(ispin)%matrix)
-         NULLIFY (contact_env%h_01(ispin)%matrix)
+         ALLOCATE (contact_env%h_00(ispin)%matrix)
+         ALLOCATE (contact_env%h_01(ispin)%matrix)
          CALL cp_fm_create(contact_env%h_00(ispin)%matrix, fm_struct)
          CALL cp_fm_create(contact_env%h_01(ispin)%matrix, fm_struct)
-         NULLIFY (contact_env%rho_00(ispin)%matrix)
-         NULLIFY (contact_env%rho_01(ispin)%matrix)
+         ALLOCATE (contact_env%rho_00(ispin)%matrix)
+         ALLOCATE (contact_env%rho_01(ispin)%matrix)
          CALL cp_fm_create(contact_env%rho_00(ispin)%matrix, fm_struct)
          CALL cp_fm_create(contact_env%rho_01(ispin)%matrix, fm_struct)
       END DO
-      NULLIFY (contact_env%s_00, contact_env%s_01)
+      ALLOCATE (contact_env%s_00, contact_env%s_01)
       CALL cp_fm_create(contact_env%s_00, fm_struct)
       CALL cp_fm_create(contact_env%s_01, fm_struct)
       CALL cp_fm_struct_release(fm_struct)
@@ -719,8 +717,7 @@ CONTAINS
       TYPE(negf_subgroup_env_type), INTENT(in)           :: sub_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_device_init_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_env_device_init_matrices'
 
       INTEGER                                            :: handle, icontact, ispin, nao_c, nao_s, &
                                                             ncontacts, nspins
@@ -731,8 +728,8 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks_kp, matrix_s_kp
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_hartree
       TYPE(pw_pool_type), POINTER                        :: pw_pool
+      TYPE(pw_type)                                      :: v_hartree
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
@@ -764,11 +761,13 @@ CONTAINS
          ALLOCATE (negf_env%h_s(nspins))
 
          CALL cp_fm_struct_create(fm_struct, nrow_global=nao_s, ncol_global=nao_s, context=sub_env%blacs_env)
+         ALLOCATE (negf_env%s_s)
          CALL cp_fm_create(negf_env%s_s, fm_struct)
          DO ispin = 1, nspins
-            NULLIFY (negf_env%h_s(ispin)%matrix)
+            ALLOCATE (negf_env%h_s(ispin)%matrix)
             CALL cp_fm_create(negf_env%h_s(ispin)%matrix, fm_struct)
          END DO
+         ALLOCATE (negf_env%v_hartree_s)
          CALL cp_fm_create(negf_env%v_hartree_s, fm_struct)
          CALL cp_fm_struct_release(fm_struct)
 
@@ -778,11 +777,11 @@ CONTAINS
             nao_c = number_of_atomic_orbitals(subsys, negf_env%contacts(icontact)%atomlist_cell0)
             CALL cp_fm_struct_create(fm_struct, nrow_global=nao_s, ncol_global=nao_c, context=sub_env%blacs_env)
 
-            NULLIFY (negf_env%s_sc(icontact)%matrix)
+            ALLOCATE (negf_env%s_sc(icontact)%matrix)
             CALL cp_fm_create(negf_env%s_sc(icontact)%matrix, fm_struct)
 
             DO ispin = 1, nspins
-               NULLIFY (negf_env%h_sc(ispin, icontact)%matrix)
+               ALLOCATE (negf_env%h_sc(ispin, icontact)%matrix)
                CALL cp_fm_create(negf_env%h_sc(ispin, icontact)%matrix, fm_struct)
             END DO
 
@@ -812,14 +811,13 @@ CONTAINS
          CALL dbcsr_copy(matrix_b=hmat%matrix, matrix_a=matrix_s_kp(1, 1)%matrix)
          CALL dbcsr_set(hmat%matrix, 0.0_dp)
 
-         NULLIFY (v_hartree%pw)
-         CALL pw_pool_create_pw(pw_pool, v_hartree%pw, use_data=REALDATA3D, in_space=REALSPACE)
-         CALL negf_env_init_v_hartree(v_hartree%pw, negf_env%contacts, negf_control%contacts)
+         CALL pw_pool_create_pw(pw_pool, v_hartree, use_data=REALDATA3D, in_space=REALSPACE)
+         CALL negf_env_init_v_hartree(v_hartree, negf_env%contacts, negf_control%contacts)
 
          CALL integrate_v_rspace(v_rspace=v_hartree, hmat=hmat, qs_env=qs_env, &
                                  calculate_forces=.FALSE., compute_tau=.FALSE., gapw=.FALSE.)
 
-         CALL pw_pool_give_back_pw(pw_pool, v_hartree%pw)
+         CALL pw_pool_give_back_pw(pw_pool, v_hartree)
 
          CALL negf_copy_sym_dbcsr_to_fm_submat(matrix=hmat%matrix, &
                                                fm=negf_env%v_hartree_s, &
@@ -861,14 +859,13 @@ CONTAINS
 !> \author Sergey Chulkov
 ! **************************************************************************************************
    SUBROUTINE negf_env_init_v_hartree(v_hartree, contact_env, contact_control)
-      TYPE(pw_type), POINTER                             :: v_hartree
+      TYPE(pw_type), INTENT(IN)                          :: v_hartree
       TYPE(negf_env_contact_type), DIMENSION(:), &
          INTENT(in)                                      :: contact_env
       TYPE(negf_control_contact_type), DIMENSION(:), &
          INTENT(in)                                      :: contact_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_init_v_hartree', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_init_v_hartree'
       REAL(kind=dp), PARAMETER :: threshold = 16.0_dp*EPSILON(0.0_dp)
 
       INTEGER                                            :: dx, dy, dz, handle, icontact, ix, iy, &
@@ -957,9 +954,6 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: eps_geometry
       INTEGER                                            :: direction_axis
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'contact_direction_axis', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, naxes
       REAL(kind=dp), DIMENSION(3)                        :: scaled
       TYPE(cell_type), POINTER                           :: cell
@@ -996,8 +990,7 @@ CONTAINS
       REAL(kind=dp), INTENT(out)                         :: homo_energy
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_homo_energy_estimate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_homo_energy_estimate'
       INTEGER, PARAMETER                                 :: gamma_point = 1
 
       INTEGER                                            :: handle, homo, ikpgr, ikpoint, imo, &
@@ -1009,8 +1002,8 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env, para_env_kp
       TYPE(kpoint_env_p_type), DIMENSION(:), POINTER     :: kp_env
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
-      TYPE(mo_set_p_type), DIMENSION(:, :), POINTER      :: mos_kp
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(mo_set_type), DIMENSION(:, :), POINTER        :: mos_kp
 
       CALL timeset(routineN, handle)
       my_homo_energy = 0.0_dp
@@ -1029,7 +1022,7 @@ CONTAINS
 
                IF (ikpoint == gamma_point) THEN
                   ! mos_kp(component, spin), where component = 1 (real), or 2 (imaginary)
-                  CALL get_mo_set(mos_kp(1, 1)%mo_set, homo=homo, eigenvalues=eigenvalues) ! mu=fermi_level
+                  CALL get_mo_set(mos_kp(1, 1), homo=homo, eigenvalues=eigenvalues) ! mu=fermi_level
 
                   my_homo_energy = eigenvalues(homo)
                   EXIT
@@ -1049,7 +1042,7 @@ CONTAINS
          nspins = SIZE(mos)
 
          spin_loop: DO ispin = 1, nspins
-            CALL get_mo_set(mos(ispin)%mo_set, homo=homo, nmo=nmo, eigenvalues=eigenvalues)
+            CALL get_mo_set(mos(ispin), homo=homo, nmo=nmo, eigenvalues=eigenvalues)
 
             DO imo = nmo, 1, -1
                IF (eigenvalues(imo) /= 0.0_dp) EXIT spin_loop
@@ -1092,8 +1085,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: direction_axis
       TYPE(qs_subsys_type), POINTER                      :: subsys_device
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'list_atoms_in_bulk_primary_unit_cell', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'list_atoms_in_bulk_primary_unit_cell'
 
       INTEGER                                            :: atom_min, dir_axis_min, &
                                                             direction_axis_abs, handle, iatom, &
@@ -1173,8 +1165,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: direction_axis
       TYPE(qs_subsys_type), POINTER                      :: subsys_device
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'list_atoms_in_bulk_secondary_unit_cell', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'list_atoms_in_bulk_secondary_unit_cell'
 
       INTEGER                                            :: atom_min, dir_axis_min, &
                                                             direction_axis_abs, handle, iatom, &
@@ -1237,8 +1228,7 @@ CONTAINS
    SUBROUTINE negf_env_release(negf_env)
       TYPE(negf_env_type), INTENT(inout)                 :: negf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'negf_env_release'
 
       INTEGER                                            :: handle, icontact, ispin, nspins
 
@@ -1255,8 +1245,10 @@ CONTAINS
       ! h_s
       IF (ALLOCATED(negf_env%h_s)) THEN
          DO ispin = SIZE(negf_env%h_s), 1, -1
-            IF (ASSOCIATED(negf_env%h_s(ispin)%matrix)) &
+            IF (ASSOCIATED(negf_env%h_s(ispin)%matrix)) THEN
                CALL cp_fm_release(negf_env%h_s(ispin)%matrix)
+               DEALLOCATE (negf_env%h_s(ispin)%matrix)
+            END IF
          END DO
          DEALLOCATE (negf_env%h_s)
       END IF
@@ -1266,32 +1258,45 @@ CONTAINS
          nspins = SIZE(negf_env%h_sc, 1)
          DO icontact = SIZE(negf_env%h_sc, 2), 1, -1
             DO ispin = nspins, 1, -1
-               IF (ASSOCIATED(negf_env%h_sc(ispin, icontact)%matrix)) &
+               IF (ASSOCIATED(negf_env%h_sc(ispin, icontact)%matrix)) THEN
                   CALL cp_fm_release(negf_env%h_sc(ispin, icontact)%matrix)
+                  DEALLOCATE (negf_env%h_sc(ispin, icontact)%matrix)
+               END IF
             END DO
          END DO
          DEALLOCATE (negf_env%h_sc)
       END IF
 
       ! s_s
-      IF (ASSOCIATED(negf_env%s_s)) &
+      IF (ASSOCIATED(negf_env%s_s)) THEN
          CALL cp_fm_release(negf_env%s_s)
+         DEALLOCATE (negf_env%s_s)
+         NULLIFY (negf_env%s_s)
+      END IF
 
       ! s_sc
       IF (ALLOCATED(negf_env%s_sc)) THEN
          DO icontact = SIZE(negf_env%s_sc), 1, -1
-            IF (ASSOCIATED(negf_env%s_sc(icontact)%matrix)) &
+            IF (ASSOCIATED(negf_env%s_sc(icontact)%matrix)) THEN
                CALL cp_fm_release(negf_env%s_sc(icontact)%matrix)
+               DEALLOCATE (negf_env%s_sc(icontact)%matrix)
+            END IF
          END DO
          DEALLOCATE (negf_env%s_sc)
       END IF
 
       ! v_hartree_s
-      IF (ASSOCIATED(negf_env%v_hartree_s)) &
+      IF (ASSOCIATED(negf_env%v_hartree_s)) THEN
          CALL cp_fm_release(negf_env%v_hartree_s)
+         DEALLOCATE (negf_env%v_hartree_s)
+         NULLIFY (negf_env%v_hartree_s)
+      END IF
 
       ! density mixing
-      CALL mixing_storage_release(negf_env%mixing_storage)
+      IF (ASSOCIATED(negf_env%mixing_storage)) THEN
+         CALL mixing_storage_release(negf_env%mixing_storage)
+         DEALLOCATE (negf_env%mixing_storage)
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE negf_env_release
@@ -1303,8 +1308,7 @@ CONTAINS
    SUBROUTINE negf_env_contact_release(contact_env)
       TYPE(negf_env_contact_type), INTENT(inout)         :: contact_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_contact_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'negf_env_contact_release'
 
       INTEGER                                            :: handle, ispin
 
@@ -1313,8 +1317,10 @@ CONTAINS
       ! h_00
       IF (ALLOCATED(contact_env%h_00)) THEN
          DO ispin = SIZE(contact_env%h_00), 1, -1
-            IF (ASSOCIATED(contact_env%h_00(ispin)%matrix)) &
+            IF (ASSOCIATED(contact_env%h_00(ispin)%matrix)) THEN
                CALL cp_fm_release(contact_env%h_00(ispin)%matrix)
+               DEALLOCATE (contact_env%h_00(ispin)%matrix)
+            END IF
          END DO
          DEALLOCATE (contact_env%h_00)
       END IF
@@ -1322,8 +1328,10 @@ CONTAINS
       ! h_01
       IF (ALLOCATED(contact_env%h_01)) THEN
          DO ispin = SIZE(contact_env%h_01), 1, -1
-            IF (ASSOCIATED(contact_env%h_01(ispin)%matrix)) &
+            IF (ASSOCIATED(contact_env%h_01(ispin)%matrix)) THEN
                CALL cp_fm_release(contact_env%h_01(ispin)%matrix)
+               DEALLOCATE (contact_env%h_01(ispin)%matrix)
+            END IF
          END DO
          DEALLOCATE (contact_env%h_01)
       END IF
@@ -1331,8 +1339,10 @@ CONTAINS
       ! rho_00
       IF (ALLOCATED(contact_env%rho_00)) THEN
          DO ispin = SIZE(contact_env%rho_00), 1, -1
-            IF (ASSOCIATED(contact_env%rho_00(ispin)%matrix)) &
+            IF (ASSOCIATED(contact_env%rho_00(ispin)%matrix)) THEN
                CALL cp_fm_release(contact_env%rho_00(ispin)%matrix)
+               DEALLOCATE (contact_env%rho_00(ispin)%matrix)
+            END IF
          END DO
          DEALLOCATE (contact_env%rho_00)
       END IF
@@ -1340,19 +1350,27 @@ CONTAINS
       ! rho_01
       IF (ALLOCATED(contact_env%rho_01)) THEN
          DO ispin = SIZE(contact_env%rho_01), 1, -1
-            IF (ASSOCIATED(contact_env%rho_01(ispin)%matrix)) &
+            IF (ASSOCIATED(contact_env%rho_01(ispin)%matrix)) THEN
                CALL cp_fm_release(contact_env%rho_01(ispin)%matrix)
+               DEALLOCATE (contact_env%rho_01(ispin)%matrix)
+            END IF
          END DO
          DEALLOCATE (contact_env%rho_01)
       END IF
 
       ! s_00
-      IF (ASSOCIATED(contact_env%s_00)) &
+      IF (ASSOCIATED(contact_env%s_00)) THEN
          CALL cp_fm_release(contact_env%s_00)
+         DEALLOCATE (contact_env%s_00)
+         NULLIFY (contact_env%s_00)
+      END IF
 
       ! s_01
-      IF (ASSOCIATED(contact_env%s_01)) &
+      IF (ASSOCIATED(contact_env%s_01)) THEN
          CALL cp_fm_release(contact_env%s_01)
+         DEALLOCATE (contact_env%s_01)
+         NULLIFY (contact_env%s_01)
+      END IF
 
       IF (ALLOCATED(contact_env%atomlist_cell0)) DEALLOCATE (contact_env%atomlist_cell0)
       IF (ALLOCATED(contact_env%atomlist_cell1)) DEALLOCATE (contact_env%atomlist_cell1)

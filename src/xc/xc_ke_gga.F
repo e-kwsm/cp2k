@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,9 +15,15 @@
 ! **************************************************************************************************
 MODULE xc_ke_gga
 
-   USE cp_array_utils,                  ONLY: cp_3d_r_p_type
+   USE cp_array_utils,                  ONLY: cp_3d_r_cp_type
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi
+   USE xc_derivative_desc,              ONLY: deriv_norm_drho,&
+                                              deriv_norm_drhoa,&
+                                              deriv_norm_drhob,&
+                                              deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -91,8 +99,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ke_gga_info', routineP = moduleN//':'//routineN
 
       IF (PRESENT(reference)) THEN
          SELECT CASE (functional)
@@ -171,33 +177,27 @@ CONTAINS
    SUBROUTINE ke_gga_lda_eval(functional, rho_set, deriv_set, order)
 
       INTEGER, INTENT(IN)                                :: functional
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: order
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ke_gga_lda_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'ke_gga_lda_eval'
 
       INTEGER                                            :: handle, m, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(KIND=dp)                                      :: drho_cutoff, rho_cutoff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: s
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: fs
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: e_0, e_ndrho, e_ndrho_ndrho, &
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER :: e_0, e_ndrho, e_ndrho_ndrho, &
          e_ndrho_ndrho_ndrho, e_rho, e_rho_ndrho, e_rho_ndrho_ndrho, e_rho_rho, e_rho_rho_ndrho, &
          e_rho_rho_rho, grho, rho, rho13
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
-      NULLIFY (bo, rho, rho13, e_0, e_rho, e_ndrho, &
+      NULLIFY (rho, rho13, e_0, e_rho, e_ndrho, &
                e_rho_rho, e_rho_ndrho, e_ndrho_ndrho, &
                e_rho_rho_rho, e_rho_rho_ndrho, e_rho_ndrho_ndrho, e_ndrho_ndrho_ndrho)
       m = ABS(order)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rho_1_3=rho13, rho=rho, &
                           norm_drho=grho, local_bounds=bo, rho_cutoff=rho_cutoff, &
@@ -237,11 +237,11 @@ CONTAINS
       CASE (ke_pbe)
          CALL efactor_pbex(s, fs, m, 1)
       CASE DEFAULT
-         CPABORT("")
+         CPABORT("Unsupported functional")
       END SELECT
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
 
@@ -249,10 +249,10 @@ CONTAINS
       END IF
 
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
 
@@ -260,31 +260,31 @@ CONTAINS
                       npoints=npoints)
       END IF
       IF (order >= 2 .OR. order == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(norm_drho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_norm_drho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_ndrho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho)
 
          CALL kex_p_2(rho, rho13, s, fs, e_rho_rho=e_rho_rho, &
                       e_rho_ndrho=e_rho_ndrho, e_ndrho_ndrho=e_ndrho_ndrho, npoints=npoints)
       END IF
       IF (order >= 3 .OR. order == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_rho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(rho)(rho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_rho, deriv_rho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_ndrho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(rho)(norm_drho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_rho, deriv_norm_drho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_ndrho_ndrho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(norm_drho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_norm_drho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho_ndrho)
 
          CALL kex_p_3(rho, rho13, s, fs, e_rho_rho_rho=e_rho_rho_rho, &
@@ -312,25 +312,24 @@ CONTAINS
    SUBROUTINE ke_gga_lsd_eval(functional, rho_set, deriv_set, order)
 
       INTEGER, INTENT(IN)                                :: functional
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN), OPTIONAL                      :: order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ke_gga_lsd_eval', &
-         routineP = moduleN//':'//routineN
-      CHARACTER(len=12), DIMENSION(2), PARAMETER :: &
-         norm_drho_spin_name = (/"(norm_drhoa)", "(norm_drhob)"/)
-      CHARACTER(len=6), DIMENSION(2), PARAMETER :: rho_spin_name = (/"(rhoa)", "(rhob)"/)
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ke_gga_lsd_eval'
+      INTEGER, DIMENSION(2), PARAMETER :: &
+         norm_drho_spin_name = [deriv_norm_drhoa, deriv_norm_drhob], &
+         rho_spin_name = [deriv_rhoa, deriv_rhob]
 
       INTEGER                                            :: handle, ispin, m, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(KIND=dp)                                      :: rho_cutoff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: s
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: fs
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: e_0, e_ndrho, e_ndrho_ndrho, &
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER :: e_0, e_ndrho, e_ndrho_ndrho, &
          e_ndrho_ndrho_ndrho, e_rho, e_rho_ndrho, e_rho_ndrho_ndrho, e_rho_rho, e_rho_rho_ndrho, &
          e_rho_rho_rho
-      TYPE(cp_3d_r_p_type), DIMENSION(2)                 :: norm_drho, rho, rho_1_3
+      TYPE(cp_3d_r_cp_type), DIMENSION(2)                :: norm_drho, rho, rho_1_3
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
@@ -339,11 +338,6 @@ CONTAINS
       DO ispin = 1, 2
          NULLIFY (norm_drho(ispin)%array, rho(ispin)%array, rho_1_3(ispin)%array)
       END DO
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rhoa_1_3=rho_1_3(1)%array, &
                           rhob_1_3=rho_1_3(2)%array, rhoa=rho(1)%array, &
@@ -391,11 +385,11 @@ CONTAINS
          CASE (ke_t92)
             CALL efactor_t92(s, fs, m)
          CASE DEFAULT
-            CPABORT("")
+            CPABORT("Unsupported functional")
          END SELECT
 
          IF (order >= 0) THEN
-            deriv => xc_dset_get_derivative(deriv_set, "", &
+            deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_0)
 
@@ -403,10 +397,10 @@ CONTAINS
                          e_0=e_0, npoints=npoints)
          END IF
          IF (order >= 1 .OR. order == -1) THEN
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho)
-            deriv => xc_dset_get_derivative(deriv_set, norm_drho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [norm_drho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
 
@@ -415,34 +409,34 @@ CONTAINS
                          e_ndrho=e_ndrho, npoints=npoints)
          END IF
          IF (order >= 2 .OR. order == -2) THEN
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin)// &
-                                            rho_spin_name(ispin), allocate_deriv=.TRUE.)
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin), &
+                                                        rho_spin_name(ispin)], allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho_rho)
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin)// &
-                                            norm_drho_spin_name(ispin), allocate_deriv=.TRUE.)
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin), &
+                                                        norm_drho_spin_name(ispin)], allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho_ndrho)
-            deriv => xc_dset_get_derivative(deriv_set, norm_drho_spin_name(ispin)// &
-                                            norm_drho_spin_name(ispin), allocate_deriv=.TRUE.)
+            deriv => xc_dset_get_derivative(deriv_set, [norm_drho_spin_name(ispin), &
+                                                        norm_drho_spin_name(ispin)], allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho)
 
             CALL kex_p_2(rho(ispin)%array, rho_1_3(ispin)%array, &
                          s, fs, e_rho_rho, e_rho_ndrho, e_ndrho_ndrho, npoints)
          END IF
          IF (order >= 3 .OR. order == -3) THEN
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin)// &
-                                            rho_spin_name(ispin)//rho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin), &
+                                                        rho_spin_name(ispin), rho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_rho)
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin)// &
-                                            rho_spin_name(ispin)//norm_drho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin), &
+                                                        rho_spin_name(ispin), norm_drho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_ndrho)
-            deriv => xc_dset_get_derivative(deriv_set, rho_spin_name(ispin)// &
-                                            norm_drho_spin_name(ispin)//norm_drho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [rho_spin_name(ispin), &
+                                                        norm_drho_spin_name(ispin), norm_drho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_rho_ndrho_ndrho)
-            deriv => xc_dset_get_derivative(deriv_set, norm_drho_spin_name(ispin)// &
-                                            norm_drho_spin_name(ispin)//norm_drho_spin_name(ispin), &
+            deriv => xc_dset_get_derivative(deriv_set, [norm_drho_spin_name(ispin), &
+                                                        norm_drho_spin_name(ispin), norm_drho_spin_name(ispin)], &
                                             allocate_deriv=.TRUE.)
             CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho_ndrho)
 
@@ -669,8 +663,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: fs
       INTEGER, INTENT(IN)                                :: m
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_ol1', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       REAL(KIND=dp)                                      :: t1, t2
 
@@ -712,8 +704,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: s
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: fs
       INTEGER, INTENT(IN)                                :: m
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_ol2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(KIND=dp)                                      :: t1, t2, t3, y
@@ -761,8 +751,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: s
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: fs
       INTEGER, INTENT(IN)                                :: m
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_llp', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(KIND=dp) :: as, bs, p, q, sas, sbs, t1, t10, t11, t12, t133, t16, t17, t19, t2, t20, &
@@ -932,8 +920,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: m
       REAL(dp), OPTIONAL                                 :: f2_lsd
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_pw86', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       REAL(KIND=dp)                                      :: f15, ff, p0, p1, p15, p2, p3, s1, s2, &
                                                             s4, s6, t1, t2, t3
@@ -1001,8 +987,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: s
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: fs
       INTEGER, INTENT(IN)                                :: m
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_t92', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(KIND=dp)                                      :: a1, a2, as, asp, asp2, asp3, bs, p, q, &
@@ -1098,7 +1082,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: m, pset
       REAL(dp), OPTIONAL                                 :: f2_lsd
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'efactor_pbex', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: kappa1 = 0.804_dp, kappa2 = 1.245_dp, &
                                                             mu = 0.2195149727645171_dp
 

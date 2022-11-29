@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -72,9 +74,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_orbital_pointers(maxl)
       INTEGER, INTENT(IN)                                :: maxl
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_orbital_pointers', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iso, l, lx, ly, lz, m
 
@@ -210,9 +209,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_orbital_pointers()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_orbital_pointers', &
-         routineP = moduleN//':'//routineN
-
 !$    IF (omp_get_level() > 0) &
 !$       CPABORT("deallocate_orbital_pointers is not thread-safe")
 
@@ -255,9 +251,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_orbital_pointers(maxl)
       INTEGER, INTENT(IN)                                :: maxl
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_orbital_pointers', &
-         routineP = moduleN//':'//routineN
 
 !$    IF (omp_get_level() > 0) &
 !$       CPABORT("init_orbital_pointers is not thread-safe")

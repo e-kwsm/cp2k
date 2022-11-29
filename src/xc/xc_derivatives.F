@@ -1,15 +1,14 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 MODULE xc_derivatives
 
-   USE input_section_types,             ONLY: section_vals_duplicate,&
-                                              section_vals_get,&
-                                              section_vals_get_subs_vals2,&
-                                              section_vals_release,&
+   USE input_section_types,             ONLY: section_vals_get_subs_vals2,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
@@ -65,9 +64,6 @@ MODULE xc_derivatives
                                               xc_rho_cflags_type
    USE xc_rho_set_types,                ONLY: xc_rho_set_get,&
                                               xc_rho_set_type
-   USE xc_sr_lda,                       ONLY: sr_lda_eval,&
-                                              sr_lda_info,&
-                                              sr_lsd_eval
    USE xc_tfw,                          ONLY: tfw_lda_eval,&
                                               tfw_lda_info,&
                                               tfw_lsd_eval,&
@@ -76,12 +72,11 @@ MODULE xc_derivatives
                                               thomas_fermi_lda_eval,&
                                               thomas_fermi_lsd_eval
    USE xc_tpss,                         ONLY: tpss_lda_eval,&
-                                              tpss_lda_info,&
-                                              tpss_lsd_eval,&
-                                              tpss_lsd_info
+                                              tpss_lda_info
    USE xc_vwn,                          ONLY: vwn_lda_eval,&
                                               vwn_lda_info,&
-                                              vwn_lsd_eval
+                                              vwn_lsd_eval,&
+                                              vwn_lsd_info
    USE xc_xalpha,                       ONLY: xalpha_info,&
                                               xalpha_lda_eval,&
                                               xalpha_lsd_eval
@@ -156,9 +151,6 @@ CONTAINS
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
       LOGICAL, INTENT(IN), OPTIONAL                      :: print_warn
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_functional_get_info', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_param
       REAL(kind=dp)                                      :: r_param
 
@@ -231,19 +223,13 @@ CONTAINS
             CALL optx_lsd_info(reference, shortform, needs, max_deriv)
          ELSE
             CALL optx_lda_info(reference, shortform, needs, max_deriv)
-         ENDIF
-      CASE ("LIBXC", "KE_LIBXC")
-         IF (lsd) THEN
-            CALL libxc_lsd_info(functional, reference, shortform, needs, max_deriv, print_warn)
-         ELSE
-            CALL libxc_lda_info(functional, reference, shortform, needs, max_deriv, print_warn)
-         ENDIF
+         END IF
       CASE ("CS1")
          IF (lsd) THEN
             CALL cs1_lsd_info(reference, shortform, needs, max_deriv)
          ELSE
             CALL cs1_lda_info(reference, shortform, needs=needs, max_deriv=max_deriv)
-         ENDIF
+         END IF
       CASE ("XGGA")
          CALL section_vals_val_get(functional, "FUNCTIONAL", i_val=i_param)
          CALL xgga_info(i_param, lsd, reference, shortform, needs, max_deriv)
@@ -273,7 +259,7 @@ CONTAINS
          CALL thomas_fermi_info(lsd, reference, shortform, needs, max_deriv)
       CASE ("VWN")
          IF (lsd) THEN
-            CALL vwn_lda_info(reference, shortform, needs, max_deriv)
+            CALL vwn_lsd_info(reference, shortform, needs, max_deriv)
          ELSE
             CALL vwn_lda_info(reference, shortform, needs, max_deriv)
          END IF
@@ -283,7 +269,7 @@ CONTAINS
                           xa_parameter=r_param)
       CASE ("TPSS")
          IF (lsd) THEN
-            CALL tpss_lsd_info(functional, reference, shortform, needs, max_deriv)
+            CPABORT("TPSS functional not implemented with LSD. Use the LIBXC version instead.")
          ELSE
             CALL tpss_lda_info(functional, reference, shortform, needs, max_deriv)
          END IF
@@ -323,10 +309,13 @@ CONTAINS
          ELSE
             CALL xbr_pbe_lda_hole_tc_lr_lda_info(reference, shortform, needs, max_deriv)
          END IF
-      CASE ("SRLDA")
-         CALL sr_lda_info(reference, shortform, lsd, needs, max_deriv)
       CASE default
-         CPABORT("unknown functional '"//TRIM(functional%section%name)//"'")
+         ! If the functional has not been implemented internally, it's from LibXC
+         IF (lsd) THEN
+            CALL libxc_lsd_info(functional, reference, shortform, needs, max_deriv, print_warn)
+         ELSE
+            CALL libxc_lda_info(functional, reference, shortform, needs, max_deriv, print_warn)
+         END IF
       END SELECT
    END SUBROUTINE xc_functional_get_info
 
@@ -339,7 +328,7 @@ CONTAINS
 !>        xc_functional_get_info)
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param deriv_order degree of the derivative that should be evalated,
+!> \param deriv_order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is requested (but to simplify
 !>        the code all the derivatives might be calculated, you should ignore
@@ -353,12 +342,11 @@ CONTAINS
 
       TYPE(section_vals_type), POINTER                   :: functional
       LOGICAL, INTENT(in)                                :: lsd
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: deriv_order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_functional_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xc_functional_eval'
 
       INTEGER                                            :: handle, i_param
       LOGICAL                                            :: fun_active
@@ -434,19 +422,13 @@ CONTAINS
             CALL optx_lsd_eval(rho_set, deriv_set, deriv_order, functional)
          ELSE
             CALL optx_lda_eval(rho_set, deriv_set, deriv_order, functional)
-         ENDIF
-      CASE ("LIBXC", "KE_LIBXC")
-         IF (lsd) THEN
-            CALL libxc_lsd_eval(rho_set, deriv_set, deriv_order, functional)
-         ELSE
-            CALL libxc_lda_eval(rho_set, deriv_set, deriv_order, functional)
-         ENDIF
+         END IF
       CASE ("CS1")
          IF (lsd) THEN
             CALL cs1_lsd_eval(rho_set, deriv_set, deriv_order)
          ELSE
             CALL cs1_lda_eval(rho_set, deriv_set, deriv_order)
-         ENDIF
+         END IF
       CASE ("XGGA")
          CALL section_vals_val_get(functional, "FUNCTIONAL", i_val=i_param)
          CALL xgga_eval(i_param, lsd, rho_set, deriv_set, deriv_order)
@@ -506,7 +488,7 @@ CONTAINS
          END IF
       CASE ("TPSS")
          IF (lsd) THEN
-            CALL tpss_lsd_eval(rho_set, deriv_set, deriv_order, functional)
+            CPABORT("TPSS functional not implemented with LSD. Use the LIBXC version instead.")
          ELSE
             CALL tpss_lda_eval(rho_set, deriv_set, deriv_order, functional)
          END IF
@@ -548,14 +530,13 @@ CONTAINS
             CALL xbr_pbe_lda_hole_tc_lr_lda_eval(rho_set, deriv_set, deriv_order, &
                                                  functional)
          END IF
-      CASE ("SRLDA")
-         IF (lsd) THEN
-            CALL sr_lsd_eval(rho_set, deriv_set, deriv_order, functional)
-         ELSE
-            CALL sr_lda_eval(rho_set, deriv_set, deriv_order, functional)
-         END IF
       CASE default
-         CPABORT("unknown functional '"//TRIM(functional%section%name)//"'")
+         ! If functional not natively supported, ask LibXC
+         IF (lsd) THEN
+            CALL libxc_lsd_eval(rho_set, deriv_set, deriv_order, functional)
+         ELSE
+            CALL libxc_lda_eval(rho_set, deriv_set, deriv_order, functional)
+         END IF
       END SELECT
 
       CALL timestop(handle)
@@ -571,7 +552,7 @@ CONTAINS
 !>        xc_functional_get_info)
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param deriv_order degree of the derivative that should be evalated,
+!> \param deriv_order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is requested (but to simplify
 !>        the code all the derivatives might be calculated, you should ignore
@@ -583,15 +564,12 @@ CONTAINS
                                   deriv_order)
       TYPE(section_vals_type), POINTER                   :: functionals
       LOGICAL, INTENT(in)                                :: lsd
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: deriv_order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_functionals_eval', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: i_rep, ifun, n_rep
-      TYPE(section_vals_type), POINTER                   :: libxc_fun, xc_fun
+      INTEGER                                            :: ifun
+      TYPE(section_vals_type), POINTER                   :: xc_fun
 
       CPASSERT(ASSOCIATED(functionals))
       ifun = 0
@@ -599,28 +577,11 @@ CONTAINS
          ifun = ifun + 1
          xc_fun => section_vals_get_subs_vals2(functionals, i_section=ifun)
          IF (.NOT. ASSOCIATED(xc_fun)) EXIT
-         IF (TRIM(xc_fun%section%name) /= "LIBXC") THEN
-            CALL xc_functional_eval(xc_fun, &
-                                    lsd=lsd, &
-                                    rho_set=rho_set, &
-                                    deriv_set=deriv_set, &
-                                    deriv_order=deriv_order)
-         ELSE
-            ! LIBXC is the only repeatable functional section - for each we need
-            ! NOT the single values, but the whole section_vals_type independently
-            CALL section_vals_get(xc_fun, n_repetition=n_rep)
-            DO i_rep = 1, n_rep
-               NULLIFY (libxc_fun)
-               CALL section_vals_duplicate(xc_fun, libxc_fun, i_rep_start=i_rep, i_rep_end=i_rep)
-               IF (.NOT. ASSOCIATED(libxc_fun)) EXIT
-               CALL xc_functional_eval(libxc_fun, &
-                                       lsd=lsd, &
-                                       rho_set=rho_set, &
-                                       deriv_set=deriv_set, &
-                                       deriv_order=deriv_order)
-               CALL section_vals_release(libxc_fun)
-            END DO
-         END IF
+         CALL xc_functional_eval(xc_fun, &
+                                 lsd=lsd, &
+                                 rho_set=rho_set, &
+                                 deriv_set=deriv_set, &
+                                 deriv_order=deriv_order)
       END DO
    END SUBROUTINE xc_functionals_eval
 
@@ -629,28 +590,24 @@ CONTAINS
 !> \param functionals a section containing the functional combination to be
 !>        applied
 !> \param lsd if a local spin desnity is performed
-!> \param add_basic_components makes sure that if some gradient combination
-!>        is needed also the gradient components are requested, and if lsd
-!>        is true rho_spin is requested. Defaults to false.
+!> \param calc_potential set, if potential calculation will be carried out later.
+!>        helps to save memory and flops. defaults to false.
 !> \return ...
 !> \author fawzi
 ! **************************************************************************************************
-   FUNCTION xc_functionals_get_needs(functionals, lsd, add_basic_components) &
+   FUNCTION xc_functionals_get_needs(functionals, lsd, calc_potential) &
       RESULT(needs)
       TYPE(section_vals_type), POINTER                   :: functionals
       LOGICAL, INTENT(in)                                :: lsd
-      LOGICAL, INTENT(in), OPTIONAL                      :: add_basic_components
+      LOGICAL, INTENT(in), OPTIONAL                      :: calc_potential
       TYPE(xc_rho_cflags_type)                           :: needs
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_functionals_get_needs', &
-         routineP = moduleN//':'//routineN
+      INTEGER                                            :: ifun
+      LOGICAL                                            :: my_calc_potential
+      TYPE(section_vals_type), POINTER                   :: xc_fun
 
-      INTEGER                                            :: i_rep, ifun, n_rep
-      LOGICAL                                            :: my_add_basic_components
-      TYPE(section_vals_type), POINTER                   :: libxc_fun, xc_fun
-
-      my_add_basic_components = .FALSE.
-      IF (PRESENT(add_basic_components)) my_add_basic_components = add_basic_components
+      my_calc_potential = .FALSE.
+      IF (PRESENT(calc_potential)) my_calc_potential = calc_potential
 
       CPASSERT(ASSOCIATED(functionals))
       CALL xc_rho_cflags_setall(needs, .FALSE.)
@@ -660,31 +617,17 @@ CONTAINS
          ifun = ifun + 1
          xc_fun => section_vals_get_subs_vals2(functionals, i_section=ifun)
          IF (.NOT. ASSOCIATED(xc_fun)) EXIT
-         IF (TRIM(xc_fun%section%name) /= "LIBXC") THEN
-            CALL xc_functional_get_info(xc_fun, lsd=lsd, needs=needs)
-         ELSE
-            ! LIBXC is the only repeatable functional section - for each we need
-            ! NOT the single values, but the whole section_vals_type independently
-            CALL section_vals_get(xc_fun, n_repetition=n_rep)
-            DO i_rep = 1, n_rep
-               NULLIFY (libxc_fun)
-               CALL section_vals_duplicate(xc_fun, libxc_fun, i_rep_start=i_rep, i_rep_end=i_rep)
-               IF (.NOT. ASSOCIATED(libxc_fun)) EXIT
-               CALL xc_functional_get_info(libxc_fun, lsd=lsd, needs=needs)
-               CALL section_vals_release(libxc_fun)
-            END DO
-         END IF
+         CALL xc_functional_get_info(xc_fun, lsd=lsd, needs=needs)
       END DO
 
-      IF (my_add_basic_components) THEN
+      IF (my_calc_potential) THEN
          IF (lsd) THEN
             needs%rho_spin = .TRUE.
             needs%tau_spin = needs%tau_spin .OR. needs%tau
          ELSE
             needs%rho = .TRUE.
          END IF
-         IF (needs%drho .OR. needs%drho_spin .OR. needs%norm_drho .OR. &
-             needs%norm_drho_spin .OR. needs%drhoa_drhob) THEN
+         IF (needs%norm_drho .OR. needs%norm_drho_spin) THEN
             IF (lsd) THEN
                needs%drho_spin = .TRUE.
             ELSE

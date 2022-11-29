@@ -4,8 +4,8 @@
     &CONTROL
       CYCLIC_BLOCK_SIZE 16
       PROCESSING_UNIT cpu
-      STD_EVP_SOLVER_TYPE lapack
-      GEN_EVP_SOLVER_TYPE lapack
+      STD_EVP_SOLVER_NAME lapack
+      GEN_EVP_SOLVER_NAME lapack
       VERBOSITY 1
       REDUCE_GVEC true
     &END CONTROL
@@ -30,7 +30,7 @@
     &END ITERATIVE_SOLVER
     &MIXER
       BETA 0.7
-      TYPE broyden1
+      TYPE broyden2
       MAX_HISTORY 8
     &END MIXER
     &PRINT
@@ -42,12 +42,10 @@
   &DFT
      &XC
       &XC_FUNCTIONAL
-        &LIBXC
-          FUNCTIONAL XC_LDA_X
-        &END LIBXC
-        &LIBXC
-          FUNCTIONAL XC_LDA_C_PZ
-        &END LIBXC
+        &LDA_X
+        &END LDA_X
+        &LDA_C_PZ
+        &END LDA_C_PZ
       &END XC_FUNCTIONAL
     &END XC
   &END DFT

@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief module handels definition of the tree nodes for the global and
+!> \brief module handles definition of the tree nodes for the global and
 !>      the subtrees binary tree
 !>                   parent element
 !>                      /      \
@@ -175,7 +177,7 @@ CONTAINS
    SUBROUTINE tmc_env_create(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_env_create', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tmc_env_create'
 
       INTEGER                                            :: handle
 
@@ -239,8 +241,7 @@ CONTAINS
    SUBROUTINE tmc_env_release(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tmc_env_release'
 
       INTEGER                                            :: handle
 
@@ -283,8 +284,7 @@ CONTAINS
    SUBROUTINE tmc_master_env_create(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_master_env_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_master_env_create'
 
       INTEGER                                            :: handle, i
 
@@ -343,8 +343,7 @@ CONTAINS
    SUBROUTINE tmc_master_env_release(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_master_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_master_env_release'
 
       INTEGER                                            :: handle
 
@@ -377,8 +376,7 @@ CONTAINS
    SUBROUTINE tmc_worker_env_create(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_worker_env_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_worker_env_create'
 
       INTEGER                                            :: handle
 
@@ -406,8 +404,7 @@ CONTAINS
    SUBROUTINE tmc_worker_env_release(tmc_env)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_worker_env_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_worker_env_release'
 
       INTEGER                                            :: handle
 
@@ -432,9 +429,6 @@ CONTAINS
       TYPE(tmc_atom_type), DIMENSION(:), POINTER         :: atoms
       INTEGER, INTENT(IN)                                :: nr_atoms
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_tmc_atom_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(atoms))
       CPASSERT(nr_atoms .GT. 0)
 
@@ -453,9 +447,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_tmc_atom_type(atoms)
       TYPE(tmc_atom_type), DIMENSION(:), POINTER         :: atoms
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_tmc_atom_type', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(atoms))
 

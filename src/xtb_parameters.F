@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -15,6 +17,7 @@ MODULE xtb_parameters
                                               gto_basis_set_type,&
                                               set_sto_basis_set,&
                                               sto_basis_set_type
+   USE cp_control_types,                ONLY: xtb_control_type
    USE cp_linked_list_input,            ONLY: cp_sll_val_next,&
                                               cp_sll_val_type
    USE cp_para_types,                   ONLY: cp_para_env_type
@@ -140,19 +143,19 @@ MODULE xtb_parameters
    ! Charge Limits (Mulliken)
    REAL(KIND=dp), DIMENSION(0:nelem), &
       PARAMETER, PRIVATE :: clmt = (/0.00_dp, & ! 0
-                                     1.00_dp, 0.50_dp, & ! 2
-                                     1.00_dp, 2.00_dp, 3.00_dp, 4.00_dp, 3.00_dp, 2.00_dp, 1.00_dp, 0.50_dp, & ! 10
-                                     1.00_dp, 2.00_dp, 3.00_dp, 4.00_dp, 3.00_dp, 2.00_dp, 1.00_dp, 0.50_dp, & ! 18
-                                     1.00_dp, 2.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, &
-                                     3.00_dp, 3.00_dp, 3.00_dp, 2.00_dp, 2.03_dp, 2.00_dp, 2.00_dp, 2.00_dp, 1.00_dp, 0.50_dp, & ! 36
-                                     1.00_dp, 2.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, &
-                                     3.00_dp, 3.00_dp, 3.00_dp, 2.00_dp, 2.00_dp, 2.00_dp, 2.00_dp, 2.00_dp, 1.00_dp, 0.50_dp, & ! 54
-                                     1.00_dp, 2.00_dp, 3.00_dp, &
+                                     1.05_dp, 1.25_dp, & ! 2
+                                     1.05_dp, 2.05_dp, 3.00_dp, 4.00_dp, 3.00_dp, 2.00_dp, 1.25_dp, 1.00_dp, & ! 10
+                                     1.05_dp, 2.05_dp, 3.00_dp, 4.00_dp, 3.00_dp, 2.00_dp, 1.25_dp, 1.00_dp, & ! 18
+                                     1.05_dp, 2.05_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, &
+                                     3.50_dp, 3.50_dp, 3.50_dp, 2.50_dp, 2.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 1.25_dp, 1.00_dp, & ! 36
+                                     1.05_dp, 2.05_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, &
+                                     3.50_dp, 3.50_dp, 3.50_dp, 2.50_dp, 2.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 1.25_dp, 1.00_dp, & ! 54
+                                     1.05_dp, 2.05_dp, 3.00_dp, &
                                      3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, &
                                      3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, & ! Lanthanides
-                                     3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, &
-                                     2.00_dp, 2.00_dp, 2.00_dp, 2.00_dp, 2.00_dp, 1.00_dp, 0.50_dp, & ! 86
-                                     1.00_dp, 2.00_dp, 3.00_dp, &
+                                     3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, &
+                                     2.50_dp, 2.50_dp, 3.50_dp, 3.50_dp, 3.50_dp, 1.25_dp, 1.00_dp, & ! 86
+                                     1.05_dp, 2.05_dp, 3.00_dp, &
                                      3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, &
                                      3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, 3.00_dp, & !  Actinides
                                      3.00_dp, 3.00_dp, 3.00_dp/)
@@ -185,17 +188,13 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: parameter_file_path, parameter_file_name
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_parameters_init', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=2)                                   :: enam, esym
       CHARACTER(len=default_string_length)               :: aname, filename
       INTEGER                                            :: i, ia, l
       LOGICAL                                            :: at_end, found
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       filename = ADJUSTL(TRIM(parameter_file_path))//ADJUSTL(TRIM(parameter_file_name))
-      NULLIFY (parser)
       CALL parser_create(parser, filename, para_env=para_env)
       found = .FALSE.
       DO
@@ -259,9 +258,23 @@ CONTAINS
          END DO
          param%zeff = zval(ia)
       ELSE
-         param%defined = .FALSE.
-         CALL cp_warn(__LOCATION__, "xTB parameters for element "//element_symbol// &
-                      " were not found in the parameter file "//ADJUSTL(TRIM(filename)))
+         esym = element_symbol
+         CALL uppercase(esym)
+         IF ("X " == esym) THEN
+            param%typ = "GHOST"
+            param%symbol = element_symbol
+            param%defined = .FALSE.
+            param%z = 0
+            param%aname = "X "
+            param%lmax = 0
+            param%natorb = 0
+            param%nshell = 0
+            param%zeff = 0.0_dp
+         ELSE
+            param%defined = .FALSE.
+            CALL cp_warn(__LOCATION__, "xTB parameters for element "//element_symbol// &
+                         " were not found in the parameter file "//ADJUSTL(TRIM(filename)))
+         END IF
       END IF
       CALL parser_release(parser)
 
@@ -278,9 +291,6 @@ CONTAINS
       TYPE(xtb_atom_type), POINTER                       :: param
       CHARACTER(LEN=2), INTENT(IN)                       :: element_symbol
       TYPE(section_vals_type), POINTER                   :: xtb_section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_parameters_read', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: label
       CHARACTER(len=20*default_string_length)            :: line_att
@@ -377,7 +387,7 @@ CONTAINS
                   CALL remove_word(line_att)
                   READ (line_att, *) param%zeta(k)
                   CALL remove_word(line_att)
-               ENDIF
+               END IF
             END IF
          END DO
          IF (found) THEN
@@ -407,9 +417,6 @@ CONTAINS
    SUBROUTINE xtb_parameters_set(param)
 
       TYPE(xtb_atom_type), POINTER                       :: param
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_parameters_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, is, l, na
       REAL(KIND=dp), DIMENSION(5)                        :: kp
@@ -489,8 +496,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
       INTEGER, INTENT(IN)                                :: ngauss
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_xtb_basis', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=6), DIMENSION(:), POINTER            :: symbol
       INTEGER                                            :: i, nshell
       INTEGER, DIMENSION(:), POINTER                     :: lq, nq
@@ -498,40 +503,42 @@ CONTAINS
       TYPE(sto_basis_set_type), POINTER                  :: sto_basis_set
 
       IF (ASSOCIATED(param)) THEN
-         NULLIFY (sto_basis_set)
-         CALL allocate_sto_basis_set(sto_basis_set)
-         nshell = param%nshell
+         IF (param%defined) THEN
+            NULLIFY (sto_basis_set)
+            CALL allocate_sto_basis_set(sto_basis_set)
+            nshell = param%nshell
 
-         ALLOCATE (symbol(1:nshell))
-         symbol = ""
-         DO i = 1, nshell
-            SELECT CASE (param%lval(i))
-            CASE (0)
-               WRITE (symbol(i), '(I1,A1)') param%nval(i), "S"
-            CASE (1)
-               WRITE (symbol(i), '(I1,A1)') param%nval(i), "P"
-            CASE (2)
-               WRITE (symbol(i), '(I1,A1)') param%nval(i), "D"
-            CASE (3)
-               WRITE (symbol(i), '(I1,A1)') param%nval(i), "F"
-            CASE DEFAULT
-               CPABORT('BASIS SET OUT OF RANGE (lval)')
-            END SELECT
-         END DO
+            ALLOCATE (symbol(1:nshell))
+            symbol = ""
+            DO i = 1, nshell
+               SELECT CASE (param%lval(i))
+               CASE (0)
+                  WRITE (symbol(i), '(I1,A1)') param%nval(i), "S"
+               CASE (1)
+                  WRITE (symbol(i), '(I1,A1)') param%nval(i), "P"
+               CASE (2)
+                  WRITE (symbol(i), '(I1,A1)') param%nval(i), "D"
+               CASE (3)
+                  WRITE (symbol(i), '(I1,A1)') param%nval(i), "F"
+               CASE DEFAULT
+                  CPABORT('BASIS SET OUT OF RANGE (lval)')
+               END SELECT
+            END DO
 
-         IF (nshell > 0) THEN
-            ALLOCATE (nq(nshell), lq(nshell), zet(nshell))
-            nq(1:nshell) = param%nval(1:nshell)
-            lq(1:nshell) = param%lval(1:nshell)
-            zet(1:nshell) = param%zeta(1:nshell)
-            CALL set_sto_basis_set(sto_basis_set, name=param%aname, nshell=nshell, symbol=symbol, &
-                                   nq=nq, lq=lq, zet=zet)
-            CALL create_gto_from_sto_basis(sto_basis_set, gto_basis_set, ngauss=ngauss, ortho=.TRUE.)
+            IF (nshell > 0) THEN
+               ALLOCATE (nq(nshell), lq(nshell), zet(nshell))
+               nq(1:nshell) = param%nval(1:nshell)
+               lq(1:nshell) = param%lval(1:nshell)
+               zet(1:nshell) = param%zeta(1:nshell)
+               CALL set_sto_basis_set(sto_basis_set, name=param%aname, nshell=nshell, symbol=symbol, &
+                                      nq=nq, lq=lq, zet=zet)
+               CALL create_gto_from_sto_basis(sto_basis_set, gto_basis_set, ngauss=ngauss, ortho=.TRUE.)
+            END IF
+
+            ! this will remove the allocated arrays
+            CALL deallocate_sto_basis_set(sto_basis_set)
+            DEALLOCATE (symbol, nq, lq, zet)
          END IF
-
-         ! this will remove the allocated arrays
-         CALL deallocate_sto_basis_set(sto_basis_set)
-         DEALLOCATE (symbol, nq, lq, zet)
 
       ELSE
          CPABORT("The pointer param is not associated")
@@ -543,68 +550,86 @@ CONTAINS
 !> \brief ...
 !> \param za ...
 !> \param zb ...
+!> \param xtb_control ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION xtb_set_kab(za, zb) RESULT(kab)
+   FUNCTION xtb_set_kab(za, zb, xtb_control) RESULT(kab)
 
       INTEGER, INTENT(IN)                                :: za, zb
+      TYPE(xtb_control_type), INTENT(IN), POINTER        :: xtb_control
       REAL(KIND=dp)                                      :: kab
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_set_kab', routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: z
+      INTEGER                                            :: j, z
+      LOGICAL                                            :: custom
 
       kab = 1.0_dp
-      IF (za == 1 .OR. zb == 1) THEN
-         ! hydrogen
-         z = za + zb - 1
-         SELECT CASE (z)
-         CASE (1)
-            kab = 0.96_dp
-         CASE (5)
-            kab = 0.95_dp
-         CASE (7)
-            kab = 1.04_dp
-         CASE (28)
-            kab = 0.90_dp
-         CASE (75)
-            kab = 0.80_dp
-         CASE (78)
-            kab = 0.80_dp
-         END SELECT
-      ELSEIF (za == 5 .OR. zb == 5) THEN
-         ! Boron
-         z = za + zb - 5
-         SELECT CASE (z)
-         CASE (15)
-            kab = 0.97_dp
-         END SELECT
-      ELSEIF (za == 7 .OR. zb == 7) THEN
-         ! Nitrogen
-         z = za + zb - 7
-         SELECT CASE (z)
-         CASE (14)
-            !xtb orig code parameter file
-            ! in the paper this is Kab for B-Si
-            kab = 1.01_dp
-         END SELECT
-      ELSEIF (za > 20 .AND. za < 30) THEN
-         ! 3d
-         IF (zb > 20 .AND. zb < 30) THEN
+      custom = .FALSE.
+
+      IF (xtb_control%kab_nval .GT. 0) THEN
+         DO j = 1, xtb_control%kab_nval
+            IF ((za == xtb_control%kab_types(1, j) .AND. &
+                 zb == xtb_control%kab_types(2, j)) .OR. &
+                (za == xtb_control%kab_types(2, j) .AND. &
+                 zb == xtb_control%kab_types(1, j))) THEN
+               custom = .TRUE.
+               kab = xtb_control%kab_vals(j)
+               EXIT
+            END IF
+         END DO
+      END IF
+
+      IF (.NOT. custom) THEN
+         IF (za == 1 .OR. zb == 1) THEN
+            ! hydrogen
+            z = za + zb - 1
+            SELECT CASE (z)
+            CASE (1)
+               kab = 0.96_dp
+            CASE (5)
+               kab = 0.95_dp
+            CASE (7)
+               kab = 1.04_dp
+            CASE (28)
+               kab = 0.90_dp
+            CASE (75)
+               kab = 0.80_dp
+            CASE (78)
+               kab = 0.80_dp
+            END SELECT
+         ELSEIF (za == 5 .OR. zb == 5) THEN
+            ! Boron
+            z = za + zb - 5
+            SELECT CASE (z)
+            CASE (15)
+               kab = 0.97_dp
+            END SELECT
+         ELSEIF (za == 7 .OR. zb == 7) THEN
+            ! Nitrogen
+            z = za + zb - 7
+            SELECT CASE (z)
+            CASE (14)
+               !xtb orig code parameter file
+               ! in the paper this is Kab for B-Si
+               kab = 1.01_dp
+            END SELECT
+         ELSEIF (za > 20 .AND. za < 30) THEN
             ! 3d
-            kab = 1.10_dp
-         ELSEIF ((zb > 38 .AND. zb < 48) .OR. (zb > 56 .AND. zb < 80)) THEN
+            IF (zb > 20 .AND. zb < 30) THEN
+               ! 3d
+               kab = 1.10_dp
+            ELSEIF ((zb > 38 .AND. zb < 48) .OR. (zb > 56 .AND. zb < 80)) THEN
+               ! 4d/5d/4f
+               kab = 0.50_dp*(1.20_dp + 1.10_dp)
+            END IF
+         ELSEIF ((za > 38 .AND. za < 48) .OR. (za > 56 .AND. za < 80)) THEN
             ! 4d/5d/4f
-            kab = 0.50_dp*(1.20_dp + 1.10_dp)
-         END IF
-      ELSEIF ((za > 38 .AND. za < 48) .OR. (za > 56 .AND. za < 80)) THEN
-         ! 4d/5d/4f
-         IF (zb > 20 .AND. zb < 30) THEN
-            ! 3d
-            kab = 0.50_dp*(1.20_dp + 1.10_dp)
-         ELSEIF ((zb > 38 .AND. zb < 48) .OR. (zb > 56 .AND. zb < 80)) THEN
-            ! 4d/5d/4f
-            kab = 1.20_dp
+            IF (zb > 20 .AND. zb < 30) THEN
+               ! 3d
+               kab = 0.50_dp*(1.20_dp + 1.10_dp)
+            ELSEIF ((zb > 38 .AND. zb < 48) .OR. (zb > 56 .AND. zb < 80)) THEN
+               ! 4d/5d/4f
+               kab = 1.20_dp
+            END IF
          END IF
       END IF
 

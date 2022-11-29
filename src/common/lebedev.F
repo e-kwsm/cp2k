@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -113,9 +115,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: l, n
       INTEGER                                            :: number_of_lebedev_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_number_of_lebedev_grid', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: ll, nn
       INTEGER, DIMENSION(1)                              :: lgnum
@@ -162,8 +161,6 @@ CONTAINS
    SUBROUTINE load_sub_grid(subsystem, lgnum, np)
       CHARACTER(*), INTENT(IN)                           :: subsystem
       INTEGER, INTENT(IN)                                :: lgnum, np
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'load_sub_grid', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       REAL(KIND=dp)                                      :: x, y, z
@@ -345,8 +342,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_lebedev_grids()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_lebedev_grids', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_lebedev_grids'
 
       INTEGER                                            :: handle, ilg
 

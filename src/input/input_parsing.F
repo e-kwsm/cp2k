@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -63,12 +65,11 @@ CONTAINS
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE section_vals_parse(section_vals, parser, default_units, root_section)
       TYPE(section_vals_type), POINTER                   :: section_vals
-      TYPE(cp_parser_type), POINTER                      :: parser
-      TYPE(cp_unit_set_type), POINTER                    :: default_units
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
+      TYPE(cp_unit_set_type), INTENT(IN)                 :: default_units
       LOGICAL, INTENT(in), OPTIONAL                      :: root_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_parse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_parse'
 
       CHARACTER(len=max_line_length)                     :: token
       INTEGER                                            :: desc_level, handle, ik, imatch, irs, is, &
@@ -89,11 +90,9 @@ CONTAINS
       IF (PRESENT(root_section)) root_sect = root_section
 
       CPASSERT(ASSOCIATED(section_vals))
-      CPASSERT(ASSOCIATED(parser))
       output_unit = cp_logger_get_default_io_unit()
 
       CPASSERT(section_vals%ref_count > 0)
-      CPASSERT(parser%ref_count > 0)
       IF (root_sect .AND. parser%icol1 > parser%icol2) &
          CALL cp_abort(__LOCATION__, &
                        "Error 1: this routine must be called just after having parsed the start of the section " &
@@ -181,8 +180,8 @@ CONTAINS
                                           typo_matching_rank, typo_matching_line, bonus=0)
                   DO imatch = 1, SIZE(typo_matching_rank)
                      WRITE (output_unit, '(T2,A,1X,I0)') TRIM(typo_matching_line(imatch))//" score: ", typo_matching_rank(imatch)
-                  ENDDO
-               ENDIF
+                  END DO
+               END IF
                CALL cp_abort(__LOCATION__, &
                              "unknown subsection "//TRIM(token(2:))//" of section " &
                              //TRIM(section%name))
@@ -242,8 +241,8 @@ CONTAINS
                         DO imatch = 1, SIZE(typo_matching_rank)
                            WRITE (output_unit, '(T2,A,1X,I0)') &
                               TRIM(typo_matching_line(imatch))//" score: ", typo_matching_rank(imatch)
-                        ENDDO
-                     ENDIF
+                        END DO
+                     END IF
                      CALL cp_abort(__LOCATION__, &
                                    "found an unknown keyword "//TRIM(token)// &
                                    " in section "//TRIM(section%name))
@@ -251,6 +250,24 @@ CONTAINS
                END IF
                keyword => section%keywords(ik)%keyword
                IF (ASSOCIATED(keyword)) THEN
+                  IF (keyword%removed) THEN
+                     IF (ALLOCATED(keyword%deprecation_notice)) THEN
+                        CALL cp_abort(__LOCATION__, &
+                                      "The specified keyword '"//TRIM(token)//"' is not available anymore: "// &
+                                      keyword%deprecation_notice)
+                     ELSE
+                        CALL cp_abort(__LOCATION__, &
+                                      "The specified keyword '"//TRIM(token)// &
+                                      "' is not available anymore, please consult the manual.")
+                     END IF
+                  END IF
+
+                  IF (ALLOCATED(keyword%deprecation_notice)) &
+                     CALL cp_warn(__LOCATION__, &
+                                  "The specified keyword '"//TRIM(token)// &
+                                  "' is deprecated and may be removed in a future version: "// &
+                                  keyword%deprecation_notice//".")
+
                   NULLIFY (el)
                   IF (ik /= 0 .AND. keyword%type_of_var == lchar_t) &
                      CALL parser_skip_space(parser)
@@ -273,7 +290,7 @@ CONTAINS
                            last_val => previous_last
                         ELSE
                            previous_list => last_val
-                        ENDIF
+                        END IF
                         DO WHILE (ASSOCIATED(last_val%rest))
                            last_val => last_val%rest
                         END DO
@@ -307,13 +324,12 @@ CONTAINS
       TYPE(val_type), POINTER                            :: val
       INTEGER, INTENT(in)                                :: type_of_var, n_var
       TYPE(enumeration_type), POINTER                    :: enum
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(cp_unit_type), POINTER                        :: unit
-      TYPE(cp_unit_set_type), POINTER                    :: default_units
+      TYPE(cp_unit_set_type), INTENT(IN)                 :: default_units
       TYPE(val_type), OPTIONAL, POINTER                  :: default_value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'val_create_parsing', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'val_create_parsing'
 
       CHARACTER(len=default_string_length)               :: c_val, info, location
       CHARACTER(len=default_string_length), &
@@ -610,7 +626,7 @@ CONTAINS
          CALL parser_get_object(parser, info)
          CALL cp_abort(__LOCATION__, &
                        "found unexpected extra argument "//TRIM(info)//" at "//location)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -627,13 +643,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_r_val(r_val, parser, unit, default_units, c_val)
       REAL(kind=dp), INTENT(OUT)                         :: r_val
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       TYPE(cp_unit_type), POINTER                        :: unit
-      TYPE(cp_unit_set_type), POINTER                    :: default_units
+      TYPE(cp_unit_set_type), INTENT(IN)                 :: default_units
       CHARACTER(len=default_string_length), &
          INTENT(INOUT)                                   :: c_val
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_r_val', routineP = moduleN//':'//routineN
 
       TYPE(cp_unit_type), POINTER                        :: my_unit
 
@@ -646,9 +660,11 @@ CONTAINS
                              "Invalid unit specifier found when parsing a number: "// &
                              c_val)
             END IF
+            ALLOCATE (my_unit)
             CALL cp_unit_create(my_unit, c_val(2:LEN_TRIM(c_val) - 1))
          ELSE
             IF (c_val /= "") THEN
+               ALLOCATE (my_unit)
                CALL cp_unit_create(my_unit, c_val(2:LEN_TRIM(c_val) - 1))
             ELSE
                my_unit => unit
@@ -663,7 +679,10 @@ CONTAINS
       CALL parser_get_object(parser, r_val)
       IF (ASSOCIATED(unit)) THEN
          r_val = cp_unit_to_cp2k1(r_val, my_unit, default_units)
-         IF (.NOT. (ASSOCIATED(my_unit, unit))) CALL cp_unit_release(my_unit)
+         IF (.NOT. (ASSOCIATED(my_unit, unit))) THEN
+            CALL cp_unit_release(my_unit)
+            DEALLOCATE (my_unit)
+         END IF
       END IF
 
    END SUBROUTINE get_r_val

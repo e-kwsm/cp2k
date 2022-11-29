@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -28,11 +30,11 @@ MODULE qs_scf_wfn_mix
    USE kinds,                           ONLY: dp
    USE particle_types,                  ONLY: particle_type
    USE qs_kind_types,                   ONLY: qs_kind_type
-   USE qs_mo_io,                        ONLY: write_mo_set
+   USE qs_mo_io,                        ONLY: write_mo_set_to_restart
    USE qs_mo_methods,                   ONLY: calculate_orthonormality
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
                                               duplicate_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_scf_types,                    ONLY: qs_scf_env_type,&
                                               special_diag_method_nr
 #include "./base/base_uses.f90"
@@ -61,7 +63,7 @@ CONTAINS
    SUBROUTINE wfn_mix(mos, particle_set, dft_section, qs_kind_set, &
                       unoccupied_orbs, scf_env, matrix_s, output_unit, marked_states)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: dft_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -71,15 +73,15 @@ CONTAINS
       INTEGER                                            :: output_unit
       INTEGER, DIMENSION(:, :, :), OPTIONAL, POINTER     :: marked_states
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'wfn_mix', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'wfn_mix'
 
       INTEGER :: handle, i_rep, ispin, mark_ind, mark_number, n_rep, orig_mo_index, &
          orig_spin_index, result_mo_index, result_spin_index
       LOGICAL                                            :: explicit, orig_is_virtual, overwrite_mos
       REAL(KIND=dp)                                      :: orig_scale, orthonormality, result_scale
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_vector
-      TYPE(cp_fm_type), POINTER                          :: matrix_x, matrix_y
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos_new
+      TYPE(cp_fm_type)                                   :: matrix_x, matrix_y
+      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: mos_new
       TYPE(section_vals_type), POINTER                   :: update_section, wfn_mix_section
 
       CALL timeset(routineN, handle)
@@ -93,16 +95,16 @@ CONTAINS
             WRITE (output_unit, '()')
             WRITE (output_unit, '(T2,A)') "Performing wfn mixing"
             WRITE (output_unit, '(T2,A)') "====================="
-         ENDIF
+         END IF
 
          ALLOCATE (mos_new(SIZE(mos)))
          DO ispin = 1, SIZE(mos)
-            CALL duplicate_mo_set(mos_new(ispin)%mo_set, mos(ispin)%mo_set)
-         ENDDO
+            CALL duplicate_mo_set(mos_new(ispin), mos(ispin))
+         END DO
 
          ! a single vector matrix structure
          NULLIFY (fm_struct_vector)
-         CALL cp_fm_struct_create(fm_struct_vector, template_fmstruct=mos(1)%mo_set%mo_coeff%matrix_struct, &
+         CALL cp_fm_struct_create(fm_struct_vector, template_fmstruct=mos(1)%mo_coeff%matrix_struct, &
                                   ncol_global=1)
          CALL cp_fm_create(matrix_x, fm_struct_vector, name="x")
          CALL cp_fm_create(matrix_y, fm_struct_vector, name="y")
@@ -136,24 +138,24 @@ CONTAINS
 
             ! first get a copy of the proper orig
             IF (.NOT. ORIG_IS_VIRTUAL) THEN
-               CALL cp_fm_to_fm(mos(orig_spin_index)%mo_set%mo_coeff, matrix_x, 1, &
-                                mos(orig_spin_index)%mo_set%nmo - orig_mo_index + 1, 1)
+               CALL cp_fm_to_fm(mos(orig_spin_index)%mo_coeff, matrix_x, 1, &
+                                mos(orig_spin_index)%nmo - orig_mo_index + 1, 1)
             ELSE
                CALL cp_fm_to_fm(unoccupied_orbs(orig_spin_index)%matrix, matrix_x, 1, orig_mo_index, 1)
-            ENDIF
+            END IF
 
             ! now get a copy of the target
-            CALL cp_fm_to_fm(mos_new(result_spin_index)%mo_set%mo_coeff, matrix_y, &
-                             1, mos_new(result_spin_index)%mo_set%nmo - result_mo_index + 1, 1)
+            CALL cp_fm_to_fm(mos_new(result_spin_index)%mo_coeff, matrix_y, &
+                             1, mos_new(result_spin_index)%nmo - result_mo_index + 1, 1)
 
             ! properly mix
             CALL cp_fm_scale_and_add(result_scale, matrix_y, orig_scale, matrix_x)
 
             ! and copy back in the result mos
-            CALL cp_fm_to_fm(matrix_y, mos_new(result_spin_index)%mo_set%mo_coeff, &
-                             1, 1, mos_new(result_spin_index)%mo_set%nmo - result_mo_index + 1)
+            CALL cp_fm_to_fm(matrix_y, mos_new(result_spin_index)%mo_coeff, &
+                             1, 1, mos_new(result_spin_index)%nmo - result_mo_index + 1)
 
-         ENDDO
+         END DO
 
          CALL cp_fm_release(matrix_x)
          CALL cp_fm_release(matrix_y)
@@ -169,27 +171,27 @@ CONTAINS
             WRITE (output_unit, '(T2,A,T61,E20.4)') &
                "Maximum deviation from MO S-orthonormality", orthonormality
             WRITE (output_unit, '(T2,A)') "Writing new MOs to file"
-         ENDIF
+         END IF
 
          ! *** Write WaveFunction restart file ***
 
          DO ispin = 1, SIZE(mos_new)
             IF (overwrite_mos) THEN
-               CALL cp_fm_to_fm(mos_new(ispin)%mo_set%mo_coeff, mos(ispin)%mo_set%mo_coeff)
-               IF (mos_new(1)%mo_set%use_mo_coeff_b) &
-                  CALL copy_fm_to_dbcsr(mos_new(ispin)%mo_set%mo_coeff, mos_new(ispin)%mo_set%mo_coeff_b)
+               CALL cp_fm_to_fm(mos_new(ispin)%mo_coeff, mos(ispin)%mo_coeff)
+               IF (mos_new(1)%use_mo_coeff_b) &
+                  CALL copy_fm_to_dbcsr(mos_new(ispin)%mo_coeff, mos_new(ispin)%mo_coeff_b)
             END IF
-            IF (mos(1)%mo_set%use_mo_coeff_b) &
-               CALL copy_fm_to_dbcsr(mos_new(ispin)%mo_set%mo_coeff, mos(ispin)%mo_set%mo_coeff_b)
+            IF (mos(1)%use_mo_coeff_b) &
+               CALL copy_fm_to_dbcsr(mos_new(ispin)%mo_coeff, mos(ispin)%mo_coeff_b)
          END DO
-         CALL write_mo_set(mos_new, particle_set, dft_section=dft_section, qs_kind_set=qs_kind_set)
+         CALL write_mo_set_to_restart(mos_new, particle_set, dft_section=dft_section, qs_kind_set=qs_kind_set)
 
          DO ispin = 1, SIZE(mos_new)
-            CALL deallocate_mo_set(mos_new(ispin)%mo_set)
-         ENDDO
+            CALL deallocate_mo_set(mos_new(ispin))
+         END DO
          DEALLOCATE (mos_new)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 

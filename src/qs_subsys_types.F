@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,14 +49,12 @@ MODULE qs_subsys_types
 
    PUBLIC :: qs_subsys_type
 
-   PUBLIC :: qs_subsys_retain, &
-             qs_subsys_release, &
+   PUBLIC :: qs_subsys_release, &
              qs_subsys_get, &
              qs_subsys_set
 
    TYPE qs_subsys_type
       PRIVATE
-      INTEGER                                               :: ref_count = 1
       INTEGER                                               :: nelectron_total = -1
       INTEGER                                               :: nelectron_spin(2) = -1
       TYPE(cp_subsys_type), POINTER                         :: cp_subsys => Null()
@@ -68,47 +68,22 @@ MODULE qs_subsys_types
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief retains a subsys (see doc/ReferenceCounting.html)
-!> \param subsys the subsys to retain
-!> \author Ole Schuett
-! **************************************************************************************************
-   SUBROUTINE qs_subsys_retain(subsys)
-      TYPE(qs_subsys_type), POINTER                      :: subsys
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_subsys_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(subsys))
-      CPASSERT(subsys%ref_count > 0)
-      subsys%ref_count = subsys%ref_count + 1
-   END SUBROUTINE qs_subsys_retain
-
-! **************************************************************************************************
 !> \brief releases a subsys (see doc/ReferenceCounting.html)
 !> \param subsys the subsys to release
 !> \author Ole Schuett
 ! **************************************************************************************************
    SUBROUTINE qs_subsys_release(subsys)
-      TYPE(qs_subsys_type), POINTER                      :: subsys
+      TYPE(qs_subsys_type), INTENT(INOUT)                :: subsys
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_subsys_release', &
-         routineP = moduleN//':'//routineN
+      CALL cp_subsys_release(subsys%cp_subsys)
+      CALL cell_release(subsys%cell_ref)
+      IF (ASSOCIATED(subsys%qs_kind_set)) &
+         CALL deallocate_qs_kind_set(subsys%qs_kind_set)
+      IF (ASSOCIATED(subsys%energy)) &
+         CALL deallocate_qs_energy(subsys%energy)
+      IF (ASSOCIATED(subsys%force)) &
+         CALL deallocate_qs_force(subsys%force)
 
-      IF (ASSOCIATED(subsys)) THEN
-         CPASSERT(subsys%ref_count > 0)
-         subsys%ref_count = subsys%ref_count - 1
-         IF (subsys%ref_count == 0) THEN
-            CALL cp_subsys_release(subsys%cp_subsys)
-            CALL cell_release(subsys%cell_ref)
-            IF (ASSOCIATED(subsys%qs_kind_set)) &
-               CALL deallocate_qs_kind_set(subsys%qs_kind_set)
-            IF (ASSOCIATED(subsys%energy)) &
-               CALL deallocate_qs_energy(subsys%energy)
-            IF (ASSOCIATED(subsys%force)) &
-               CALL deallocate_qs_force(subsys%force)
-            DEALLOCATE (subsys)
-         END IF
-      END IF
    END SUBROUTINE qs_subsys_release
 
 ! **************************************************************************************************
@@ -156,7 +131,7 @@ CONTAINS
                             natom, nparticle, ncore, nshell, nkind, atprop, virial, &
                             results, cell, cell_ref, use_ref_cell, energy, force, &
                             qs_kind_set, cp_subsys, nelectron_total, nelectron_spin)
-      TYPE(qs_subsys_type), POINTER                      :: subsys
+      TYPE(qs_subsys_type), INTENT(IN)                   :: subsys
       TYPE(atomic_kind_list_type), OPTIONAL, POINTER     :: atomic_kinds
       TYPE(atomic_kind_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: atomic_kind_set
@@ -191,8 +166,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: cp_subsys
       INTEGER, OPTIONAL                                  :: nelectron_total
       INTEGER, DIMENSION(2), OPTIONAL                    :: nelectron_spin
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_subsys_get', routineP = moduleN//':'//routineN
 
       CALL cp_subsys_get(subsys%cp_subsys, &
                          atomic_kinds=atomic_kinds, &
@@ -250,7 +223,7 @@ CONTAINS
                             local_particles, local_molecules, cell, &
                             cell_ref, use_ref_cell, energy, force, &
                             qs_kind_set, nelectron_total, nelectron_spin)
-      TYPE(qs_subsys_type), POINTER                      :: subsys
+      TYPE(qs_subsys_type), INTENT(INOUT)                :: subsys
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: cp_subsys
       TYPE(distribution_1d_type), OPTIONAL, POINTER      :: local_particles, local_molecules
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell, cell_ref
@@ -262,8 +235,6 @@ CONTAINS
          POINTER                                         :: qs_kind_set
       INTEGER, OPTIONAL                                  :: nelectron_total
       INTEGER, DIMENSION(2), OPTIONAL                    :: nelectron_spin
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_subsys_set', routineP = moduleN//':'//routineN
 
       IF (PRESENT(cp_subsys)) THEN
          CALL cp_subsys_retain(cp_subsys)

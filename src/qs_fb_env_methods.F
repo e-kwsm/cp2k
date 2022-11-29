@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_fb_env_methods
@@ -34,7 +36,6 @@ MODULE qs_fb_env_methods
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
@@ -59,14 +60,16 @@ MODULE qs_fb_env_methods
    USE message_passing,                 ONLY: mp_max
    USE orbital_pointers,                ONLY: nco,&
                                               ncoset
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_diis,                         ONLY: qs_diis_b_step
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_fb_atomic_halo_types,         ONLY: &
         fb_atomic_halo_build_halo_atoms, fb_atomic_halo_cost, fb_atomic_halo_create, &
         fb_atomic_halo_list_create, fb_atomic_halo_list_nullify, fb_atomic_halo_list_obj, &
-        fb_atomic_halo_list_release, fb_atomic_halo_list_set, fb_atomic_halo_list_write_info, &
+        fb_atomic_halo_list_set, fb_atomic_halo_list_write_info, &
         fb_atomic_halo_nelectrons_estimate_Z, fb_atomic_halo_nullify, fb_atomic_halo_obj, &
         fb_atomic_halo_set, fb_atomic_halo_sort, fb_build_pair_radii
    USE qs_fb_env_types,                 ONLY: fb_env_get,&
@@ -83,17 +86,11 @@ MODULE qs_fb_env_methods
    USE qs_integral_utils,               ONLY: basis_set_list_setup
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               qs_kind_type
-   USE qs_matrix_pools,                 ONLY: mpools_create,&
-                                              mpools_rebuild_fm_pools,&
-                                              mpools_release,&
-                                              qs_matrix_pools_type
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix
    USE qs_mo_occupation,                ONLY: set_mo_occupation
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               deallocate_mo_set,&
                                               get_mo_set,&
                                               init_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type,&
                                               set_mo_set
    USE qs_scf_types,                    ONLY: qs_scf_env_type
@@ -138,12 +135,12 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: scf_section
       LOGICAL, INTENT(INOUT)                             :: diis_step
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_env_do_diag', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'fb_env_do_diag'
 
       CHARACTER(len=2)                                   :: spin_string
       CHARACTER(len=default_string_length)               :: name
       INTEGER :: filtered_nfullrowsORcols_total, handle, homo_filtered, ispin, lfomo_filtered, &
-         my_nmo, ndep, nelectron, nmo, nmo_filtered, nspin, original_nfullrowsORcols_total
+         my_nmo, nao, ndep, nelectron, nmo, nmo_filtered, nspin, original_nfullrowsORcols_total
       INTEGER, DIMENSION(:), POINTER                     :: filtered_rowORcol_block_sizes, &
                                                             original_rowORcol_block_sizes
       LOGICAL                                            :: collective_com
@@ -153,8 +150,10 @@ CONTAINS
                                                             occ_filtered
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: filter_fm_struct, fm_struct
-      TYPE(cp_fm_type), POINTER :: fm_matrix_filter, fm_matrix_filtered_ks, fm_matrix_filtered_s, &
-         fm_matrix_ortho, fm_matrix_work, mo_coeff, mo_coeff_filtered
+      TYPE(cp_fm_type)                                   :: fm_matrix_filter, fm_matrix_filtered_ks, &
+                                                            fm_matrix_filtered_s, fm_matrix_ortho, &
+                                                            fm_matrix_work
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff, mo_coeff_filtered
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_filter
       TYPE(dbcsr_type)                                   :: matrix_filtered_ks, matrix_filtered_s, &
@@ -162,9 +161,8 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix_filtered_p
       TYPE(fb_atomic_halo_list_obj)                      :: atomic_halos
       TYPE(fb_trial_fns_obj)                             :: trial_fns
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_filtered
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_filtered
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-      TYPE(qs_matrix_pools_type), POINTER                :: my_mpools
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
 
@@ -175,12 +173,9 @@ CONTAINS
       NULLIFY (scf_env, scf_control, para_env, blacs_env, particle_set)
       NULLIFY (eigenvalues, eigenvalues_filtered, occ, occ_filtered)
       NULLIFY (mos, mos_filtered)
-      NULLIFY (my_mpools)
       NULLIFY (matrix_filter, matrix_filtered_p)
       NULLIFY (fm_struct, filter_fm_struct)
-      NULLIFY (fm_matrix_filter, fm_matrix_filtered_s, &
-               fm_matrix_filtered_ks, fm_matrix_work, &
-               fm_matrix_ortho, mo_coeff_filtered, mo_coeff)
+      NULLIFY (mo_coeff_filtered, mo_coeff)
       ! NULLIFY(sab_orb)
       CALL fb_atomic_halo_list_nullify(atomic_halos)
       CALL fb_trial_fns_nullify(trial_fns)
@@ -243,7 +238,7 @@ CONTAINS
                       eps_default=eps_default)
 
       ! construct trial functions
-      CALL get_mo_set(mo_set=mos(1)%mo_set, maxocc=maxocc)
+      CALL get_mo_set(mo_set=mos(1), maxocc=maxocc)
       CALL fb_env_build_trial_fns_auto(fb_env, qs_env, maxocc)
       CALL fb_env_get(fb_env=fb_env, &
                       trial_fns=trial_fns)
@@ -254,7 +249,7 @@ CONTAINS
       DO ispin = 1, nspin
          ! get system-wide fermi energy and occupancy, we use this to
          ! define the filter function used for the filter matrix
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, &
+         CALL get_mo_set(mo_set=mos(ispin), &
                          mu=fermi_level, &
                          maxocc=maxocc)
          ! get filter matrix name
@@ -316,12 +311,11 @@ CONTAINS
       ! the corresponding matrix pools for the eigenvector coefficients
       ALLOCATE (mos_filtered(nspin))
       DO ispin = 1, nspin
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, &
+         CALL get_mo_set(mo_set=mos(ispin), &
                          maxocc=maxocc, &
                          nelectron=nelectron, &
                          flexible_electron_count=flexible_electron_count)
-         NULLIFY (mos_filtered(ispin)%mo_set)
-         CALL allocate_mo_set(mo_set=mos_filtered(ispin)%mo_set, &
+         CALL allocate_mo_set(mo_set=mos_filtered(ispin), &
                               nao=filtered_nfullrowsORcols_total, &
                               nmo=filtered_nfullrowsORcols_total, &
                               nelectron=nelectron, &
@@ -329,11 +323,6 @@ CONTAINS
                               maxocc=maxocc, &
                               flexible_electron_count=flexible_electron_count)
       END DO ! ispin
-      CALL mpools_create(mpools=my_mpools)
-      CALL mpools_rebuild_fm_pools(mpools=my_mpools, &
-                                   mos=mos_filtered, &
-                                   blacs_env=blacs_env, &
-                                   para_env=para_env)
 
       ! create DBCSR filtered KS matrix, this is reused for each spin
       ! channel
@@ -348,7 +337,7 @@ CONTAINS
       CALL dbcsr_finalize(matrix_filtered_ks)
 
       ! create DBCSR filtered S (overlap) matrix. Note that
-      ! matrix_s(1)%matrix is the orginal overlap matrix---the rest in
+      ! matrix_s(1)%matrix is the original overlap matrix---the rest in
       ! the array are derivatives, and it should not depend on
       ! spin. HOWEVER, since the filter matrix is constructed from KS
       ! matrix, and does depend on spin, the filtered S also becomes
@@ -419,15 +408,22 @@ CONTAINS
          CALL copy_dbcsr_to_fm(matrix_filtered_s, fm_matrix_filtered_s)
          CALL copy_dbcsr_to_fm(matrix_filtered_ks, fm_matrix_filtered_ks)
 
+         CALL get_mo_set(mos_filtered(ispin), nmo=nmo, nao=nao)
+
+         CALL cp_fm_struct_create(fm_struct, nrow_global=nao, &
+                                  ncol_global=nmo, para_env=para_env, &
+                                  context=blacs_env)
+
          ! setup matrix pools for the molecular orbitals
-         CALL init_mo_set(mos_filtered(ispin)%mo_set, &
-                          fm_pool=my_mpools%ao_mo_fm_pools(ispin)%pool, &
+         CALL init_mo_set(mos_filtered(ispin), &
+                          fm_struct=fm_struct, &
                           name="FILTERED_MOS")
+         CALL cp_fm_struct_release(fm_struct)
 
          ! now diagonalise
          CALL fb_env_eigensolver(fm_matrix_filtered_ks, &
                                  fm_matrix_filtered_s, &
-                                 mos_filtered(ispin)%mo_set, &
+                                 mos_filtered(ispin), &
                                  fm_matrix_ortho, &
                                  fm_matrix_work, &
                                  eps_eigval, &
@@ -478,7 +474,7 @@ CONTAINS
 
       DO ispin = 1, nspin
          ! calculate matrix_filtered_p
-         CALL calculate_density_matrix(mos_filtered(ispin)%mo_set, &
+         CALL calculate_density_matrix(mos_filtered(ispin), &
                                        matrix_filtered_p)
          ! convert back to full basis p
          CALL dbcsr_multiply("N", "N", 1.0_dp, &
@@ -532,7 +528,7 @@ CONTAINS
       DO ispin = 1, nspin
          ! now the full basis mo_set should only contain the reduced
          ! number of eigenvectors and eigenvalues
-         CALL get_mo_set(mo_set=mos_filtered(ispin)%mo_set, &
+         CALL get_mo_set(mo_set=mos_filtered(ispin), &
                          homo=homo_filtered, &
                          lfomo=lfomo_filtered, &
                          nmo=nmo_filtered, &
@@ -541,14 +537,14 @@ CONTAINS
                          mo_coeff=mo_coeff_filtered, &
                          kTS=kTS_filtered, &
                          mu=mu_filtered)
-         ! first set all the relevent scalars
-         CALL set_mo_set(mo_set=mos(ispin)%mo_set, &
+         ! first set all the relevant scalars
+         CALL set_mo_set(mo_set=mos(ispin), &
                          homo=homo_filtered, &
                          lfomo=lfomo_filtered, &
                          kTS=kTS_filtered, &
                          mu=mu_filtered)
          ! now set the arrays and fm_matrices
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, &
+         CALL get_mo_set(mo_set=mos(ispin), &
                          nmo=nmo, &
                          occupation_numbers=occ, &
                          eigenvalues=eigenvalues, &
@@ -579,9 +575,8 @@ CONTAINS
       ! Final Clean Up
       ! ----------------------------------------------------------------------
 
-      CALL mpools_release(mpools=my_mpools)
       DO ispin = 1, nspin
-         CALL deallocate_mo_set(mo_set=mos_filtered(ispin)%mo_set)
+         CALL deallocate_mo_set(mo_set=mos_filtered(ispin))
       END DO
       DEALLOCATE (mos_filtered)
       CALL dbcsr_deallocate_matrix_set(matrix_filter)
@@ -612,15 +607,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fb_env_eigensolver(fm_KS, fm_S, mo_set, fm_ortho, &
                                  fm_work, eps_eigval, ndep, method)
-      TYPE(cp_fm_type), POINTER                          :: fm_KS, fm_S
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_type), POINTER                          :: fm_ortho, fm_work
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_KS, fm_S
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_ortho, fm_work
       REAL(KIND=dp), INTENT(IN)                          :: eps_eigval
       INTEGER, INTENT(OUT)                               :: ndep
       INTEGER, INTENT(IN)                                :: method
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_eigensolver', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_eigensolver'
 
       CHARACTER(len=8)                                   :: ndep_string
       INTEGER                                            :: handle, info, my_method, nao, nmo
@@ -715,11 +709,11 @@ CONTAINS
          ! solve eigen equatoin using S^-1/2
          CALL cp_fm_symm("L", "U", nao, nao, 1.0_dp, fm_KS, fm_ortho, &
                          0.0_dp, fm_work)
-         CALL cp_gemm("T", "N", nao, nao, nao, 1.0_dp, fm_ortho, &
-                      fm_work, 0.0_dp, fm_KS)
+         CALL parallel_gemm("T", "N", nao, nao, nao, 1.0_dp, fm_ortho, &
+                            fm_work, 0.0_dp, fm_KS)
          CALL choose_eigv_solver(fm_KS, fm_work, mo_eigenvalues)
-         CALL cp_gemm("N", "N", nao, nmo, nao, 1.0_dp, fm_ortho, &
-                      fm_work, 0.0_dp, mo_coeff)
+         CALL parallel_gemm("N", "N", nao, nmo, nao, 1.0_dp, fm_ortho, &
+                            fm_work, 0.0_dp, mo_coeff)
       END IF
 
       CALL timestop(handle)
@@ -737,8 +731,7 @@ CONTAINS
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
       TYPE(section_vals_type), POINTER                   :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_read_input', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fb_env_read_input'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: l_val
@@ -787,8 +780,7 @@ CONTAINS
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_rcut_auto', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_rcut_auto'
 
       INTEGER                                            :: handle, ikind, nkinds
       REAL(KIND=dp)                                      :: auto_cutoff_scale, kind_radius
@@ -856,8 +848,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_atomic_halos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_atomic_halos'
 
       INTEGER :: handle, iatom, ihalo, max_natoms_local, natoms_global, natoms_local, nelectrons, &
          nhalo_atoms, nkinds_global, owner_id_in_halo
@@ -951,7 +942,6 @@ CONTAINS
                                    halos=halos)
       CALL fb_env_set(fb_env=fb_env, &
                       atomic_halos=atomic_halos)
-      CALL fb_atomic_halo_list_release(atomic_halos)
 
       ! print info
       CALL fb_atomic_halo_list_write_info(atomic_halos, &
@@ -977,8 +967,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(KIND=dp), INTENT(IN)                          :: maxocc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_trial_fns_auto', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_build_trial_fns_auto'
 
       INTEGER                                            :: counter, handle, icgf, ico, ikind, iset, &
                                                             ishell, itrial, lshell, max_n_trial, &
@@ -1049,7 +1038,7 @@ CONTAINS
                   END IF
                END DO
                ! we have got enough trial functions when we have enough
-               ! basis functions to accomodate the number of electrons,
+               ! basis functions to accommodate the number of electrons,
                ! AND that that we have included all the first zeta
                ! orbitals of an angular momentum quantum number l
                IF (((lshell .GT. old_lshell) .OR. (lshell .EQ. lmax(iset))) .AND. &
@@ -1129,7 +1118,7 @@ CONTAINS
 !>        and their corresponding logical locations allocated, although
 !>        the blocks does not have to be the same size as the original
 !> \param matrix_out : DBCSR matrix whose blocks are to be allocated
-!> \param matrix_in  : DBCSR matrix with exising sparse structure that
+!> \param matrix_in  : DBCSR matrix with existing sparse structure that
 !>                     is to be copied
 !> \author Lianheng Tong (LT) lianheng.tong@kcl.ac.uk
 ! **************************************************************************************************
@@ -1137,9 +1126,6 @@ CONTAINS
 
       TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_out
       TYPE(dbcsr_type), INTENT(IN)                       :: matrix_in
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_dbcsr_copy_sparse_struct', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, iblk, jatom, nblkcols_total, &
                                                             nblkrows_total, nblks
@@ -1188,8 +1174,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_write_info', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fb_env_write_info'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: handle, ikind, nkinds, unit_nr

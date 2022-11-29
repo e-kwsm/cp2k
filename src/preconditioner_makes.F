@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,7 +41,6 @@ MODULE preconditioner_makes
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE dbcsr_api,                       ONLY: &
         dbcsr_add, dbcsr_add_on_diag, dbcsr_copy, dbcsr_create, dbcsr_get_info, dbcsr_multiply, &
         dbcsr_p_type, dbcsr_release, dbcsr_type, dbcsr_type_symmetric
@@ -48,6 +49,7 @@ MODULE preconditioner_makes
         ot_precond_full_single, ot_precond_full_single_inverse, ot_precond_s_inverse, &
         ot_precond_solver_default, ot_precond_solver_inv_chol
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE preconditioner_types,            ONLY: preconditioner_type
 #include "./base/base_uses.f90"
 
@@ -79,14 +81,11 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type), POINTER                          :: matrix_h
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s, matrix_t
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff
       REAL(KIND=dp)                                      :: energy_homo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues_ot
       REAL(KIND=dp)                                      :: energy_gap
       INTEGER                                            :: my_solver_type
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_preconditioner_matrix', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: precon_type
 
@@ -121,7 +120,7 @@ CONTAINS
       CASE (ot_precond_full_all)
          IF (my_solver_type .NE. ot_precond_solver_default) THEN
             CPABORT("Only PRECOND_SOLVER DEFAULT for the moment")
-         ENDIF
+         END IF
          IF (PRESENT(matrix_s)) THEN
             CALL make_full_all(preconditioner_env, mo_coeff, matrix_h, matrix_s, &
                                eigenvalues_ot, energy_gap)
@@ -145,8 +144,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type), POINTER                          :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_s_inverse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_s_inverse'
 
       INTEGER                                            :: handle
 
@@ -177,8 +175,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix_t, matrix_s
       REAL(KIND=dp)                                      :: energy_gap
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_kinetic', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_full_kinetic'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: shift
@@ -218,27 +215,29 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix_h, matrix_s
       REAL(KIND=dp)                                      :: energy_homo, energy_gap
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_single', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_full_single'
 
       INTEGER                                            :: handle, i, n
       REAL(KIND=dp), DIMENSION(:), POINTER               :: evals
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: fm_h, fm_s
+      TYPE(cp_fm_type)                                   :: fm_h, fm_s
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_h, fm_s, fm_struct_tmp, evals)
+      NULLIFY (fm_struct_tmp, evals)
 
       IF (ASSOCIATED(fm)) THEN
          CALL cp_fm_release(fm)
-      ENDIF
+         DEALLOCATE (fm)
+         NULLIFY (fm)
+      END IF
       CALL dbcsr_get_info(matrix_h, nfullrows_total=n)
       ALLOCATE (evals(n))
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=n, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
+      ALLOCATE (fm)
       CALL cp_fm_create(fm, fm_struct_tmp, name="preconditioner")
       CALL cp_fm_create(fm_h, fm_struct_tmp, name="fm_h")
       CALL cp_fm_create(fm_s, fm_struct_tmp, name="fm_s")
@@ -272,18 +271,18 @@ CONTAINS
                                         invert_tr=.FALSE., uplo_tr="U", n_rows=n, n_cols=n, alpha=1.0_dp)
          DO i = 1, n
             evals(i) = 1.0_dp/MAX(evals(i) - energy_homo, energy_gap)
-         ENDDO
+         END DO
          CALL cp_fm_to_fm(fm, fm_h)
       CASE (cholesky_reduce)
          CALL cp_fm_cholesky_restore(fm, n, fm_s, fm_h, "SOLVE")
          DO i = 1, n
             evals(i) = 1.0_dp/MAX(evals(i) - energy_homo, energy_gap)
-         ENDDO
+         END DO
          CALL cp_fm_to_fm(fm_h, fm)
       END SELECT
 
       CALL cp_fm_column_scale(fm, evals)
-      CALL cp_gemm('N', 'T', n, n, n, 1.0_dp, fm, fm_h, 0.0_dp, fm_s)
+      CALL parallel_gemm('N', 'T', n, n, n, 1.0_dp, fm, fm_h, 0.0_dp, fm_s)
       CALL cp_fm_to_fm(fm_s, fm)
 
       DEALLOCATE (evals)
@@ -309,26 +308,28 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix_h
       REAL(KIND=dp)                                      :: energy_homo, energy_gap
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_single_ortho', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_single_ortho'
 
       INTEGER                                            :: handle, i, n
       REAL(KIND=dp), DIMENSION(:), POINTER               :: evals
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: fm_h, fm_s
+      TYPE(cp_fm_type)                                   :: fm_h, fm_s
 
       CALL timeset(routineN, handle)
-      NULLIFY (fm_h, fm_s, fm_struct_tmp, evals)
+      NULLIFY (fm_struct_tmp, evals)
 
       IF (ASSOCIATED(fm)) THEN
          CALL cp_fm_release(fm)
-      ENDIF
+         DEALLOCATE (fm)
+         NULLIFY (fm)
+      END IF
       CALL dbcsr_get_info(matrix_h, nfullrows_total=n)
       ALLOCATE (evals(n))
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=n, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
+      ALLOCATE (fm)
       CALL cp_fm_create(fm, fm_struct_tmp, name="preconditioner")
       CALL cp_fm_create(fm_h, fm_struct_tmp, name="fm_h")
       CALL cp_fm_create(fm_s, fm_struct_tmp, name="fm_s")
@@ -339,10 +340,10 @@ CONTAINS
       CALL choose_eigv_solver(fm_h, fm, evals)
       DO i = 1, n
          evals(i) = 1.0_dp/MAX(evals(i) - energy_homo, energy_gap)
-      ENDDO
+      END DO
       CALL cp_fm_to_fm(fm, fm_h)
       CALL cp_fm_column_scale(fm, evals)
-      CALL cp_gemm('N', 'T', n, n, n, 1.0_dp, fm, fm_h, 0.0_dp, fm_s)
+      CALL parallel_gemm('N', 'T', n, n, n, 1.0_dp, fm, fm_h, 0.0_dp, fm_s)
       CALL cp_fm_to_fm(fm_s, fm)
 
       DEALLOCATE (evals)
@@ -374,12 +375,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_full_all(preconditioner_env, matrix_c0, matrix_h, matrix_s, c0_evals, energy_gap)
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_c0
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_c0
       TYPE(dbcsr_type), POINTER                          :: matrix_h, matrix_s
       REAL(KIND=dp), DIMENSION(:), POINTER               :: c0_evals
       REAL(KIND=dp)                                      :: energy_gap
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_all', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_full_all'
       REAL(KIND=dp), PARAMETER                           :: fudge_factor = 0.25_dp, &
                                                             lambda_base = 10.0_dp
 
@@ -387,19 +388,24 @@ CONTAINS
       REAL(KIND=dp)                                      :: error_estimate, lambda
       REAL(KIND=dp), DIMENSION(:), POINTER               :: diag, norms, shifted_evals
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: matrix_hc0, matrix_left, matrix_pre, &
-                                                            matrix_s1, matrix_s2, matrix_sc0, &
-                                                            matrix_shc0, matrix_tmp, ortho
+      TYPE(cp_fm_type)                                   :: matrix_hc0, matrix_left, matrix_s1, &
+                                                            matrix_s2, matrix_sc0, matrix_shc0, &
+                                                            matrix_tmp, ortho
+      TYPE(cp_fm_type), POINTER                          :: matrix_pre
 
       CALL timeset(routineN, handle)
 
-      IF (ASSOCIATED(preconditioner_env%fm)) CALL cp_fm_release(preconditioner_env%fm)
+      IF (ASSOCIATED(preconditioner_env%fm)) THEN
+         CALL cp_fm_release(preconditioner_env%fm)
+         DEALLOCATE (preconditioner_env%fm)
+         NULLIFY (preconditioner_env%fm)
+      END IF
       CALL cp_fm_get_info(matrix_c0, nrow_global=n, ncol_global=k)
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=n, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
+      ALLOCATE (preconditioner_env%fm)
       CALL cp_fm_create(preconditioner_env%fm, fm_struct_tmp, name="preconditioner_env%fm")
-      matrix_pre => preconditioner_env%fm
       CALL cp_fm_create(ortho, fm_struct_tmp, name="ortho")
       CALL cp_fm_create(matrix_tmp, fm_struct_tmp, name="matrix_tmp")
       CALL cp_fm_struct_release(fm_struct_tmp)
@@ -445,7 +451,7 @@ CONTAINS
       CALL cp_fm_create(matrix_s1, fm_struct_tmp, name="matrix_s1")
       CALL cp_fm_struct_release(fm_struct_tmp)
       ! since we only use diagonal elements this is a bit of a waste
-      CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, matrix_shc0, matrix_shc0, 0.0_dp, matrix_s1)
+      CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, matrix_shc0, matrix_shc0, 0.0_dp, matrix_s1)
       ALLOCATE (diag(k))
       CALL cp_fm_get_diag(matrix_s1, diag)
       error_estimate = MAXVAL(SQRT(ABS(diag - c0_evals**2)))
@@ -458,18 +464,19 @@ CONTAINS
       ! aggressively
       preconditioner_env%energy_gap = MAX(energy_gap, error_estimate*fudge_factor)
       CALL copy_dbcsr_to_fm(matrix_h, matrix_tmp)
+      matrix_pre => preconditioner_env%fm
       CALL cp_fm_upper_to_full(matrix_tmp, matrix_pre)
       ! tmp = H ( 1 - PS )
-      CALL cp_gemm('N', 'T', n, n, k, -1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'T', n, n, k, -1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=k, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
       CALL cp_fm_create(matrix_left, fm_struct_tmp, name="matrix_left")
       CALL cp_fm_struct_release(fm_struct_tmp)
-      CALL cp_gemm('T', 'N', k, n, n, 1.0_dp, matrix_c0, matrix_tmp, 0.0_dp, matrix_left)
+      CALL parallel_gemm('T', 'N', k, n, n, 1.0_dp, matrix_c0, matrix_tmp, 0.0_dp, matrix_left)
       ! tmp = (1 - PS)^T H (1-PS)
-      CALL cp_gemm('N', 'N', n, n, k, -1.0_dp, matrix_sc0, matrix_left, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'N', n, n, k, -1.0_dp, matrix_sc0, matrix_left, 1.0_dp, matrix_tmp)
       CALL cp_fm_release(matrix_left)
 
       ALLOCATE (shifted_evals(k))
@@ -477,7 +484,7 @@ CONTAINS
       shifted_evals = c0_evals - lambda
       CALL cp_fm_to_fm(matrix_sc0, matrix_hc0)
       CALL cp_fm_column_scale(matrix_hc0, shifted_evals)
-      CALL cp_gemm('N', 'T', n, n, k, 1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'T', n, n, k, 1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
 
       ! 2) diagonalize this operator
       SELECT CASE (preconditioner_env%cholesky_use)
@@ -509,13 +516,13 @@ CONTAINS
          CALL cp_fm_create(matrix_s2, fm_struct_tmp, name="matrix_s2")
          CALL cp_fm_struct_release(fm_struct_tmp)
          ALLOCATE (norms(k))
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, matrix_sc0, matrix_tmp, 0.0_dp, matrix_s1)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, matrix_sc0, matrix_tmp, 0.0_dp, matrix_s1)
          CALL choose_eigv_solver(matrix_s1, matrix_s2, norms)
          WRITE (*, *) "matrix norm deviation (should be close to zero): ", MAXVAL(ABS(ABS(norms) - 1.0_dp))
          DEALLOCATE (norms)
          CALL cp_fm_release(matrix_s1)
          CALL cp_fm_release(matrix_s2)
-      ENDIF
+      END IF
 
       ! 3) replace the lowest k evals and evecs with what they should be
       preconditioner_env%occ_evals = c0_evals
@@ -543,13 +550,12 @@ CONTAINS
    SUBROUTINE make_full_all_ortho(preconditioner_env, matrix_c0, matrix_h, c0_evals, energy_gap)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_c0
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_c0
       TYPE(dbcsr_type), POINTER                          :: matrix_h
       REAL(KIND=dp), DIMENSION(:), POINTER               :: c0_evals
       REAL(KIND=dp)                                      :: energy_gap
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_all_ortho', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_all_ortho'
       REAL(KIND=dp), PARAMETER                           :: fudge_factor = 0.25_dp, &
                                                             lambda_base = 10.0_dp
 
@@ -557,19 +563,23 @@ CONTAINS
       REAL(KIND=dp)                                      :: error_estimate, lambda
       REAL(KIND=dp), DIMENSION(:), POINTER               :: diag, norms, shifted_evals
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: matrix_hc0, matrix_left, matrix_pre, &
-                                                            matrix_s1, matrix_s2, matrix_sc0, &
-                                                            matrix_tmp
+      TYPE(cp_fm_type)                                   :: matrix_hc0, matrix_left, matrix_s1, &
+                                                            matrix_s2, matrix_sc0, matrix_tmp
+      TYPE(cp_fm_type), POINTER                          :: matrix_pre
 
       CALL timeset(routineN, handle)
 
-      IF (ASSOCIATED(preconditioner_env%fm)) CALL cp_fm_release(preconditioner_env%fm)
+      IF (ASSOCIATED(preconditioner_env%fm)) THEN
+         CALL cp_fm_release(preconditioner_env%fm)
+         DEALLOCATE (preconditioner_env%fm)
+         NULLIFY (preconditioner_env%fm)
+      END IF
       CALL cp_fm_get_info(matrix_c0, nrow_global=n, ncol_global=k)
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=n, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
+      ALLOCATE (preconditioner_env%fm)
       CALL cp_fm_create(preconditioner_env%fm, fm_struct_tmp, name="preconditioner_env%fm")
-      matrix_pre => preconditioner_env%fm
       CALL cp_fm_create(matrix_tmp, fm_struct_tmp, name="matrix_tmp")
       CALL cp_fm_struct_release(fm_struct_tmp)
       ALLOCATE (preconditioner_env%full_evals(n))
@@ -593,7 +603,7 @@ CONTAINS
       CALL cp_fm_create(matrix_s1, fm_struct_tmp, name="matrix_s1")
       CALL cp_fm_struct_release(fm_struct_tmp)
       ! since we only use diagonal elements this is a bit of a waste
-      CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, matrix_hc0, matrix_hc0, 0.0_dp, matrix_s1)
+      CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, matrix_hc0, matrix_hc0, 0.0_dp, matrix_s1)
       ALLOCATE (diag(k))
       CALL cp_fm_get_diag(matrix_s1, diag)
       error_estimate = MAXVAL(SQRT(ABS(diag - c0_evals**2)))
@@ -605,19 +615,20 @@ CONTAINS
       ! aggressively
       preconditioner_env%energy_gap = MAX(energy_gap, error_estimate*fudge_factor)
 
+      matrix_pre => preconditioner_env%fm
       CALL copy_dbcsr_to_fm(matrix_h, matrix_tmp)
       CALL cp_fm_upper_to_full(matrix_tmp, matrix_pre)
       ! tmp = H ( 1 - PS )
-      CALL cp_gemm('N', 'T', n, n, k, -1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'T', n, n, k, -1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=k, ncol_global=n, &
                                context=preconditioner_env%ctxt, &
                                para_env=preconditioner_env%para_env)
       CALL cp_fm_create(matrix_left, fm_struct_tmp, name="matrix_left")
       CALL cp_fm_struct_release(fm_struct_tmp)
-      CALL cp_gemm('T', 'N', k, n, n, 1.0_dp, matrix_c0, matrix_tmp, 0.0_dp, matrix_left)
+      CALL parallel_gemm('T', 'N', k, n, n, 1.0_dp, matrix_c0, matrix_tmp, 0.0_dp, matrix_left)
       ! tmp = (1 - PS)^T H (1-PS)
-      CALL cp_gemm('N', 'N', n, n, k, -1.0_dp, matrix_sc0, matrix_left, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'N', n, n, k, -1.0_dp, matrix_sc0, matrix_left, 1.0_dp, matrix_tmp)
       CALL cp_fm_release(matrix_left)
 
       ALLOCATE (shifted_evals(k))
@@ -625,7 +636,7 @@ CONTAINS
       shifted_evals = c0_evals - lambda
       CALL cp_fm_to_fm(matrix_sc0, matrix_hc0)
       CALL cp_fm_column_scale(matrix_hc0, shifted_evals)
-      CALL cp_gemm('N', 'T', n, n, k, 1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
+      CALL parallel_gemm('N', 'T', n, n, k, 1.0_dp, matrix_hc0, matrix_sc0, 1.0_dp, matrix_tmp)
 
       ! 2) diagonalize this operator
       CALL choose_eigv_solver(matrix_tmp, matrix_pre, preconditioner_env%full_evals)
@@ -640,14 +651,14 @@ CONTAINS
          CALL cp_fm_create(matrix_s2, fm_struct_tmp, name="matrix_s2")
          CALL cp_fm_struct_release(fm_struct_tmp)
          ALLOCATE (norms(k))
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, matrix_sc0, matrix_tmp, 0.0_dp, matrix_s1)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, matrix_sc0, matrix_tmp, 0.0_dp, matrix_s1)
          CALL choose_eigv_solver(matrix_s1, matrix_s2, norms)
 
          WRITE (*, *) "matrix norm deviation (should be close to zero): ", MAXVAL(ABS(ABS(norms) - 1.0_dp))
          DEALLOCATE (norms)
          CALL cp_fm_release(matrix_s1)
          CALL cp_fm_release(matrix_s2)
-      ENDIF
+      END IF
 
       ! 3) replace the lowest k evals and evecs with what they should be
       preconditioner_env%occ_evals = c0_evals
@@ -670,7 +681,7 @@ CONTAINS
 !>        H is the Kohn Sham matrix
 !>        lambda*S shifts the spectrum of the generalized form up by lambda
 !>        the last term only shifts the occupied space (reversing them in energy order)
-!>        This form is implicitely multiplied from both sides by S^0.5
+!>        This form is implicitly multiplied from both sides by S^0.5
 !>        This ensures we precondition the correct quantity
 !>        Before this reads S^-0.5 H S^-0.5 + lambda + (S^0.5 C)shifts(S^0.5 C)T
 !>        which might be a bit more obvious
@@ -683,13 +694,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_full_single_inverse(preconditioner_env, matrix_c0, matrix_h, energy_gap, matrix_s)
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_c0
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_c0
       TYPE(dbcsr_type), POINTER                          :: matrix_h
       REAL(KIND=dp)                                      :: energy_gap
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_single_inverse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_single_inverse'
 
       INTEGER                                            :: handle, k, n
       REAL(KIND=dp)                                      :: max_ev, min_ev, pre_shift

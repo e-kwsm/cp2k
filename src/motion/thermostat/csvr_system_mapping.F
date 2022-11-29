@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,7 +20,7 @@ MODULE csvr_system_mapping
         do_thermo_communication, do_thermo_no_communication, do_thermo_only_master, &
         isokin_ensemble, langevin_ensemble, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        nve_ensemble, nvt_ensemble, reftraj_ensemble
+        npt_ia_ensemble, nve_ensemble, nvt_ensemble, reftraj_ensemble
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_sum
    USE molecule_kind_types,             ONLY: molecule_kind_type
@@ -53,27 +55,24 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(csvr_system_type), POINTER                    :: csvr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'csvr_to_barostat_mapping', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ndeg
       TYPE(map_info_type), POINTER                       :: map_info
 
       SELECT CASE (simpar%ensemble)
       CASE DEFAULT
          CPABORT('Never reach this point!')
-      CASE (npt_i_ensemble, npt_f_ensemble)
+      CASE (npt_i_ensemble, npt_f_ensemble, npt_ia_ensemble)
          map_info => csvr%map_info
          map_info%dis_type = do_thermo_only_master
 
-         ! Counting the total number of thermostats ( 1 for both NPT_I and NPT_F )
+         ! Counting the total number of thermostats ( 1 for NPT_I, NPT_IA, and NPT_F )
          csvr%loc_num_csvr = 1
          csvr%glob_num_csvr = 1
          IF (simpar%ensemble == npt_f_ensemble) THEN
             ndeg = 9
          ELSE
             ndeg = 1
-         ENDIF
+         END IF
 
          CALL init_baro_map_info(map_info, ndeg, csvr%loc_num_csvr)
          CALL csvr_thermo_create(csvr)
@@ -116,9 +115,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'csvr_to_particle_mapping', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imap, j, natoms_local, &
                                                             sum_of_thermostats
       INTEGER, DIMENSION(:), POINTER                     :: deg_of_freedom, massive_atom_list
@@ -132,7 +128,7 @@ CONTAINS
       CASE (nve_ensemble, isokin_ensemble, npe_f_ensemble, npe_i_ensemble, nph_uniaxial_ensemble, &
             nph_uniaxial_damped_ensemble, reftraj_ensemble, langevin_ensemble)
          CPABORT('Never reach this point!')
-      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble)
+      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble, npt_ia_ensemble)
 
          CALL setup_csvr_thermostat(csvr, thermostat_info, deg_of_freedom, &
                                     massive_atom_list, molecule_kind_set, local_molecules, molecule_set, &
@@ -209,9 +205,6 @@ CONTAINS
       TYPE(global_constraint_type), POINTER              :: gci
       LOGICAL, INTENT(IN), OPTIONAL                      :: shell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_csvr_thermostat', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: nkind, number, region
       LOGICAL                                            :: do_shell
       TYPE(map_info_type), POINTER                       :: map_info
@@ -262,9 +255,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'csvr_to_shell_mapping', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imap, j, nshell_local, &
                                                             sum_of_thermostats
       INTEGER, DIMENSION(:), POINTER                     :: deg_of_freedom, massive_shell_list
@@ -278,7 +268,8 @@ CONTAINS
       CASE (isokin_ensemble, nph_uniaxial_ensemble, &
             nph_uniaxial_damped_ensemble, reftraj_ensemble, langevin_ensemble)
          CPABORT('Never reach this point!')
-      CASE (nve_ensemble, npe_f_ensemble, npe_i_ensemble, nvt_ensemble, npt_i_ensemble, npt_f_ensemble)
+      CASE (nve_ensemble, npe_f_ensemble, npe_i_ensemble, nvt_ensemble, npt_i_ensemble, npt_f_ensemble, &
+            npt_ia_ensemble)
 
          CALL setup_csvr_thermostat(csvr, thermostat_info, deg_of_freedom, massive_shell_list, &
                                     molecule_kind_set, local_molecules, molecule_set, para_env, nshell_local, &

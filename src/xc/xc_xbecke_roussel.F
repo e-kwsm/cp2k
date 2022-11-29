@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -21,6 +23,10 @@ MODULE xc_xbecke_roussel
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi
+   USE xc_derivative_desc,              ONLY: &
+        deriv_laplace_rho, deriv_laplace_rhoa, deriv_laplace_rhob, deriv_norm_drho, &
+        deriv_norm_drhoa, deriv_norm_drhob, deriv_rho, deriv_rhoa, deriv_rhob, deriv_tau, &
+        deriv_tau_a, deriv_tau_b
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -86,9 +92,6 @@ CONTAINS
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lda_info', &
-         routineP = moduleN//':'//routineN
-
       CALL cite_reference(BeckeRoussel1989)
       CALL cite_reference(Proynov2007)
       IF (PRESENT(reference)) THEN
@@ -126,9 +129,6 @@ CONTAINS
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lsd_info', &
-         routineP = moduleN//':'//routineN
-
       CALL cite_reference(BeckeRoussel1989)
       CALL cite_reference(Proynov2007)
       IF (PRESENT(reference)) THEN
@@ -154,7 +154,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param br_params parameters for the becke roussel functional
@@ -163,31 +163,25 @@ CONTAINS
 !> \author mguidon
 ! **************************************************************************************************
    SUBROUTINE xbecke_roussel_lda_eval(rho_set, deriv_set, grad_deriv, br_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: grad_deriv
       TYPE(section_vals_type), POINTER                   :: br_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lda_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lda_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(dp)                                           :: gamma, R, sx
       REAL(kind=dp)                                      :: epsilon_rho
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_laplace_rho, e_ndrho, &
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_laplace_rho, e_ndrho, &
                                                             e_rho, e_tau, laplace_rho, norm_drho, &
                                                             rho, tau
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rho=rho, norm_drho=norm_drho, &
                           tau=tau, laplace_rho=laplace_rho, local_bounds=bo, &
                           rho_cutoff=epsilon_rho)
@@ -202,21 +196,21 @@ CONTAINS
       e_laplace_rho => dummy
 
       IF (grad_deriv >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (grad_deriv >= 1 .OR. grad_deriv == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
-         deriv => xc_dset_get_derivative(deriv_set, "(tau)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_tau], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_tau)
-         deriv => xc_dset_get_derivative(deriv_set, "(laplace_rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_laplace_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_laplace_rho)
       END IF
@@ -260,14 +254,14 @@ CONTAINS
 !> \param e_ndrho energies and derivatives
 !> \param e_tau energies and derivatives
 !> \param e_laplace_rho energies and derivatives
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param npoints size of the grids
 !> \param epsilon_rho cutoffs
 !> \param sx scales the exchange potential and energies
 !> \param R cutoff Radius for truncated case
-!> \param gamma paramter from original publication, usually set to 1
+!> \param gamma parameter from original publication, usually set to 1
 !> \par History
 !>        12.2008 created [mguidon]
 !> \author mguidon
@@ -280,9 +274,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: e_laplace_rho, e_tau, e_ndrho, e_rho, e_0
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(in)    :: tau, laplace_rho, norm_drho, rho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R, gamma
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lda_calc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(dp)                                           :: e_diff, e_old, my_laplace_rho, my_ndrho, &
@@ -360,7 +351,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param br_params parameters for the becke roussel functional
@@ -369,31 +360,24 @@ CONTAINS
 !> \author mguidon
 ! **************************************************************************************************
    SUBROUTINE xbecke_roussel_lsd_eval(rho_set, deriv_set, grad_deriv, br_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: grad_deriv
       TYPE(section_vals_type), POINTER                   :: br_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lsd_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lsd_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(dp)                                           :: gamma, R, sx
       REAL(kind=dp)                                      :: epsilon_rho
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER :: dummy, e_0, e_laplace_rhoa, e_laplace_rhob, &
-         e_ndrhoa, e_ndrhob, e_rhoa, e_rhob, e_tau_a, e_tau_b, laplace_rhoa, laplace_rhob, &
-         norm_drhoa, norm_drhob, rhoa, rhob, tau_a, tau_b
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER :: dummy, e_0, e_laplace_rhoa, &
+         e_laplace_rhob, e_ndrhoa, e_ndrhob, e_rhoa, e_rhob, e_tau_a, e_tau_b, laplace_rhoa, &
+         laplace_rhob, norm_drhoa, norm_drhob, rhoa, rhob, tau_a, tau_b
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rhoa=rhoa, rhob=rhob, norm_drhoa=norm_drhoa, &
                           norm_drhob=norm_drhob, tau_a=tau_a, tau_b=tau_b, laplace_rhoa=laplace_rhoa, &
                           laplace_rhob=laplace_rhob, local_bounds=bo, &
@@ -413,36 +397,36 @@ CONTAINS
       e_laplace_rhob => dummy
 
       IF (grad_deriv >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (grad_deriv >= 1 .OR. grad_deriv == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhob)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrhob)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(tau_a)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_tau_a], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_tau_a)
-         deriv => xc_dset_get_derivative(deriv_set, "(tau_b)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_tau_b], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_tau_b)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(laplace_rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_laplace_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_laplace_rhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(laplace_rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_laplace_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_laplace_rhob)
       END IF
@@ -492,14 +476,14 @@ CONTAINS
 !> \param e_ndrho energies and derivatives
 !> \param e_tau energies and derivatives
 !> \param e_laplace_rho energies and derivatives
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param npoints size of the grids
 !> \param epsilon_rho cutoffs
 !> \param sx scales the exchange potential and energies
 !> \param R cutoff Radius for truncated case
-!> \param gamma paramter from original publication, usually set to 1
+!> \param gamma parameter from original publication, usually set to 1
 !> \par History
 !>        12.2008 created [mguidon]
 !> \author mguidon
@@ -512,9 +496,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: e_laplace_rho, e_tau, e_ndrho, e_rho, e_0
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(in)    :: tau, laplace_rho, norm_drho, rho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R, gamma
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xbecke_roussel_lsd_calc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(dp)                                           :: my_laplace_rho, my_ndrho, my_rho, &
@@ -596,9 +577,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: e_0, e_rho, e_ndrho, e_tau, e_laplace_rho
       REAL(dp), INTENT(IN)                               :: sx, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_lte_0', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: t1, t100, t101, t102, t108, t111, t113, t114, t117, t118, t120, t121, t122, &
          t129, t130, t134, t135, t138, t142, t143, t146, t147, t150, t152, t153, t157, t158, t16, &
@@ -843,9 +821,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: e_0, e_rho, e_ndrho, e_tau, e_laplace_rho
       REAL(dp), INTENT(IN)                               :: sx, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_gt_0', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: t1, t102, t103, t104, t106, t107, t108, t109, t110, t111, t112, t115, t117, &
          t124, t131, t134, t137, t138, t142, t143, t154, t157, t158, t159, t16, t160, t162, t165, &
@@ -1105,9 +1080,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_lte_0_cutoff', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: brval, t1, t101, t11, t12, t18, t2, t20, &
                                                             t24, t25, t26, t3, t31, t33, t36, t38, &
                                                             t4, t41, t43, t47, t50, t54, t56, t6, &
@@ -1191,9 +1163,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: e_0, e_rho, e_ndrho, e_tau, e_laplace_rho
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_lte_0_cutoff_R_gt_b', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: t1, t10, t100, t101, t102, t103, t104, t106, t108, t109, t110, t114, t117, &
          t119, t120, t123, t124, t129, t132, t134, t135, t138, t139, t141, t142, t143, t149, t150, &
@@ -1533,9 +1502,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_lte_0_cutoff_R_lte_b', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp) :: t1, t10, t100, t101, t102, t103, t104, t106, t108, t109, t110, t111, t113, &
          t115, t116, t118, t119, t121, t123, t128, t131, t133, t134, t137, t138, t140, t141, t143, &
          t146, t153, t154, t157, t159, t16, t160, t163, t167, t168, t17, t171, t172, t175, t177, &
@@ -1872,9 +1838,6 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_gt_0_cutoff', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp) :: brval, t1, t10, t103, t104, t11, t111, t116, t14, t15, t2, t21, t25, t26, &
          t28, t3, t31, t33, t37, t4, t44, t45, t46, t5, t50, t56, t58, t6, t62, t65, t69, t71, &
          t75, t77, t8, t81, t84, t85, t9
@@ -1964,9 +1927,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: e_0, e_rho, e_ndrho, e_tau, e_laplace_rho
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_gt_0_cutoff_R_gt_b', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: t1, t100, t101, t102, t103, t104, t105, t106, t108, t109, t110, t111, t112, &
          t114, t115, t116, t117, t118, t119, t12, t121, t123, t124, t125, t129, t13, t132, t134, &
@@ -2318,9 +2278,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: e_0, e_rho, e_ndrho, e_tau, e_laplace_rho
       REAL(dp), INTENT(IN)                               :: sx, R, gamma
       INTEGER, INTENT(IN)                                :: grad_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_br_lsd_y_gt_0_cutoff_R_lte_b', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: t1, t100, t101, t102, t103, t104, t105, t106, t108, t109, t110, t111, t112, &
          t114, t115, t116, t117, t118, t119, t12, t121, t123, t124, t125, t126, t128, t13, t130, &

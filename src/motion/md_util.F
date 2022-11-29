@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -53,7 +55,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: md_section, root_section
       LOGICAL, INTENT(IN)                                :: forced_io
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'md_output', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'md_output'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: do_print
@@ -101,9 +103,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: dof
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: eigenvalues
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: eigenvectors
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_vib_eigs_unformatted', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER                                            :: jj, n_rep_val, unit_nr

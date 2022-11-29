@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,9 +49,6 @@ CONTAINS
    SUBROUTINE allocate_mixed_energy(mixed_energy)
       TYPE(mixed_energy_type), POINTER                   :: mixed_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_mixed_energy', &
-         routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(mixed_energy)) THEN
          ALLOCATE (mixed_energy)
       END IF
@@ -66,9 +65,6 @@ CONTAINS
    SUBROUTINE deallocate_mixed_energy(mixed_energy)
       TYPE(mixed_energy_type), POINTER                   :: mixed_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_mixed_energy', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(mixed_energy)) THEN
          DEALLOCATE (mixed_energy)
       END IF
@@ -80,9 +76,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_mixed_energy(mixed_energy)
       TYPE(mixed_energy_type), POINTER                   :: mixed_energy
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_mixed_energy', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(mixed_energy)) THEN
          mixed_energy%pot = 0.0_dp

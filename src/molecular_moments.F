@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -51,7 +53,7 @@ MODULE molecular_moments
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               qs_kind_type
-   USE qs_loc_types,                    ONLY: qs_loc_env_new_type
+   USE qs_loc_types,                    ONLY: qs_loc_env_type
    USE qs_moments,                      ONLY: build_local_moment_matrix
 #include "./base/base_uses.f90"
 
@@ -78,13 +80,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_molecular_moments(qs_env, qs_loc_env, mo_local, loc_print_key, molecule_set)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), INTENT(IN)              :: qs_loc_env
+      TYPE(qs_loc_env_type), INTENT(IN)                  :: qs_loc_env
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_local
       TYPE(section_vals_type), POINTER                   :: loc_print_key
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_molecular_moments', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: akind, first_atom, i, iatom, ikind, imol, imol_now, iounit, iproc, ispin, j, lx, &
          ly, lz, molkind, n, n1, n2, natom, ncol_global, nm, nmol, nmols, norder, nrow_global, ns, &
@@ -92,7 +91,7 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: states
       INTEGER, DIMENSION(2)                              :: nstates
       LOGICAL                                            :: floating, ghost
-      REAL(KIND=dp)                                      :: zeff, zwfc
+      REAL(KIND=dp)                                      :: zeff, zmom, zwfc
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: charge_set
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: moment_set
       REAL(KIND=dp), DIMENSION(3)                        :: rcc, ria
@@ -100,7 +99,7 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: mo_localized, momv, mvector, omvector
+      TYPE(cp_fm_type)                                   :: momv, mvector, omvector
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, moments
@@ -154,7 +153,7 @@ CONTAINS
                   nstates(1) = molecule_set(imol)%lmi(ispin)%nstates
                ELSE
                   nstates(1) = 0
-               ENDIF
+               END IF
                nstates(2) = para_env%mepos
                CALL mp_maxloc(nstates, para_env%group)
                IF (nstates(1) == 0) CYCLE
@@ -168,19 +167,20 @@ CONTAINS
                END IF
                CALL mp_bcast(states, iproc, para_env%group)
                ! assemble local states for this molecule
-               mo_localized => mo_local(ispin)%matrix
-               CALL cp_fm_get_info(mo_localized, ncol_global=ncol_global, nrow_global=nrow_global)
-               CALL cp_fm_struct_create(fm_struct, nrow_global=nrow_global, ncol_global=ns, &
-                                        para_env=mo_localized%matrix_struct%para_env, &
-                                        context=mo_localized%matrix_struct%context)
-               CALL cp_fm_create(mvector, fm_struct, name="mvector")
-               CALL cp_fm_create(omvector, fm_struct, name="omvector")
-               CALL cp_fm_create(momv, fm_struct, name="omvector")
-               CALL cp_fm_struct_release(fm_struct)
-               !
-               DO i = 1, ns
-                  CALL cp_fm_to_fm(mo_localized, mvector, 1, states(i), i)
-               END DO
+               ASSOCIATE (mo_localized => mo_local(ispin)%matrix)
+                  CALL cp_fm_get_info(mo_localized, ncol_global=ncol_global, nrow_global=nrow_global)
+                  CALL cp_fm_struct_create(fm_struct, nrow_global=nrow_global, ncol_global=ns, &
+                                           para_env=mo_localized%matrix_struct%para_env, &
+                                           context=mo_localized%matrix_struct%context)
+                  CALL cp_fm_create(mvector, fm_struct, name="mvector")
+                  CALL cp_fm_create(omvector, fm_struct, name="omvector")
+                  CALL cp_fm_create(momv, fm_struct, name="omvector")
+                  CALL cp_fm_struct_release(fm_struct)
+                  !
+                  DO i = 1, ns
+                     CALL cp_fm_to_fm(mo_localized, mvector, 1, states(i), i)
+                  END DO
+               END ASSOCIATE
                DO i = 1, nm
                   CALL cp_dbcsr_sm_fm_multiply(moments(i)%matrix, mvector, omvector, ns)
                   CALL cp_fm_schur_product(mvector, omvector, momv)
@@ -226,7 +226,7 @@ CONTAINS
                   ns = SIZE(molecule_set(imol_now)%lmi(ispin)%states)
                   charge_set(imol_now) = charge_set(imol_now) - zwfc*ns
                END IF
-            ENDDO
+            END DO
             !
             IF (norder > 0) THEN
                ! nuclear contribution
@@ -243,8 +243,11 @@ CONTAINS
                         CALL get_qs_kind(qs_kind_set(akind), core_charge=zeff)
                         ria = particle_set(j)%r - rcc
                         ria = pbc(ria, cell)
-                        moment_set(i, imol_now) = moment_set(i, imol_now) + &
-                                                  zeff*ria(1)**lx*ria(2)**ly*ria(3)**lz
+                        zmom = zeff
+                        IF (lx /= 0) zmom = zmom*ria(1)**lx
+                        IF (ly /= 0) zmom = zmom*ria(2)**ly
+                        IF (lz /= 0) zmom = zmom*ria(3)**lz
+                        moment_set(i, imol_now) = moment_set(i, imol_now) + zmom
                      END IF
                   END DO
                END DO
@@ -264,8 +267,8 @@ CONTAINS
                n2 = ncoset(n) - 1
                WRITE (UNIT=iounit, FMT='(T4,A,I2,10(T16,6F12.6))') "Order:", n, moment_set(n1:n2, i)
             END DO
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       CALL cp_print_key_finished_output(iounit, logger, loc_print_key, &
                                         "MOLECULAR_MOMENTS")
 

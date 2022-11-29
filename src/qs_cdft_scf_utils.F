@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -63,9 +65,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER                                            :: output_unit, nwork, pwork
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: coeff, step_multiplier, dh
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'prepare_jacobian_stencil', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=15)                                  :: fmt_code
       INTEGER                                            :: ivar
@@ -206,9 +205,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL                                            :: used_history
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_diagonal_jacobian', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ihistory, nvar, outer_scf_ihistory
       LOGICAL                                            :: use_md_history
       REAL(KIND=dp)                                      :: inv_error
@@ -287,9 +283,6 @@ CONTAINS
    SUBROUTINE restart_inverse_jacobian(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restart_inverse_jacobian', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iwork, j, nvar
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: inv_jacobian
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
@@ -335,9 +328,6 @@ CONTAINS
          POINTER                                         :: inv_jacobian
       INTEGER                                            :: iter_count
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_inverse_jacobian', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_path_length)                 :: project_name
       INTEGER                                            :: i, j, lp, nvar, output_unit
 
@@ -376,9 +366,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: output_unit
       TYPE(cp_logger_type), INTENT(OUT), POINTER         :: tmp_logger
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_tmp_logger', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: lp
 
       IF (para_env%ionode) THEN
@@ -413,9 +400,6 @@ CONTAINS
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       LOGICAL                                            :: explicit_jacobian, should_build, &
                                                             used_history
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_inverse_jacobian', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(scf_control))
       CPASSERT(ASSOCIATED(scf_env))

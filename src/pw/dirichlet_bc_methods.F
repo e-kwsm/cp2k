@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,7 +25,6 @@ MODULE dirichlet_bc_methods
    USE mathconstants,                   ONLY: pi,&
                                               twopi
    USE mathlib,                         ONLY: inv_3x3,&
-                                              matvec_3x3,&
                                               vector_product
    USE message_passing,                 ONLY: mp_max,&
                                               mp_sum
@@ -73,8 +74,7 @@ CONTAINS
       TYPE(dirichlet_bc_p_type), DIMENSION(:), &
          INTENT(INOUT), POINTER                          :: dbcs
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dirichlet_boundary_region_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dirichlet_boundary_region_setup'
 
       INTEGER :: apx_type, dbc_id, handle, ind_end, ind_start, j, l, n_aa_cuboidal, &
          n_aa_cylindrical, n_aa_planar, n_dbcs, n_planar, parallel_axis, parallel_plane, unit_nr
@@ -99,7 +99,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       dr = pw_pool%pw_grid%dr
       npts = pw_pool%pw_grid%npts
@@ -291,8 +291,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: is_periodic, verbose
       TYPE(dirichlet_bc_type), INTENT(INOUT), POINTER    :: dirichlet_bc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dirichlet_bc_partition', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dirichlet_bc_partition'
 
       INTEGER                                            :: handle, i, k, n_tiles, unit_nr
       REAL(dp)                                           :: cyl_maxval, tile_volume
@@ -308,7 +307,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       SELECT CASE (dirichlet_bc%dbc_geom)
       CASE (PLANAR)
@@ -323,6 +322,7 @@ CONTAINS
          ALLOCATE (tile_maxvals(n_tiles))
          tile_maxvals = 0.0_dp
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -354,10 +354,13 @@ CONTAINS
          dirichlet_bc%tiles = tiles
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T7,A,I5)') "number of partitions : ", n_tiles
 
+         NULLIFY (cylinder_pw)
+         ALLOCATE (cylinder_pw)
          CALL pw_pool_create_pw(pw_pool, cylinder_pw, use_data=REALDATA3D, in_space=REALSPACE)
          CALL pw_zero(cylinder_pw)
 
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -387,6 +390,7 @@ CONTAINS
          END IF
 
          CALL pw_pool_give_back_pw(pw_pool, cylinder_pw)
+         DEALLOCATE (cylinder_pw)
 
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T3,A)') REPEAT('=', 78)
 
@@ -402,6 +406,7 @@ CONTAINS
          IF ((unit_nr .GT. 0) .AND. verbose) WRITE (unit_nr, '(T7,A,I5)') "number of partitions : ", n_tiles
 
          DO k = 1, n_tiles
+            ALLOCATE (dirichlet_bc%tiles(k)%tile%tile_pw)
             CALL pw_pool_create_pw(pw_pool, dirichlet_bc%tiles(k)%tile%tile_pw, use_data=REALDATA3D, in_space=REALSPACE)
             CALL pw_zero(dirichlet_bc%tiles(k)%tile%tile_pw)
 
@@ -462,8 +467,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: verbose
       TYPE(dirichlet_bc_type), INTENT(INOUT), POINTER    :: dirichlet_bc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_planar_dbc_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_planar_dbc_setup'
       LOGICAL, DIMENSION(6), PARAMETER                   :: test_forb_xtnts = .TRUE.
 
       INTEGER                                            :: handle, i, n_forb_xtnts, unit_nr
@@ -479,7 +483,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       xlb = x_xtnt(1); xub = x_xtnt(2)
       ylb = y_xtnt(1); yub = y_xtnt(2)
@@ -568,8 +572,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: verbose
       TYPE(dirichlet_bc_type), INTENT(INOUT), POINTER    :: dirichlet_bc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_cuboidal_dbc_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_cuboidal_dbc_setup'
       LOGICAL, DIMENSION(6), PARAMETER                   :: test_forb_xtnts = .TRUE.
 
       INTEGER                                            :: handle, i, n_forb_xtnts, unit_nr
@@ -584,7 +587,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       forb_xtnt1 = x_xtnt(1) .LT. cell_xtnts(1, 1)
       forb_xtnt2 = x_xtnt(2) .GT. cell_xtnts(2, 1)
@@ -660,8 +663,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: verbose
       TYPE(dirichlet_bc_type), INTENT(INOUT), POINTER    :: dirichlet_bc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_planar_dbc_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_planar_dbc_setup'
 
       INTEGER                                            :: handle, i, unit_nr
       LOGICAL                                            :: A_is_inside, are_coplanar, &
@@ -679,7 +681,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       D = A + (C - B)
       AB = B - A; AC = C - A; AD = D - A; BC = C - B
@@ -808,8 +810,7 @@ CONTAINS
       TYPE(dirichlet_bc_p_type), DIMENSION(:), &
          INTENT(INOUT)                                   :: dbcs
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_cylindrical_dbc_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_cylindrical_dbc_setup'
 
       INTEGER                                            :: handle, i, intern_apx_type, j, n_dbcs, &
                                                             unit_nr
@@ -829,7 +830,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       Lx = cell_xtnts(2, 1) - cell_xtnts(1, 1)
       Ly = cell_xtnts(2, 2) - cell_xtnts(1, 2)
@@ -1090,8 +1091,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: N
       REAL(dp), DIMENSION(N)                             :: arr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'linspace', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(dp)                                           :: dx
 
@@ -1117,8 +1116,7 @@ CONTAINS
       REAL(dp), DIMENSION(3), INTENT(OUT)                :: Tpnt
       REAL(dp), DIMENSION(3, 8), INTENT(OUT)             :: cuboid_transfd_vtx
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rotate_translate_cuboid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'rotate_translate_cuboid'
 
       INTEGER                                            :: handle
       REAL(dp), DIMENSION(3)                             :: A, A2, AA2, AB, AD, B, B2, C, C2, D, D2, &
@@ -1186,14 +1184,14 @@ CONTAINS
       Tpoint = 0.0_dp
 
       IF (direction .EQ. FWROT) THEN
-         CALL matvec_3x3(vec_tmp, Rmat, vec)
+         vec_tmp = MATMUL(Rmat, vec)
          vec_transfd = vec_tmp + Tp
       ELSEIF (direction .EQ. BWROT) THEN
          Rmat_inv = inv_3x3(Rmat)
          Tpoint(1) = Rmat_inv(1, 1)*Tp(1) + Rmat_inv(1, 2)*Tp(2) + Rmat_inv(1, 3)*Tp(3)
          Tpoint(2) = Rmat_inv(2, 1)*Tp(1) + Rmat_inv(2, 2)*Tp(2) + Rmat_inv(2, 3)*Tp(3)
          Tpoint(3) = Rmat_inv(3, 1)*Tp(1) + Rmat_inv(3, 2)*Tp(2) + Rmat_inv(3, 3)*Tp(3)
-         CALL matvec_3x3(vec_tmp, Rmat_inv, vec)
+         vec_tmp = MATMUL(Rmat_inv, vec)
          vec_transfd = vec_tmp - Tpoint
       END IF
 
@@ -1216,8 +1214,7 @@ CONTAINS
       TYPE(tile_p_type), DIMENSION(:), INTENT(OUT), &
          POINTER                                         :: tiles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_dbc_partition', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'aa_dbc_partition'
 
       INTEGER                                            :: handle, i, ii, jj, k, kk
       REAL(dp)                                           :: step
@@ -1244,7 +1241,7 @@ CONTAINS
       y_xtnt(1) = MINVAL(dbc_vertices(2, :)); y_xtnt(2) = MAXVAL(dbc_vertices(2, :))
       z_xtnt(1) = MINVAL(dbc_vertices(3, :)); z_xtnt(2) = MAXVAL(dbc_vertices(3, :))
 
-! devide the x, y and z extents into n_prtn partitions
+! divide the x, y and z extents into n_prtn partitions
       step = (x_xtnt(2) - x_xtnt(1))/REAL(n_prtn(1), kind=dp)
       xprtn_lb(:) = x_xtnt(1) + (/(i, i=0, n_prtn(1) - 1)/)*step ! lower bounds
       xprtn_ub(:) = x_xtnt(1) + (/(i, i=1, n_prtn(1))/)*step ! upper bounds
@@ -1300,8 +1297,7 @@ CONTAINS
       TYPE(tile_p_type), DIMENSION(:), INTENT(OUT), &
          POINTER                                         :: tiles
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_dbc_partition', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_dbc_partition'
 
       INTEGER                                            :: handle, i, k, l, np1, np2
       REAL(dp)                                           :: ABlength, ADlength, step, thickness
@@ -1406,8 +1402,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: is_periodic
       TYPE(pw_type), INTENT(INOUT), POINTER              :: tile_pw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_tile_pw_compute', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'aa_tile_pw_compute'
 
       INTEGER                                            :: handle, i, j, k, lb1, lb2, lb3, ub1, &
                                                             ub2, ub3
@@ -1509,8 +1504,7 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: sigma
       TYPE(pw_type), INTENT(INOUT), POINTER              :: tile_pw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_tile_pw_compute', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'arbitrary_tile_pw_compute'
 
       INTEGER                                            :: handle, i, j, k, lb1, lb2, lb3, ub1, &
                                                             ub2, ub3

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -36,7 +38,6 @@ MODULE cp2k_shell
                                               compile_revision,&
                                               cp2k_home,&
                                               cp2k_version,&
-                                              id_cp2k_version,&
                                               print_cp2k_license
    USE cp2k_runs,                       ONLY: run_input
    USE cp_files,                        ONLY: close_file,&
@@ -48,11 +49,9 @@ MODULE cp2k_shell
    USE f77_interface,                   ONLY: &
         calc_energy_force, calc_force, create_force_env, destroy_force_env, get_cell, get_energy, &
         get_force, get_natom, get_pos, get_stress_tensor, set_cell, set_pos
-   USE input_constants,                 ONLY: id_development_version
    USE input_cp2k_read,                 ONLY: empty_initial_variables
    USE input_section_types,             ONLY: section_type
    USE kinds,                           ONLY: default_path_length,&
-                                              default_string_length,&
                                               dp
    USE machine,                         ONLY: m_chdir,&
                                               m_flush,&
@@ -70,7 +69,7 @@ MODULE cp2k_shell
    PRIVATE
 
    ! Queried by ASE. Increase version after bug-fixing or behavior changes.
-   CHARACTER(LEN=*), PARAMETER                           :: CP2K_SHELL_VERSION = "4.0"
+   CHARACTER(LEN=*), PARAMETER                           :: CP2K_SHELL_VERSION = "6.0"
 
    TYPE cp2k_shell_type
       REAL(dp)                                           :: pos_fact = 1.0_dp
@@ -93,7 +92,7 @@ CONTAINS
    SUBROUTINE launch_cp2k_shell(input_declaration)
       TYPE(section_type), POINTER                        :: input_declaration
 
-      CHARACTER(LEN=default_string_length)               :: arg1, arg2, cmd
+      CHARACTER(LEN=default_path_length)                 :: arg1, arg2, cmd
       TYPE(cp2k_shell_type)                              :: shell
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -185,7 +184,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(out)                      :: cmd, arg1, arg2
       LOGICAL                                            :: success
 
-      CHARACTER(LEN=10*default_string_length)            :: line
+      CHARACTER(LEN=default_path_length)                 :: line
       INTEGER                                            :: i, iostat
 
       success = .TRUE.
@@ -208,7 +207,7 @@ CONTAINS
       line = TRIM(line)
       DO i = 1, LEN_TRIM(line)
          IF (line(i:i) == ' ') EXIT
-      ENDDO
+      END DO
       cmd = line(1:i)
       CALL uppercase(cmd)
       line = ADJUSTL(line(i:)) ! shift
@@ -216,14 +215,14 @@ CONTAINS
       ! extract first arg
       DO i = 1, LEN_TRIM(line)
          IF (line(i:i) == ' ') EXIT
-      ENDDO
+      END DO
       arg1 = line(1:i)
       line = ADJUSTL(line(i:)) ! shift
 
       ! extract second arg
       DO i = 1, LEN_TRIM(line)
          IF (line(i:i) == ' ') EXIT
-      ENDDO
+      END DO
       arg2 = line(1:i)
 
       ! ignore remaining line
@@ -249,11 +248,11 @@ CONTAINS
             shell%env_id = -1
             success = .FALSE.
             CALL print_error("parse_env_id failed", shell)
-         ENDIF
+         END IF
       ELSE IF (shell%env_id < 1) THEN
          CALL print_error("last env_id not set", shell)
          success = .FALSE.
-      ENDIF
+      END IF
       ! fallback: reuse last env_id
    END FUNCTION parse_env_id
 
@@ -273,7 +272,7 @@ CONTAINS
       success = condition
       IF (.NOT. success) THEN
          CALL print_error(message, shell)
-      ENDIF
+      END IF
    END FUNCTION my_assert
 
 ! **************************************************************************************************
@@ -358,8 +357,7 @@ CONTAINS
    SUBROUTINE info_license_command(shell)
       TYPE(cp2k_shell_type)                              :: shell
 
-      CHARACTER(LEN=default_path_length)                 :: cwd
-      CHARACTER(LEN=default_string_length)               :: dev_flag, host_name, user_name
+      CHARACTER(LEN=default_path_length)                 :: cwd, host_name, user_name
       INTEGER                                            :: pid
 
       IF (shell%iw > 0) THEN
@@ -367,8 +365,6 @@ CONTAINS
          CALL m_getpid(pid)
          CALL m_getlog(user_name)
          CALL m_hostnm(host_name)
-         dev_flag = ""
-         IF (id_cp2k_version == id_development_version) dev_flag = " (Development Version)"
          WRITE (UNIT=shell%iw, FMT="(A,A)") &
             " PROGRAM STARTED ON ", TRIM(host_name)
          WRITE (UNIT=shell%iw, FMT="(A,A)") &
@@ -379,7 +375,7 @@ CONTAINS
             " PROGRAM STARTED IN ", TRIM(cwd)
          WRITE (UNIT=shell%iw, FMT="(/,T2,A,T31,A50)") &
             "CP2K| version string: ", &
-            ADJUSTR(TRIM(cp2k_version)//TRIM(dev_flag))
+            ADJUSTR(TRIM(cp2k_version))
          WRITE (UNIT=shell%iw, FMT="(T2,A,T41,A40)") &
             "CP2K| source code revision number:", &
             ADJUSTR(compile_revision)
@@ -422,8 +418,7 @@ CONTAINS
    SUBROUTINE write_file_command(shell)
       TYPE(cp2k_shell_type)                              :: shell
 
-      CHARACTER(LEN=10*default_string_length)            :: line
-      CHARACTER(LEN=default_path_length)                 :: out_filename
+      CHARACTER(LEN=default_path_length)                 :: line, out_filename
       INTEGER                                            :: file_unit, i, iostat, n_lines
 
       IF (shell%iw > 0) THEN
@@ -481,7 +476,7 @@ CONTAINS
       IF (ierr /= 0) THEN
          shell%env_id = -1
          CALL print_error("create_force_env failed", shell)
-      ENDIF
+      END IF
    END SUBROUTINE bg_load_command
 
 ! **************************************************************************************************
@@ -563,7 +558,7 @@ CONTAINS
       TYPE(cp2k_shell_type)                              :: shell
       CHARACTER(LEN=*), INTENT(IN)                       :: arg1
 
-      CHARACTER(LEN=10*default_string_length)            :: line
+      CHARACTER(LEN=default_path_length)                 :: line
       INTEGER                                            :: i, ierr, iostat, n_atom
       REAL(KIND=dp)                                      :: max_change
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: old_pos, pos

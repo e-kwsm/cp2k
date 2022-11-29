@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE pao_input
@@ -198,7 +200,7 @@ CONTAINS
                                    i_rep_val=i, c_val=pao%ml_training_set(i)%fn)
          IF (pao%iw > 0) WRITE (pao%iw, "(A,T40,A,T71,A)") " PAO|", "MACHINE_LEARNING%TRAINING_SET", &
             TRIM(pao%ml_training_set(i)%fn)
-      ENDDO
+      END DO
 
       IF (pao%iw > 0) WRITE (pao%iw, *) "" ! an empty separator line
 
@@ -212,8 +214,6 @@ CONTAINS
    FUNCTION id2str(id) RESULT(s)
       INTEGER                                            :: id
       CHARACTER(LEN=10)                                  :: s
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'id2str', routineP = moduleN//':'//routineN
 
       SELECT CASE (id)
       CASE (pao_gth_param)
@@ -257,9 +257,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_pao_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_pao_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: printkey, subsection, subsubsection

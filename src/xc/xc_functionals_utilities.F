@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -58,100 +60,10 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief ...
-!> \param order ...
-!> \param m ...
-!> \param calc ...
-!> \param tag ...
-! **************************************************************************************************
-   SUBROUTINE setup_calculation(order, m, calc, tag)
-
-      INTEGER, INTENT(IN)                                :: order
-      INTEGER, INTENT(OUT)                               :: m(0:, :)
-      LOGICAL, INTENT(OUT)                               :: calc(0:)
-      INTEGER, INTENT(IN)                                :: tag
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_calculation', &
-         routineP = moduleN//':'//routineN
-
-      IF (ABS(order) > 3) &
-         CPABORT("Order of derivative too high")
-
-      SELECT CASE (tag)
-      CASE (100) ! LDA
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 2
-         m(2, 1) = 3
-         m(2, 2) = 3
-         m(3, 1) = 4
-         m(3, 2) = 4
-      CASE (110) ! GGA non-spin polarized
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 3
-         m(2, 1) = 4
-         m(2, 2) = 6
-         m(3, 1) = 7
-         m(3, 2) = 10
-      CASE (200) ! LSD no crossterms
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 3
-         m(2, 1) = 4
-         m(2, 2) = 5
-         m(3, 1) = 6
-         m(3, 2) = 7
-      CASE (201) ! LSD with crossterms
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 3
-         m(2, 1) = 4
-         m(2, 2) = 6
-         m(3, 1) = 7
-         m(3, 2) = 10
-      CASE (210) ! GGA spin-polarized, no crossterms
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 5
-         m(2, 1) = 6
-         m(2, 2) = 11
-         m(3, 1) = 12
-         m(3, 2) = 19
-      CASE (211) ! GGA spin-polarized, with crossterms
-         m(0, 1) = 1
-         m(0, 2) = 1
-         m(1, 1) = 2
-         m(1, 2) = 6
-         m(2, 1) = 7
-         m(2, 2) = 21
-         m(3, 1) = 22
-         m(3, 2) = 57
-      CASE DEFAULT
-         CPABORT("Invalid tag")
-      END SELECT
-
-      calc = .FALSE.
-      IF (order >= 0) THEN
-         calc(0:order) = .TRUE.
-      ELSE
-         calc(-order) = .TRUE.
-         m(0:3, 2) = m(0:3, 2) - m(0:3, 1) + 1
-         m(0:3, 1) = 1
-      END IF
-
-   END SUBROUTINE setup_calculation
-
-! **************************************************************************************************
-!> \brief ...
 !> \param rho ...
 !> \param rs ...
 ! **************************************************************************************************
-   SUBROUTINE calc_rs_single(rho, rs)
+   ELEMENTAL SUBROUTINE calc_rs_single(rho, rs)
 
 !   rs parameter : f*rho**(-1/3)
 
@@ -177,8 +89,6 @@ CONTAINS
 
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: rho
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: rs
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_rs_array', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: k
 
@@ -265,9 +175,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(*), INTENT(IN)            :: rho, grho
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_wave_vector', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip, n
       REAL(KIND=dp)                                      :: fac
 
@@ -278,7 +185,7 @@ CONTAINS
       IF (tag(1:1) == "u" .OR. tag(1:1) == "U") fac = fac*(2.0_dp)**f13
       IF (tag(1:1) == "r" .OR. tag(1:1) == "R") fac = fac*(2.0_dp)**f13
 
-      n = SIZE(s) !FM it was size(rho)
+      n = SIZE(s) !FM it was sizederiv_rho
       !FM IF ( n > SIZE(s) ) &
       !FM   CPABORT("Incompatible array sizes.")
       !FM IF ( n > SIZE(grho) ) &
@@ -317,8 +224,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(*), INTENT(IN)            :: rhoa, rhob
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: fx
       INTEGER, INTENT(IN)                                :: m
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_fx_array', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(KIND=dp)                                      :: rhoab, x
@@ -377,7 +282,7 @@ CONTAINS
 !> \param fx ...
 !> \param m ...
 ! **************************************************************************************************
-   SUBROUTINE calc_fx_single(rhoa, rhob, fx, m)
+   PURE SUBROUTINE calc_fx_single(rhoa, rhob, fx, m)
 
 !   spin interpolation function and derivatives
 !
@@ -431,7 +336,7 @@ CONTAINS
 !> \param z ...
 !> \param order ...
 ! **************************************************************************************************
-   SUBROUTINE calc_z(a, b, z, order)
+   PURE SUBROUTINE calc_z(a, b, z, order)
 
       REAL(KIND=dp), INTENT(IN)                          :: a, b
       REAL(KIND=dp), DIMENSION(0:, 0:), INTENT(OUT)      :: z

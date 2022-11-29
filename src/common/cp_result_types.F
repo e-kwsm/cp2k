@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -63,7 +65,7 @@ MODULE cp_result_types
 ! **************************************************************************************************
 !> \brief contains arbitrary information which need to be stored
 !> \note
-!>      result_list is a character list, in which everthing can be stored
+!>      result_list is a character list, in which everything can be stored
 !>      before passing any variable just name the variable like '[NAME]'
 !>      brackets will be used to identify the start of a new set
 !> \author fschiff (12.2007)
@@ -93,8 +95,7 @@ CONTAINS
    SUBROUTINE cp_result_create(results)
       TYPE(cp_result_type), POINTER                      :: results
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_result_create'
 
       INTEGER                                            :: handle
 
@@ -118,8 +119,7 @@ CONTAINS
    SUBROUTINE cp_result_release(results)
       TYPE(cp_result_type), POINTER                      :: results
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_result_release'
 
       INTEGER                                            :: handle, i
 
@@ -153,8 +153,7 @@ CONTAINS
    SUBROUTINE cp_result_clean(results)
       TYPE(cp_result_type), POINTER                      :: results
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_clean', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_result_clean'
 
       INTEGER                                            :: handle, i
 
@@ -185,9 +184,6 @@ CONTAINS
    SUBROUTINE cp_result_retain(results)
       TYPE(cp_result_type), POINTER                      :: results
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(results))
       CPASSERT(results%ref_count > 0)
       results%ref_count = results%ref_count + 1
@@ -201,8 +197,7 @@ CONTAINS
    SUBROUTINE cp_result_value_create(value)
       TYPE(cp_result_value_type), POINTER                :: value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_create'
 
       INTEGER                                            :: handle
 
@@ -226,8 +221,7 @@ CONTAINS
       TYPE(cp_result_value_type), POINTER                :: value
       INTEGER, INTENT(IN)                                :: type_in_use, size_value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_init'
 
       INTEGER                                            :: handle
 
@@ -256,8 +250,7 @@ CONTAINS
    SUBROUTINE cp_result_value_release(value)
       TYPE(cp_result_value_type), POINTER                :: value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_release'
 
       INTEGER                                            :: handle
 
@@ -300,7 +293,7 @@ CONTAINS
    SUBROUTINE cp_result_copy(results_in, results_out)
       TYPE(cp_result_type), POINTER                      :: results_in, results_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_copy', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_result_copy'
 
       INTEGER                                            :: handle, i, ndim
       LOGICAL                                            :: check
@@ -333,8 +326,7 @@ CONTAINS
    SUBROUTINE cp_result_value_copy(value_out, value_in)
       TYPE(cp_result_value_type), POINTER                :: value_out, value_in
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_copy', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_copy'
 
       INTEGER                                            :: handle, isize
 
@@ -374,8 +366,7 @@ CONTAINS
          POINTER                                         :: result_value
       INTEGER, INTENT(in)                                :: istart, iend
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_p_reallocate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_result_value_p_reallocate'
 
       INTEGER                                            :: handle, i, lb_size, ub_size
       TYPE(cp_result_value_p_type), DIMENSION(:), &

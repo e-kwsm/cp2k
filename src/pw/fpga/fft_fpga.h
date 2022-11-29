@@ -1,14 +1,16 @@
-/*****************************************************************************
- *  CP2K: A general program to perform molecular dynamics simulations        *
- *  Copyright (C) 2000 - 2020  CP2K developers group                         *
- *****************************************************************************/
+/*----------------------------------------------------------------------------*/
+/*  CP2K: A general program to perform molecular dynamics simulations         */
+/*  Copyright 2000-2022 CP2K developers group <https://cp2k.org>              */
+/*                                                                            */
+/*  SPDX-License-Identifier: GPL-2.0-or-later                                 */
+/*----------------------------------------------------------------------------*/
 
 #ifndef FFT_FPGA_H
 #define FFT_FPGA_H
-/******************************************************************************
- *  Authors: Arjun Ramaswami
- *****************************************************************************/
-#if defined ( __PW_FPGA )
+/*******************************************************************************
+ * \author Arjun Ramaswami
+ ******************************************************************************/
+#if defined(__PW_FPGA)
 
 typedef struct {
   double x;
@@ -21,9 +23,9 @@ typedef struct {
 } float2;
 
 #ifdef __PW_FPGA_SP
-    typedef float2 cmplx;
+typedef float2 cmplx;
 #else
-    typedef double2 cmplx;
+typedef double2 cmplx;
 #endif
 
 // Initialize FPGA

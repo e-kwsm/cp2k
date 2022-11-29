@@ -16,24 +16,24 @@
       EPS_SCF 1.e-10
       &MIXING
           METHOD DIRECT_P_MIXING
-          ALPHA   0.40
+          ALPHA   0.75
       &END
     &END SCF
   &END DFT
   &SUBSYS
     &CELL
-      ABC 40.0 40.0 40.0
+      ABC 10.0 10.0 10.0
     &END CELL
     &COORD
      UNIT bohr
-     H     0.000000    0.000000    0.000000     
-     H     1.360000    0.000000    0.000000    
+     H     0.000000    0.000000    0.000000
+     H     1.360000    0.000000    0.000000
     &END COORD
   &END SUBSYS
 &END FORCE_EVAL
 &GLOBAL
   PROJECT H2
-  RUN_TYPE DEBUG       
+  RUN_TYPE DEBUG
   PRINT_LEVEL LOW
 &END GLOBAL
 &DEBUG

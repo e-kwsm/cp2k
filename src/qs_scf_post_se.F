@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -8,10 +10,11 @@
 !> \par History
 !>      Started printing preliminary stuff for MO_CUBES and MO requires some
 !>      more work to complete all other functionalities
+!>      - Revise MO information printout (10.05.2021, MK)
 !> \author Teodoro Laino (07.2008)
 ! **************************************************************************************************
 MODULE qs_scf_post_se
-!
+
    USE ai_moments,                      ONLY: moment
    USE atomic_kind_types,               ONLY: atomic_kind_type,&
                                               get_atomic_kind
@@ -54,10 +57,10 @@ MODULE qs_scf_post_se
                                               qs_kind_type
    USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
    USE qs_ks_types,                     ONLY: qs_ks_did_change
-   USE qs_mo_io,                        ONLY: write_mo_set
-   USE qs_mo_types,                     ONLY: mo_set_p_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
+   USE qs_scf_output,                   ONLY: qs_scf_write_mos
+   USE qs_scf_types,                    ONLY: qs_scf_env_type
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
                                               qs_subsys_type
    USE semi_empirical_types,            ONLY: get_se_param,&
@@ -91,15 +94,12 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'scf_post_calculation_se', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'scf_post_calculation_se'
 
       INTEGER                                            :: handle, output_unit
       LOGICAL                                            :: explicit, my_localized_wfn
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_subsys_type), POINTER                      :: subsys
@@ -111,8 +111,7 @@ CONTAINS
       CALL write_available_results(qs_env)
 
       my_localized_wfn = .FALSE.
-      NULLIFY (dft_control, mos, rho, &
-               subsys, particles, input, print_key, para_env)
+      NULLIFY (rho, subsys, particles, input, print_key, para_env)
 
       logger => cp_get_default_logger()
       output_unit = cp_logger_get_default_io_unit(logger)
@@ -120,8 +119,6 @@ CONTAINS
       CPASSERT(ASSOCIATED(qs_env))
       ! Here we start with data that needs a postprocessing...
       CALL get_qs_env(qs_env, &
-                      dft_control=dft_control, &
-                      mos=mos, &
                       rho=rho, &
                       input=input, &
                       subsys=subsys, &
@@ -210,9 +207,6 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_post_moments', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: description, dipole_type
       COMPLEX(KIND=dp)                                   :: dzeta, zeta
       COMPLEX(KIND=dp), DIMENSION(3)                     :: dggamma, dzphase, ggamma, zphase
@@ -295,7 +289,7 @@ CONTAINS
          dipole_deriv = 0.0_dp
          dipole = 0.0_dp
          IF (do_berry) THEN
-            dipole_type = "[BERRY PHASE]"
+            dipole_type = "periodic (Berry phase)"
             rcc = pbc(rcc, cell)
             charge_tot = 0._dp
             charge_tot = SUM(ncharge)
@@ -324,7 +318,7 @@ CONTAINS
                      dggamma(j) = dggamma(j)*zeta + ggamma(j)*dzeta
                      ggamma(j) = ggamma(j)*zeta
                   END DO
-               ENDDO
+               END DO
             END DO
             dggamma = dggamma*zphase + ggamma*dzphase
             ggamma = ggamma*zphase
@@ -338,7 +332,7 @@ CONTAINS
                dipole_deriv = MATMUL(cell%hmat, dci)/twopi
             END IF
          ELSE
-            dipole_type = "[Non Periodic]"
+            dipole_type = "non-periodic"
             DO i = 1, natom
                ! no pbc(particle_set(i)%r(:),cell) so that the total dipole is the sum of the molecular dipoles
                ria = particle_set(i)%r(:)
@@ -379,9 +373,14 @@ CONTAINS
          CALL put_results(results=results, description=description, &
                           values=dipole(1:3))
          IF (unit_nr > 0) THEN
-            WRITE (unit_nr, '(1X,A,T48,3F11.6)') "DIPOLE "//TRIM(dipole_type)//"(A.U.)|", dipole
-            WRITE (unit_nr, '(1X,A,T48,3F11.6)') "DIPOLE "//TRIM(dipole_type)//"(Debye)|", dipole*debye
-            WRITE (unit_nr, '(1X,A,T48,3F11.6)') "DIPOLE "//TRIM(dipole_type)//" DERIVATIVE(A.U.)|", dipole_deriv
+            WRITE (unit_nr, '(/,T2,A,T31,A50)') &
+               'SE_DIPOLE| Dipole type', ADJUSTR(TRIM(dipole_type))
+            WRITE (unit_nr, '(T2,A,T30,3(1X,F16.8))') &
+               'SE_DIPOLE| Moment [a.u.]', dipole(1:3)
+            WRITE (unit_nr, '(T2,A,T30,3(1X,F16.8))') &
+               'SE_DIPOLE| Moment [Debye]', dipole(1:3)*debye
+            WRITE (unit_nr, '(T2,A,T30,3(1X,F16.8))') &
+               'SE_DIPOLE| Derivative [a.u.]', dipole_deriv(1:3)
          END IF
          CALL cp_print_key_finished_output(unit_nr, logger, print_key)
       END IF
@@ -396,8 +395,6 @@ CONTAINS
    SUBROUTINE atomic_moments(mom, basis_set)
       REAL(KIND=dp), DIMENSION(:, :, :)                  :: mom
       TYPE(gto_basis_set_type), POINTER                  :: basis_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atomic_moments', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iset, jset, ncoa, ncob, nm, nset, &
                                                             sgfa, sgfb
@@ -457,23 +454,19 @@ CONTAINS
 !> \param rho ...
 !> \param para_env ...
 ! **************************************************************************************************
-   SUBROUTINE qs_scf_post_charges(input, logger, qs_env, rho, &
-                                  para_env)
+   SUBROUTINE qs_scf_post_charges(input, logger, qs_env, rho, para_env)
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_post_charges', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: ana
       CHARACTER(LEN=default_string_length)               :: aname
       INTEGER                                            :: i, iat, iatom, ikind, j, nat, natom, &
                                                             natorb, nkind, nspin, unit_nr
       LOGICAL                                            :: found
-      REAL(KIND=dp)                                      :: zeff
+      REAL(KIND=dp)                                      :: npe, zeff
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: mcharge
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: charges
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: pblock
@@ -499,6 +492,7 @@ CONTAINS
          unit_nr = cp_print_key_unit_nr(logger, input, "DFT%PRINT%MULLIKEN", extension=".mulliken", log_filename=.FALSE.)
          CALL qs_rho_get(rho, rho_ao=matrix_p)
          nspin = SIZE(matrix_p)
+         npe = REAL(para_env%num_pe, KIND=dp)
          ALLOCATE (charges(natom, nspin), mcharge(natom))
          charges = 0.0_dp
          mcharge = 0.0_dp
@@ -519,7 +513,7 @@ CONTAINS
                      END DO
                   END IF
                END DO
-               mcharge(iat) = zeff - SUM(charges(iat, 1:nspin))
+               mcharge(iat) = zeff/npe - SUM(charges(iat, 1:nspin))
             END DO
          END DO
          !
@@ -533,8 +527,7 @@ CONTAINS
                   " # Atom   Element   Kind        Atomic population", " Net charge"
                DO ikind = 1, nkind
                   CALL get_atomic_kind(atomic_kind_set(ikind), natom=nat)
-                  CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind)
-                  CALL get_se_param(se_kind, name=aname)
+                  CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind, element_symbol=aname)
                   ana = ADJUSTR(TRIM(ADJUSTL(aname)))
                   DO iatom = 1, nat
                      iat = atomic_kind_set(ikind)%atom_list(iatom)
@@ -551,8 +544,7 @@ CONTAINS
                   "# Atom  Element  Kind  Atomic population (alpha,beta)   Net charge  Spin moment"
                DO ikind = 1, nkind
                   CALL get_atomic_kind(atomic_kind_set(ikind), natom=nat)
-                  CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind)
-                  CALL get_se_param(se_kind, name=aname)
+                  CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind, element_symbol=aname)
                   ana = ADJUSTR(TRIM(ADJUSTL(aname)))
                   DO iatom = 1, nat
                      iat = atomic_kind_set(ikind)%atom_list(iatom)
@@ -599,28 +591,23 @@ CONTAINS
    SUBROUTINE write_available_results(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_available_results', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_available_results'
 
       INTEGER                                            :: after, handle, ispin, iw, output_unit
       LOGICAL                                            :: omit_headers
-      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-      TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv, rho_ao
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_rho_type), POINTER                         :: rho
+      TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section, input
 
       CALL timeset(routineN, handle)
-      NULLIFY (cell, dft_control, mos, atomic_kind_set, particle_set, rho, &
-               ks_rmpv, dft_section, input, &
+      NULLIFY (dft_control, particle_set, rho, ks_rmpv, dft_section, input, &
                particles, subsys, para_env, rho_ao)
       logger => cp_get_default_logger()
       output_unit = cp_logger_get_default_io_unit(logger)
@@ -628,36 +615,25 @@ CONTAINS
       CPASSERT(ASSOCIATED(qs_env))
       CALL get_qs_env(qs_env, &
                       dft_control=dft_control, &
-                      mos=mos, &
-                      atomic_kind_set=atomic_kind_set, &
-                      qs_kind_set=qs_kind_set, &
                       particle_set=particle_set, &
                       rho=rho, &
                       matrix_ks=ks_rmpv, &
                       input=input, &
-                      cell=cell, &
                       subsys=subsys, &
+                      scf_env=scf_env, &
                       para_env=para_env)
       CALL qs_subsys_get(subsys, particles=particles)
-
       CALL qs_rho_get(rho, rho_ao=rho_ao)
-      ! *** if the dft_section tells you to do so, write last wavefunction to screen
-      dft_section => section_vals_get_subs_vals(input, "DFT")
-      IF (dft_control%nspins == 2) THEN
-         CALL write_mo_set(mos(1)%mo_set, atomic_kind_set, qs_kind_set, particle_set, 4, &
-                           dft_section, spin="ALPHA", last=.TRUE.)
-         CALL write_mo_set(mos(2)%mo_set, atomic_kind_set, qs_kind_set, particle_set, 4, &
-                           dft_section, spin="BETA", last=.TRUE.)
-      ELSE
-         CALL write_mo_set(mos(1)%mo_set, atomic_kind_set, qs_kind_set, particle_set, 4, &
-                           dft_section, last=.TRUE.)
-      END IF
 
-      ! *** at the end of scf print out the projected dos per kind
+      ! Print MO information if requested
+      CALL qs_scf_write_mos(qs_env, scf_env, final_mos=.TRUE.)
+
+      ! Aat the end of SCF printout the projected DOS for each atomic kind
+      dft_section => section_vals_get_subs_vals(input, "DFT")
       IF (BTEST(cp_print_key_should_output(logger%iter_info, dft_section, "PRINT%PDOS") &
                 , cp_p_file)) THEN
          CPWARN("PDOS not implemented for Semi-Empirical calculations!!")
-      ENDIF
+      END IF
 
       ! Print the total density (electronic + core charge)
       IF (BTEST(cp_print_key_should_output(logger%iter_info, input, &
@@ -687,13 +663,13 @@ CONTAINS
       IF (BTEST(cp_print_key_should_output(logger%iter_info, input, &
                                            "DFT%PRINT%V_HARTREE_CUBE"), cp_p_file)) THEN
          CPWARN("V_HARTREE_CUBE not implemented for Semi-Empirical calculations!!")
-      ENDIF
+      END IF
 
       ! Print the XC potential
       IF (BTEST(cp_print_key_should_output(logger%iter_info, input, &
                                            "DFT%PRINT%V_XC_CUBE"), cp_p_file)) THEN
          CPWARN("V_XC_CUBE not available for Semi-Empirical calculations!!")
-      ENDIF
+      END IF
 
       ! Write the density matrix
       CALL section_vals_val_get(input, "DFT%PRINT%AO_MATRICES%OMIT_HEADERS", l_val=omit_headers)

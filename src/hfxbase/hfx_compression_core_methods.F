@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -120,8 +122,8 @@ CONTAINS
             full_data(idata) = IOR(data_tmp, IAND(pack_tmp, mask_right(i_odd_bits))) ! and use the missing bits to assemble the data
             pack_tmp = ISHFT(pack_tmp, -i_odd_bits) ! shift right to get the bits in place for the next
             ibits_remaining = 64 - i_odd_bits
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
    END SUBROUTINE bits2ints_generic
 
@@ -174,8 +176,8 @@ CONTAINS
             pack_tmp = ISHFT(data_tmp, 64 - Nbits + i_odd_bits) ! put the missing bits on the left if pack_tmp
             ibits_remaining = 64 - Nbits + i_odd_bits
             pack_tmp = ISHFT(pack_tmp, -MIN(Nbits, ibits_remaining)) ! shift to make place, but not more than the number of available bits
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! cleanup this unfinished packed data and store
       pack_tmp = ISHFT(pack_tmp, -MAX(0, ibits_remaining - Nbits))
@@ -528,10 +530,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_1
 
 ! **************************************************************************************************
@@ -813,10 +815,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_1
 
 ! **************************************************************************************************
@@ -1168,10 +1170,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_2
 
 ! **************************************************************************************************
@@ -1455,10 +1457,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_2
 
 ! **************************************************************************************************
@@ -1815,10 +1817,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_3
 
 ! **************************************************************************************************
@@ -2104,10 +2106,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_3
 
 ! **************************************************************************************************
@@ -2469,10 +2471,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_4
 
 ! **************************************************************************************************
@@ -2760,10 +2762,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_4
 
 ! **************************************************************************************************
@@ -3130,10 +3132,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_5
 
 ! **************************************************************************************************
@@ -3423,10 +3425,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_5
 
 ! **************************************************************************************************
@@ -3798,10 +3800,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_6
 
 ! **************************************************************************************************
@@ -4093,10 +4095,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_6
 
 ! **************************************************************************************************
@@ -4473,10 +4475,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_7
 
 ! **************************************************************************************************
@@ -4770,10 +4772,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_7
 
 ! **************************************************************************************************
@@ -5155,10 +5157,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_8
 
 ! **************************************************************************************************
@@ -5454,10 +5456,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_8
 
 ! **************************************************************************************************
@@ -5844,10 +5846,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_9
 
 ! **************************************************************************************************
@@ -6145,10 +6147,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_9
 
 ! **************************************************************************************************
@@ -6540,10 +6542,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_10
 
 ! **************************************************************************************************
@@ -6843,10 +6845,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_10
 
 ! **************************************************************************************************
@@ -7243,10 +7245,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_11
 
 ! **************************************************************************************************
@@ -7548,10 +7550,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_11
 
 ! **************************************************************************************************
@@ -7953,10 +7955,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_12
 
 ! **************************************************************************************************
@@ -8260,10 +8262,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_12
 
 ! **************************************************************************************************
@@ -8670,10 +8672,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_13
 
 ! **************************************************************************************************
@@ -8979,10 +8981,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_13
 
 ! **************************************************************************************************
@@ -9394,10 +9396,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_14
 
 ! **************************************************************************************************
@@ -9705,10 +9707,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_14
 
 ! **************************************************************************************************
@@ -10125,10 +10127,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_15
 
 ! **************************************************************************************************
@@ -10438,10 +10440,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_15
 
 ! **************************************************************************************************
@@ -10863,10 +10865,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_16
 
 ! **************************************************************************************************
@@ -11178,10 +11180,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_16
 
 ! **************************************************************************************************
@@ -11608,10 +11610,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_17
 
 ! **************************************************************************************************
@@ -11925,10 +11927,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_17
 
 ! **************************************************************************************************
@@ -12360,10 +12362,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_18
 
 ! **************************************************************************************************
@@ -12679,10 +12681,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_18
 
 ! **************************************************************************************************
@@ -13119,10 +13121,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_19
 
 ! **************************************************************************************************
@@ -13440,10 +13442,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_19
 
 ! **************************************************************************************************
@@ -13885,10 +13887,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_20
 
 ! **************************************************************************************************
@@ -14208,10 +14210,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_20
 
 ! **************************************************************************************************
@@ -14658,10 +14660,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_21
 
 ! **************************************************************************************************
@@ -14983,10 +14985,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_21
 
 ! **************************************************************************************************
@@ -15438,10 +15440,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_22
 
 ! **************************************************************************************************
@@ -15765,10 +15767,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_22
 
 ! **************************************************************************************************
@@ -16225,10 +16227,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_23
 
 ! **************************************************************************************************
@@ -16554,10 +16556,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_23
 
 ! **************************************************************************************************
@@ -17019,10 +17021,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_24
 
 ! **************************************************************************************************
@@ -17350,10 +17352,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_24
 
 ! **************************************************************************************************
@@ -17820,10 +17822,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_25
 
 ! **************************************************************************************************
@@ -18153,10 +18155,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_25
 
 ! **************************************************************************************************
@@ -18628,10 +18630,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_26
 
 ! **************************************************************************************************
@@ -18963,10 +18965,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_26
 
 ! **************************************************************************************************
@@ -19443,10 +19445,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_27
 
 ! **************************************************************************************************
@@ -19780,10 +19782,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_27
 
 ! **************************************************************************************************
@@ -20265,10 +20267,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_28
 
 ! **************************************************************************************************
@@ -20604,10 +20606,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_28
 
 ! **************************************************************************************************
@@ -21094,10 +21096,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_29
 
 ! **************************************************************************************************
@@ -21435,10 +21437,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_29
 
 ! **************************************************************************************************
@@ -21930,10 +21932,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_30
 
 ! **************************************************************************************************
@@ -22273,10 +22275,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_30
 
 ! **************************************************************************************************
@@ -22773,10 +22775,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_31
 
 ! **************************************************************************************************
@@ -23118,10 +23120,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_31
 
 ! **************************************************************************************************
@@ -23623,10 +23625,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_32
 
 ! **************************************************************************************************
@@ -23970,10 +23972,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_32
 
 ! **************************************************************************************************
@@ -24480,10 +24482,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_33
 
 ! **************************************************************************************************
@@ -24829,10 +24831,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_33
 
 ! **************************************************************************************************
@@ -25344,10 +25346,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_34
 
 ! **************************************************************************************************
@@ -25695,10 +25697,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_34
 
 ! **************************************************************************************************
@@ -26215,10 +26217,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_35
 
 ! **************************************************************************************************
@@ -26568,10 +26570,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_35
 
 ! **************************************************************************************************
@@ -27093,10 +27095,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_36
 
 ! **************************************************************************************************
@@ -27448,10 +27450,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_36
 
 ! **************************************************************************************************
@@ -27978,10 +27980,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_37
 
 ! **************************************************************************************************
@@ -28335,10 +28337,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_37
 
 ! **************************************************************************************************
@@ -28870,10 +28872,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_38
 
 ! **************************************************************************************************
@@ -29229,10 +29231,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_38
 
 ! **************************************************************************************************
@@ -29769,10 +29771,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_39
 
 ! **************************************************************************************************
@@ -30130,10 +30132,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_39
 
 ! **************************************************************************************************
@@ -30675,10 +30677,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_40
 
 ! **************************************************************************************************
@@ -31038,10 +31040,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_40
 
 ! **************************************************************************************************
@@ -31588,10 +31590,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_41
 
 ! **************************************************************************************************
@@ -31953,10 +31955,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_41
 
 ! **************************************************************************************************
@@ -32508,10 +32510,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_42
 
 ! **************************************************************************************************
@@ -32875,10 +32877,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_42
 
 ! **************************************************************************************************
@@ -33435,10 +33437,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_43
 
 ! **************************************************************************************************
@@ -33804,10 +33806,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_43
 
 ! **************************************************************************************************
@@ -34369,10 +34371,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_44
 
 ! **************************************************************************************************
@@ -34740,10 +34742,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_44
 
 ! **************************************************************************************************
@@ -35310,10 +35312,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_45
 
 ! **************************************************************************************************
@@ -35683,10 +35685,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_45
 
 ! **************************************************************************************************
@@ -36258,10 +36260,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_46
 
 ! **************************************************************************************************
@@ -36633,10 +36635,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_46
 
 ! **************************************************************************************************
@@ -37213,10 +37215,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_47
 
 ! **************************************************************************************************
@@ -37590,10 +37592,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_47
 
 ! **************************************************************************************************
@@ -38175,10 +38177,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_48
 
 ! **************************************************************************************************
@@ -38554,10 +38556,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_48
 
 ! **************************************************************************************************
@@ -39144,10 +39146,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_49
 
 ! **************************************************************************************************
@@ -39525,10 +39527,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_49
 
 ! **************************************************************************************************
@@ -40120,10 +40122,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_50
 
 ! **************************************************************************************************
@@ -40503,10 +40505,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_50
 
 ! **************************************************************************************************
@@ -41103,10 +41105,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_51
 
 ! **************************************************************************************************
@@ -41488,10 +41490,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_51
 
 ! **************************************************************************************************
@@ -42093,10 +42095,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_52
 
 ! **************************************************************************************************
@@ -42480,10 +42482,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_52
 
 ! **************************************************************************************************
@@ -43090,10 +43092,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_53
 
 ! **************************************************************************************************
@@ -43479,10 +43481,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_53
 
 ! **************************************************************************************************
@@ -44094,10 +44096,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_54
 
 ! **************************************************************************************************
@@ -44485,10 +44487,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_54
 
 ! **************************************************************************************************
@@ -45105,10 +45107,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_55
 
 ! **************************************************************************************************
@@ -45498,10 +45500,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_55
 
 ! **************************************************************************************************
@@ -46123,10 +46125,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_56
 
 ! **************************************************************************************************
@@ -46518,10 +46520,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_56
 
 ! **************************************************************************************************
@@ -47148,10 +47150,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_57
 
 ! **************************************************************************************************
@@ -47545,10 +47547,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_57
 
 ! **************************************************************************************************
@@ -48180,10 +48182,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_58
 
 ! **************************************************************************************************
@@ -48579,10 +48581,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_58
 
 ! **************************************************************************************************
@@ -49219,10 +49221,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_59
 
 ! **************************************************************************************************
@@ -49620,10 +49622,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_59
 
 ! **************************************************************************************************
@@ -50265,10 +50267,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_60
 
 ! **************************************************************************************************
@@ -50668,10 +50670,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_60
 
 ! **************************************************************************************************
@@ -51318,10 +51320,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_61
 
 ! **************************************************************************************************
@@ -51723,10 +51725,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_61
 
 ! **************************************************************************************************
@@ -52378,10 +52380,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_62
 
 ! **************************************************************************************************
@@ -52785,10 +52787,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_62
 
 ! **************************************************************************************************
@@ -53445,10 +53447,10 @@ CONTAINS
          pack_tmp = ISHFT(pack_tmp, 0)
          ipack = ipack + 1
          packed_data(ipack) = pack_tmp
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL ints2bits_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE ints2bits_63
 
 ! **************************************************************************************************
@@ -53854,10 +53856,10 @@ CONTAINS
          data_tmp = IAND(pack_tmp, mask_right(Nbits))
          full_data(idata) = data_tmp
          pack_tmp = ISHFT(pack_tmp, -Nbits)
-      ENDDO
+      END DO
       IF (Ndata_rep < Ndata) THEN
          CALL bits2ints_generic(Nbits, Ndata - Ndata_rep, packed_data(ipack + 1), full_data(Ndata_rep + 1))
-      ENDIF
+      END IF
    END SUBROUTINE bits2ints_63
 
 ! **************************************************************************************************

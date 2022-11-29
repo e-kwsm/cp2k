@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -61,9 +63,6 @@ CONTAINS
    SUBROUTINE create_wiener_process(md_env)
 
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_wiener_process', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=40)                                  :: name
       INTEGER                                            :: iparticle, iparticle_kind, &
@@ -166,9 +165,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: nparticle_kind
       TYPE(section_vals_type), POINTER                   :: work_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_local_particle_set', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=rng_record_length)                   :: rng_record
       INTEGER                                            :: iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_local
@@ -212,9 +208,6 @@ CONTAINS
    SUBROUTINE create_wiener_process_cv(meta_env)
 
       TYPE(meta_env_type), POINTER                       :: meta_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_wiener_process_cv', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=40)                                  :: name
       INTEGER                                            :: i_c

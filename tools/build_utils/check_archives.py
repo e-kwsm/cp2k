@@ -1,10 +1,10 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # author: Ole Schuett
 
-import sys, os
-import subprocess
+import os
+import sys
+from subprocess import check_output
 from os import path
 from glob import glob
 
@@ -30,7 +30,7 @@ def main():
     known_archives = set()
     for root, dirs, files in os.walk(src_dir):
         if "PACKAGE" in files:
-            content = open(path.join(root, "PACKAGE")).read()
+            content = open(path.join(root, "PACKAGE"), encoding="utf8").read()
             package = eval(content)
 
             archive = "libcp2k" + path.basename(root)
@@ -47,7 +47,7 @@ def main():
                 parts[0] for parts in file_parts if parts[-1] in KNOWN_EXTENSIONS
             ]
 
-            output = check_output([ar_exe, "t", archive_fn])
+            output = check_output([ar_exe, "t", archive_fn], encoding="utf8")
             for line in output.strip().split("\n"):
                 if line == "__.SYMDEF SORTED":
                     continue  # needed for MacOS
@@ -64,15 +64,6 @@ def main():
     for archive_fn in rogue_archives:
         print("Found rogue archive %s , removing archive." % (archive_fn))
         os.remove(archive_fn)
-
-
-# =============================================================================
-def check_output(*popenargs, **kwargs):
-    """ backport for Python 2.4 """
-    p = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
-    output = p.communicate()[0]
-    assert p.wait() == 0
-    return output.decode()
 
 
 # =============================================================================

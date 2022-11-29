@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -78,9 +80,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: maxchrg
       LOGICAL, INTENT(IN)                                :: compatibility
       TYPE(section_vals_type), POINTER                   :: print_section, qmmm_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_gaussian_initialize', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ilevel, j, Ndim, num_geep_gauss, &
                                                             output_unit
@@ -187,7 +186,7 @@ CONTAINS
                   alpha = alpha*alpha
                   ilevel = gaussian_gridlevel(gridlevel_info, alpha)
                   Prefactor = mypgf%Ak(I)*maxchrg
-                  mymaxradius = exp_radius(0, alpha, eps_mm_rspace, Prefactor)
+                  mymaxradius = exp_radius(0, alpha, eps_mm_rspace, Prefactor, rlow=mymaxradius)
                   maxradius(ilevel) = MAX(maxradius(ilevel), mymaxradius)
                   mypgf%grid_level(i) = ilevel
                END IF

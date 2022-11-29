@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE atom_energy
@@ -77,8 +79,7 @@ CONTAINS
    SUBROUTINE atom_energy_opt(atom_section)
       TYPE(section_vals_type), POINTER                   :: atom_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_energy_opt', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_energy_opt'
 
       CHARACTER(LEN=2)                                   :: elem
       CHARACTER(LEN=default_string_length)               :: filename
@@ -341,7 +342,7 @@ CONTAINS
                                           atom=atom_info(in, im)%atom, &
                                           lprint=.TRUE.)
                   DEALLOCATE (ext_density)
-               ENDIF
+               END IF
                ! ZMP If we have the external v_xc calculate KS quantities
                IF (atom_info(in, im)%atom%read_vxc) THEN
                   ALLOCATE (ext_vxc(atom_info(in, im)%atom%basis%grid%nr))
@@ -351,7 +352,7 @@ CONTAINS
                                               atom=atom_info(in, im)%atom, &
                                               lprint=.TRUE.)
                   DEALLOCATE (ext_vxc)
-               ENDIF
+               END IF
 
                ! Print out the orbitals if requested
                iw = cp_print_key_unit_nr(logger, atom_section, "PRINT%ORBITALS", extension=".log")
@@ -486,9 +487,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: delta
       INTEGER, INTENT(IN)                                :: nder, iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_response_basis', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ider, j, k, l, lhomo, m, n, nhomo, &
                                                             s1, s2
       REAL(KIND=dp)                                      :: dene, emax, expzet, fhomo, o, prefac, &
@@ -563,10 +561,10 @@ CONTAINS
             DO j = 1, i - 1
                o = DOT_PRODUCT(rbasis(1:m, j, l), RESHAPE(MATMUL(ovlp(1:m, 1:m, l), rbasis(1:m, i:i, l)), (/m/)))
                rbasis(1:m, i, l) = rbasis(1:m, i, l) - o*rbasis(1:m, j, l)
-            ENDDO
+            END DO
             o = DOT_PRODUCT(rbasis(1:m, i, l), RESHAPE(MATMUL(ovlp(1:m, 1:m, l), rbasis(1:m, i:i, l)), (/m/)))
             rbasis(1:m, i, l) = rbasis(1:m, i, l)/SQRT(o)
-         ENDDO
+         END DO
 
          ! check
          ALLOCATE (amat(n, n))
@@ -610,8 +608,6 @@ CONTAINS
 
       TYPE(atom_type), POINTER                           :: atom
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_write_upf', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: string
       INTEGER                                            :: i, ibeta, j, k, l, lmax, nbeta, nr, &

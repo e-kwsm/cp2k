@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -52,9 +54,6 @@ CONTAINS
    SUBROUTINE qmmm_pw_grid_init(qmmm_env, pw_env)
       TYPE(qmmm_env_qm_type), POINTER                    :: qmmm_env
       TYPE(pw_env_type), POINTER                         :: pw_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_pw_grid_init', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: auxbas_grid, Ilevel, pw_mode
       REAL(KIND=dp), DIMENSION(3)                        :: Maxdr, Mindr
@@ -110,7 +109,7 @@ CONTAINS
 !> \param pw_mode ...
 !> \par History
 !>      08.2004 created [tlaino]
-!>      04.2005 completly rewritten the duplicate routine, fixed parallel
+!>      04.2005 completely rewritten the duplicate routine, fixed parallel
 !>              behaviour, narrowed scope to copy to non pbc and renamed
 !>              accordingly [fawzi]
 !>      06.2007 moved to new module [jgh]
@@ -119,9 +118,6 @@ CONTAINS
    SUBROUTINE pw_grid_create_copy_no_pbc(pw_grid_in, pw_grid_out, pw_mode)
       TYPE(pw_grid_type), POINTER                        :: pw_grid_in, pw_grid_out
       INTEGER, INTENT(IN), OPTIONAL                      :: pw_mode
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_create_copy_no_pbc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: pw_mode_loc
       INTEGER, DIMENSION(:), POINTER                     :: pos_of_x

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -38,7 +40,6 @@ MODULE pw_spline_utils
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
 #include "../base/base_uses.f90"
 
@@ -87,8 +88,6 @@ MODULE pw_spline_utils
                                                      spl3_1d_transf_border1 = &
                                                      (/0.517977704_dp, 0.464044595_dp, 0.17977701e-1_dp/)
 
-   INTEGER, SAVE, PRIVATE :: last_precond_id = 0
-
    PUBLIC :: pw_spline3_interpolate_values_g, &
              pw_spline3_deriv_g
    PUBLIC :: pw_spline_scale_deriv
@@ -114,7 +113,7 @@ MODULE pw_spline_utils
 !> \author fawzi
 ! **************************************************************************************************
    TYPE pw_spline_precond_type
-      INTEGER :: ref_count, id_nr, kind
+      INTEGER :: kind
       REAL(kind=dp), DIMENSION(4) :: coeffs
       REAL(kind=dp), DIMENSION(3) :: coeffs_1d
       LOGICAL :: sharpen, normalize, pbc, transpose
@@ -124,10 +123,10 @@ MODULE pw_spline_utils
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief calculates the FFT of the coefficents of the quadratic spline that
+!> \brief calculates the FFT of the coefficients of the quadratic spline that
 !>      interpolates the given values
 !> \param spline_g on entry the FFT of the values to interpolate as cc,
-!>        will contain the FFT of the coefficents of the spline
+!>        will contain the FFT of the coefficients of the spline
 !> \par History
 !>      06.2003 created [fawzi]
 !> \author Fawzi Mohamed
@@ -135,10 +134,9 @@ CONTAINS
 !>      does not work with spherical cutoff
 ! **************************************************************************************************
    SUBROUTINE pw_spline2_interpolate_values_g(spline_g)
-      TYPE(pw_type), POINTER                             :: spline_g
+      TYPE(pw_type), INTENT(IN)                          :: spline_g
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline2_interpolate_values_g', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline2_interpolate_values_g'
 
       INTEGER                                            :: handle, i, ii, j, k
       INTEGER, DIMENSION(2, 3)                           :: gbo
@@ -151,7 +149,6 @@ CONTAINS
       n_tot(1:3) = spline_g%pw_grid%npts(1:3)
       gbo = spline_g%pw_grid%bounds
 
-      CPASSERT(ASSOCIATED(spline_g))
       CPASSERT(spline_g%in_use == COMPLEXDATA1D)
       CPASSERT(spline_g%in_space == RECIPROCALSPACE)
       CPASSERT(.NOT. spline_g%pw_grid%spherical)
@@ -197,10 +194,10 @@ CONTAINS
    END SUBROUTINE pw_spline2_interpolate_values_g
 
 ! **************************************************************************************************
-!> \brief calculates the FFT of the coefficents of the2 cubic spline that
+!> \brief calculates the FFT of the coefficients of the2 cubic spline that
 !>      interpolates the given values
 !> \param spline_g on entry the FFT of the values to interpolate as cc,
-!>        will contain the FFT of the coefficents of the spline
+!>        will contain the FFT of the coefficients of the spline
 !> \par History
 !>      06.2003 created [fawzi]
 !> \author Fawzi Mohamed
@@ -210,10 +207,9 @@ CONTAINS
 !>      needed cos, and avoid the mp_sum
 ! **************************************************************************************************
    SUBROUTINE pw_spline3_interpolate_values_g(spline_g)
-      TYPE(pw_type), POINTER                             :: spline_g
+      TYPE(pw_type), INTENT(IN)                          :: spline_g
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline3_interpolate_values_g', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline3_interpolate_values_g'
 
       INTEGER                                            :: handle, i, ii, j, k
       INTEGER, DIMENSION(2, 3)                           :: gbo
@@ -226,7 +222,6 @@ CONTAINS
       n_tot(1:3) = spline_g%pw_grid%npts(1:3)
       gbo = spline_g%pw_grid%bounds
 
-      CPASSERT(ASSOCIATED(spline_g))
       CPASSERT(spline_g%in_use == COMPLEXDATA1D)
       CPASSERT(spline_g%in_space == RECIPROCALSPACE)
       CPASSERT(.NOT. spline_g%pw_grid%spherical)
@@ -289,12 +284,11 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE pw_spline_scale_deriv(deriv_vals_r, transpose, scale)
-      TYPE(pw_p_type), DIMENSION(3)                      :: deriv_vals_r
+      TYPE(pw_type), DIMENSION(3), INTENT(IN)            :: deriv_vals_r
       LOGICAL, INTENT(in), OPTIONAL                      :: transpose
       REAL(KIND=dp), INTENT(in), OPTIONAL                :: scale
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_scale_deriv', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_scale_deriv'
 
       INTEGER                                            :: handle, i, idir, j, k
       INTEGER, DIMENSION(2, 3)                           :: bo
@@ -310,9 +304,9 @@ CONTAINS
       IF (PRESENT(transpose)) my_transpose = transpose
       my_scale = 1.0_dp
       IF (PRESENT(scale)) my_scale = scale
-      n_tot(1:3) = deriv_vals_r(1)%pw%pw_grid%npts(1:3)
-      bo = deriv_vals_r(1)%pw%pw_grid%bounds_local
-      dh_inv = deriv_vals_r(1)%pw%pw_grid%dh_inv
+      n_tot(1:3) = deriv_vals_r(1)%pw_grid%npts(1:3)
+      bo = deriv_vals_r(1)%pw_grid%bounds_local
+      dh_inv = deriv_vals_r(1)%pw_grid%dh_inv
 
       ! map grid to real derivative
       diag = .TRUE.
@@ -334,15 +328,15 @@ CONTAINS
 
       IF (diag) THEN
          DO idir = 1, 3
-            ddata => deriv_vals_r(idir)%pw%cr3d
+            ddata => deriv_vals_r(idir)%cr3d
             scalef = h_grid(idir, idir)
             CALL dscal((bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1), &
                        scalef, ddata, 1)
          END DO
       ELSE
-         ddata => deriv_vals_r(1)%pw%cr3d
-         ddata2 => deriv_vals_r(2)%pw%cr3d
-         ddata3 => deriv_vals_r(3)%pw%cr3d
+         ddata => deriv_vals_r(1)%cr3d
+         ddata2 => deriv_vals_r(2)%cr3d
+         ddata3 => deriv_vals_r(3)%cr3d
 !$OMP        PARALLEL DO DEFAULT(NONE) PRIVATE(k,j,i,dVal1,dVal2,dVal3) &
 !$OMP                 SHARED(ddata,ddata2,ddata3,h_grid,bo)
          DO k = bo(1, 3), bo(2, 3)
@@ -371,7 +365,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief calculates the FFT of the values of the x,y,z (idir=1,2,3)
 !>      derivative of the cubic spline
-!> \param spline_g on entry the FFT of the coefficents of the spline
+!> \param spline_g on entry the FFT of the coefficients of the spline
 !>        will contain the FFT of the derivative
 !> \param idir direction of the derivative
 !> \par History
@@ -381,11 +375,10 @@ CONTAINS
 !>      the distance between gridpoints is assumed to be 1
 ! **************************************************************************************************
    SUBROUTINE pw_spline3_deriv_g(spline_g, idir)
-      TYPE(pw_type), POINTER                             :: spline_g
+      TYPE(pw_type), INTENT(IN)                          :: spline_g
       INTEGER, INTENT(in)                                :: idir
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline3_deriv_g', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline3_deriv_g'
       REAL(KIND=dp), PARAMETER                           :: inv9 = 1.0_dp/9.0_dp
 
       INTEGER                                            :: handle, i, ii, j, k
@@ -401,7 +394,6 @@ CONTAINS
       bo = spline_g%pw_grid%bounds_local
       gbo = spline_g%pw_grid%bounds
 
-      CPASSERT(ASSOCIATED(spline_g))
       CPASSERT(spline_g%in_use == COMPLEXDATA1D)
       CPASSERT(spline_g%in_space == RECIPROCALSPACE)
       CPASSERT(.NOT. spline_g%pw_grid%spherical)
@@ -510,7 +502,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief calculates the FFT of the values of the x,y,z (idir=1,2,3)
 !>      derivative of the quadratic spline
-!> \param spline_g on entry the FFT of the coefficents of the spline
+!> \param spline_g on entry the FFT of the coefficients of the spline
 !>        will contain the FFT of the derivative
 !> \param idir direction of the derivative
 !> \par History
@@ -520,11 +512,10 @@ CONTAINS
 !>      the distance between gridpoints is assumed to be 1
 ! **************************************************************************************************
    SUBROUTINE pw_spline2_deriv_g(spline_g, idir)
-      TYPE(pw_type), POINTER                             :: spline_g
+      TYPE(pw_type), INTENT(IN)                          :: spline_g
       INTEGER, INTENT(in)                                :: idir
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline2_deriv_g', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline2_deriv_g'
       REAL(KIND=dp), PARAMETER                           :: inv16 = 1.0_dp/16.0_dp
 
       INTEGER                                            :: handle, i, ii, j, k
@@ -539,7 +530,6 @@ CONTAINS
       n_tot(1:3) = spline_g%pw_grid%npts(1:3)
       bo = spline_g%pw_grid%bounds
 
-      CPASSERT(ASSOCIATED(spline_g))
       CPASSERT(spline_g%in_use == COMPLEXDATA1D)
       CPASSERT(spline_g%in_space == RECIPROCALSPACE)
       CPASSERT(.NOT. spline_g%pw_grid%spherical)
@@ -667,9 +657,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(*), INTENT(inout)         :: out_val
       INTEGER                                            :: n_el
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_compose_stripe', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(kind=dp)                                      :: v0, v1, v2
 
@@ -768,14 +755,11 @@ CONTAINS
    SUBROUTINE pw_nn_compose_r_work(weights, in_val, out_val, pw_in, bo)
       REAL(kind=dp), DIMENSION(0:2, 0:2, 0:2)            :: weights
       INTEGER, DIMENSION(2, 3)                           :: bo
-      TYPE(pw_type), POINTER                             :: pw_in
+      TYPE(pw_type), INTENT(IN)                          :: pw_in
       REAL(kind=dp), DIMENSION(bo(1, 1):bo(2, 1), bo(1, &
          2):bo(2, 2), bo(1, 3):bo(2, 3)), INTENT(inout)  :: out_val
       REAL(kind=dp), DIMENSION(bo(1, 1):bo(2, 1), bo(1, &
          2):bo(2, 2), bo(1, 3):bo(2, 3)), INTENT(in)     :: in_val
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_nn_compose_r_work', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, jw, k, kw, myj, myk
       INTEGER, DIMENSION(2, 3)                           :: gbo
@@ -855,18 +839,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_nn_compose_r(weights, pw_in, pw_out)
       REAL(kind=dp), DIMENSION(0:2, 0:2, 0:2)            :: weights
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_nn_compose_r', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_nn_compose_r'
 
       INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
-      CPASSERT(ASSOCIATED(pw_in))
       CPASSERT(pw_in%in_space == REALSPACE)
       CPASSERT(pw_in%in_use == REALDATA3D)
-      CPASSERT(ASSOCIATED(pw_out))
       CPASSERT(pw_out%in_space == REALSPACE)
       CPASSERT(pw_out%in_use == REALDATA3D)
       IF (.NOT. ALL(pw_in%pw_grid%bounds_local(:, 2:3) == pw_in%pw_grid%bounds(:, 2:3))) THEN
@@ -894,10 +875,8 @@ CONTAINS
 !>      coeff=(/ 27._dp/64._dp, 9._dp/128._dp, 3._dp/256._dp, 1._dp/512._dp /)
 ! **************************************************************************************************
    SUBROUTINE pw_nn_smear_r(pw_in, pw_out, coeffs)
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
       REAL(KIND=dp), DIMENSION(4), INTENT(in)            :: coeffs
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_nn_smear_r', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k
       REAL(kind=dp), DIMENSION(-1:1, -1:1, -1:1)         :: weights
@@ -939,11 +918,9 @@ CONTAINS
 !>      coeff=(/ 25._dp/72._dp, 5._dp/144, 1._dp/288._dp /)
 ! **************************************************************************************************
    SUBROUTINE pw_nn_deriv_r(pw_in, pw_out, coeffs, idir)
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
       REAL(KIND=dp), DIMENSION(3), INTENT(in)            :: coeffs
       INTEGER                                            :: idir
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_nn_deriv_r', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idirVal, j, k
       REAL(kind=dp), DIMENSION(-1:1, -1:1, -1:1)         :: weights
@@ -991,7 +968,7 @@ CONTAINS
 !>                      coarse_bounds(1,3):coarse_bounds(2,3))
 !>
 !>      composed with the weights obtained by the direct product of the
-!>      1d coefficents weights:
+!>      1d coefficients weights:
 !>
 !>      for i,j,k in -3..3
 !>         w(i,j,k)=weights_1d(abs(i)+1)*weights_1d(abs(j)+1)*
@@ -1009,7 +986,7 @@ CONTAINS
 !> \author fawzi
 !> \note
 !>      coarse looping is continuos, I did not check if keeping the fine looping
-!>      contiguos is better.
+!>      contiguous is better.
 !>      And I ask myself yet again why, why we use x-slice distribution,
 !>      z-slice distribution would be much better performancewise
 !>      (and would semplify this code enormously).
@@ -1019,15 +996,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE add_coarse2fine(coarse_coeffs_pw, fine_values_pw, &
                               weights_1d, w_border0, w_border1, pbc, safe_computation)
-      TYPE(pw_type), POINTER                             :: coarse_coeffs_pw, fine_values_pw
+      TYPE(pw_type), INTENT(IN)                          :: coarse_coeffs_pw, fine_values_pw
       REAL(kind=dp), DIMENSION(4), INTENT(in)            :: weights_1d
       REAL(kind=dp), INTENT(in)                          :: w_border0
       REAL(kind=dp), DIMENSION(3), INTENT(in)            :: w_border1
       LOGICAL, INTENT(in)                                :: pbc
       LOGICAL, INTENT(in), OPTIONAL                      :: safe_computation
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_coarse2fine', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'add_coarse2fine'
 
       INTEGER :: coarse_slice_size, f_shift(3), fi, fi_lb, fi_ub, fj, fk, handle, handle2, i, ii, &
          ij, ik, ip, j, k, my_lb, my_ub, n_procs, p, p_lb, p_old, p_ub, rcv_tot_size, rest_b, &
@@ -1796,7 +1772,7 @@ CONTAINS
 !>                    2*coarse_bounds(1,3):2*coarse_bounds(2,3))
 !>
 !>      composed with the weights obtained by the direct product of the
-!>      1d coefficents weights:
+!>      1d coefficients weights:
 !>
 !>      for i,j,k in -3..3
 !>         w(i,j,k)=weights_1d(abs(i)+1)*weights_1d(abs(j)+1)*
@@ -1817,15 +1793,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE add_fine2coarse(fine_values_pw, coarse_coeffs_pw, &
                               weights_1d, w_border0, w_border1, pbc, safe_computation)
-      TYPE(pw_type), POINTER                             :: fine_values_pw, coarse_coeffs_pw
+      TYPE(pw_type), INTENT(IN)                          :: fine_values_pw, coarse_coeffs_pw
       REAL(kind=dp), DIMENSION(4), INTENT(in)            :: weights_1d
       REAL(kind=dp), INTENT(in)                          :: w_border0
       REAL(kind=dp), DIMENSION(3), INTENT(in)            :: w_border1
       LOGICAL, INTENT(in)                                :: pbc
       LOGICAL, INTENT(in), OPTIONAL                      :: safe_computation
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_fine2coarse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'add_fine2coarse'
 
       INTEGER :: coarse_slice_size, f_shift(3), fi, fj, fk, handle, handle2, i, ii, ij, ik, ip, j, &
          k, n_procs, p, p_old, rcv_tot_size, rest_b, s(3), send_tot_size, ss, x, x_att
@@ -2522,18 +2497,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_spline_precond_create(preconditioner, precond_kind, &
                                        pool, pbc, transpose)
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
+      TYPE(pw_spline_precond_type), INTENT(OUT)          :: preconditioner
       INTEGER, INTENT(in)                                :: precond_kind
-      TYPE(pw_pool_type), POINTER                        :: pool
+      TYPE(pw_pool_type), INTENT(IN), POINTER            :: pool
       LOGICAL, INTENT(in)                                :: pbc, transpose
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_precond_create', &
-         routineP = moduleN//':'//routineN
-
-      ALLOCATE (preconditioner)
-      last_precond_id = last_precond_id + 1
-      preconditioner%id_nr = last_precond_id
-      preconditioner%ref_count = 1
       preconditioner%kind = no_precond
       preconditioner%pool => pool
       preconditioner%pbc = pbc
@@ -2552,18 +2520,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_spline_precond_set_kind(preconditioner, precond_kind, pbc, &
                                          transpose)
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
+      TYPE(pw_spline_precond_type), INTENT(INOUT)        :: preconditioner
       INTEGER, INTENT(in)                                :: precond_kind
       LOGICAL, INTENT(in), OPTIONAL                      :: pbc, transpose
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_precond_set_kind', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: do_3d_coeff
       REAL(kind=dp)                                      :: s
 
-      CPASSERT(ASSOCIATED(preconditioner))
-      CPASSERT(preconditioner%ref_count > 0)
       IF (PRESENT(transpose)) preconditioner%transpose = transpose
       do_3d_coeff = .FALSE.
       preconditioner%kind = precond_kind
@@ -2635,59 +2598,29 @@ CONTAINS
    END SUBROUTINE pw_spline_precond_set_kind
 
 ! **************************************************************************************************
-!> \brief retains the preconditioner
-!> \param preconditioner the preconditioner to retain
-!> \author fawzi
-! **************************************************************************************************
-   SUBROUTINE pw_spline_precond_retain(preconditioner)
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_precond_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(preconditioner))
-      CPASSERT(preconditioner%ref_count > 1)
-      preconditioner%ref_count = preconditioner%ref_count + 1
-   END SUBROUTINE pw_spline_precond_retain
-
-! **************************************************************************************************
 !> \brief releases the preconditioner
 !> \param preconditioner the preconditioner to release
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pw_spline_precond_release(preconditioner)
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
+      TYPE(pw_spline_precond_type), INTENT(INOUT)        :: preconditioner
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_precond_release', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(preconditioner)) THEN
-         CPASSERT(preconditioner%ref_count > 0)
-         preconditioner%ref_count = preconditioner%ref_count - 1
-         IF (preconditioner%ref_count == 0) THEN
-            CALL pw_pool_release(preconditioner%pool)
-            DEALLOCATE (preconditioner)
-         END IF
-      END IF
+      CALL pw_pool_release(preconditioner%pool)
    END SUBROUTINE pw_spline_precond_release
 
 ! **************************************************************************************************
 !> \brief applies the preconditioner to the system of equations to find the
-!>      coefficents of the spline
+!>      coefficients of the spline
 !> \param preconditioner the preconditioner to apply
 !> \param in_v the grid on which the preconditioner should be applied
 !> \param out_v place to store the preconditioner applied on v_out
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pw_spline_do_precond(preconditioner, in_v, out_v)
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
-      TYPE(pw_type), POINTER                             :: in_v, out_v
+      TYPE(pw_spline_precond_type), INTENT(IN)           :: preconditioner
+      TYPE(pw_type), INTENT(IN)                          :: in_v
+      TYPE(pw_type), INTENT(INOUT)                       :: out_v
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_spline_do_precond', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(preconditioner))
-      CPASSERT(preconditioner%ref_count > 0)
       SELECT CASE (preconditioner%kind)
       CASE (no_precond)
          CALL pw_copy(in_v, out_v)
@@ -2721,8 +2654,8 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief solves iteratively (CG) a systmes of linear equations
 !>           linOp(coeffs)=values
-!>      (for example those needed to find the coefficents of a spline)
-!>      Returns true if the it succeded to acheive the requested accuracy
+!>      (for example those needed to find the coefficients of a spline)
+!>      Returns true if the it succeeded to achieve the requested accuracy
 !> \param values the right hand side of the system
 !> \param coeffs will contain the solution of the system (and on entry
 !>        it contains the starting point)
@@ -2732,26 +2665,26 @@ CONTAINS
 !> \param eps_r the requested precision on the residual
 !> \param eps_x the requested precision on the solution
 !> \param max_iter maximum number of iteration allowed
+!> \param sumtype ...
 !> \return ...
 !> \author fawzi
 ! **************************************************************************************************
    FUNCTION find_coeffs(values, coeffs, linOp, preconditioner, pool, &
-                        eps_r, eps_x, max_iter) RESULT(res)
-      TYPE(pw_type), POINTER                             :: values, coeffs
+                        eps_r, eps_x, max_iter, sumtype) RESULT(res)
+      TYPE(pw_type), INTENT(IN)                          :: values, coeffs
       INTERFACE
 ! **************************************************************************************************
          SUBROUTINE linOp(pw_in, pw_out)
             USE pw_types, ONLY: pw_type
-            TYPE(pw_type), POINTER :: pw_in, pw_out
+            TYPE(pw_type), INTENT(IN) :: pw_in, pw_out
          END SUBROUTINE linOp
       END INTERFACE
-      TYPE(pw_spline_precond_type), POINTER              :: preconditioner
+      TYPE(pw_spline_precond_type), INTENT(IN)           :: preconditioner
       TYPE(pw_pool_type), POINTER                        :: pool
       REAL(kind=dp), INTENT(in)                          :: eps_r, eps_x
       INTEGER, INTENT(in)                                :: max_iter
+      INTEGER, INTENT(in), OPTIONAL                      :: sumtype
       LOGICAL                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'find_coeffs', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iiter, iter, j, k
       INTEGER, DIMENSION(2, 3)                           :: bo
@@ -2759,7 +2692,7 @@ CONTAINS
       REAL(kind=dp)                                      :: alpha, beta, eps_r_att, eps_x_att, r_z, &
                                                             r_z_new
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(pw_type), POINTER                             :: Ap, p, r, z
+      TYPE(pw_type)                                      :: Ap, p, r, z
 
       last = .FALSE.
 
@@ -2778,21 +2711,21 @@ CONTAINS
          CALL pw_axpy(values, r)
          CALL pw_spline_do_precond(preconditioner, in_v=r, out_v=z)
          CALL pw_copy(z, p)
-         r_z = pw_integral_ab(r, z)
+         r_z = pw_integral_ab(r, z, sumtype)
 
          DO iter = iiter, MIN(iiter + 9, max_iter)
-            eps_r_att = SQRT(pw_integral_ab(r, r))
+            eps_r_att = SQRT(pw_integral_ab(r, r, sumtype))
             IF (eps_r_att == 0._dp) THEN
                eps_x_att = 0._dp
                last = .TRUE.
             ELSE
                CALL pw_zero(Ap)
                CALL linOp(pw_in=p, pw_out=Ap)
-               alpha = r_z/pw_integral_ab(Ap, p)
+               alpha = r_z/pw_integral_ab(Ap, p, sumtype)
 
                CALL pw_axpy(p, coeffs, alpha=alpha)
 
-               eps_x_att = alpha*SQRT(pw_integral_ab(p, p)) ! try to spare if unneded?
+               eps_x_att = alpha*SQRT(pw_integral_ab(p, p, sumtype)) ! try to spare if unneeded?
                IF (eps_r_att < eps_r .AND. eps_x_att < eps_x) last = .TRUE.
             END IF
             !CALL cp_iterate(logger%iter_info,last=last)
@@ -2805,7 +2738,7 @@ CONTAINS
 
             CALL pw_spline_do_precond(preconditioner, in_v=r, out_v=z)
 
-            r_z_new = pw_integral_ab(r, z)
+            r_z_new = pw_integral_ab(r, z, sumtype)
             beta = r_z_new/r_z
             r_z = r_z_new
 
@@ -2845,12 +2778,9 @@ CONTAINS
    SUBROUTINE pw_nn_compose_r_no_pbc(weights_1d, pw_in, pw_out, &
                                      sharpen, normalize, transpose, smooth_boundary)
       REAL(kind=dp), DIMENSION(-1:1)                     :: weights_1d
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
       LOGICAL, INTENT(in), OPTIONAL                      :: sharpen, normalize, transpose, &
                                                             smooth_boundary
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_nn_compose_r_no_pbc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_index, i, j, jw, k, kw, &
                                                             last_index, myj, myk, n_els
@@ -3188,7 +3118,7 @@ CONTAINS
 !> \param pw_out ...
 ! **************************************************************************************************
    SUBROUTINE spl3_nopbc(pw_in, pw_out)
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
 
       CALL pw_zero(pw_out)
       CALL pw_nn_compose_r_no_pbc(weights_1d=spl3_1d_coeffs0, pw_in=pw_in, &
@@ -3201,7 +3131,7 @@ CONTAINS
 !> \param pw_out ...
 ! **************************************************************************************************
    SUBROUTINE spl3_nopbct(pw_in, pw_out)
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
 
       CALL pw_zero(pw_out)
       CALL pw_nn_compose_r_no_pbc(weights_1d=spl3_1d_coeffs0, pw_in=pw_in, &
@@ -3214,7 +3144,7 @@ CONTAINS
 !> \param pw_out ...
 ! **************************************************************************************************
    SUBROUTINE spl3_pbc(pw_in, pw_out)
-      TYPE(pw_type), POINTER                             :: pw_in, pw_out
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_out
 
       CALL pw_zero(pw_out)
       CALL pw_nn_smear_r(pw_in, pw_out, coeffs=spline3_coeffs)
@@ -3234,11 +3164,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION Eval_Interp_Spl3_pbc(vec, pw) RESULT(val)
       REAL(KIND=dp), DIMENSION(3), INTENT(in)            :: vec
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(pw_type), INTENT(IN)                          :: pw
       REAL(KIND=dp)                                      :: val
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Eval_Interp_Spl3_pbc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ivec(3), j, k, npts(3)
       INTEGER, DIMENSION(2, 3)                           :: bo, bo_l
@@ -3386,11 +3313,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION Eval_d_Interp_Spl3_pbc(vec, pw) RESULT(val)
       REAL(KIND=dp), DIMENSION(3), INTENT(in)            :: vec
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(pw_type), INTENT(IN)                          :: pw
       REAL(KIND=dp)                                      :: val(3)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Eval_d_Interp_Spl3_pbc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ivec(3), j, k, npts(3)
       INTEGER, DIMENSION(2, 3)                           :: bo, bo_l

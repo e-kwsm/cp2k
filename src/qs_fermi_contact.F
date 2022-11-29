@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -75,8 +77,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_fc
       REAL(dp), DIMENSION(3), INTENT(IN)                 :: rc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_fermi_contact_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_fermi_contact_matrix'
 
       INTEGER :: after, handle, iatom, icol, ikind, inode, irow, iset, iw, jatom, jkind, jset, &
          last_jatom, ldai, ldfc, maxco, maxlgto, maxsgf, natom, ncoa, ncob, nkind, nseta, nsetb, &
@@ -210,7 +211,7 @@ CONTAINS
             NULLIFY (fcint(1)%block)
             CALL dbcsr_get_block_p(matrix=matrix_fc(1)%matrix, &
                                    row=irow, col=icol, BLOCK=fcint(1)%block, found=found)
-         ENDIF
+         END IF
 
          DO iset = 1, nseta
 
@@ -255,11 +256,11 @@ CONTAINS
                              1.0_dp, fcint(1)%block(sgfb, sgfa), &
                              SIZE(fcint(1)%block, 1))
 
-               ENDIF
+               END IF
 
-            ENDDO
+            END DO
 
-         ENDDO
+         END DO
 
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)

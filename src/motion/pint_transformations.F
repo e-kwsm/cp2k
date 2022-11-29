@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE pint_transformations
@@ -38,18 +40,14 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_x2u(pint_env, ux, x)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(out), &
          OPTIONAL, TARGET                                :: ux
       REAL(kind=dp), DIMENSION(:, :), INTENT(in), &
          OPTIONAL, TARGET                                :: x
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_x2u', routineP = moduleN//':'//routineN
-
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: my_ux, my_x
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       my_x => pint_env%x
       my_ux => pint_env%ux
       IF (PRESENT(x)) my_x => x
@@ -62,7 +60,6 @@ CONTAINS
       ELSE
          CALL normalmode_x2u(pint_env%normalmode_env, ux=my_ux, x=my_x)
       END IF
-      RETURN
    END SUBROUTINE pint_x2u
 
 ! ***************************************************************************
@@ -75,18 +72,14 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_u2x(pint_env, ux, x)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(in), &
          OPTIONAL, TARGET                                :: ux
       REAL(kind=dp), DIMENSION(:, :), INTENT(out), &
          OPTIONAL, TARGET                                :: x
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_u2x', routineP = moduleN//':'//routineN
-
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: my_ux, my_x
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       my_x => pint_env%x
       my_ux => pint_env%ux
       IF (PRESENT(x)) my_x => x
@@ -99,7 +92,6 @@ CONTAINS
       ELSE
          CALL normalmode_u2x(pint_env%normalmode_env, ux=my_ux, x=my_x)
       END IF
-      RETURN
    END SUBROUTINE pint_u2x
 
 ! ***************************************************************************
@@ -115,18 +107,14 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE pint_f2uf(pint_env, uf, f)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(out), &
          OPTIONAL, TARGET                                :: uf
       REAL(kind=dp), DIMENSION(:, :), INTENT(in), &
          OPTIONAL, TARGET                                :: f
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_f2uf', routineP = moduleN//':'//routineN
-
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: my_f, my_uf
 
-      CPASSERT(ASSOCIATED(pint_env))
-      CPASSERT(pint_env%ref_count > 0)
       my_f => pint_env%f
       my_uf => pint_env%uf
       IF (PRESENT(f)) my_f => f
@@ -141,7 +129,6 @@ CONTAINS
       END IF
 
       my_uf = my_uf/pint_env%mass_fict*pint_env%propagator%physpotscale
-      RETURN
    END SUBROUTINE pint_f2uf
 
 END MODULE pint_transformations

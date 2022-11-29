@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,61 +12,64 @@
 !>      none
 ! **************************************************************************************************
 MODULE gopt_f_methods
-   USE atomic_kind_list_types,          ONLY: atomic_kind_list_type
-   USE atomic_kind_types,               ONLY: atomic_kind_type,&
-                                              get_atomic_kind_set
-   USE cell_types,                      ONLY: cell_copy,&
-                                              cell_create,&
-                                              cell_release,&
-                                              cell_type,&
-                                              init_cell,&
-                                              real_to_scaled,&
-                                              scaled_to_real
-   USE cp_log_handling,                 ONLY: cp_to_string
-   USE cp_para_types,                   ONLY: cp_para_env_type
-   USE cp_subsys_types,                 ONLY: cp_subsys_get,&
-                                              cp_subsys_set,&
-                                              cp_subsys_type,&
-                                              pack_subsys_particles
-   USE cp_units,                        ONLY: cp_unit_from_cp2k
-   USE dimer_types,                     ONLY: dimer_env_type
-   USE dimer_utils,                     ONLY: update_dimer_vec
-   USE distribution_1d_types,           ONLY: distribution_1d_type
-   USE force_env_types,                 ONLY: force_env_get,&
-                                              force_env_get_natom,&
-                                              force_env_get_nparticle,&
-                                              force_env_type,&
-                                              use_qmmm,&
-                                              use_qmmmx
-   USE gopt_f_types,                    ONLY: gopt_f_type
-   USE gopt_param_types,                ONLY: gopt_param_type
-   USE input_constants,                 ONLY: default_cell_direct_id,&
-                                              default_cell_geo_opt_id,&
-                                              default_cell_md_id,&
-                                              default_cell_method_id,&
-                                              default_minimization_method_id,&
-                                              default_shellcore_method_id,&
-                                              default_ts_method_id
-   USE input_cp2k_restarts,             ONLY: write_restart
-   USE input_section_types,             ONLY: section_vals_type
-   USE kinds,                           ONLY: default_string_length,&
-                                              dp
-   USE machine,                         ONLY: m_flush
-   USE motion_utils,                    ONLY: write_simulation_cell,&
-                                              write_stress_tensor,&
-                                              write_trajectory
-   USE particle_list_types,             ONLY: particle_list_type
-   USE particle_methods,                ONLY: write_structure_data
-   USE particle_types,                  ONLY: particle_type
-   USE qmmm_util,                       ONLY: apply_qmmm_translate
-   USE qmmmx_util,                      ONLY: apply_qmmmx_translate
-   USE virial_methods,                  ONLY: virial_evaluate
-   USE virial_types,                    ONLY: virial_type
+   USE atomic_kind_list_types, ONLY: atomic_kind_list_type
+   USE atomic_kind_types, ONLY: atomic_kind_type, &
+                                get_atomic_kind_set
+   USE cell_types, ONLY: cell_copy, &
+                         cell_create, &
+                         cell_release, &
+                         cell_type, &
+                         init_cell, &
+                         real_to_scaled, &
+                         scaled_to_real
+   USE cp_log_handling, ONLY: cp_to_string
+   USE cp_para_types, ONLY: cp_para_env_type
+   USE cp_subsys_types, ONLY: cp_subsys_get, &
+                              cp_subsys_set, &
+                              cp_subsys_type, &
+                              pack_subsys_particles
+   USE cp_units, ONLY: cp_unit_from_cp2k
+   USE dimer_types, ONLY: dimer_env_type
+   USE dimer_utils, ONLY: update_dimer_vec
+   USE distribution_1d_types, ONLY: distribution_1d_type
+   USE force_env_types, ONLY: force_env_get, &
+                              force_env_get_natom, &
+                              force_env_get_nparticle, &
+                              force_env_type, &
+                              use_qmmm, &
+                              use_qmmmx
+   USE gopt_f_types, ONLY: gopt_f_type
+   USE gopt_param_types, ONLY: gopt_param_type
+   USE input_constants, ONLY: default_cell_direct_id, &
+                              default_cell_geo_opt_id, &
+                              default_cell_md_id, &
+                              default_cell_method_id, &
+                              default_minimization_method_id, &
+                              default_shellcore_method_id, &
+                              default_ts_method_id, &
+                              fix_none
+   USE input_cp2k_restarts, ONLY: write_restart
+   USE input_section_types, ONLY: section_vals_type, section_vals_val_get
+   USE kinds, ONLY: default_string_length, &
+                    dp, int_8
+   USE machine, ONLY: m_flush
+   USE md_energies, ONLY: sample_memory
+   USE motion_utils, ONLY: write_simulation_cell, &
+                           write_stress_tensor, &
+                           write_trajectory
+   USE particle_list_types, ONLY: particle_list_type
+   USE particle_methods, ONLY: write_structure_data
+   USE particle_types, ONLY: particle_type
+   USE qmmm_util, ONLY: apply_qmmm_translate
+   USE qmmmx_util, ONLY: apply_qmmmx_translate
+   USE virial_methods, ONLY: virial_evaluate
+   USE virial_types, ONLY: virial_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
-#include "gopt_f77_methods.h"
+
+   #:include "gopt_f77_methods.fypp"
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'gopt_f_methods'
@@ -88,9 +93,6 @@ CONTAINS
 
       TYPE(gopt_f_type), POINTER                         :: gopt_env
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x0
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gopt_f_create_x0', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idg, j, nparticle
       TYPE(cell_type), POINTER                           :: cell
@@ -187,8 +189,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: its
       REAL(KIND=dp)                                      :: used_time
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'gopt_f_io_init', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: pres_int
 
       SELECT CASE (gopt_env%type_id)
@@ -255,9 +255,19 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pred, rat, step, rad
       REAL(KIND=dp)                                      :: used_time
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'gopt_f_io', routineP = moduleN//':'//routineN
+      REAL(KIND=dp)                                      :: pres_diff, pres_diff_constr, pres_int, &
+                                                            pres_tol
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER(KIND=int_8)                                :: max_memory
+      LOGICAL                                            :: print_memory
 
-      REAL(KIND=dp)                                      :: pres_diff, pres_int, pres_tol
+      NULLIFY (para_env)
+      CALL section_vals_val_get(gopt_env%motion_section, "PRINT%MEMORY_INFO", l_val=print_memory)
+      max_memory = 0
+      IF (print_memory) THEN
+         CALL force_env_get(force_env, para_env=para_env)
+         max_memory = sample_memory(para_env)
+      END IF
 
       SELECT CASE (gopt_env%type_id)
       CASE (default_ts_method_id, default_minimization_method_id)
@@ -272,7 +282,7 @@ CONTAINS
                CPASSERT(PRESENT(ndf))
                CPASSERT(PRESENT(dx))
                CPASSERT(PRESENT(xi))
-               CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param)
+               CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param, max_memory)
             END IF
          ELSE
             CALL update_dimer_vec(gopt_env%dimer_env, gopt_env%motion_section)
@@ -300,7 +310,13 @@ CONTAINS
             CPASSERT(PRESENT(ndf))
             CPASSERT(PRESENT(dx))
             CPASSERT(PRESENT(xi))
-            CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param, pres_diff, pres_tol)
+            IF (gopt_env%cell_env%constraint_id == fix_none) THEN
+               CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param, max_memory, pres_diff, pres_tol)
+            ELSE
+               pres_diff_constr = gopt_env%cell_env%pres_constr - gopt_env%cell_env%pres_ext
+               CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param, max_memory, pres_diff, &
+                                  pres_tol, pres_diff_constr)
+            END IF
          END IF
       CASE (default_shellcore_method_id)
          CALL write_cycle_infos(output_unit, its, etot=opt_energy, ediff=opt_energy - eold, &
@@ -310,9 +326,10 @@ CONTAINS
             CPASSERT(PRESENT(ndf))
             CPASSERT(PRESENT(dx))
             CPASSERT(PRESENT(xi))
-            CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param)
+            CALL check_converg(ndf, dx, xi, output_unit, conv, gopt_param, max_memory)
          END IF
       END SELECT
+
    END SUBROUTINE gopt_f_io
 
 ! **************************************************************************************************
@@ -338,9 +355,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: master, output_unit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'gopt_f_io_finalize', &
-         routineP = moduleN//':'//routineN
 
       IF (gopt_env%eval_opt_geo) THEN
          IF (.NOT. gopt_env%dimer_rotation) THEN
@@ -378,9 +392,6 @@ CONTAINS
                                                             pres_int
       CHARACTER(LEN=5), OPTIONAL                         :: wildcard
       REAL(KIND=dp), INTENT(IN)                          :: used_time
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_cycle_infos', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: tmp_r1
 
@@ -455,9 +466,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: used_time
       CHARACTER(LEN=5), OPTIONAL                         :: wildcard
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_rot_cycle_infos', &
-         routineP = moduleN//':'//routineN
-
       IF (output_unit > 0) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,4('-'),A,I5,1X,5('-'))") &
             "  Informations at rotational step = ", it
@@ -498,17 +506,18 @@ CONTAINS
 !> \param gopt_param ...
 !> \param pres_diff ...
 !> \param pres_tol ...
+!> \param pres_diff_constr ...
 ! **************************************************************************************************
-   SUBROUTINE check_converg(ndf, dr, g, output_unit, conv, gopt_param, pres_diff, pres_tol)
+   SUBROUTINE check_converg(ndf, dr, g, output_unit, conv, gopt_param, max_memory, pres_diff, &
+                            pres_tol, pres_diff_constr)
 
       INTEGER, INTENT(IN)                                :: ndf
       REAL(KIND=dp), INTENT(IN)                          :: dr(ndf), g(ndf)
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(OUT)                               :: conv
       TYPE(gopt_param_type), POINTER                     :: gopt_param
-      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pres_diff, pres_tol
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_converg', routineP = moduleN//':'//routineN
+      INTEGER(KIND=int_8), INTENT(IN)                    :: max_memory
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: pres_diff, pres_tol, pres_diff_constr
 
       INTEGER                                            :: indf
       LOGICAL                                            :: conv_dx, conv_g, conv_p, conv_rdx, &
@@ -550,7 +559,11 @@ CONTAINS
       IF (dumm > (rmsgcon*rmsgcon*ndf)) conv_rg = .FALSE.
       maxdum(4) = SQRT(dumm/ndf)
 
-      IF (PRESENT(pres_diff) .AND. PRESENT(pres_tol)) conv_p = ABS(pres_diff) < ABS(pres_tol)
+      IF (PRESENT(pres_diff_constr) .AND. PRESENT(pres_tol)) THEN
+         conv_p = ABS(pres_diff_constr) < ABS(pres_tol)
+      ELSEIF (PRESENT(pres_diff) .AND. PRESENT(pres_tol)) THEN
+         conv_p = ABS(pres_diff) < ABS(pres_tol)
+      END IF
 
       IF (output_unit > 0) THEN
          WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
@@ -610,8 +623,18 @@ CONTAINS
          END IF
          IF (PRESENT(pres_diff) .AND. PRESENT(pres_tol)) THEN
             tmp_r1 = cp_unit_from_cp2k(pres_diff, "bar")
-            WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
-               " Pressure Deviation [bar]   = ", tmp_r1
+            IF (PRESENT(pres_diff_constr)) THEN
+               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+                  " Pressure Deviation [bar]   = ", tmp_r1, &
+                  " (without constraint)"
+               tmp_r1 = cp_unit_from_cp2k(pres_diff_constr, "bar")
+               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+                  " Pressure Deviation [bar]   = ", tmp_r1, &
+                  " (with constraint)"
+            ELSE
+               WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
+                  " Pressure Deviation [bar]   = ", tmp_r1
+            END IF
             tmp_r1 = cp_unit_from_cp2k(pres_tol, "bar")
             WRITE (UNIT=output_unit, FMT="(T2,A,F20.10)") &
                " Pressure Tolerance [bar]   = ", tmp_r1
@@ -626,6 +649,11 @@ CONTAINS
             END IF
          END IF
          WRITE (UNIT=output_unit, FMT="(T2,51('-'))")
+         IF (max_memory .NE. 0) THEN
+            WRITE (output_unit, '(T2,A,T73,I8)') &
+               'Estimated peak process memory after this step [MiB]', &
+               (max_memory + (1024*1024) - 1)/(1024*1024)
+         END IF
       END IF
 
       IF (conv_dx .AND. conv_rdx .AND. conv_g .AND. conv_rg .AND. conv_p) conv = .TRUE.
@@ -652,8 +680,6 @@ CONTAINS
       TYPE(dimer_env_type), POINTER                      :: dimer_env
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(OUT)                               :: conv
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_rot_conv', routineP = moduleN//':'//routineN
 
       conv = (ABS(dimer_env%rot%angle2) < dimer_env%rot%angle_tol)
       IF (output_unit > 0) THEN
@@ -712,9 +738,6 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(section_vals_type), POINTER                   :: motion_section, root_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_final_info', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: etot
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_subsys_type), POINTER                      :: subsys
@@ -756,8 +779,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       INTEGER, INTENT(IN)                                :: it
       REAL(KIND=dp), INTENT(IN)                          :: etot
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_geo_traj', routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: shell_adiabatic, shell_present
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
@@ -815,9 +836,6 @@ CONTAINS
       TYPE(gopt_f_type), POINTER                         :: gopt_env
       INTEGER, INTENT(IN)                                :: output_unit
       CHARACTER(LEN=*), INTENT(IN)                       :: label
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_geo_opt_header', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: my_format, my_label
       INTEGER                                            :: ix
@@ -890,8 +908,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: its
       REAL(KIND=dp), INTENT(IN)                          :: opt_energy
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'geo_opt_io', routineP = moduleN//':'//routineN
-
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
@@ -943,9 +959,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x
       LOGICAL, INTENT(IN)                                :: update_forces
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'apply_cell_change', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iatom, idg, j, natom, nparticle, &
                                                             shell_index

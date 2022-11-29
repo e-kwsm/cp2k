@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 MODULE qs_rho0_ggrid
@@ -12,14 +14,10 @@ MODULE qs_rho0_ggrid
                                               pbc
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE cube_utils,                      ONLY: cube_info_type
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product
-   USE kinds,                           ONLY: dp,&
-                                              int_8
-   USE mathconstants,                   ONLY: dfac,&
-                                              fourpi
+   USE kinds,                           ONLY: dp
    USE memory_utilities,                ONLY: reallocate
    USE message_passing,                 ONLY: mp_sum
    USE orbital_pointers,                ONLY: indco,&
@@ -44,8 +42,8 @@ MODULE qs_rho0_ggrid
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
-                                              pw_release
+                                              pw_release,&
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_force_types,                  ONLY: qs_force_type
@@ -62,9 +60,8 @@ MODULE qs_rho0_ggrid
                                               rho_atom_coeff,&
                                               rho_atom_type
    USE realspace_grid_types,            ONLY: &
-        pw2rs, realspace_grid_desc_p_type, realspace_grid_desc_type, realspace_grid_p_type, &
-        realspace_grid_type, rs2pw, rs_grid_create, rs_grid_release, rs_grid_retain, rs_grid_zero, &
-        rs_pw_transfer
+        pw2rs, realspace_grid_desc_p_type, realspace_grid_desc_type, realspace_grid_type, rs2pw, &
+        rs_grid_create, rs_grid_release, rs_grid_zero, rs_pw_transfer
    USE util,                            ONLY: get_limit
    USE virial_types,                    ONLY: virial_type
 #include "./base/base_uses.f90"
@@ -73,11 +70,11 @@ MODULE qs_rho0_ggrid
 
    PRIVATE
 
-! *** Global parameters (only in this module)
+   ! Global parameters (only in this module)
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_rho0_ggrid'
 
-! *** Public subroutines ***
+   ! Public subroutines
 
    PUBLIC :: put_rho0_on_grid, rho0_s_grid_create, integrate_vhg0_rspace
 
@@ -93,10 +90,9 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(rho0_mpole_type), POINTER                     :: rho0
-      REAL(dp), INTENT(OUT)                              :: tot_rs_int
+      REAL(KIND=dp), INTENT(OUT)                         :: tot_rs_int
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'put_rho0_on_grid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'put_rho0_on_grid'
 
       INTEGER                                            :: auxbas_grid, handle, iat, iatom, igrid, &
                                                             ikind, ithread, j, l0_ikind, lmax0, &
@@ -110,20 +106,18 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(cube_info_type), DIMENSION(:), POINTER        :: cube_info
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: rho0_r_tmp
-      TYPE(pw_p_type), POINTER                           :: coeff_gspace, coeff_rspace, rho0_s_gs, &
-                                                            rho0_s_rs
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: pw_pool
+      TYPE(pw_type)                                      :: coeff_gspace, coeff_rspace, rho0_r_tmp
+      TYPE(pw_type), POINTER                             :: rho0_s_gs, rho0_s_rs
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
          POINTER                                         :: descs
       TYPE(realspace_grid_desc_type), POINTER            :: desc
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: grids
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: grids
       TYPE(realspace_grid_type), POINTER                 :: rs_grid
 
       CALL timeset(routineN, handle)
@@ -141,7 +135,6 @@ CONTAINS
 
       NULLIFY (descs, pw_pools)
       CALL pw_env_get(pw_env=pw_env, rs_descs=descs, rs_grids=grids, pw_pools=pw_pools)
-      cube_info => pw_env%cube_info
       auxbas_grid = pw_env%auxbas_grid
 
       NULLIFY (rho0_s_gs, rho0_s_rs)
@@ -151,25 +144,21 @@ CONTAINS
                           rho0_s_rs=rho0_s_rs)
 
       ! *** set up the rs grid at level igrid
-      NULLIFY (rs_grid, desc, pw_pool, coeff_rspace, coeff_gspace)
+      NULLIFY (rs_grid, desc, pw_pool)
       desc => descs(igrid)%rs_desc
-      rs_grid => grids(igrid)%rs_grid
+      rs_grid => grids(igrid)
       pw_pool => pw_pools(igrid)%pool
 
       CPASSERT(ASSOCIATED(desc))
       CPASSERT(ASSOCIATED(pw_pool))
 
       IF (igrid /= auxbas_grid) THEN
-         ALLOCATE (coeff_rspace)
-         ALLOCATE (coeff_gspace)
-
-         CALL pw_pool_create_pw(pw_pool, coeff_rspace%pw, use_data=REALDATA3D, &
+         CALL pw_pool_create_pw(pw_pool, coeff_rspace, use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_pool_create_pw(pw_pool, coeff_gspace%pw, &
+         CALL pw_pool_create_pw(pw_pool, coeff_gspace, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
       END IF
-      CALL rs_grid_retain(rs_grid)
       CALL rs_grid_zero(rs_grid)
 
       nch_max = ncoset(lmax0)
@@ -200,11 +189,11 @@ CONTAINS
                IF (MODULO(nat, rs_grid%desc%group_size) == rs_grid%desc%my_pos) THEN
                   npme = npme + 1
                   cores(npme) = iat
-               ENDIF
+               END IF
             ELSE
                npme = npme + 1
                cores(npme) = iat
-            ENDIF
+            END IF
 
          END DO
 
@@ -223,10 +212,10 @@ CONTAINS
             CALL collocate_pgf_product( &
                l0_ikind, zet0, 0, 0, 0.0_dp, 0, &
                ra, (/0.0_dp, 0.0_dp, 0.0_dp/), 1.0_dp, pab, 0, 0, &
-               rs_grid, cell, cube_info(igrid), ga_gb_function=GRID_FUNC_AB, radius=rpgf0, &
-               use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+               rs_grid, ga_gb_function=GRID_FUNC_AB, radius=rpgf0, &
+               use_subpatch=.TRUE., subpatch_pattern=0)
 
-         END DO !  j
+         END DO ! j
 
       END DO ! ikind
 
@@ -237,34 +226,29 @@ CONTAINS
       DEALLOCATE (pab)
 
       IF (igrid /= auxbas_grid) THEN
-         CALL rs_pw_transfer(rs_grid, coeff_rspace%pw, rs2pw)
-         CALL rs_grid_release(rs_grid)
-         CALL pw_zero(rho0_s_gs%pw)
-         CALL pw_transfer(coeff_rspace%pw, coeff_gspace%pw)
-         CALL pw_axpy(coeff_gspace%pw, rho0_s_gs%pw)
+         CALL rs_pw_transfer(rs_grid, coeff_rspace, rs2pw)
+         CALL pw_zero(rho0_s_gs)
+         CALL pw_transfer(coeff_rspace, coeff_gspace)
+         CALL pw_axpy(coeff_gspace, rho0_s_gs)
 
-         tot_rs_int = pw_integrate_function(coeff_rspace%pw, isign=-1)
+         tot_rs_int = pw_integrate_function(coeff_rspace, isign=-1)
 
-         CALL pw_pool_give_back_pw(pw_pool, coeff_rspace%pw)
-         CALL pw_pool_give_back_pw(pw_pool, coeff_gspace%pw)
-
-         DEALLOCATE (coeff_rspace, coeff_gspace)
-
+         CALL pw_pool_give_back_pw(pw_pool, coeff_rspace)
+         CALL pw_pool_give_back_pw(pw_pool, coeff_gspace)
       ELSE
 
-         CALL pw_pool_create_pw(pw_pool, rho0_r_tmp%pw, &
+         CALL pw_pool_create_pw(pw_pool, rho0_r_tmp, &
                                 use_data=REALDATA3D, in_space=REALSPACE)
 
-         CALL rs_pw_transfer(rs_grid, rho0_r_tmp%pw, rs2pw)
-         CALL rs_grid_release(rs_grid)
+         CALL rs_pw_transfer(rs_grid, rho0_r_tmp, rs2pw)
 
-         tot_rs_int = pw_integrate_function(rho0_r_tmp%pw, isign=-1)
+         tot_rs_int = pw_integrate_function(rho0_r_tmp, isign=-1)
 
-         CALL pw_transfer(rho0_r_tmp%pw, rho0_s_rs%pw)
-         CALL pw_pool_give_back_pw(pw_pool, rho0_r_tmp%pw)
+         CALL pw_transfer(rho0_r_tmp, rho0_s_rs)
+         CALL pw_pool_give_back_pw(pw_pool, rho0_r_tmp)
 
-         CALL pw_zero(rho0_s_gs%pw)
-         CALL pw_transfer(rho0_s_rs%pw, rho0_s_gs%pw)
+         CALL pw_zero(rho0_s_gs)
+         CALL pw_transfer(rho0_s_rs, rho0_s_gs)
       END IF
       CALL timestop(handle)
 
@@ -280,11 +264,9 @@ CONTAINS
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(rho0_mpole_type), POINTER                     :: rho0_mpole
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rho0_s_grid_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'rho0_s_grid_create'
 
       INTEGER                                            :: handle
-      TYPE(pw_p_type), POINTER                           :: rho_gs, rho_rs
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
 
       CALL timeset(routineN, handle)
@@ -296,31 +278,26 @@ CONTAINS
       CPASSERT(ASSOCIATED(auxbas_pw_pool))
 
       ! reallocate rho0 on the global grid in real and reciprocal space
-      NULLIFY (rho_rs, rho_gs)
       CPASSERT(ASSOCIATED(rho0_mpole))
-      rho_rs => rho0_mpole%rho0_s_rs
-      rho_gs => rho0_mpole%rho0_s_gs
 
       ! rho0 density in real space
-      IF (ASSOCIATED(rho_rs)) THEN
-         CALL pw_release(rho_rs%pw)
-         DEALLOCATE (rho_rs)
+      IF (ASSOCIATED(rho0_mpole%rho0_s_rs)) THEN
+         CALL pw_release(rho0_mpole%rho0_s_rs)
+      ELSE
+         ALLOCATE (rho0_mpole%rho0_s_rs)
       END IF
-      ALLOCATE (rho_rs)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_rs%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho0_mpole%rho0_s_rs, &
                              use_data=REALDATA3D, in_space=REALSPACE)
-      rho0_mpole%rho0_s_rs => rho_rs
 
       ! rho0 density in reciprocal space
-      IF (ASSOCIATED(rho_gs)) THEN
-         CALL pw_release(rho_gs%pw)
-         DEALLOCATE (rho_gs)
+      IF (ASSOCIATED(rho0_mpole%rho0_s_gs)) THEN
+         CALL pw_release(rho0_mpole%rho0_s_gs)
+      ELSE
+         ALLOCATE (rho0_mpole%rho0_s_gs)
       END IF
-      ALLOCATE (rho_gs)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_gs%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho0_mpole%rho0_s_gs, &
                              use_data=COMPLEXDATA1D)
-      rho_gs%pw%in_space = RECIPROCALSPACE
-      rho0_mpole%rho0_s_gs => rho_gs
+      rho0_mpole%rho0_s_gs%in_space = RECIPROCALSPACE
 
       ! Find the grid level suitable for rho0_soft
       rho0_mpole%igrid_zet0_s = gaussian_gridlevel(pw_env%gridlevel_info, 2.0_dp*rho0_mpole%zet0_h)
@@ -340,13 +317,12 @@ CONTAINS
    SUBROUTINE integrate_vhg0_rspace(qs_env, v_rspace, para_env, calculate_forces, local_rho_set)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type)                                    :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
       TYPE(local_rho_type), OPTIONAL, POINTER            :: local_rho_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_vhg0_rspace', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_vhg0_rspace'
 
       INTEGER :: auxbas_grid, bo(2), handle, i, iat, iatom, ic, icg, ico, ig1, ig2, igrid, ii, &
          ikind, ipgf1, ipgf2, is, iset1, iset2, iso, iso1, iso2, ispin, j, l0_ikind, llmax, lmax0, &
@@ -356,45 +332,46 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:, :, :)           :: cg_list
       INTEGER, DIMENSION(:), POINTER                     :: atom_list, lmax, lmin, npgf
       LOGICAL                                            :: grid_distributed, paw_atom, use_virial
-      REAL(dp)                                           :: c4pi, eps_rho_rspace, force_tmp(3), &
-                                                            ra(3), rpgf0, scale, zet0
-      REAL(dp), DIMENSION(:), POINTER                    :: hab_sph, norm_l, Qlm
-      REAL(dp), DIMENSION(:, :), POINTER                 :: hab, hdab_sph, intloc, pab
-      REAL(dp), DIMENSION(:, :, :), POINTER              :: a_hdab_sph, hadb, hdab, Qlm_gg
-      REAL(dp), DIMENSION(:, :, :, :), POINTER           :: a_hdab
+      REAL(KIND=dp)                                      :: eps_rho_rspace, force_tmp(3), ra(3), &
+                                                            rpgf0, scale, zet0
       REAL(KIND=dp), DIMENSION(3, 3)                     :: my_virial_a, my_virial_b
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: hab_sph, norm_l, Qlm
+      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: hab, hdab_sph, intloc, pab
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: a_hdab_sph, hdab, Qlm_gg
+      REAL(KIND=dp), DIMENSION(:, :, :, :), POINTER      :: a_hdab
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cube_info_type), DIMENSION(:), POINTER        :: cube_info
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
       TYPE(harmonics_atom_type), POINTER                 :: harmonics
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: coeff_gaux, coeff_gspace, coeff_raux, &
-                                                            coeff_rspace
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: pw_aux, pw_pool
+      TYPE(pw_type)                                      :: coeff_gaux, coeff_gspace, coeff_raux, &
+                                                            coeff_rspace
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
          POINTER                                         :: rs_descs
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
-      TYPE(realspace_grid_type), POINTER                 :: rs_v
+      TYPE(realspace_grid_type)                          :: rs_v
       TYPE(rho0_mpole_type), POINTER                     :: rho0_mpole
       TYPE(rho_atom_coeff), DIMENSION(:), POINTER        :: int_local_h, int_local_s
       TYPE(rho_atom_type), DIMENSION(:), POINTER         :: rho_atom_set
       TYPE(rho_atom_type), POINTER                       :: rho_atom
       TYPE(virial_type), POINTER                         :: virial
 
-      c4pi = fourpi
-
       CALL timeset(routineN, handle)
 
       ! In case of the external density computed forces probably also
       ! need to be stored outside qs_env. We can then remove the
       ! attribute 'OPTIONAL' from the argument 'local_rho_set'.
-      CPASSERT(.NOT. (calculate_forces .AND. PRESENT(local_rho_set)))
+
+      ! CPASSERT(.NOT. (calculate_forces .AND. PRESENT(local_rho_set)))
+      IF (calculate_forces .AND. PRESENT(local_rho_set)) THEN
+         CPWARN("Forces and External Density")
+      END IF
 
       NULLIFY (atomic_kind_set, qs_kind_set, dft_control, particle_set)
       NULLIFY (cell, force, pw_env, rho0_mpole, rho_atom_set)
@@ -424,7 +401,7 @@ CONTAINS
       !      IF (nspins == 1 .AND. do_triplet) RETURN
       !   ELSE
       !      IF (nspins == 1 .AND. dft_control%tddfpt_control%res_etype /= tddfpt_singlet) RETURN
-      !   ENDIF
+      !   END IF
       !END IF
 
       IF (PRESENT(local_rho_set)) &
@@ -434,79 +411,69 @@ CONTAINS
                           zet0_h=zet0, igrid_zet0_s=igrid, &
                           norm_g0l_h=norm_l)
 
-      ! *** set up of the potential on the multigrids
+      ! Setup of the potential on the multigrids
       NULLIFY (rs_descs, pw_pools)
       CPASSERT(ASSOCIATED(pw_env))
       CALL pw_env_get(pw_env, rs_descs=rs_descs, pw_pools=pw_pools)
 
-      ! *** assign from pw_env
+      ! Assign from pw_env
       auxbas_grid = pw_env%auxbas_grid
-      cube_info => pw_env%cube_info
 
-      ! *** Get the potential on the right grid
-      NULLIFY (rs_v, rs_desc, pw_pool, pw_aux, coeff_rspace, coeff_gspace)
+      ! Get the potential on the right grid
+      NULLIFY (rs_desc, pw_pool, pw_aux)
       rs_desc => rs_descs(igrid)%rs_desc
       pw_pool => pw_pools(igrid)%pool
 
-      ALLOCATE (coeff_gspace)
-      ALLOCATE (coeff_rspace)
-      CALL pw_pool_create_pw(pw_pool, coeff_gspace%pw, &
+      CALL pw_pool_create_pw(pw_pool, coeff_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
-      CALL pw_pool_create_pw(pw_pool, coeff_rspace%pw, use_data=REALDATA3D, &
+      CALL pw_pool_create_pw(pw_pool, coeff_rspace, use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
       IF (igrid /= auxbas_grid) THEN
          pw_aux => pw_pools(auxbas_grid)%pool
-         ALLOCATE (coeff_gaux)
-         CALL pw_pool_create_pw(pw_aux, coeff_gaux%pw, &
+         CALL pw_pool_create_pw(pw_aux, coeff_gaux, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
-         CALL pw_transfer(v_rspace%pw, coeff_gaux%pw)
-         CALL pw_copy(coeff_gaux%pw, coeff_gspace%pw)
-         CALL pw_transfer(coeff_gspace%pw, coeff_rspace%pw)
-         CALL pw_pool_give_back_pw(pw_aux, coeff_gaux%pw)
-         DEALLOCATE (coeff_gaux)
-         ALLOCATE (coeff_raux)
-         CALL pw_pool_create_pw(pw_aux, coeff_raux%pw, use_data=REALDATA3D, &
+         CALL pw_transfer(v_rspace, coeff_gaux)
+         CALL pw_copy(coeff_gaux, coeff_gspace)
+         CALL pw_transfer(coeff_gspace, coeff_rspace)
+         CALL pw_pool_give_back_pw(pw_aux, coeff_gaux)
+         CALL pw_pool_create_pw(pw_aux, coeff_raux, use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         scale = coeff_rspace%pw%pw_grid%dvol/coeff_raux%pw%pw_grid%dvol
-         coeff_rspace%pw%cr3d = scale*coeff_rspace%pw%cr3d
-         CALL pw_pool_give_back_pw(pw_aux, coeff_raux%pw)
-         DEALLOCATE (coeff_raux)
+         scale = coeff_rspace%pw_grid%dvol/coeff_raux%pw_grid%dvol
+         coeff_rspace%cr3d = scale*coeff_rspace%cr3d
+         CALL pw_pool_give_back_pw(pw_aux, coeff_raux)
       ELSE
 
-         IF (coeff_gspace%pw%pw_grid%spherical) THEN
-            CALL pw_transfer(v_rspace%pw, coeff_gspace%pw)
-            CALL pw_transfer(coeff_gspace%pw, coeff_rspace%pw)
+         IF (coeff_gspace%pw_grid%spherical) THEN
+            CALL pw_transfer(v_rspace, coeff_gspace)
+            CALL pw_transfer(coeff_gspace, coeff_rspace)
          ELSE
-            CALL pw_copy(v_rspace%pw, coeff_rspace%pw)
+            CALL pw_copy(v_rspace, coeff_rspace)
          END IF
       END IF
-      CALL pw_pool_give_back_pw(pw_pool, coeff_gspace%pw)
-      DEALLOCATE (coeff_gspace)
+      CALL pw_pool_give_back_pw(pw_pool, coeff_gspace)
 
-      ! *** set up the rs grid at level igrid
+      ! Setup the rs grid at level igrid
       CALL rs_grid_create(rs_v, rs_desc)
       CALL rs_grid_zero(rs_v)
-      CALL rs_pw_transfer(rs_v, coeff_rspace%pw, pw2rs)
+      CALL rs_pw_transfer(rs_v, coeff_rspace, pw2rs)
 
-      CALL pw_pool_give_back_pw(pw_pool, coeff_rspace%pw)
-      DEALLOCATE (coeff_rspace)
+      CALL pw_pool_give_back_pw(pw_pool, coeff_rspace)
 
-      ! *** Now the potential is on the right grid => integration
+      ! Now the potential is on the right grid => integration
 
       eps_rho_rspace = dft_control%qs_control%eps_rho_rspace
 
-      !   *** Allocate work storage ***
+      ! Allocate work storage
 
-      NULLIFY (hab, hab_sph, hdab, hdab_sph, hadb, pab, a_hdab, a_hdab_sph)
+      NULLIFY (hab, hab_sph, hdab, hdab_sph, pab, a_hdab, a_hdab_sph)
       nch_max = ncoset(lmax0)
       CALL reallocate(hab, 1, nch_max, 1, 1)
       CALL reallocate(hab_sph, 1, nch_max)
       CALL reallocate(hdab, 1, 3, 1, nch_max, 1, 1)
-      CALL reallocate(hadb, 1, 3, 1, nch_max, 1, 1)
       CALL reallocate(hdab_sph, 1, 3, 1, nch_max)
       CALL reallocate(a_hdab, 1, 3, 1, 3, 1, nch_max, 1, 1)
       CALL reallocate(a_hdab_sph, 1, 3, 1, 3, 1, nch_max)
@@ -572,13 +539,12 @@ CONTAINS
 
                CALL integrate_pgf_product( &
                   l0_ikind, zet0, 0, 0, 0.0_dp, 0, &
-                  ra, (/0.0_dp, 0.0_dp, 0.0_dp/), rs_v, cell, &
-                  cube_info(igrid), hab, pab, o1=0, o2=0, &
+                  ra, (/0.0_dp, 0.0_dp, 0.0_dp/), rs_v, &
+                  hab, pab, o1=0, o2=0, &
                   radius=rpgf0, &
                   calculate_forces=calculate_forces, &
-                  hdab=hdab, hadb=hadb, &
                   use_virial=use_virial, my_virial_a=my_virial_a, my_virial_b=my_virial_b, &
-                  a_hdab=a_hdab, use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+                  hdab=hdab, a_hdab=a_hdab, use_subpatch=.TRUE., subpatch_pattern=0)
 
                ! Convert from cartesian to spherical
                DO lshell = 0, l0_ikind
@@ -592,28 +558,23 @@ CONTAINS
                         lx = indco(1, ico)
                         ly = indco(2, ico)
                         lz = indco(3, ico)
-
                         hab_sph(iso) = hab_sph(iso) + &
-                                       orbtramat(lshell)%c2s(is, ic)*hab(ico, 1)* &
-                                       norm_l(lshell)/ &
-                                       SQRT(c4pi*dfac(2*lx - 1)*dfac(2*ly - 1)*dfac(2*lz - 1)/ &
-                                            dfac(2*lshell + 1))
-
+                                       norm_l(lshell)* &
+                                       orbtramat(lshell)%slm(is, ic)* &
+                                       hab(ico, 1)
                         IF (calculate_forces) THEN
                            hdab_sph(1:3, iso) = hdab_sph(1:3, iso) + &
-                                                orbtramat(lshell)%c2s(is, ic)*hdab(1:3, ico, 1)* &
-                                                norm_l(lshell)/ &
-                                                SQRT(c4pi*dfac(2*lx - 1)*dfac(2*ly - 1)*dfac(2*lz - 1)/ &
-                                                     dfac(2*lshell + 1))
+                                                norm_l(lshell)* &
+                                                orbtramat(lshell)%slm(is, ic)* &
+                                                hdab(1:3, ico, 1)
                         END IF
                         IF (use_virial) THEN
                            DO ii = 1, 3
                            DO i = 1, 3
                               a_hdab_sph(i, ii, iso) = a_hdab_sph(i, ii, iso) + &
-                                                       orbtramat(lshell)%c2s(is, ic)*a_hdab(i, ii, ico, 1)* &
-                                                       norm_l(lshell)/ &
-                                                       SQRT(c4pi*dfac(2*lx - 1)*dfac(2*ly - 1)*dfac(2*lz - 1)/ &
-                                                            dfac(2*lshell + 1))
+                                                       norm_l(lshell)* &
+                                                       orbtramat(lshell)%slm(is, ic)* &
+                                                       a_hdab(i, ii, ico, 1)
                            END DO
                            END DO
                         END IF
@@ -655,7 +616,7 @@ CONTAINS
                END DO ! iset1
 
                IF (grid_distributed) THEN
-                  ! sum result over all processors
+                  ! Sum result over all processors
                   CALL mp_sum(intloc, para_env%group)
                END IF
 
@@ -682,6 +643,7 @@ CONTAINS
                   DO iso = 1, nsoset(l0_ikind)
                      DO ii = 1, 3
                      DO i = 1, 3
+                        virial%pv_gapw(i, ii) = virial%pv_gapw(i, ii) + Qlm(iso)*a_hdab_sph(i, ii, iso)
                         virial%pv_virial(i, ii) = virial%pv_virial(i, ii) + Qlm(iso)*a_hdab_sph(i, ii, iso)
                      END DO
                      END DO
@@ -698,7 +660,7 @@ CONTAINS
 
       CALL rs_grid_release(rs_v)
 
-      DEALLOCATE (hab, hdab, hadb, hab_sph, hdab_sph, pab, a_hdab, a_hdab_sph)
+      DEALLOCATE (hab, hdab, hab_sph, hdab_sph, pab, a_hdab, a_hdab_sph)
 
       CALL timestop(handle)
 

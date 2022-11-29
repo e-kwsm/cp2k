@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -137,8 +139,7 @@ CONTAINS
       TYPE(almo_scf_env_type), INTENT(INOUT)             :: almo_scf_env
       TYPE(optimizer_options_type), INTENT(IN)           :: optimizer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_block_diagonal', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_block_diagonal'
 
       INTEGER                                            :: handle, iscf, ispin, nspin, unit_nr
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: local_nocc_of_domain
@@ -161,7 +162,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! use DIIS, it's superior to simple mixing
       use_diis = .TRUE.
@@ -182,7 +183,7 @@ CONTAINS
                                  sample_var=almo_scf_env%matrix_s_blk(1), &
                                  error_type=1, &
                                  max_length=optimizer%ndiis)
-      ENDDO
+      END DO
 
       CALL get_qs_env(qs_env, energy=qs_energy)
       energy_old = qs_energy%total
@@ -199,7 +200,7 @@ CONTAINS
          WRITE (unit_nr, '(T2,A13,A6,A23,A14,A14,A9)') "Method", "Iter", &
             "Total Energy", "Change", "Convergence", "Time"
          WRITE (unit_nr, '(T2,A)') REPEAT("-", 79)
-      ENDIF
+      END IF
 
       ! the real SCF loop
       t1 = m_walltime()
@@ -216,8 +217,8 @@ CONTAINS
                CALL almo_scf_diis_push(diis_env=almo_diis(ispin), &
                                        var=almo_scf_env%matrix_ks_blk(ispin), &
                                        err=almo_scf_env%matrix_err_blk(ispin))
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
          ! get error_norm: choose the largest of the two spins
          prev_error_norm = error_norm
@@ -229,13 +230,13 @@ CONTAINS
             IF (ispin .EQ. 1) error_norm = error_norm_ispin
             IF (ispin .GT. 1 .AND. error_norm_ispin .GT. error_norm) &
                error_norm = error_norm_ispin
-         ENDDO
+         END DO
 
          IF (error_norm .LT. almo_scf_env%eps_prev_guess) THEN
             use_prev_as_guess = .TRUE.
          ELSE
             use_prev_as_guess = .FALSE.
-         ENDIF
+         END IF
 
          ! check convergence
          converged = .TRUE.
@@ -248,7 +249,7 @@ CONTAINS
          IF (should_stop .OR. iscf >= optimizer%max_iter .OR. converged) THEN
             prepare_to_exit = .TRUE.
             IF (iscf == 1) energy_new = energy_old
-         ENDIF
+         END IF
 
          ! if early stopping is on do at least one iteration
          IF (optimizer%early_stopping_on .AND. iscf .EQ. 1) &
@@ -262,7 +263,7 @@ CONTAINS
                   DO ispin = 1, nspin
                      CALL almo_scf_diis_extrapolate(diis_env=almo_diis(ispin), &
                                                     extr_var=almo_scf_env%matrix_ks_blk(ispin))
-                  ENDDO
+                  END DO
                ELSE ! use mixing
                   true_mixing_fraction = almo_scf_env%mixing_fraction
                   DO ispin = 1, nspin
@@ -271,13 +272,13 @@ CONTAINS
                                     true_mixing_fraction, &
                                     1.0_dp - true_mixing_fraction)
                   END DO
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             ! save the new matrix for the future mixing
             DO ispin = 1, nspin
                CALL dbcsr_copy(matrix_mixing_old_blk(ispin), &
                                almo_scf_env%matrix_ks_blk(ispin))
-            ENDDO
+            END DO
 
             ! obtain ALMOs from the new KS matrix
             SELECT CASE (almo_scf_env%almo_update_algorithm)
@@ -309,7 +310,7 @@ CONTAINS
                   ! RZK UPDATE!
                   almo_scf_env%mu_of_domain(:, ispin) = local_mu(:)
 
-               ENDDO
+               END DO
 
                ! obtain ALMOs from matrix_p_blk: T_new = P_blk S_blk T_old
                CALL almo_scf_p_blk_to_t_blk(almo_scf_env, ionic=.FALSE.)
@@ -327,7 +328,7 @@ CONTAINS
                                          eps_lanczos=almo_scf_env%eps_lanczos, &
                                          max_iter_lanczos=almo_scf_env%max_iter_lanczos)
 
-               ENDDO
+               END DO
 
             END SELECT
 
@@ -364,7 +365,7 @@ CONTAINS
                                        para_env=almo_scf_env%para_env, &
                                        blacs_env=almo_scf_env%blacs_env)
 
-            ENDDO
+            END DO
 
             IF (almo_scf_env%nspins == 1) THEN
                CALL dbcsr_scale(almo_scf_env%matrix_p(1), 2.0_dp)
@@ -372,13 +373,13 @@ CONTAINS
                IF (almo_scf_env%smear) THEN
                   almo_scf_env%kTS(1) = almo_scf_env%kTS(1)*2.0_dp
                END IF
-            ENDIF
+            END IF
 
             IF (almo_scf_env%smear) THEN
                kTS_sum = SUM(almo_scf_env%kTS)
             ELSE
                kTS_sum = 0.0_dp
-            ENDIF
+            END IF
 
             ! compute the new KS matrix and new energy
             CALL almo_dm_to_almo_ks(qs_env, &
@@ -390,7 +391,7 @@ CONTAINS
                                     smear=almo_scf_env%smear, &
                                     kTS_sum=kTS_sum)
 
-         ENDIF ! prepare_to_exit
+         END IF ! prepare_to_exit
 
          energy_diff = energy_new - energy_old
          energy_old = energy_new
@@ -402,12 +403,12 @@ CONTAINS
             WRITE (unit_nr, '(T2,A13,I6,F23.10,E14.5,F14.9,F9.2)') "ALMO SCF DIIS", &
                iscf, &
                energy_new, energy_diff, error_norm, t2 - t1
-         ENDIF
+         END IF
          t1 = m_walltime()
 
          IF (prepare_to_exit) EXIT
 
-      ENDDO ! end scf cycle
+      END DO ! end scf cycle
 
       !! Print number of electrons recovered if smearing was requested
       IF (almo_scf_env%smear) THEN
@@ -422,13 +423,13 @@ CONTAINS
       IF (.NOT. converged .AND. (.NOT. optimizer%early_stopping_on)) THEN
          IF (unit_nr > 0) THEN
             CPABORT("SCF for block-diagonal ALMOs not converged!")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       DO ispin = 1, nspin
          CALL dbcsr_release(matrix_mixing_old_blk(ispin))
          CALL almo_scf_diis_release(diis_env=almo_diis(ispin))
-      ENDDO
+      END DO
       DEALLOCATE (almo_diis)
       DEALLOCATE (matrix_mixing_old_blk)
       DEALLOCATE (local_mu)
@@ -454,8 +455,7 @@ CONTAINS
       TYPE(almo_scf_env_type), INTENT(INOUT)             :: almo_scf_env
       TYPE(optimizer_options_type), INTENT(IN)           :: optimizer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_eigensolver', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_eigensolver'
 
       INTEGER                                            :: handle, iscf, ispin, nspin, unit_nr
       LOGICAL                                            :: converged, prepare_to_exit, should_stop
@@ -477,14 +477,14 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspin = almo_scf_env%nspins
       IF (nspin == 1) THEN
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ! RZK-warning domain_s_sqrt and domain_s_sqrt_inv do not have spin
       ! components yet (may be used later)
@@ -516,7 +516,7 @@ CONTAINS
             domain_map=almo_scf_env%domain_map(ispin), &
             node_of_domain=almo_scf_env%cpu_of_domain, &
             job_type=select_row)
-      ENDDO
+      END DO
 
       ! init mixing matrices
       ALLOCATE (submatrix_mixing_old_blk(almo_scf_env%ndomains, nspin))
@@ -551,7 +551,7 @@ CONTAINS
                                  sample_err=almo_scf_env%domain_s_sqrt(:, ispin), &
                                  error_type=1, &
                                  max_length=optimizer%ndiis)
-      ENDDO
+      END DO
 
       denergy_tot = 0.0_dp
       energy_old = 0.0_dp
@@ -572,7 +572,7 @@ CONTAINS
             CALL almo_scf_diis_push(diis_env=almo_diis(ispin), &
                                     d_var=almo_scf_env%domain_ks_xx(:, ispin), &
                                     d_err=almo_scf_env%domain_err(:, ispin))
-         ENDDO
+         END DO
 
          ! check convergence
          converged = .TRUE.
@@ -586,15 +586,15 @@ CONTAINS
             IF (error_norm .GT. optimizer%eps_error) THEN
                converged = .FALSE.
                EXIT ! no need to check the other spin
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          ! check other exit criteria: max SCF steps and timing
          CALL external_control(should_stop, "SCF", &
                                start_time=qs_env%start_time, &
                                target_time=qs_env%target_time)
          IF (should_stop .OR. iscf >= optimizer%max_iter .OR. converged) THEN
             prepare_to_exit = .TRUE.
-         ENDIF
+         END IF
 
          ! if early stopping is on do at least one iteration
          IF (optimizer%early_stopping_on .AND. iscf .EQ. 1) &
@@ -617,16 +617,16 @@ CONTAINS
                   DO ispin = 1, nspin
                      CALL almo_scf_diis_extrapolate(diis_env=almo_diis(ispin), &
                                                     d_extr_var=almo_scf_env%domain_ks_xx(:, ispin))
-                  ENDDO
-               ENDIF
-            ENDIF
+                  END DO
+               END IF
+            END IF
             ! save the new matrix for the future mixing
             DO ispin = 1, nspin
                CALL copy_submatrices( &
                   almo_scf_env%domain_ks_xx(:, ispin), &
                   submatrix_mixing_old_blk(:, ispin), &
                   copy_data=.TRUE.)
-            ENDDO
+            END DO
 
             ! obtain a new set of ALMOs from the updated KS matrix
             CALL almo_scf_ks_xx_to_tv_xx(almo_scf_env)
@@ -640,7 +640,7 @@ CONTAINS
                                     template=almo_scf_env%matrix_p(ispin))
                   CALL dbcsr_copy(matrix_p_almo_scf_converged, &
                                   almo_scf_env%matrix_p(ispin))
-               ENDIF
+               END IF
 
                !! Application of an occupation-rescaling trick for smearing, if requested
                IF (almo_scf_env%smear) THEN
@@ -753,9 +753,9 @@ CONTAINS
                   !CALL dbcsr_release(matrix_tmp_no)
                   !CALL dbcsr_release(matrix_x)
 
-               ENDIF ! iscf.eq.1
+               END IF ! iscf.eq.1
 
-            ENDDO
+            END DO
 
             ! print out the energy lowering
             IF (iscf .EQ. 1) THEN
@@ -766,7 +766,7 @@ CONTAINS
                CALL almo_scf_update_ks_energy(qs_env, &
                                               energy=almo_scf_env%almo_scf_energy, &
                                               energy_singles_corr=denergy_tot)
-            ENDIF
+            END IF
 
             ! compute the new KS matrix and new energy
             IF (.NOT. almo_scf_env%perturbative_delocalization) THEN
@@ -775,7 +775,7 @@ CONTAINS
                   kTS_sum = SUM(almo_scf_env%kTS)
                ELSE
                   kTS_sum = 0.0_dp
-               ENDIF
+               END IF
 
                CALL almo_dm_to_almo_ks(qs_env, &
                                        almo_scf_env%matrix_p, &
@@ -785,9 +785,9 @@ CONTAINS
                                        almo_scf_env%mat_distr_aos, &
                                        smear=almo_scf_env%smear, &
                                        kTS_sum=kTS_sum)
-            ENDIF
+            END IF
 
-         ENDIF ! prepare_to_exit
+         END IF ! prepare_to_exit
 
          IF (almo_scf_env%perturbative_delocalization) THEN
 
@@ -808,14 +808,14 @@ CONTAINS
                WRITE (unit_nr, '(T2,A,I6,F20.9,E11.3,E11.3,E11.3,F8.2)') "ALMO SCF", &
                   iscf, &
                   energy_new, energy_diff, error_norm, error_norm_0, t2 - t1
-            ENDIF
+            END IF
             t1 = m_walltime()
 
-         ENDIF
+         END IF
 
          IF (prepare_to_exit) EXIT
 
-      ENDDO ! end scf cycle
+      END DO ! end scf cycle
 
       !! Print number of electrons recovered if smearing was requested
       IF (almo_scf_env%smear) THEN
@@ -829,12 +829,12 @@ CONTAINS
 
       IF (.NOT. converged .AND. .NOT. optimizer%early_stopping_on) THEN
          CPABORT("SCF for ALMOs on overlapping domains not converged! ")
-      ENDIF
+      END IF
 
       DO ispin = 1, nspin
          CALL release_submatrices(submatrix_mixing_old_blk(:, ispin))
          CALL almo_scf_diis_release(diis_env=almo_diis(ispin))
-      ENDDO
+      END DO
       DEALLOCATE (almo_diis)
       DEALLOCATE (submatrix_mixing_old_blk)
 
@@ -850,7 +850,7 @@ CONTAINS
 !> \param quench_t ...
 !> \param matrix_t_in ...
 !> \param matrix_t_out ...
-!> \param assume_t0_q0x - since it is extrememly difficult to converge the iterative
+!> \param assume_t0_q0x - since it is extremely difficult to converge the iterative
 !>                        procedure using T as an optimized variable, assume
 !>                        T = T_0 + (1-R_0)*X and optimize X
 !>                        T_0 is assumed to be the zero-delocalization reference
@@ -875,8 +875,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: assume_t0_q0x, perturbation_only
       INTEGER, INTENT(IN), OPTIONAL                      :: special_case
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_pcg', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_pcg'
 
       CHARACTER(LEN=20)                                  :: iter_type
       INTEGER :: cg_iteration, dim_op, fixed_line_search_niter, handle, idim0, ielem, ispin, &
@@ -915,7 +914,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspins = almo_scf_env%nspins
 
@@ -924,7 +923,7 @@ CONTAINS
       blissful_neglect = .FALSE.
       IF (my_special_case .EQ. xalmo_case_normal .AND. .NOT. assume_t0_q0x) THEN
          blissful_neglect = .TRUE.
-      ENDIF
+      END IF
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)
@@ -942,20 +941,20 @@ CONTAINS
             ELSE
                WRITE (unit_nr, '(T2,A,A,A)') REPEAT("-", 27), &
                   " Optimization of XALMOs ", REPEAT("-", 28)
-            ENDIF
+            END IF
          END SELECT
          WRITE (unit_nr, *)
          WRITE (unit_nr, '(T2,A13,A6,A23,A14,A14,A9)') "Method", "Iter", &
             "Objective Function", "Change", "Convergence", "Time"
          WRITE (unit_nr, '(T2,A)') REPEAT("-", 79)
-      ENDIF
+      END IF
 
       ! set local parameters using developer's keywords
       ! RZK-warning: change to normal keywords later
       optimize_theta = almo_scf_env%logical05
       eps_skip_gradients = almo_scf_env%real01
 
-      ! penalty amplitude adjusts the strenght of volume conservation
+      ! penalty amplitude adjusts the strength of volume conservation
       energy_coeff = 1.0_dp !optimizer%opt_penalty%energy_coeff
       localiz_coeff = 0.0_dp !optimizer%opt_penalty%occ_loc_coeff
       penalty_amplitude = 0.0_dp !optimizer%opt_penalty%occ_vol_coeff
@@ -980,7 +979,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (grad_norm_spin(nspins))
       ALLOCATE (nocc(nspins))
@@ -995,7 +994,7 @@ CONTAINS
                            template=matrix_t_in(ispin), &
                            matrix_type=dbcsr_type_no_symmetry)
          CALL dbcsr_copy(m_t_in_local(ispin), matrix_t_in(ispin))
-      ENDDO
+      END DO
 
       ! m_theta contains a set of variational parameters
       ! that define one-electron orbitals (simple, projected, etc.)
@@ -1004,7 +1003,7 @@ CONTAINS
          CALL dbcsr_create(m_theta(ispin), &
                            template=matrix_t_out(ispin), &
                            matrix_type=dbcsr_type_no_symmetry)
-      ENDDO
+      END DO
 
       ! Compute localization matrices
       IF (penalty_occ_local) THEN
@@ -1038,7 +1037,7 @@ CONTAINS
                CALL dbcsr_copy(op_sm_set_almo(reim, idim0)%matrix, almo_scf_env%matrix_s(1), &
                              name="almo_scf_env%op_sm_"//TRIM(ADJUSTL(cp_to_string(reim)))//"-"//TRIM(ADJUSTL(cp_to_string(idim0))))
                CALL dbcsr_set(op_sm_set_almo(reim, idim0)%matrix, 0.0_dp)
-            ENDDO
+            END DO
          END DO
 
          CALL compute_berry_operator(qs_env, cell, op_sm_set_qs, dim_op)
@@ -1046,7 +1045,7 @@ CONTAINS
          !CALL matrix_qs_to_almo(op_sm_set_qs, op_sm_set_almo, &
          !                       almo_scf_env%mat_distr_aos, .FALSE.)
 
-      ENDIF
+      END IF
 
       ! create initial guess from the initial orbitals
       CALL xalmo_initial_guess(m_guess=m_theta, &
@@ -1157,7 +1156,7 @@ CONTAINS
                map=almo_scf_env%domain_map(ispin), &
                node_of_domain=almo_scf_env%cpu_of_domain)
 
-         ENDIF
+         END IF
 
          IF (assume_t0_q0x) THEN
 
@@ -1173,7 +1172,7 @@ CONTAINS
                                    almo_scf_env%matrix_sigma_inv_0deloc(ispin), &
                                    0.0_dp, STsiginv_0(ispin), &
                                    filter_eps=almo_scf_env%eps_filter)
-            ENDIF
+            END IF
 
             ! construct domain-projector
             IF (my_special_case .EQ. xalmo_case_normal) THEN
@@ -1186,9 +1185,9 @@ CONTAINS
                   map=almo_scf_env%domain_map(ispin), &
                   node_of_domain=almo_scf_env%cpu_of_domain, &
                   filter_eps=almo_scf_env%eps_filter)
-            ENDIF
+            END IF
 
-         ENDIF ! assume_t0_q0x
+         END IF ! assume_t0_q0x
 
          ! localization functional
          IF (penalty_occ_local) THEN
@@ -1235,12 +1234,12 @@ CONTAINS
                                       0.0_dp, op_sm_set_almo(reim, idim0)%matrix, &
                                       filter_eps=almo_scf_env%eps_filter)
 
-               ENDDO
-            ENDDO ! end loop over idim0
+               END DO
+            END DO ! end loop over idim0
 
-         ENDIF !penalty_occ_local
+         END IF !penalty_occ_local
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       ! start the outer SCF loop
       outer_max_iter = optimizer%max_iter_outer_loop
@@ -1296,14 +1295,14 @@ CONTAINS
             IF (penalty_occ_vol) THEN
                ! this is not pure energy anymore
                energy_new = energy_new + penalty_func_new
-            ENDIF
+            END IF
             DO ispin = 1, nspins
                IF (penalty_occ_vol) THEN
                   penalty_occ_vol_g_prefactor(ispin) = &
                      -2.0_dp*penalty_amplitude*spin_factor*nocc(ispin)
                   penalty_occ_vol_h_prefactor(ispin) = 0.0_dp
-               ENDIF
-            ENDDO
+               END IF
+            END DO
 
             localization_obj_function = 0.0_dp
             ! RZK-warning: This block must be combined with the loss function
@@ -1343,7 +1342,7 @@ CONTAINS
                         CALL mp_sum(reim_diag, para_group)
                         z2(:) = z2(:) + reim_diag(:)*reim_diag(:)
 
-                     ENDDO
+                     END DO
 
                      DO ielem = 1, nmo
                         SELECT CASE (2) ! allows for selection of different spread functionals
@@ -1355,17 +1354,17 @@ CONTAINS
                            fval = weights(idim0) - weights(idim0)*SQRT(ABS(z2(ielem)))
                         END SELECT
                         localization_obj_function = localization_obj_function + fval
-                     ENDDO
+                     END DO
 
-                  ENDDO ! end loop over idim0
+                  END DO ! end loop over idim0
 
                   DEALLOCATE (z2)
                   DEALLOCATE (reim_diag)
 
                   energy_new = energy_new + localiz_coeff*localization_obj_function
 
-               ENDDO ! ispin
-            ENDIF ! penalty_occ_local
+               END DO ! ispin
+            END IF ! penalty_occ_local
 
             DO ispin = 1, nspins
 
@@ -1375,7 +1374,7 @@ CONTAINS
                   CALL print_mathematica_matrix(almo_scf_env%matrix_ks(ispin), "matrixF.dat")
                   CALL print_mathematica_matrix(matrix_t_out(ispin), "matrixT.dat")
                   CALL print_mathematica_matrix(quench_t(ispin), "matrixQ.dat")
-               ENDIF
+               END IF
 
                ! save the previous gradient to compute beta
                ! do it only if the previous grad was computed
@@ -1383,7 +1382,7 @@ CONTAINS
                IF (line_search_iteration .EQ. 0 .AND. iteration .NE. 0) &
                   CALL dbcsr_copy(prev_grad(ispin), grad(ispin))
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! compute the energy gradient if necessary
             skip_grad = (iteration .GT. 0 .AND. &
@@ -1427,9 +1426,9 @@ CONTAINS
                      energy_coeff=energy_coeff, &
                      localiz_coeff=localiz_coeff)
 
-               ENDDO ! ispin
+               END DO ! ispin
 
-            ENDIF ! skip_grad
+            END IF ! skip_grad
 
             ! if unprojected XALMOs are optimized then compute both
             ! HessianInv/preconditioner and the "bad-mode" projector
@@ -1467,7 +1466,7 @@ CONTAINS
                         spin_factor=spin_factor, &
                         skip_inversion=.FALSE., &
                         special_case=my_special_case)
-                  ENDIF
+                  END IF
                   ! remove bad modes from the gradient
                   CALL apply_domain_operators( &
                      matrix_in=grad(ispin), &
@@ -1480,21 +1479,21 @@ CONTAINS
                      my_action=1, &
                      filter_eps=almo_scf_env%eps_filter)
 
-               ENDDO ! ispin
+               END DO ! ispin
 
-            ENDIF ! blissful neglect
+            END IF ! blissful neglect
 
             ! check convergence and other exit criteria
             DO ispin = 1, nspins
                CALL dbcsr_norm(grad(ispin), dbcsr_norm_maxabsnorm, &
                                norm_scalar=grad_norm_spin(ispin))
-            ENDDO ! ispin
+            END DO ! ispin
             grad_norm = MAXVAL(grad_norm_spin)
 
             converged = (grad_norm .LE. optimizer%eps_error)
             IF (converged .OR. (iteration .GE. max_iter)) THEN
                prepare_to_exit = .TRUE.
-            ENDIF
+            END IF
             ! if early stopping is on do at least one iteration
             IF (optimizer%early_stopping_on .AND. just_started) &
                prepare_to_exit = .FALSE.
@@ -1536,7 +1535,7 @@ CONTAINS
                            CALL dbcsr_dot(step(ispin), step(ispin), tempreal)
                            denom2 = denom2 + tempreal
 
-                        ENDDO ! ispin
+                        END DO ! ispin
 
                         ! cosine of the angle between the step and grad
                         ! (must be close to zero at convergence)
@@ -1550,10 +1549,10 @@ CONTAINS
                            line_search_iteration = 0
                            IF (grad_norm .LT. eps_skip_gradients) THEN
                               fixed_line_search_niter = ABS(almo_scf_env%integer04)
-                           ENDIF
-                        ENDIF
+                           END IF
+                        END IF
 
-                     ENDIF
+                     END IF
 
                   ELSE ! decision for fixed_line_search_niter
 
@@ -1565,19 +1564,19 @@ CONTAINS
                            line_search = .FALSE.
                            line_search_iteration = 0
                            line_search_iteration = line_search_iteration + 1
-                        ENDIF
-                     ENDIF
+                        END IF
+                     END IF
 
-                  ENDIF ! fixed_line_search_niter fork
+                  END IF ! fixed_line_search_niter fork
 
-               ENDIF ! iteration.ne.0
+               END IF ! iteration.ne.0
 
                IF (line_search) THEN
                   energy_diff = 0.0_dp
                ELSE
                   energy_diff = energy_new - energy_old
                   energy_old = energy_new
-               ENDIF
+               END IF
 
                ! update the step direction
                IF (.NOT. line_search) THEN
@@ -1591,7 +1590,7 @@ CONTAINS
                   ! save the previous step
                   DO ispin = 1, nspins
                      CALL dbcsr_copy(prev_step(ispin), step(ispin))
-                  ENDDO ! ispin
+                  END DO ! ispin
 
                   ! compute the new step (apply preconditioner if available)
                   SELECT CASE (prec_type)
@@ -1662,8 +1661,8 @@ CONTAINS
                               spin_factor=spin_factor, &
                               skip_inversion=.FALSE., &
                               special_case=my_special_case)
-                        ENDDO ! ispin
-                     ENDIF ! compute_prec
+                        END DO ! ispin
+                     END IF ! compute_prec
 
                      !IF (unit_nr>0) THEN
                      !   WRITE(unit_nr,*) "....applying precomputed preconditioner...."
@@ -1680,14 +1679,14 @@ CONTAINS
                                                0.0_dp, step(ispin), &
                                                filter_eps=almo_scf_env%eps_filter)
 
-                        ENDDO ! ispin
+                        END DO ! ispin
 
                      ELSE
 
                         !!! RZK-warning Currently for non-theta only
                         IF (optimize_theta) THEN
                            CPABORT("theta is NYI")
-                        ENDIF
+                        END IF
 
                         DO ispin = 1, nspins
 
@@ -1715,9 +1714,9 @@ CONTAINS
                            !        step)
                            !CALL dbcsr_copy(m_tmp_no_3,quench_t(ispin))
 
-                        ENDDO ! ispin
+                        END DO ! ispin
 
-                     ENDIF ! special case
+                     END IF ! special case
 
                   CASE (xalmo_prec_zero)
 
@@ -1727,14 +1726,14 @@ CONTAINS
                         CALL dbcsr_copy(step(ispin), grad(ispin))
                         CALL dbcsr_scale(step(ispin), -1.0_dp)
 
-                     ENDDO ! ispin
+                     END DO ! ispin
 
                   END SELECT ! preconditioner type fork
 
                   ! check whether we need to reset conjugate directions
                   IF (iteration .EQ. 0) THEN
                      reset_conjugator = .TRUE.
-                  ENDIF
+                  END IF
 
                   ! compute the conjugation coefficient - beta
                   IF (.NOT. reset_conjugator) THEN
@@ -1750,17 +1749,17 @@ CONTAINS
                         prev_minus_prec_grad=prev_minus_prec_grad(:) &
                         )
 
-                  ENDIF
+                  END IF
 
                   IF (reset_conjugator) THEN
 
                      beta = 0.0_dp
                      IF (unit_nr > 0 .AND. (.NOT. just_started)) THEN
                         WRITE (unit_nr, '(T2,A35)') "Re-setting conjugator to zero"
-                     ENDIF
+                     END IF
                      reset_conjugator = .FALSE.
 
-                  ENDIF
+                  END IF
 
                   ! save the preconditioned gradient (useful for beta)
                   DO ispin = 1, nspins
@@ -1774,9 +1773,9 @@ CONTAINS
                      ! conjugate the step direction
                      CALL dbcsr_add(step(ispin), prev_step(ispin), 1.0_dp, beta)
 
-                  ENDDO ! ispin
+                  END DO ! ispin
 
-               ENDIF ! update the step direction
+               END IF ! update the step direction
 
                ! estimate the step size
                IF (.NOT. line_search) THEN
@@ -1788,7 +1787,7 @@ CONTAINS
                   DO ispin = 1, nspins
                      CALL dbcsr_dot(grad(ispin), step(ispin), tempreal)
                      g0 = g0 + tempreal
-                  ENDDO ! ispin
+                  END DO ! ispin
                   IF (iteration .EQ. 0) THEN
                      step_size = optimizer%lin_search_step_size_guess
                   ELSE
@@ -1797,8 +1796,8 @@ CONTAINS
                      ELSE
                         ! take the last value
                         step_size = next_step_size_guess*1.05_dp
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   !IF (unit_nr > 0) THEN
                   !   WRITE (unit_nr, '(A2,3F12.5)') &
                   !      "EG", e0, g0, step_size
@@ -1811,7 +1810,7 @@ CONTAINS
                      DO ispin = 1, nspins
                         CALL dbcsr_dot(grad(ispin), step(ispin), tempreal)
                         g1 = g1 + tempreal
-                     ENDDO ! ispin
+                     END DO ! ispin
                      ! we have accumulated some points along this direction
                      ! use only the most recent g0 (quadratic approximation)
                      appr_sec_der = (g1 - g0)/step_size
@@ -1837,22 +1836,22 @@ CONTAINS
                      step_size = -g1/appr_sec_der
                      e0 = e1
                      g0 = g1
-                  ENDIF
+                  END IF
                   next_step_size_guess = next_step_size_guess + step_size
-               ENDIF
+               END IF
 
                ! update theta
                DO ispin = 1, nspins
                   CALL dbcsr_add(m_theta(ispin), step(ispin), 1.0_dp, step_size)
-               ENDDO ! ispin
+               END DO ! ispin
 
-            ENDIF ! not.prepare_to_exit
+            END IF ! not.prepare_to_exit
 
             IF (line_search) THEN
                iter_type = "LS"
             ELSE
                iter_type = "CG"
-            ENDIF
+            END IF
 
             t2 = m_walltime()
             IF (unit_nr > 0) THEN
@@ -1864,47 +1863,47 @@ CONTAINS
                IF (penalty_occ_local .OR. penalty_occ_vol) THEN
                   WRITE (unit_nr, '(T2,A25,F23.10)') &
                      "Energy component:", (energy_new - penalty_func_new - localization_obj_function)
-               ENDIF
+               END IF
                IF (penalty_occ_local) THEN
                   WRITE (unit_nr, '(T2,A25,F23.10)') &
                      "Localization component:", localization_obj_function
-               ENDIF
+               END IF
                IF (penalty_occ_vol) THEN
                   WRITE (unit_nr, '(T2,A25,F23.10)') &
                      "Penalty component:", penalty_func_new
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
             IF (my_special_case .EQ. xalmo_case_block_diag) THEN
                IF (penalty_occ_vol) THEN
                   almo_scf_env%almo_scf_energy = energy_new - penalty_func_new - localization_obj_function
                ELSE
                   almo_scf_env%almo_scf_energy = energy_new - localization_obj_function
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
             t1 = m_walltime()
 
             iteration = iteration + 1
             IF (prepare_to_exit) EXIT
 
-         ENDDO ! inner SCF loop
+         END DO ! inner SCF loop
 
          IF (converged .OR. (outer_iteration .GE. outer_max_iter)) THEN
             outer_prepare_to_exit = .TRUE.
-         ENDIF
+         END IF
 
          outer_iteration = outer_iteration + 1
          IF (outer_prepare_to_exit) EXIT
 
-      ENDDO ! outer SCF loop
+      END DO ! outer SCF loop
 
       DO ispin = 1, nspins
          IF (converged .AND. almo_mathematica) THEN
             IF (ispin .GT. 1) CPWARN("Mathematica files will be overwritten")
             CALL print_mathematica_matrix(matrix_t_out(ispin), "matrixTf.dat")
-         ENDIF
-      ENDDO ! ispin
+         END IF
+      END DO ! ispin
 
       ! post SCF-loop calculations
       IF (converged) THEN
@@ -1917,7 +1916,7 @@ CONTAINS
             m_quench_in=quench_t, &
             energy_inout=energy_new)
 
-      ENDIF ! if converged
+      END IF ! if converged
 
       DO ispin = 1, nspins
          CALL dbcsr_release(prec_vv(ispin))
@@ -1938,7 +1937,7 @@ CONTAINS
          CALL dbcsr_release(tempNOcc(ispin))
          CALL dbcsr_release(tempNOcc_1(ispin))
          CALL dbcsr_release(tempOccOcc(ispin))
-      ENDDO ! ispin
+      END DO ! ispin
 
       DEALLOCATE (tempNOcc)
       DEALLOCATE (tempNOcc_1)
@@ -1969,16 +1968,16 @@ CONTAINS
             DO reim = 1, SIZE(op_sm_set_qs, 1)
                DEALLOCATE (op_sm_set_qs(reim, idim0)%matrix)
                DEALLOCATE (op_sm_set_almo(reim, idim0)%matrix)
-            ENDDO
+            END DO
          END DO
          DEALLOCATE (op_sm_set_qs)
          DEALLOCATE (op_sm_set_almo)
          DEALLOCATE (weights)
-      ENDIF
+      END IF
 
       IF (.NOT. converged .AND. .NOT. optimizer%early_stopping_on) THEN
          CPABORT("Optimization not converged! ")
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -2016,8 +2015,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: virtuals
       REAL(KIND=dp), INTENT(IN)                          :: eps_filter
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_construct_nlmos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_construct_nlmos'
 
       CHARACTER(LEN=30)                                  :: iter_type, print_string
       INTEGER :: cg_iteration, dim_op, handle, iatom, idim0, isgf, ispin, iteration, &
@@ -2056,7 +2054,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspins = SIZE(matrix_mo_in)
 
@@ -2068,12 +2066,12 @@ CONTAINS
          ELSE
             WRITE (unit_nr, '(T2,A,A,A)') REPEAT("-", 24), &
                " Optimization of virtual NLMOs ", REPEAT("-", 24)
-         ENDIF
+         END IF
          WRITE (unit_nr, *)
          WRITE (unit_nr, '(T2,A13,A6,A23,A14,A14,A9)') "Method", "Iter", &
             "Objective Function", "Change", "Convergence", "Time"
          WRITE (unit_nr, '(T2,A)') REPEAT("-", 79)
-      ENDIF
+      END IF
 
       NULLIFY (particle_set)
 
@@ -2101,7 +2099,7 @@ CONTAINS
          ! create initial guess for the main variable - identity matrix
          CALL dbcsr_set(m_theta(ispin), 0.0_dp)
          CALL dbcsr_add_on_diag(m_theta(ispin), 1.0_dp)
-      ENDDO
+      END DO
 
       SELECT CASE (optimizer%opt_penalty%operator_type)
       CASE (op_loc_berry)
@@ -2134,9 +2132,9 @@ CONTAINS
                                     template=m_theta(ispin), &
                                     matrix_type=dbcsr_type_no_symmetry)
                   CALL dbcsr_set(m_B0(reim, idim0, ispin), 0.0_dp)
-               ENDDO
-            ENDDO
-         ENDDO
+               END DO
+            END DO
+         END DO
 
          CALL compute_berry_operator(qs_env, cell, op_sm_set_qs, dim_op)
 
@@ -2155,9 +2153,9 @@ CONTAINS
                                     template=m_theta(ispin), &
                                     matrix_type=dbcsr_type_no_symmetry)
                   CALL dbcsr_set(m_B0(reim, idim0, ispin), 0.0_dp)
-               ENDDO
-            ENDDO
-         ENDDO
+               END DO
+            END DO
+         END DO
 
       END SELECT
 
@@ -2175,16 +2173,16 @@ CONTAINS
       IF (prec_type .NE. xalmo_prec_zero) l_bfgs = .TRUE.
       IF (l_bfgs .AND. (optimizer%conjugator .NE. cg_zero)) THEN
          CPABORT("Cannot use conjugators with BFGS")
-      ENDIF
+      END IF
       IF (l_bfgs) THEN
          CALL lbfgs_create(nlmo_lbfgs_history, nspins, nstore=10)
-      ENDIF
+      END IF
 
       IF (nspins == 1) THEN
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (grad_norm_spin(nspins))
       ALLOCATE (nocc(nspins))
@@ -2201,7 +2199,7 @@ CONTAINS
                            template=matrix_mo_in(ispin), &
                            matrix_type=dbcsr_type_no_symmetry)
          CALL dbcsr_copy(m_t_mo_local(ispin), matrix_mo_in(ispin))
-      ENDDO
+      END DO
 
       ALLOCATE (approx_inv_hessian(nspins))
       ALLOCATE (m_theta_normalized(nspins))
@@ -2327,9 +2325,9 @@ CONTAINS
                   DEALLOCATE (op_sm_set_qs(reim, idim0)%matrix)
                   DEALLOCATE (op_sm_set_almo(reim, idim0)%matrix)
 
-               ENDDO
+               END DO
 
-            ENDDO ! end loop over idim0
+            END DO ! end loop over idim0
 
          CASE (op_loc_pipek)
 
@@ -2365,21 +2363,21 @@ CONTAINS
                                    1.0_dp, m_B0(1, iatom, ispin), &
                                    filter_eps=eps_filter)
 
-            ENDDO ! end loop over iatom
+            END DO ! end loop over iatom
 
          END SELECT
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       IF (optimizer%opt_penalty%operator_type .EQ. op_loc_berry) THEN
          DO idim0 = 1, SIZE(op_sm_set_qs, 2) ! this loop is over miller ind
             DO reim = 1, SIZE(op_sm_set_qs, 1) ! this loop is over Re/Im
                DEALLOCATE (op_sm_set_qs(reim, idim0)%matrix)
                DEALLOCATE (op_sm_set_almo(reim, idim0)%matrix)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          DEALLOCATE (op_sm_set_qs, op_sm_set_almo)
-      ENDIF
+      END IF
 
       ! start the outer SCF loop
       outer_max_iter = optimizer%max_iter_outer_loop
@@ -2450,7 +2448,7 @@ CONTAINS
                                    0.0_dp, matrix_mo_out(ispin), &
                                    filter_eps=eps_filter)
 
-            ENDDO
+            END DO
 
             ! compute objective function
             localization_obj_function = 0.0_dp
@@ -2477,7 +2475,7 @@ CONTAINS
                localization_obj_function = localization_obj_function + localization_obj_function_ispin
                penalty_func_new = penalty_func_new + penalty_func_ispin
 
-            ENDDO ! ispin
+            END DO ! ispin
             objf_new = penalty_func_new + localization_obj_function
 
             DO ispin = 1, nspins
@@ -2486,9 +2484,9 @@ CONTAINS
                ! for .NOT.line_search
                IF (line_search_iteration .EQ. 0 .AND. iteration .NE. 0) THEN
                   CALL dbcsr_copy(prev_grad(ispin), grad(ispin))
-               ENDIF
+               END IF
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! compute the gradient
             DO ispin = 1, nspins
@@ -2512,19 +2510,19 @@ CONTAINS
                   eps_filter=eps_filter, &
                   suggested_vol_penalty=suggested_vol_penalty(ispin))
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! check convergence and other exit criteria
             DO ispin = 1, nspins
                CALL dbcsr_norm(grad(ispin), dbcsr_norm_maxabsnorm, &
                                norm_scalar=grad_norm_spin(ispin))
-            ENDDO ! ispin
+            END DO ! ispin
             grad_norm = MAXVAL(grad_norm_spin)
 
             converged = (grad_norm .LE. optimizer%eps_error)
             IF (converged .OR. (iteration .GE. max_iter)) THEN
                prepare_to_exit = .TRUE.
-            ENDIF
+            END IF
 
             ! it is not time to exit just yet
             IF (.NOT. prepare_to_exit) THEN
@@ -2558,7 +2556,7 @@ CONTAINS
                         CALL dbcsr_dot(step(ispin), step(ispin), tempreal)
                         denom2 = denom2 + tempreal
 
-                     ENDDO ! ispin
+                     END DO ! ispin
 
                      ! cosine of the angle between the step and grad
                      ! (must be close to zero at convergence)
@@ -2570,18 +2568,18 @@ CONTAINS
                      ELSE
                         line_search = .FALSE.
                         line_search_iteration = 0
-                     ENDIF
+                     END IF
 
-                  ENDIF
+                  END IF
 
-               ENDIF ! iteration.ne.0
+               END IF ! iteration.ne.0
 
                IF (line_search) THEN
                   objf_diff = 0.0_dp
                ELSE
                   objf_diff = objf_new - objf_old
                   objf_old = objf_new
-               ENDIF
+               END IF
 
                ! update the step direction
                IF (.NOT. line_search) THEN
@@ -2591,7 +2589,7 @@ CONTAINS
                   ! save the previous step
                   DO ispin = 1, nspins
                      CALL dbcsr_copy(prev_step(ispin), step(ispin))
-                  ENDDO ! ispin
+                  END DO ! ispin
 
                   ! compute the new step:
                   ! if available use second derivative info - bfgs, hessian, preconditioner
@@ -2603,7 +2601,7 @@ CONTAINS
                         CALL dbcsr_copy(step(ispin), grad(ispin))
                         CALL dbcsr_scale(step(ispin), -1.0_dp)
 
-                     ENDDO ! ispin
+                     END DO ! ispin
 
                   ELSE ! use second derivatives
 
@@ -2617,8 +2615,8 @@ CONTAINS
                            IF (nspins .GT. 1) THEN
                               DO ispin = 2, nspins
                                  CALL dbcsr_copy(approx_inv_hessian(ispin), approx_inv_hessian(1))
-                              ENDDO
-                           ENDIF
+                              END DO
+                           END IF
 
                         ELSE IF (l_bfgs) THEN
 
@@ -2626,7 +2624,7 @@ CONTAINS
                            DO ispin = 1, nspins
                               CALL dbcsr_copy(step(ispin), grad(ispin))
                               CALL dbcsr_scale(step(ispin), -1.0_dp)
-                           ENDDO ! ispin
+                           END DO ! ispin
 
                         ELSE
 
@@ -2660,9 +2658,9 @@ CONTAINS
                               !       spin_factor=spin_factor,&
                               !       special_case=my_special_case)
                               !CALL invert hessian
-                           ENDDO ! ispin
+                           END DO ! ispin
 
-                        ENDIF
+                        END IF
 
                      ELSE ! not iteration zero
 
@@ -2706,15 +2704,15 @@ CONTAINS
 
                               CALL dbcsr_copy(approx_inv_hessian(ispin), tempOccOcc2(ispin))
 
-                           ENDDO
+                           END DO
 
                         ELSE IF (l_bfgs) THEN
 
                            CALL lbfgs_get_direction(nlmo_lbfgs_history, m_theta, grad, step)
 
-                        ENDIF ! which method?
+                        END IF ! which method?
 
-                     ENDIF ! compute approximate inverse hessian
+                     END IF ! compute approximate inverse hessian
 
                      IF (.NOT. l_bfgs) THEN
 
@@ -2724,16 +2722,16 @@ CONTAINS
                                                        grad(ispin), step(ispin))
                            CALL dbcsr_scale(step(ispin), -1.0_dp)
 
-                        ENDDO ! ispin
+                        END DO ! ispin
 
-                     ENDIF
+                     END IF
 
-                  ENDIF ! second derivative type fork
+                  END IF ! second derivative type fork
 
                   ! check whether we need to reset conjugate directions
                   IF (iteration .EQ. 0) THEN
                      reset_conjugator = .TRUE.
-                  ENDIF
+                  END IF
 
                   ! compute the conjugation coefficient - beta
                   IF (.NOT. reset_conjugator) THEN
@@ -2748,17 +2746,17 @@ CONTAINS
                         prev_minus_prec_grad=prev_minus_prec_grad(:) &
                         )
 
-                  ENDIF
+                  END IF
 
                   IF (reset_conjugator) THEN
 
                      beta = 0.0_dp
                      IF (unit_nr > 0 .AND. (.NOT. just_started)) THEN
                         WRITE (unit_nr, '(T2,A35)') "Re-setting conjugator to zero"
-                     ENDIF
+                     END IF
                      reset_conjugator = .FALSE.
 
-                  ENDIF
+                  END IF
 
                   ! save the preconditioned gradient (useful for beta)
                   DO ispin = 1, nspins
@@ -2768,9 +2766,9 @@ CONTAINS
                      ! conjugate the step direction
                      CALL dbcsr_add(step(ispin), prev_step(ispin), 1.0_dp, beta)
 
-                  ENDDO ! ispin
+                  END DO ! ispin
 
-               ENDIF ! update the step direction
+               END IF ! update the step direction
 
                ! estimate the step size
                IF (.NOT. line_search) THEN
@@ -2782,7 +2780,7 @@ CONTAINS
                   DO ispin = 1, nspins
                      CALL dbcsr_dot(grad(ispin), step(ispin), tempreal)
                      g0 = g0 + tempreal
-                  ENDDO ! ispin
+                  END DO ! ispin
                   g0sign = SIGN(1.0_dp, g0) ! sign of g0
                   IF (linear_search_type .EQ. 1) THEN ! this is quadratic LS
                      IF (iteration .EQ. 0) THEN
@@ -2794,17 +2792,17 @@ CONTAINS
                            ! take the last value
                            step_size = optimizer%lin_search_step_size_guess
                            !step_size = next_step_size_guess*1.05_dp
-                        ENDIF
-                     ENDIF
+                        END IF
+                     END IF
                   ELSE IF (linear_search_type .EQ. 2) THEN ! this is cautious LS
                      ! this LS type is designed not to trust quadratic appr
                      ! so it always restarts from a safe step size
                      step_size = optimizer%lin_search_step_size_guess
-                  ENDIF
+                  END IF
                   IF (unit_nr > 0) THEN
                      WRITE (unit_nr, '(T21,3A19)') "Line position", "Line grad", "Next line step"
                      WRITE (unit_nr, '(T2,A19,3F19.5)') "Line search", 0.0_dp, g0, step_size
-                  ENDIF
+                  END IF
                   next_step_size_guess = step_size
                ELSE ! this is not the first line search
                   e1 = objf_new
@@ -2812,7 +2810,7 @@ CONTAINS
                   DO ispin = 1, nspins
                      CALL dbcsr_dot(grad(ispin), step(ispin), tempreal)
                      g1 = g1 + tempreal
-                  ENDDO ! ispin
+                  END DO ! ispin
                   g1sign = SIGN(1.0_dp, g1) ! sign of g1
                   IF (linear_search_type .EQ. 1) THEN
                      ! we have accumulated some points along this direction
@@ -2830,35 +2828,35 @@ CONTAINS
                         step_size = -step_size/2.0; 
                      ELSE
                         step_size = step_size*1.5; 
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   ! end alternative LS types
                   IF (unit_nr > 0) THEN
                      WRITE (unit_nr, '(T21,3A19)') "Line position", "Line grad", "Next line step"
                      WRITE (unit_nr, '(T2,A19,3F19.5)') "Line search", next_step_size_guess, g1, step_size
-                  ENDIF
+                  END IF
                   e0 = e1
                   g0 = g1
                   g0sign = g1sign
                   next_step_size_guess = next_step_size_guess + step_size
-               ENDIF
+               END IF
 
                ! update theta
                DO ispin = 1, nspins
                   IF (.NOT. line_search) THEN ! we prepared to perform the first line search
                      ! "previous" refers to the previous CG step, not the previous LS step
                      CALL dbcsr_copy(prev_m_theta(ispin), m_theta(ispin))
-                  ENDIF
+                  END IF
                   CALL dbcsr_add(m_theta(ispin), step(ispin), 1.0_dp, step_size)
-               ENDDO ! ispin
+               END DO ! ispin
 
-            ENDIF ! not.prepare_to_exit
+            END IF ! not.prepare_to_exit
 
             IF (line_search) THEN
                iter_type = "LS"
             ELSE
                iter_type = "CG"
-            ENDIF
+            END IF
 
             t2 = m_walltime()
             IF (unit_nr > 0) THEN
@@ -2871,36 +2869,36 @@ CONTAINS
                   "Localization:", localization_obj_function
                WRITE (unit_nr, '(T2,A19,F23.10)') &
                   "Orthogonalization:", penalty_func_new
-            ENDIF
+            END IF
             t1 = m_walltime()
 
             iteration = iteration + 1
             IF (prepare_to_exit) EXIT
 
-         ENDDO ! inner loop
+         END DO ! inner loop
 
          IF (converged .OR. (outer_iteration .GE. outer_max_iter)) THEN
             outer_prepare_to_exit = .TRUE.
-         ENDIF
+         END IF
 
          outer_iteration = outer_iteration + 1
          IF (outer_prepare_to_exit) EXIT
 
-      ENDDO ! outer loop
+      END DO ! outer loop
 
       ! return the optimal determinant penalty
       optimizer%opt_penalty%penalty_strength = 0.0_dp
       DO ispin = 1, nspins
          optimizer%opt_penalty%penalty_strength = optimizer%opt_penalty%penalty_strength + &
                                                   (-1.0_dp)*penalty_vol_prefactor(ispin)
-      ENDDO
+      END DO
       optimizer%opt_penalty%penalty_strength = optimizer%opt_penalty%penalty_strength/nspins
 
       IF (converged) THEN
          iter_type = "Final"
       ELSE
          iter_type = "Unconverged"
-      ENDIF
+      END IF
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '()')
@@ -2913,18 +2911,18 @@ CONTAINS
          print_string = TRIM(iter_type)//" penalty strength:"
          WRITE (unit_nr, '(T2,A29,F30.10)') &
             print_string, optimizer%opt_penalty%penalty_strength
-      ENDIF
+      END IF
 
       ! clean up
       IF (l_bfgs) THEN
          CALL lbfgs_release(nlmo_lbfgs_history)
-      ENDIF
+      END IF
       DO ispin = 1, nspins
          DO idim0 = 1, SIZE(m_B0, 2)
             DO reim = 1, SIZE(m_B0, 1)
                CALL dbcsr_release(m_B0(reim, idim0, ispin))
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          CALL dbcsr_release(m_theta(ispin))
          CALL dbcsr_release(m_t_mo_local(ispin))
          CALL dbcsr_release(tempNOcc1(ispin))
@@ -2945,7 +2943,7 @@ CONTAINS
          CALL dbcsr_release(tempOccOcc3(ispin))
          CALL dbcsr_release(bfgs_y(ispin))
          CALL dbcsr_release(bfgs_s(ispin))
-      ENDDO ! ispin
+      END DO ! ispin
 
       DEALLOCATE (grad_norm_spin)
       DEALLOCATE (nocc)
@@ -2978,7 +2976,7 @@ CONTAINS
 
       IF (.NOT. converged) THEN
          CPABORT("Optimization not converged! ")
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -3014,7 +3012,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_out
       TYPE(dbcsr_type), DIMENSION(:), INTENT(INOUT)      :: m_eda_out, m_cta_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xalmo_analysis', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'xalmo_analysis'
 
       INTEGER                                            :: handle, ispin, nspins
       REAL(KIND=dp)                                      :: energy_ispin, spin_factor
@@ -3029,7 +3027,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       energy_out = 0.0_dp
       DO ispin = 1, nspins
@@ -3120,7 +3118,7 @@ CONTAINS
             CALL dbcsr_scale(m_cta_out(ispin), spin_factor)
             CALL dbcsr_filter(m_cta_out(ispin), eps_filter)
 
-         ENDIF ! do ALMO EDA/CTA
+         END IF ! do ALMO EDA/CTA
 
          CALL dbcsr_release(Fvo0)
          CALL dbcsr_release(FTsiginv0)
@@ -3128,7 +3126,7 @@ CONTAINS
          CALL dbcsr_release(m_X)
          CALL dbcsr_release(siginvTFTsiginv0)
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       CALL timestop(handle)
 
@@ -3158,8 +3156,7 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(INOUT)                    :: m_FTsiginv_out, m_siginvTFTsiginv_out, &
                                                             m_ST_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_frequently_used_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_frequently_used_matrices'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_type)                                   :: m_tmp_no_1, m_tmp_oo_1
@@ -3222,7 +3219,7 @@ CONTAINS
 
       TYPE(almo_scf_env_type), INTENT(INOUT)             :: almo_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'split_v_blk', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'split_v_blk'
 
       INTEGER                                            :: discarded_v, handle, iblock_col, &
                                                             iblock_col_size, iblock_row, &
@@ -3248,7 +3245,7 @@ CONTAINS
 
             IF (iblock_row .NE. iblock_col) THEN
                CPABORT("off-diagonal block found")
-            ENDIF
+            END IF
 
             retained_v = almo_scf_env%nvirt_of_domain(iblock_col, ispin)
             discarded_v = almo_scf_env%nvirt_disc_of_domain(iblock_col, ispin)
@@ -3268,13 +3265,13 @@ CONTAINS
             CPASSERT(ASSOCIATED(p_new_block))
             p_new_block(:, :) = data_p(:, 1:retained_v)
 
-         ENDDO ! iterator
+         END DO ! iterator
          CALL dbcsr_iterator_stop(iter)
 
          CALL dbcsr_finalize(almo_scf_env%matrix_v_blk(ispin))
          CALL dbcsr_finalize(almo_scf_env%matrix_v_disc_blk(ispin))
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       CALL timestop(handle)
 
@@ -3291,8 +3288,7 @@ CONTAINS
 
       TYPE(almo_scf_env_type), INTENT(INOUT)             :: almo_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'harris_foulkes_correction', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'harris_foulkes_correction'
       INTEGER, PARAMETER                                 :: cayley_transform = 1, dm_ls_step = 2
 
       INTEGER :: algorithm_id, handle, handle1, handle2, handle3, handle4, handle5, handle6, &
@@ -3330,7 +3326,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspin = almo_scf_env%nspins
       energy_correction_final = 0.0_dp
@@ -3338,13 +3334,13 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       IF (almo_scf_env%deloc_use_occ_orbs) THEN
          algorithm_id = cayley_transform
       ELSE
          algorithm_id = dm_ls_step
-      ENDIF
+      END IF
 
       t1 = m_walltime()
 
@@ -3355,7 +3351,7 @@ CONTAINS
          ! so the orbitals and density are consistent with each other
          IF (almo_scf_env%nspins == 1) THEN
             CALL dbcsr_scale(almo_scf_env%matrix_p(1), 1.0_dp/spin_factor)
-         ENDIF
+         END IF
 
          ! transform matrix_t not matrix_t_blk (we might need ALMOs later)
          DO ispin = 1, nspin
@@ -3370,7 +3366,7 @@ CONTAINS
 
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, *) "sqrt and inv(sqrt) of MO overlap matrix"
-            ENDIF
+            END IF
             CALL dbcsr_create(almo_scf_env%matrix_sigma_sqrt(ispin), &
                               template=almo_scf_env%matrix_sigma(ispin), &
                               matrix_type=dbcsr_type_no_symmetry)
@@ -3404,12 +3400,12 @@ CONTAINS
                frob_matrix = dbcsr_frobenius_norm(matrix_tmp2)
                IF (unit_nr > 0) THEN
                   WRITE (unit_nr, *) "Error for (inv(sqrt(SIG))*SIG*inv(sqrt(SIG))-I)", frob_matrix/frob_matrix_base
-               ENDIF
+               END IF
 
                CALL dbcsr_release(matrix_tmp1)
                CALL dbcsr_release(matrix_tmp2)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
 
          IF (almo_scf_env%almo_update_algorithm .EQ. almo_scf_diag) THEN
 
@@ -3576,7 +3572,7 @@ CONTAINS
                         CALL dbcsr_copy(velocity, almo_scf_env%matrix_k_blk(ispin))
                         CALL dbcsr_set(velocity, 0.0_dp)
                         time_step = almo_scf_env%opt_k_trial_step_size
-                     ENDIF
+                     END IF
 
                      CALL dbcsr_create(prev_step, &
                                        template=almo_scf_env%matrix_k_blk(ispin))
@@ -3632,7 +3628,7 @@ CONTAINS
                      !CALL dbcsr_filter(sigma_oo_guess,almo_scf_env%eps_filter)
                      !CALL dbcsr_print(sigma_oo_guess)
 
-                  ENDIF ! done constructing discarded virtuals
+                  END IF ! done constructing discarded virtuals
 
                   ! init variables
                   opt_k_max_iter = almo_scf_env%opt_k_max_iter
@@ -3666,7 +3662,7 @@ CONTAINS
                                             filter_eps=almo_scf_env%eps_filter)
                         CALL dbcsr_add(almo_scf_env%matrix_v(ispin), vr_fixed, &
                                        +1.0_dp, +1.0_dp)
-                     ENDIF
+                     END IF
 
                      ! decompose the overlap matrix of the current retained orbitals
                      !IF (unit_nr>0) THEN
@@ -3722,7 +3718,7 @@ CONTAINS
                            IF (unit_nr > 0) THEN
                               WRITE (unit_nr, *) "Error for ( U^T * U - Sig )", &
                                  frob_matrix/frob_matrix_base
-                           ENDIF
+                           END IF
                            CALL dbcsr_multiply("N", "N", 1.0_dp, sigma_vv_sqrt_inv, &
                                                sigma_vv_sqrt, &
                                                0.0_dp, matrix_tmp1, filter_eps=almo_scf_env%eps_filter)
@@ -3732,13 +3728,13 @@ CONTAINS
                            IF (unit_nr > 0) THEN
                               WRITE (unit_nr, *) "Error for ( inv(U) * U - I )", &
                                  frob_matrix/frob_matrix_base
-                           ENDIF
+                           END IF
                            CALL dbcsr_release(matrix_tmp1)
-                        ENDIF ! safe_mode
+                        END IF ! safe_mode
                         t2cholesky = m_walltime()
                         IF (unit_nr > 0) THEN
                            WRITE (unit_nr, *) "Cholesky+inverse wall-time: ", t2cholesky - t1cholesky
-                        ENDIF
+                        END IF
                         CALL timestop(handle2)
                      ELSE
                         CALL matrix_sqrt_Newton_Schulz(sigma_vv_sqrt, &
@@ -3771,12 +3767,12 @@ CONTAINS
                            IF (unit_nr > 0) THEN
                               WRITE (unit_nr, *) "Error for (inv(sqrt(SIGVV))*SIGVV*inv(sqrt(SIGVV))-I)", &
                                  frob_matrix/frob_matrix_base
-                           ENDIF
+                           END IF
 
                            CALL dbcsr_release(matrix_tmp1)
                            CALL dbcsr_release(matrix_tmp2)
-                        ENDIF
-                     ENDIF
+                        END IF
+                     END IF
                      CALL timestop(handle1)
 
                      ! compute excitation amplitudes (to the current set of retained virtuals)
@@ -3789,7 +3785,7 @@ CONTAINS
                         x_opt_eps_adaptive = &
                            MAX(ABS(almo_scf_env%deloc_cayley_eps_convergence), &
                                ABS(x_opt_eps_adaptive_factor*grad_norm))
-                     ENDIF
+                     END IF
                      CALL ct_step_env_init(ct_step_env)
                      CALL ct_step_env_set(ct_step_env, &
                                           para_env=almo_scf_env%para_env, &
@@ -3865,7 +3861,7 @@ CONTAINS
                                                  threshold=almo_scf_env%eps_filter, &
                                                  use_inv_as_guess=.TRUE.)
                            !CALL dbcsr_copy(sigma_oo_guess,sigma_oo_curr_inv)
-                        ENDIF
+                        END IF
                         IF (safe_mode) THEN
                            CALL dbcsr_create(matrix_tmp1, template=sigma_oo_curr, &
                                              matrix_type=dbcsr_type_no_symmetry)
@@ -3881,9 +3877,9 @@ CONTAINS
                            IF (unit_nr > 0) THEN
                               WRITE (unit_nr, *) "Error for (SIG*inv(SIG)-I)", &
                                  frob_matrix/frob_matrix_base, frob_matrix_base
-                           ENDIF
+                           END IF
                            CALL dbcsr_release(matrix_tmp1)
-                        ENDIF
+                        END IF
                         IF (safe_mode) THEN
                            CALL dbcsr_create(matrix_tmp1, template=sigma_oo_curr, &
                                              matrix_type=dbcsr_type_no_symmetry)
@@ -3899,9 +3895,9 @@ CONTAINS
                            IF (unit_nr > 0) THEN
                               WRITE (unit_nr, *) "Error for (inv(SIG)*SIG-I)", &
                                  frob_matrix/frob_matrix_base, frob_matrix_base
-                           ENDIF
+                           END IF
                            CALL dbcsr_release(matrix_tmp1)
-                        ENDIF
+                        END IF
 
                         CALL timestop(handle3)
                         CALL timeset('k_opt_vd', handle4)
@@ -3937,7 +3933,7 @@ CONTAINS
                         ! save previous gradient to calculate conjugation coef
                         IF (line_search) THEN
                            CALL dbcsr_copy(prev_grad, grad)
-                        ENDIF
+                        END IF
                         CALL dbcsr_multiply("N", "N", 1.0_dp, &
                                             almo_scf_env%matrix_ks_0deloc(ispin), &
                                             t_curr, &
@@ -3968,7 +3964,7 @@ CONTAINS
                         converged = (grad_norm .LT. almo_scf_env%opt_k_eps_convergence)
                         IF (converged .OR. (iteration .GE. opt_k_max_iter)) THEN
                            prepare_to_exit = .TRUE.
-                        ENDIF
+                        END IF
                         CALL timestop(handle5)
 
                         IF (.NOT. prepare_to_exit) THEN
@@ -3988,7 +3984,7 @@ CONTAINS
                               fun1 = obj_function
                            ELSE
                               fun0 = obj_function
-                           ENDIF
+                           END IF
 
                            CALL timestop(handle6)
 
@@ -4007,7 +4003,7 @@ CONTAINS
                                  ! compute the preconditioner
                                  IF (unit_nr > 0) THEN
                                     WRITE (unit_nr, *) "Computing preconditioner"
-                                 ENDIF
+                                 END IF
                                  !CALL opt_k_create_preconditioner(prec,&
                                  !        almo_scf_env%matrix_v_disc(ispin),&
                                  !        almo_scf_env%matrix_ks_0deloc(ispin),&
@@ -4030,7 +4026,7 @@ CONTAINS
                                                                       ispin, &
                                                                       spin_factor)
 
-                              ENDIF
+                              END IF
 
                               ! save the previous step
                               CALL dbcsr_copy(prev_step, step)
@@ -4064,8 +4060,8 @@ CONTAINS
                                     reset_conjugator = .TRUE.
                                     IF (unit_nr > 0) THEN
                                        WRITE (unit_nr, *) "Lack of progress, conjugacy error is ", conjugacy_error
-                                    ENDIF
-                                 ENDIF
+                                    END IF
+                                 END IF
 
                                  ! check the gradient along the previous direction
                                  IF ((iteration .NE. 0) .AND. (.NOT. reset_conjugator)) THEN
@@ -4076,11 +4072,11 @@ CONTAINS
                                        reset_conjugator = .TRUE.
                                        IF (unit_nr > 0) THEN
                                           WRITE (unit_nr, *) "Bad line search, line search error is ", line_search_error
-                                       ENDIF
-                                    ENDIF
-                                 ENDIF
+                                       END IF
+                                    END IF
+                                 END IF
 
-                              ENDIF
+                              END IF
 
                               ! compute the conjugation coefficient - beta
                               IF (.NOT. reset_conjugator) THEN
@@ -4168,15 +4164,15 @@ CONTAINS
                                  IF (beta .LT. 0.0_dp) THEN
                                     IF (unit_nr > 0) THEN
                                        WRITE (unit_nr, *) "Beta is negative, ", beta
-                                    ENDIF
+                                    END IF
                                     reset_conjugator = .TRUE.
-                                 ENDIF
+                                 END IF
 
-                              ENDIF
+                              END IF
 
                               IF (md_in_k_space) THEN
                                  reset_conjugator = .TRUE.
-                              ENDIF
+                              END IF
 
                               IF (reset_conjugator) THEN
 
@@ -4185,9 +4181,9 @@ CONTAINS
 
                                  IF (unit_nr > 0) THEN
                                     WRITE (unit_nr, *) "(Re)-setting conjugator to zero"
-                                 ENDIF
+                                 END IF
 
-                              ENDIF
+                              END IF
 
                               ! save the preconditioned gradient
                               CALL dbcsr_copy(prev_minus_prec_grad, step)
@@ -4200,7 +4196,7 @@ CONTAINS
                               ! update the step direction
                            ELSE ! step update
                               conjugacy_error = 0.0_dp
-                           ENDIF
+                           END IF
 
                            ! compute the gradient with respect to the step size in the curr direction
                            IF (line_search) THEN
@@ -4208,7 +4204,7 @@ CONTAINS
                               line_search_error = gfun1/gfun0
                            ELSE
                               CALL dbcsr_dot(grad, step, gfun0)
-                           ENDIF
+                           END IF
 
                            ! make a step - update k
                            IF (line_search) THEN
@@ -4225,17 +4221,17 @@ CONTAINS
                                     WRITE (unit_nr, '(T3,A,1X,E17.7,A,1X,E12.3)') "Error computing ", &
                                        ABS(gfun0), &
                                        " is smaller than the threshold", num_threshold
-                                 ENDIF
+                                 END IF
                                  CPABORT("")
-                              ENDIF
+                              END IF
                               IF (ABS(gfun0) .LT. num_threshold) THEN
                                  IF (unit_nr > 0) THEN
                                     WRITE (unit_nr, '(T3,A,1X,E17.7,A,1X,E12.3)') "Linear gradient", &
                                        ABS(gfun0), &
                                        " is smaller than the threshold", num_threshold
-                                 ENDIF
+                                 END IF
                                  CPABORT("")
-                              ENDIF
+                              END IF
 
                               use_quadratic_approximation = .TRUE.
                               use_cubic_approximation = .FALSE.
@@ -4253,17 +4249,17 @@ CONTAINS
                                        "Quadratic approximation gives negative steps", &
                                        step_size_quadratic_approx, step_size_quadratic_approx2, &
                                        "trying cubic..."
-                                 ENDIF
+                                 END IF
                                  use_cubic_approximation = .TRUE.
                                  use_quadratic_approximation = .FALSE.
                               ELSE
                                  IF (step_size_quadratic_approx .LT. 0.0_dp) THEN
                                     step_size_quadratic_approx = step_size_quadratic_approx2
-                                 ENDIF
+                                 END IF
                                  IF (step_size_quadratic_approx2 .LT. 0.0_dp) THEN
                                     step_size_quadratic_approx2 = step_size_quadratic_approx
-                                 ENDIF
-                              ENDIF
+                                 END IF
+                              END IF
 
                               ! check accuracy of the quadratic approximation
                               IF (use_quadratic_approximation) THEN
@@ -4274,11 +4270,11 @@ CONTAINS
                                        WRITE (unit_nr, '(T3,A,1X,E17.7,1X,E17.7,1X,A)') "Quadratic approximation is poor", &
                                           step_size_quadratic_approx, step_size_quadratic_approx2, &
                                           "Try cubic approximation"
-                                    ENDIF
+                                    END IF
                                     use_cubic_approximation = .TRUE.
                                     use_quadratic_approximation = .FALSE.
-                                 ENDIF
-                              ENDIF
+                                 END IF
+                              END IF
 
                               ! check if numerics is fine enough to capture the cubic form
                               IF (use_cubic_approximation) THEN
@@ -4294,20 +4290,20 @@ CONTAINS
                                        WRITE (unit_nr, '(T3,A,1X,E17.7)') &
                                           "Numerical accuracy is too low to observe cubic behavior", &
                                           ABS(gfun1 - 2.0_dp*step_size*bb - gfun0)
-                                    ENDIF
+                                    END IF
                                     use_cubic_approximation = .FALSE.
                                     use_quadratic_approximation = .TRUE.
-                                 ENDIF
+                                 END IF
                                  IF (ABS(gfun1) .LT. num_threshold) THEN
                                     IF (unit_nr > 0) THEN
                                        WRITE (unit_nr, '(T3,A,1X,E17.7,A,1X,E12.3)') "Linear gradient", &
                                           ABS(gfun1), &
                                           " is smaller than the threshold", num_threshold
-                                    ENDIF
+                                    END IF
                                     use_cubic_approximation = .FALSE.
                                     use_quadratic_approximation = .TRUE.
-                                 ENDIF
-                              ENDIF
+                                 END IF
+                              END IF
 
                               ! find the step assuming cubic approximation
                               IF (use_cubic_approximation) THEN
@@ -4318,7 +4314,7 @@ CONTAINS
                                     IF (unit_nr > 0) THEN
                                        WRITE (unit_nr, '(T3,A)') &
                                           "Cubic approximation gives zero soultions! Use quadratic approximation"
-                                    ENDIF
+                                    END IF
                                     use_quadratic_approximation = .TRUE.
                                     use_cubic_approximation = .TRUE.
                                  ELSE
@@ -4327,24 +4323,24 @@ CONTAINS
                                        IF (unit_nr > 0) THEN
                                           WRITE (unit_nr, '(T3,A)') &
                                              "More than one solution found! Use quadratic approximation"
-                                       ENDIF
+                                       END IF
                                        use_quadratic_approximation = .TRUE.
                                        use_cubic_approximation = .TRUE.
-                                    ENDIF
-                                 ENDIF
-                              ENDIF
+                                    END IF
+                                 END IF
+                              END IF
 
                               IF (use_quadratic_approximation) THEN ! use quadratic approximation
                                  IF (unit_nr > 0) THEN
                                     WRITE (unit_nr, '(T3,A)') "Use quadratic approximation"
-                                 ENDIF
+                                 END IF
                                  step_size = (step_size_quadratic_approx + step_size_quadratic_approx2)*0.5_dp
-                              ENDIF
+                              END IF
 
                               ! one more check on the step size
                               IF (step_size .LT. 0.0_dp) THEN
                                  CPABORT("Negative step proposed")
-                              ENDIF
+                              END IF
 
                               CALL dbcsr_copy(almo_scf_env%matrix_k_blk(ispin), &
                                               matrix_k_central)
@@ -4364,7 +4360,7 @@ CONTAINS
                                                    step, 1.0_dp, 0.5_dp*time_step)
                                     CALL dbcsr_add(velocity, &
                                                    prev_step, 1.0_dp, 0.5_dp*time_step)
-                                 ENDIF
+                                 END IF
                                  kin_energy = dbcsr_frobenius_norm(velocity)
                                  kin_energy = 0.5_dp*kin_energy*kin_energy
 
@@ -4381,17 +4377,17 @@ CONTAINS
                                     reset_step_size = .FALSE.
                                  ELSE
                                     step_size = step_size*almo_scf_env%opt_k_trial_step_size_multiplier
-                                 ENDIF
+                                 END IF
                                  CALL dbcsr_copy(almo_scf_env%matrix_k_blk(ispin), &
                                                  matrix_k_central)
                                  CALL dbcsr_add(almo_scf_env%matrix_k_blk(ispin), &
                                                 step, 1.0_dp, step_size)
                                  line_search = .TRUE.
-                              ENDIF
+                              END IF
 
-                           ENDIF
+                           END IF
 
-                        ENDIF ! .NOT.prepare_to_exit
+                        END IF ! .NOT.prepare_to_exit
 
                         ! print the status of the optimization
                         t2a = m_walltime()
@@ -4414,31 +4410,31 @@ CONTAINS
                                     energy_correction(ispin), delta_obj_function, grad_norm, &
                                     gfun1, line_search_error, beta, conjugacy_error, t2a - t1a
                                  !(flop1+flop2)/(1.0E6_dp*(t2-t1))
-                              ENDIF
-                           ENDIF
+                              END IF
+                           END IF
                            CALL m_flush(unit_nr)
-                        ENDIF
+                        END IF
                         t1a = m_walltime()
 
                      ELSE ! opt_k_max_iter .eq. 0
                         prepare_to_exit = .TRUE.
-                     ENDIF ! opt_k_max_iter .ne. 0
+                     END IF ! opt_k_max_iter .ne. 0
 
                      IF (.NOT. line_search) iteration = iteration + 1
 
                      IF (prepare_to_exit) EXIT
 
-                  ENDDO ! end iterations on K
+                  END DO ! end iterations on K
 
                   IF (converged .OR. (outer_opt_k_iteration .GE. outer_opt_k_max_iter)) THEN
                      outer_opt_k_prepare_to_exit = .TRUE.
-                  ENDIF
+                  END IF
 
                   IF (almo_scf_env%deloc_truncate_virt .NE. virt_full) THEN
 
                      IF (unit_nr > 0) THEN
                         WRITE (unit_nr, *) "Updating ALMO virtuals"
-                     ENDIF
+                     END IF
 
                      CALL timeset('k_opt_v0_update', handle8)
 
@@ -4497,11 +4493,11 @@ CONTAINS
                         IF (unit_nr > 0) THEN
                            WRITE (unit_nr, *) "Error for (inv(sqrt(SIGVV))*SIGVV*inv(sqrt(SIGVV))-I)", &
                               frob_matrix/frob_matrix_base
-                        ENDIF
+                        END IF
 
                         CALL dbcsr_release(matrix_tmp1)
                         CALL dbcsr_release(matrix_tmp2)
-                     ENDIF
+                     END IF
                      CALL dbcsr_multiply("N", "N", 1.0_dp, &
                                          vr_fixed, &
                                          vr_index_sqrt_inv, &
@@ -4544,11 +4540,11 @@ CONTAINS
                         IF (unit_nr > 0) THEN
                            WRITE (unit_nr, *) "Error for (inv(sqrt(SIGVV))*SIGVV*inv(sqrt(SIGVV))-I)", &
                               frob_matrix/frob_matrix_base
-                        ENDIF
+                        END IF
 
                         CALL dbcsr_release(matrix_tmp1)
                         CALL dbcsr_release(matrix_tmp2)
-                     ENDIF
+                     END IF
                      CALL dbcsr_multiply("N", "N", 1.0_dp, &
                                          vd_fixed, &
                                          vd_index_sqrt_inv, &
@@ -4562,7 +4558,7 @@ CONTAINS
 
                      CALL timestop(handle8)
 
-                  ENDIF ! ne.virt_full
+                  END IF ! ne.virt_full
 
                   ! RZK-warning released outside the outer loop
                   CALL dbcsr_release(sigma_vv_sqrt)
@@ -4590,16 +4586,16 @@ CONTAINS
                      CALL dbcsr_release(prev_minus_prec_grad)
                      IF (md_in_k_space) THEN
                         CALL dbcsr_release(velocity)
-                     ENDIF
+                     END IF
 
-                  ENDIF
+                  END IF
 
                   outer_opt_k_iteration = outer_opt_k_iteration + 1
                   IF (outer_opt_k_prepare_to_exit) EXIT
 
-               ENDDO ! outer loop for k
+               END DO ! outer loop for k
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! RZK-warning update mo orbitals
 
@@ -4613,7 +4609,7 @@ CONTAINS
 
                IF (unit_nr > 0) THEN
                   WRITE (unit_nr, *) "sqrt and inv(sqrt) of AO overlap matrix"
-               ENDIF
+               END IF
                CALL dbcsr_create(almo_scf_env%matrix_s_sqrt(1), &
                                  template=almo_scf_env%matrix_s(1), &
                                  matrix_type=dbcsr_type_no_symmetry)
@@ -4646,15 +4642,15 @@ CONTAINS
                   frob_matrix = dbcsr_frobenius_norm(matrix_tmp2)
                   IF (unit_nr > 0) THEN
                      WRITE (unit_nr, *) "Error for (inv(sqrt(S))*S*inv(sqrt(S))-I)", frob_matrix/frob_matrix_base
-                  ENDIF
+                  END IF
 
                   CALL dbcsr_release(matrix_tmp1)
                   CALL dbcsr_release(matrix_tmp2)
-               ENDIF
+               END IF
 
                almo_scf_env%s_sqrt_done = .TRUE.
 
-            ENDIF
+            END IF
 
             DO ispin = 1, nspin
 
@@ -4700,11 +4696,11 @@ CONTAINS
 
                CALL ct_step_env_clean(ct_step_env)
 
-            ENDDO
+            END DO
 
             energy_correction(1) = energy_correction(1)*spin_factor
 
-         ENDIF
+         END IF
 
          ! print the energy correction and exit
          DO ispin = 1, nspin
@@ -4714,7 +4710,7 @@ CONTAINS
                WRITE (unit_nr, '(T2,A,I6,F20.9)') "ECORR", ispin, &
                   energy_correction(ispin)
                WRITE (unit_nr, *)
-            ENDIF
+            END IF
             energy_correction_final = energy_correction_final + energy_correction(ispin)
 
             !!! print out the results of decomposition analysis
@@ -4752,7 +4748,7 @@ CONTAINS
                CALL dbcsr_scale(almo_scf_env%matrix_p(ispin), &
                                 spin_factor)
 
-         ENDDO
+         END DO
 
       CASE (dm_ls_step)
 
@@ -4760,7 +4756,7 @@ CONTAINS
          IF (.NOT. almo_scf_env%s_inv_done) THEN
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, *) "Inverting AO overlap matrix"
-            ENDIF
+            END IF
             CALL dbcsr_create(almo_scf_env%matrix_s_inv(1), &
                               template=almo_scf_env%matrix_s(1), &
                               matrix_type=dbcsr_type_no_symmetry)
@@ -4773,7 +4769,7 @@ CONTAINS
                                    almo_scf_env%matrix_s_sqrt_inv(1), &
                                    0.0_dp, almo_scf_env%matrix_s_inv(1), &
                                    filter_eps=almo_scf_env%eps_filter)
-            ENDIF
+            END IF
 
             IF (safe_mode) THEN
                CALL dbcsr_create(matrix_tmp1, template=almo_scf_env%matrix_s(1), &
@@ -4788,13 +4784,13 @@ CONTAINS
                IF (unit_nr > 0) THEN
                   WRITE (unit_nr, *) "Error for (inv(S)*S-I)", &
                      frob_matrix/frob_matrix_base
-               ENDIF
+               END IF
                CALL dbcsr_release(matrix_tmp1)
-            ENDIF
+            END IF
 
             almo_scf_env%s_inv_done = .TRUE.
 
-         ENDIF
+         END IF
 
          DO ispin = 1, nspin
             ! RZK-warning the preconditioner is very important
@@ -4805,7 +4801,7 @@ CONTAINS
             !       ENDIF
             !CALL dbcsr_filter(almo_scf_env%matrix_ks(ispin),&
             !         almo_scf_env%eps_filter)
-         ENDDO
+         END DO
 
          ALLOCATE (matrix_p_almo_scf_converged(nspin))
          DO ispin = 1, nspin
@@ -4813,7 +4809,7 @@ CONTAINS
                               template=almo_scf_env%matrix_p(ispin))
             CALL dbcsr_copy(matrix_p_almo_scf_converged(ispin), &
                             almo_scf_env%matrix_p(ispin))
-         ENDDO
+         END DO
 
          ! update the density matrix
          DO ispin = 1, nspin
@@ -4876,13 +4872,13 @@ CONTAINS
                WRITE (unit_nr, '(T2,A,I6,F20.9)') "ECORR", ispin, &
                   energy_correction(ispin)
                WRITE (unit_nr, *)
-            ENDIF
+            END IF
 
-         ENDDO
+         END DO
 
          DO ispin = 1, nspin
             CALL dbcsr_release(matrix_p_almo_scf_converged(ispin))
-         ENDDO
+         END DO
          DEALLOCATE (matrix_p_almo_scf_converged)
 
       END SELECT ! algorithm selection
@@ -4897,7 +4893,7 @@ CONTAINS
             almo_scf_env%almo_scf_energy + energy_correction_final, &
             t2 - t1
          WRITE (unit_nr, *)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -4933,8 +4929,7 @@ CONTAINS
                                                             template_vr_vr_blk, template_n_vr
       REAL(KIND=dp), INTENT(IN)                          :: spin_factor, eps_filter
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_create_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_create_preconditioner'
 
       INTEGER                                            :: handle, p_nrows, q_nrows
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: p_diagonal, q_diagonal
@@ -5092,8 +5087,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ispin
       REAL(KIND=dp), INTENT(IN)                          :: spin_factor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_create_preconditioner_blk', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_create_preconditioner_blk'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: eps_filter
@@ -5308,8 +5302,7 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(IN)                       :: grad
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_apply_preconditioner_blk', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'opt_k_apply_preconditioner_blk'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: eps_filter
@@ -5981,8 +5974,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: weights
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: energy_coeff, localiz_coeff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_gradient', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_gradient'
 
       INTEGER                                            :: dim0, handle, idim0, nao, reim
       LOGICAL                                            :: my_penalty_local
@@ -5998,20 +5990,20 @@ CONTAINS
 
       IF (normalize_orbitals .AND. (.NOT. PRESENT(m_sig_sqrti_ii))) THEN
          CPABORT("Normalization matrix is required")
-      ENDIF
+      END IF
 
       my_penalty_local = .FALSE.
       my_localiz_coeff = 1.0_dp
       my_energy_coeff = 0.0_dp
       IF (PRESENT(localiz_coeff)) THEN
          my_localiz_coeff = localiz_coeff
-      ENDIF
+      END IF
       IF (PRESENT(energy_coeff)) THEN
          my_energy_coeff = energy_coeff
-      ENDIF
+      END IF
       IF (PRESENT(penalty_occ_local)) THEN
          my_penalty_local = penalty_occ_local
-      ENDIF
+      END IF
 
       ! use this otherways unused variables
       CALL dbcsr_get_info(matrix=m_ks, nfullrows_total=nao)
@@ -6126,7 +6118,7 @@ CONTAINS
                                    0.0_dp, temp1, &
                                    filter_eps=eps_filter)
 
-            ENDDO
+            END DO
 
             SELECT CASE (2) ! allows for selection of different spread functionals
             CASE (1) ! functional =  -W_I * log( |z_I|^2 )
@@ -6141,9 +6133,9 @@ CONTAINS
             CALL dbcsr_add(temp2, temp1, 1.0_dp, coeff)
             !CALL dbcsr_add(grad_loc, temp1, 1.0_dp, 1.0_dp)
 
-         ENDDO ! end loop over idim0
+         END DO ! end loop over idim0
          CALL dbcsr_add(m_tmp_no_2, temp2, my_energy_coeff, my_localiz_coeff*4.0_dp)
-      ENDIF
+      END IF
 
       ! add penalty on the occupied volume: det(sigma)
       IF (penalty_occ_vol) THEN
@@ -6168,7 +6160,7 @@ CONTAINS
                          norm_scalar=energy_g_norm)
          !WRITE (*, "(A30,2F20.10)") "Energy/penalty g norms (no norm): ", energy_g_norm, penalty_occ_vol_g_norm
          CALL dbcsr_add(m_tmp_no_2, m_tmp_no_1, 1.0_dp, 1.0_dp)
-      ENDIF
+      END IF
 
       ! take into account the factor from the normalization constraint
       IF (normalize_orbitals) THEN
@@ -6229,7 +6221,7 @@ CONTAINS
 
          CALL dbcsr_copy(m_tmp_no_1, m_tmp_no_2)
 
-      ENDIF ! normalize_orbitals
+      END IF ! normalize_orbitals
 
       ! project out the occupied space from the gradient
       IF (assume_t0_q0x) THEN
@@ -6261,9 +6253,9 @@ CONTAINS
                filter_eps=eps_filter, &
                !matrix_trimmer=,&
                use_trimmer=.FALSE.)
-         ENDIF ! my_special_case
+         END IF ! my_special_case
          CALL dbcsr_copy(m_tmp_no_1, m_grad_out)
-      ENDIF
+      END IF
 
       !! check whether the gradient lies entirely in R or Q
       !CALL dbcsr_multiply("T","N",1.0_dp,&
@@ -6319,7 +6311,7 @@ CONTAINS
          CALL dbcsr_hadamard_product(m_tmp_no_1, &
                                      m_quench_t, &
                                      m_grad_out)
-      ENDIF
+      END IF
       CALL dbcsr_filter(m_grad_out, eps=eps_filter)
 
       CALL dbcsr_release(m_tmp_no_1)
@@ -6349,8 +6341,7 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(IN)                       :: matrix
       CHARACTER(len=*), INTENT(IN)                       :: filename
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_mathematica_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'print_mathematica_matrix'
 
       CHARACTER(LEN=20)                                  :: formatstr, Scols
       INTEGER                                            :: col, fiunit, handle, hori_offset, jj, &
@@ -6374,14 +6365,14 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! serial code only
       CALL dbcsr_get_info(matrix, distribution=dist)
       CALL dbcsr_distribution_get(dist, numnodes=ncores)
       IF (ncores .GT. 1) THEN
          CPABORT("mathematica files: serial code only")
-      ENDIF
+      END IF
 
       nblkrows_tot = dbcsr_nblkrows_total(matrix)
       nblkcols_tot = dbcsr_nblkcols_total(matrix)
@@ -6415,15 +6406,15 @@ CONTAINS
                  hori_offset + 1:hori_offset + mo_block_sizes(col)) &
                   = block_p(:, :)
 
-            ENDIF
+            END IF
 
             vert_offset = vert_offset + ao_block_sizes(row)
 
-         ENDDO
+         END DO
 
          hori_offset = hori_offset + mo_block_sizes(col)
 
-      ENDDO ! loop over electron blocks
+      END DO ! loop over electron blocks
 
       CALL dbcsr_release(matrix_asym)
 
@@ -6433,9 +6424,9 @@ CONTAINS
          formatstr = "("//TRIM(Scols)//"E27.17)"
          DO jj = 1, Nrows
             WRITE (fiunit, formatstr) H(jj, :)
-         ENDDO
+         END DO
          CALL close_file(fiunit)
-      ENDIF
+      END IF
 
       DEALLOCATE (mo_block_sizes)
       DEALLOCATE (ao_block_sizes)
@@ -6481,8 +6472,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: just_started
       REAL(KIND=dp), INTENT(IN)                          :: penalty_amplitude, eps_filter
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_obj_nlmos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_obj_nlmos'
 
       INTEGER                                            :: handle, idim0, ielem, para_group, reim
       REAL(KIND=dp)                                      :: det1, fval
@@ -6532,7 +6522,7 @@ CONTAINS
             CALL mp_sum(reim_diag, para_group)
             z2(:) = z2(:) + reim_diag(:)*reim_diag(:)
 
-         ENDDO
+         END DO
 
          DO ielem = 1, nocc
             SELECT CASE (2) ! allows for selection of different spread functionals
@@ -6544,9 +6534,9 @@ CONTAINS
                fval = weights(idim0) - weights(idim0)*SQRT(ABS(z2(ielem)))
             END SELECT
             localization_obj_function_ispin = localization_obj_function_ispin + fval
-         ENDDO
+         END DO
 
-      ENDDO ! end loop over idim0
+      END DO ! end loop over idim0
 
       DEALLOCATE (z2)
       DEALLOCATE (reim_diag)
@@ -6570,7 +6560,7 @@ CONTAINS
 
       IF (just_started .AND. penalty_amplitude .LT. 0.0_dp) THEN
          penalty_vol_prefactor = -(-penalty_amplitude)*localization_obj_function_ispin
-      ENDIF
+      END IF
       penalty_func_ispin = penalty_func_ispin + penalty_vol_prefactor*LOG(det1)
 
       CALL dbcsr_release(tempNOcc1)
@@ -6609,8 +6599,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: penalty_vol_prefactor, eps_filter
       REAL(KIND=dp), INTENT(INOUT)                       :: suggested_vol_penalty
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_gradient_nlmos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_gradient_nlmos'
 
       INTEGER                                            :: dim0, handle, idim0, reim
       REAL(KIND=dp)                                      :: norm_loc, norm_vol
@@ -6672,7 +6661,7 @@ CONTAINS
                                 1.0_dp, m_temp_oo_2, &
                                 filter_eps=eps_filter)
 
-         ENDDO
+         END DO
 
          ! TODO: because some elements are zeros on some MPI tasks the
          ! gradient evaluation will fail for CASE 1 and 3
@@ -6695,7 +6684,7 @@ CONTAINS
                              1.0_dp, m_temp_oo_1, &
                              filter_eps=eps_filter)
 
-      ENDDO ! end loop over idim0
+      END DO ! end loop over idim0
       DEALLOCATE (z2)
 
       ! sigma0.a_norm is necessary for the volume penalty and normalization
@@ -6819,8 +6808,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: eps_lanczos
       INTEGER, INTENT(IN)                                :: max_iter_lanczos
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_xalmos_from_main_var', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_xalmos_from_main_var'
 
       INTEGER                                            :: handle, unit_nr
       REAL(KIND=dp)                                      :: t_norm
@@ -6835,7 +6823,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL dbcsr_create(m_tmp_no_1, &
                         template=m_quench_t, &
@@ -6854,10 +6842,10 @@ CONTAINS
             WRITE (unit_nr, *) "Maximum norm of the initial guess: ", t_norm
             WRITE (unit_nr, *) "Maximum allowed amplitude: ", &
                envelope_amplitude
-         ENDIF
+         END IF
          IF (t_norm .GT. envelope_amplitude .AND. just_started) THEN
             CPABORT("Max norm of the initial guess is too large")
-         ENDIF
+         END IF
          ! use artanh to tame MOs
          CALL dbcsr_function_of_elements(m_tmp_no_1, &
                                          func=dbcsr_func_tanh, &
@@ -6865,7 +6853,7 @@ CONTAINS
                                          a1=1.0_dp/envelope_amplitude)
          CALL dbcsr_scale(m_tmp_no_1, &
                           envelope_amplitude)
-      ENDIF
+      END IF
       CALL dbcsr_hadamard_product(m_tmp_no_1, m_quench_t, &
                                   m_t_out)
 
@@ -6899,10 +6887,10 @@ CONTAINS
                use_trimmer=.FALSE.)
             CALL dbcsr_copy(m_t_out, &
                             m_tmp_no_1)
-         ENDIF ! special case
+         END IF ! special case
          CALL dbcsr_add(m_t_out, &
                         m_t0, 1.0_dp, 1.0_dp)
-      ENDIF
+      END IF
 
       IF (normalize_orbitals) THEN
          CALL orthogonalize_mos( &
@@ -6917,7 +6905,7 @@ CONTAINS
             eps_lanczos=eps_lanczos, &
             max_iter_lanczos=max_iter_lanczos, &
             overlap_sqrti=m_sig_sqrti_ii_out)
-      ENDIF
+      END IF
 
       CALL dbcsr_filter(m_t_out, eps=eps_filter)
 
@@ -6998,10 +6986,10 @@ CONTAINS
          INTENT(INOUT), OPTIONAL                         :: bad_modes_projector_down_out
       LOGICAL, INTENT(IN)                                :: skip_inversion
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_preconditioner'
 
-      INTEGER                                            :: handle, precond_domain_projector
+      INTEGER                                            :: handle, ndim, precond_domain_projector
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: nn_diagonal
       TYPE(dbcsr_type)                                   :: m_tmp_nn_1, m_tmp_no_3
 
       CALL timeset(routineN, handle)
@@ -7029,7 +7017,7 @@ CONTAINS
       ! return STsiginv if necessary
       IF (PRESENT(m_STsiginv_out)) THEN
          CALL dbcsr_copy(m_STsiginv_out, m_tmp_no_3)
-      ENDIF
+      END IF
       IF (special_case .EQ. xalmo_case_fully_deloc) THEN
          ! use S instead of S-SRS
       ELSE
@@ -7038,11 +7026,11 @@ CONTAINS
                              m_tmp_no_3, &
                              1.0_dp, m_tmp_nn_1, &
                              filter_eps=eps_filter)
-      ENDIF
+      END IF
       ! return S_vv = (S or S-SRS) if necessary
       IF (PRESENT(m_s_vv_out)) THEN
          CALL dbcsr_copy(m_s_vv_out, m_tmp_nn_1)
-      ENDIF
+      END IF
 
       ! Second (1-R)F(1-R)
       ! re-create matrix because desymmetrize is buggy -
@@ -7071,7 +7059,7 @@ CONTAINS
       ! return F_vv = (I-SR)F(I-RS) if necessary
       IF (PRESENT(m_f_vv_out)) THEN
          CALL dbcsr_copy(m_f_vv_out, m_prec_out)
-      ENDIF
+      END IF
 
 #if 0
 !penalty_only=.TRUE.
@@ -7092,7 +7080,7 @@ CONTAINS
       IF (penalty_occ_vol) THEN
          CALL dbcsr_add(m_prec_out, m_tmp_nn_1, &
                         1.0_dp, penalty_occ_vol_prefactor)
-      ENDIF
+      END IF
 #endif
 
       CALL dbcsr_copy(m_tmp_nn_1, m_prec_out)
@@ -7101,15 +7089,27 @@ CONTAINS
       IF (special_case .EQ. xalmo_case_block_diag) THEN ! non-overlapping diagonal blocks
 
          IF (skip_inversion) THEN
-            CPABORT("NYI: impose blk structure on m_prec_out first")
+
+            ! impose block-diagonal structure
+            CALL dbcsr_get_info(m_s, nfullrows_total=ndim)
+            ALLOCATE (nn_diagonal(ndim))
+            CALL dbcsr_get_diag(m_s, nn_diagonal)
+            CALL dbcsr_set(m_prec_out, 0.0_dp)
+            CALL dbcsr_set_diag(m_prec_out, nn_diagonal)
+            CALL dbcsr_filter(m_prec_out, eps_filter)
+            DEALLOCATE (nn_diagonal)
+
             CALL dbcsr_copy(m_prec_out, m_tmp_nn_1, keep_sparsity=.TRUE.)
+
          ELSE
+
             CALL pseudo_invert_diagonal_blk( &
                matrix_in=m_tmp_nn_1, &
                matrix_out=m_prec_out, &
                nocc=nocc_of_domain(:) &
                )
-         ENDIF
+
+         END IF
 
       ELSE IF (special_case .EQ. xalmo_case_fully_deloc) THEN ! the entire system is a block
 
@@ -7125,7 +7125,7 @@ CONTAINS
                                           para_env=para_env, &
                                           blacs_env=blacs_env, &
                                           upper_to_full=.TRUE.)
-         ENDIF !skip_inversion
+         END IF !skip_inversion
 
          CALL dbcsr_filter(m_prec_out, eps=eps_filter)
 
@@ -7136,7 +7136,7 @@ CONTAINS
             precond_domain_projector = -1
          ELSE
             precond_domain_projector = 0
-         ENDIF
+         END IF
          !! RZK-warning: use PRESENT to make two nearly-identical calls
          !! this is done because intel compiler does not seem to conform
          !! to the FORTRAN standard for passing through optional arguments
@@ -7173,9 +7173,9 @@ CONTAINS
                my_action=precond_domain_projector, &
                skip_inversion=skip_inversion &
                )
-         ENDIF
+         END IF
 
-      ENDIF ! special_case
+      END IF ! special_case
 
       ! invert using cholesky (works with S matrix, will not work with S-SRS matrix)
       !!!CALL cp_dbcsr_cholesky_decompose(prec_vv,&
@@ -7272,8 +7272,7 @@ CONTAINS
       TYPE(dbcsr_type), DIMENSION(:), INTENT(INOUT), &
          OPTIONAL                                        :: prev_minus_prec_grad
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_cg_beta', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_cg_beta'
 
       INTEGER                                            :: handle, i, nsize, unit_nr
       REAL(KIND=dp)                                      :: den, kappa, my_denom, my_numer, &
@@ -7290,15 +7289,15 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       IF (.NOT. PRESENT(prev_minus_prec_grad)) THEN
          IF (conjugator .EQ. cg_fletcher_reeves .OR. &
              conjugator .EQ. cg_polak_ribiere .OR. &
              conjugator .EQ. cg_hager_zhang) THEN
             CPABORT("conjugator needs more input")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! return num denom so beta can be calculated spin-by-spin
       IF (PRESENT(numer) .OR. PRESENT(denom)) THEN
@@ -7306,8 +7305,8 @@ CONTAINS
              conjugator .EQ. cg_dai_yuan .OR. &
              conjugator .EQ. cg_hager_zhang) THEN
             CPABORT("cannot return numer/denom")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       nsize = SIZE(grad)
 
@@ -7370,7 +7369,7 @@ CONTAINS
 
          CALL dbcsr_release(m_tmp_no_1)
 
-      ENDDO ! i - nsize
+      END DO ! i - nsize
 
       DO i = 1, nsize
 
@@ -7389,21 +7388,21 @@ CONTAINS
             CPABORT("illegal conjugator")
          END SELECT
 
-      ENDDO ! i - nsize
+      END DO ! i - nsize
 
       IF (beta .LT. 0.0_dp) THEN
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, *) " Resetting conjugator because beta is negative: ", beta
-         ENDIF
+         END IF
          reset_conjugator = .TRUE.
-      ENDIF
+      END IF
 
       IF (PRESENT(numer)) THEN
          numer = my_numer
-      ENDIF
+      END IF
       IF (PRESENT(denom)) THEN
          denom = my_denom
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -7468,8 +7467,7 @@ CONTAINS
                                                             penalty_occ_vol_pf2
       INTEGER, INTENT(IN)                                :: special_case
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'newton_grad_to_step', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'newton_grad_to_step'
 
       CHARACTER(LEN=20)                                  :: iter_type
       INTEGER                                            :: handle, ispin, iteration, max_iter, &
@@ -7497,12 +7495,12 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       !!! Currently for non-theta only
       IF (optimize_theta) THEN
          CPABORT("theta is NYI")
-      ENDIF
+      END IF
 
       ! set optimizer options
       use_preconditioner = (optimizer%preconditioner .NE. xalmo_prec_zero)
@@ -7518,7 +7516,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (domain_prec(ndomains, nspins))
       CALL init_submatrices(domain_prec)
@@ -7692,19 +7690,19 @@ CONTAINS
                      !use_trimmer=.FALSE.,&
                      )
 
-               ENDIF ! special_case
+               END IF ! special_case
 
             ELSE ! do not use preconditioner
 
                CALL dbcsr_copy(m_zet(ispin), m_residue(ispin))
 
-            ENDIF ! use_preconditioner
+            END IF ! use_preconditioner
 
-         ENDIF ! do_exact_inversion
+         END IF ! do_exact_inversion
 
          CALL dbcsr_copy(m_step(ispin), m_zet(ispin))
 
-      ENDDO !ispin
+      END DO !ispin
 
       ! start the outer SCF loop
       outer_prepare_to_exit = .FALSE.
@@ -7758,7 +7756,7 @@ CONTAINS
                numer = numer + numer_ispin
                denom = denom + denom_ispin
 
-            ENDDO !ispin
+            END DO !ispin
 
             alpha = numer/denom
 
@@ -7772,14 +7770,14 @@ CONTAINS
                CALL dbcsr_norm(m_residue(ispin), dbcsr_norm_maxabsnorm, &
                                norm_scalar=residue_max_norm(ispin))
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! check convergence and other exit criteria
             residue_norm = MAXVAL(residue_max_norm)
             converged = (residue_norm .LT. eps_error_target)
             IF (converged .OR. (iteration .GE. max_iter)) THEN
                prepare_to_exit = .TRUE.
-            ENDIF
+            END IF
 
             IF (.NOT. prepare_to_exit) THEN
 
@@ -7819,15 +7817,15 @@ CONTAINS
                            !use_trimmer=.FALSE.,&
                            )
 
-                     ENDIF ! special case
+                     END IF ! special case
 
                   ELSE
 
                      CALL dbcsr_copy(m_zet(ispin), m_residue(ispin))
 
-                  ENDIF
+                  END IF
 
-               ENDDO !ispin
+               END DO !ispin
 
                ! compute the conjugation coefficient - beta
                CALL compute_cg_beta( &
@@ -7844,9 +7842,9 @@ CONTAINS
                   ! conjugate the step direction
                   CALL dbcsr_add(m_step(ispin), m_zet(ispin), beta, 1.0_dp)
 
-               ENDDO !ispin
+               END DO !ispin
 
-            ENDIF ! not.prepare_to_exit
+            END IF ! not.prepare_to_exit
 
             t2 = m_walltime()
             IF (unit_nr > 0) THEN
@@ -7856,22 +7854,22 @@ CONTAINS
                   iter_type, iteration, &
                   alpha, beta, residue_norm, &
                   t2 - t1
-            ENDIF
+            END IF
             t1 = m_walltime()
 
             iteration = iteration + 1
             IF (prepare_to_exit) EXIT
 
-         ENDDO ! inner loop
+         END DO ! inner loop
 
          IF (converged .OR. (outer_iteration .GE. outer_max_iter)) THEN
             outer_prepare_to_exit = .TRUE.
-         ENDIF
+         END IF
 
          outer_iteration = outer_iteration + 1
          IF (outer_prepare_to_exit) EXIT
 
-      ENDDO ! outer loop
+      END DO ! outer loop
 
 ! is not necessary if penalty_occ_vol_pf2=0.0
 #if 0
@@ -7887,9 +7885,9 @@ CONTAINS
             WRITE (unit_nr, *) "correction alpha: ", alpha
             CALL dbcsr_scale(m_delta(ispin), alpha)
 
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
 #endif
 
@@ -7931,7 +7929,7 @@ CONTAINS
          CALL dbcsr_release(m_tmp_oo_1)
          CALL dbcsr_release(m_tmp_oo_2)
 
-      ENDDO
+      END DO
 
       ! clean up
       DO ispin = 1, nspins
@@ -7947,7 +7945,7 @@ CONTAINS
          CALL dbcsr_release(m_s_vv(ispin))
          CALL dbcsr_release(m_prec(ispin))
          CALL dbcsr_release(m_STsiginv(ispin))
-      ENDDO !ispin
+      END DO !ispin
       DEALLOCATE (domain_prec)
       DEALLOCATE (m_residue)
       DEALLOCATE (m_residue_prev)
@@ -7964,7 +7962,7 @@ CONTAINS
 
       IF (.NOT. converged) THEN
          CPABORT("Optimization not converged!")
-      ENDIF
+      END IF
 
       ! check that the step satisfies H.step=-grad
 
@@ -8013,7 +8011,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: eps_filter
       INTEGER, INTENT(IN)                                :: path_num
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_hessian', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_hessian'
 
       INTEGER                                            :: dim0, handle, ispin, nspins
       REAL(KIND=dp)                                      :: penalty_prefactor_local, spin_factor
@@ -8030,6 +8028,11 @@ CONTAINS
       CPASSERT(SIZE(m_s) >= 0)
       CPASSERT(SIZE(m_g_full) >= 0)
       CPASSERT(SIZE(m_FTsiginv) >= 0)
+      MARK_USED(m_siginvTFTsiginv)
+      MARK_USED(m_STsiginv)
+      MARK_USED(m_FTsiginv)
+      MARK_USED(m_g_full)
+      MARK_USED(m_s)
 
       nspins = SIZE(m_ks)
 
@@ -8037,7 +8040,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       DO ispin = 1, nspins
 
@@ -8091,7 +8094,7 @@ CONTAINS
 
             CALL dbcsr_copy(m_tmp_x_in, m_x_in(ispin))
 
-         ENDIF ! normalize_orbitals
+         END IF ! normalize_orbitals
 
          IF (path_num .EQ. hessian_path_reuse) THEN
 
@@ -8230,7 +8233,7 @@ CONTAINS
 
          ELSE
             CPABORT("illegal path")
-         ENDIF ! path
+         END IF ! path
 
          ! transform the output to take into account the normalization constraint
          IF (normalize_orbitals) THEN
@@ -8263,7 +8266,7 @@ CONTAINS
                                 0.0_dp, m_x_out(ispin), &
                                 retain_sparsity=.TRUE.)
 
-         ENDIF ! normalize_orbitals
+         END IF ! normalize_orbitals
 
          CALL dbcsr_scale(m_x_out(ispin), &
                           2.0_dp*spin_factor)
@@ -8273,7 +8276,7 @@ CONTAINS
          CALL dbcsr_release(m_tmp_no_2)
          CALL dbcsr_release(m_tmp_x_in)
 
-      ENDDO !ispin
+      END DO !ispin
 
       ! there is one more part of the hessian that comes
       ! from T-dependence of the KS matrix
@@ -8323,8 +8326,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hessian_diag_apply', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'hessian_diag_apply'
 
       INTEGER :: ao_hori_offset, ao_vert_offset, block_col, block_row, col, H_size, handle, ii, &
          INFO, jj, lev1_hori_offset, lev1_vert_offset, lev2_hori_offset, lev2_vert_offset, LWORK, &
@@ -8352,11 +8354,14 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       !JHU use and test for unused debug variables
       CPASSERT(ASSOCIATED(blacs_env))
       CPASSERT(ASSOCIATED(para_env))
+      MARK_USED(blacs_env)
+      MARK_USED(para_env)
+
       CALL dbcsr_get_info(m_s, row_blk_size=ao_blk_sizes)
       CALL dbcsr_get_info(matrix_S_vo, row_blk_size=ao_blk_sizes)
       CALL dbcsr_get_info(matrix_F_vo, row_blk_size=ao_blk_sizes)
@@ -8366,7 +8371,7 @@ CONTAINS
       CALL dbcsr_distribution_get(main_dist, numnodes=ncores)
       IF (ncores .GT. 1) THEN
          CPABORT("serial code only")
-      ENDIF
+      END IF
 
       nblkrows_tot = dbcsr_nblkrows_total(quench_t)
       nblkcols_tot = dbcsr_nblkcols_total(quench_t)
@@ -8405,7 +8410,7 @@ CONTAINS
          penalty_prefactor_local = penalty_occ_vol_prefactor/(2.0_dp*spin_factor)
       ELSE
          penalty_prefactor_local = 0.0_dp
-      ENDIF
+      END IF
 
       WRITE (unit_nr, *) "penalty_prefactor_local: ", penalty_prefactor_local
       WRITE (unit_nr, *) "penalty_prefactor_2: ", penalty_occ_vol_pf2
@@ -8427,13 +8432,13 @@ CONTAINS
                                    row, col, block_p, found)
             IF (found) THEN
                ao_domain_sizes(col) = ao_domain_sizes(col) + ao_blk_sizes(row)
-            ENDIF
+            END IF
 
-         ENDDO
+         END DO
 
          H_size = H_size + ao_domain_sizes(col)*mo_block_sizes(col)
 
-      ENDDO
+      END DO
 
       ALLOCATE (H(H_size, H_size))
       H(:, :) = 0.0_dp
@@ -8480,7 +8485,7 @@ CONTAINS
                            F_ao_block(ao_vert_offset + 1:ao_vert_offset + ao_block_sizes(block_row), &
                                       ao_hori_offset + 1:ao_hori_offset + ao_block_sizes(block_col)) &
                               = block_p(:, :)
-                        ENDIF
+                        END IF
 
                         CALL dbcsr_get_block_p(matrix_S_ao_sym, &
                                                block_row, block_col, block_p, found)
@@ -8489,31 +8494,31 @@ CONTAINS
                            S_ao_block(ao_vert_offset + 1:ao_vert_offset + ao_block_sizes(block_row), &
                                       ao_hori_offset + 1:ao_hori_offset + ao_block_sizes(block_col)) &
                               = block_p(:, :)
-                        ENDIF
+                        END IF
 
                         ao_hori_offset = ao_hori_offset + ao_block_sizes(block_col)
 
-                     ENDIF
+                     END IF
 
-                  ENDDO
+                  END DO
 
                   ao_vert_offset = ao_vert_offset + ao_block_sizes(block_row)
 
-               ENDIF
+               END IF
 
-            ENDDO
+            END DO
 
             ! fill MO submatrices
             CALL dbcsr_get_block_p(matrix_F_mo_sym, row, col, block_p, found)
             IF (found) THEN
                ! copy the block into the submatrix
                F_mo_block(1:mo_block_sizes(row), 1:mo_block_sizes(col)) = block_p(:, :)
-            ENDIF
+            END IF
             CALL dbcsr_get_block_p(matrix_S_mo_sym, row, col, block_p, found)
             IF (found) THEN
                ! copy the block into the submatrix
                S_mo_block(1:mo_block_sizes(row), 1:mo_block_sizes(col)) = block_p(:, :)
-            ENDIF
+            END IF
 
             !WRITE(*,*) "F_AO_BLOCK", row, col, ao_domain_sizes(row), ao_domain_sizes(col)
             !DO ii=1,ao_domain_sizes(row)
@@ -8548,17 +8553,17 @@ CONTAINS
 !               =S_mo_block(orb_j,orb_i)*F_ao_block(:,:)&
 !               -F_mo_block(orb_j,orb_i)*S_ao_block(:,:)&
 !               +penalty_prefactor_local*S_mo_block(orb_j,orb_i)*S_ao_block(:,:)
-                  ENDIF
+                  END IF
                   !WRITE(*,*) row, col, orb_j, orb_i, lev1_vert_offset+lev2_vert_offset+1, ao_domain_sizes(row),&
                   !   lev1_hori_offset+lev2_hori_offset+1, ao_domain_sizes(col), S_mo_block(orb_j,orb_i)
 
                   lev2_hori_offset = lev2_hori_offset + ao_domain_sizes(col)
 
-               ENDDO
+               END DO
 
                lev2_vert_offset = lev2_vert_offset + ao_domain_sizes(row)
 
-            ENDDO
+            END DO
 
             lev1_hori_offset = lev1_hori_offset + ao_domain_sizes(col)*mo_block_sizes(col)
 
@@ -8567,11 +8572,11 @@ CONTAINS
             DEALLOCATE (F_mo_block)
             DEALLOCATE (S_mo_block)
 
-         ENDDO ! col fragment
+         END DO ! col fragment
 
          lev1_vert_offset = lev1_vert_offset + ao_domain_sizes(row)*mo_block_sizes(row)
 
-      ENDDO ! row fragment
+      END DO ! row fragment
 
       CALL dbcsr_release(matrix_S_ao_sym)
       CALL dbcsr_release(matrix_F_ao_sym)
@@ -8776,9 +8781,9 @@ CONTAINS
                               lev1_vert_offset + ao_domain_sizes(col)*(orb_i - 1) + lev2_vert_offset + ao_block_sizes(row)) &
                         = block_p(:, orb_i)
 !WRITE(*,*) "GRAD: ", row, col, orb_i, lev1_vert_offset+ao_domain_sizes(col)*(orb_i-1)+lev2_vert_offset+1, ao_block_sizes(row)
-                  ENDDO
+                  END DO
 
-               ENDIF
+               END IF
 
 !S-1.G CALL dbcsr_get_block_p(matrix_step,&
 !S-1.G         row, col, block_p, found)
@@ -8793,13 +8798,13 @@ CONTAINS
 
                lev2_vert_offset = lev2_vert_offset + ao_block_sizes(row)
 
-            ENDIF
+            END IF
 
-         ENDDO
+         END DO
 
          lev1_vert_offset = lev1_vert_offset + ao_domain_sizes(col)*mo_block_sizes(col)
 
-      ENDDO ! loop over electron blocks
+      END DO ! loop over electron blocks
 
       !WRITE(*,*) "HESSIAN"
       !DO ii=1,H_size
@@ -8860,8 +8865,8 @@ CONTAINS
          ELSE
             test(jj, :) = Hinv(:, jj)*0.0_dp
             zero_neg_eiv = zero_neg_eiv + 1
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       WRITE (unit_nr, *) 'ZERO OR NEGATIVE EIGENVALUES: ', zero_neg_eiv
       DEALLOCATE (Step_vec)
 
@@ -8915,13 +8920,13 @@ CONTAINS
       test(:, :) = MATMUL(Hinv, H)
       DO ii = 1, H_size
          test(ii, ii) = test(ii, ii) - 1.0_dp
-      ENDDO
+      END DO
       test_error = 0.0_dp
       DO ii = 1, H_size
          DO jj = 1, H_size
             test_error = test_error + test(jj, ii)*test(jj, ii)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       WRITE (unit_nr, *) "Hessian inversion error: ", SQRT(test_error)
       DEALLOCATE (test)
 
@@ -8974,17 +8979,17 @@ CONTAINS
                   p_new_block(:, orb_i) = &
                      Step_vec(lev1_vert_offset + ao_domain_sizes(col)*(orb_i - 1) + lev2_vert_offset + 1: &
                               lev1_vert_offset + ao_domain_sizes(col)*(orb_i - 1) + lev2_vert_offset + ao_block_sizes(row))
-               ENDDO
+               END DO
 
                lev2_vert_offset = lev2_vert_offset + ao_block_sizes(row)
 
-            ENDIF
+            END IF
 
-         ENDDO
+         END DO
 
          lev1_vert_offset = lev1_vert_offset + ao_domain_sizes(col)*mo_block_sizes(col)
 
-      ENDDO ! loop over electron blocks
+      END DO ! loop over electron blocks
 
       DEALLOCATE (Step_vec)
 
@@ -9067,8 +9072,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: perturbation_only
       INTEGER, INTENT(IN), OPTIONAL                      :: special_case
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_trustr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_xalmo_trustr'
 
       INTEGER :: handle, ispin, iteration, iteration_type_to_report, my_special_case, ndomains, &
          nspins, outer_iteration, prec_type, unit_nr
@@ -9106,7 +9110,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! Trust radius code is written to obviate the need in projected orbitals
       assume_t0_q0x = .FALSE.
@@ -9118,7 +9122,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)
@@ -9146,9 +9150,9 @@ CONTAINS
                              new=.TRUE., &
                              time=0.0_dp)
          WRITE (unit_nr, '(T2,A)') REPEAT("-", 79)
-      ENDIF
+      END IF
 
-      ! penalty amplitude adjusts the strenght of volume conservation
+      ! penalty amplitude adjusts the strength of volume conservation
       penalty_occ_vol = .FALSE.
       !(almo_scf_env%penalty%occ_vol_method .NE. almo_occ_vol_penalty_none .AND. &
       !                   my_special_case .EQ. xalmo_case_fully_deloc)
@@ -9172,7 +9176,7 @@ CONTAINS
          CALL dbcsr_create(m_theta(ispin), &
                            template=matrix_t_out(ispin), &
                            matrix_type=dbcsr_type_no_symmetry)
-      ENDDO
+      END DO
 
       ! create initial guess from the initial orbitals
       CALL xalmo_initial_guess(m_guess=m_theta, &
@@ -9289,35 +9293,38 @@ CONTAINS
                map=almo_scf_env%domain_map(ispin), &
                node_of_domain=almo_scf_env%cpu_of_domain)
 
-         ELSE IF (my_special_case .EQ. xalmo_case_block_diag) THEN
+         END IF
 
-            CALL dbcsr_create(m_s_inv, &
-                              template=almo_scf_env%matrix_s(1), &
-                              matrix_type=dbcsr_type_no_symmetry)
-            CALL invert_Hotelling(m_s_inv, &
-                                  almo_scf_env%matrix_s_blk(1), &
-                                  threshold=almo_scf_env%eps_filter, &
-                                  filter_eps=almo_scf_env%eps_filter)
+      END DO ! ispin
 
-         ELSE IF (my_special_case .EQ. xalmo_case_fully_deloc) THEN
+      ! invert metric for special case where metric is spin independent
+      IF (my_special_case .EQ. xalmo_case_block_diag) THEN
 
-            ! invert S using cholesky
-            CALL dbcsr_create(m_s_inv, &
-                              template=almo_scf_env%matrix_s(1), &
-                              matrix_type=dbcsr_type_no_symmetry)
-            CALL dbcsr_desymmetrize(almo_scf_env%matrix_s(1), m_s_inv)
-            CALL cp_dbcsr_cholesky_decompose(m_s_inv, &
-                                             para_env=almo_scf_env%para_env, &
-                                             blacs_env=almo_scf_env%blacs_env)
-            CALL cp_dbcsr_cholesky_invert(m_s_inv, &
+         CALL dbcsr_create(m_s_inv, &
+                           template=almo_scf_env%matrix_s(1), &
+                           matrix_type=dbcsr_type_no_symmetry)
+         CALL invert_Hotelling(m_s_inv, &
+                               almo_scf_env%matrix_s_blk(1), &
+                               threshold=almo_scf_env%eps_filter, &
+                               filter_eps=almo_scf_env%eps_filter)
+
+      ELSE IF (my_special_case .EQ. xalmo_case_fully_deloc) THEN
+
+         ! invert S using cholesky
+         CALL dbcsr_create(m_s_inv, &
+                           template=almo_scf_env%matrix_s(1), &
+                           matrix_type=dbcsr_type_no_symmetry)
+         CALL dbcsr_desymmetrize(almo_scf_env%matrix_s(1), m_s_inv)
+         CALL cp_dbcsr_cholesky_decompose(m_s_inv, &
                                           para_env=almo_scf_env%para_env, &
-                                          blacs_env=almo_scf_env%blacs_env, &
-                                          upper_to_full=.TRUE.)
-            CALL dbcsr_filter(m_s_inv, eps=almo_scf_env%eps_filter)
+                                          blacs_env=almo_scf_env%blacs_env)
+         CALL cp_dbcsr_cholesky_invert(m_s_inv, &
+                                       para_env=almo_scf_env%para_env, &
+                                       blacs_env=almo_scf_env%blacs_env, &
+                                       upper_to_full=.TRUE.)
+         CALL dbcsr_filter(m_s_inv, eps=almo_scf_env%eps_filter)
 
-         ENDIF
-
-      ENDDO ! ispin
+      END IF ! s_inv
 
       radius_max = optimizer%max_trust_radius
       radius_current = MIN(optimizer%initial_trust_radius, radius_max)
@@ -9357,14 +9364,14 @@ CONTAINS
       loss_start = energy_start + penalty_start
       IF (my_special_case .EQ. xalmo_case_block_diag) THEN
          almo_scf_env%almo_scf_energy = energy_start
-      ENDIF
+      END IF
       DO ispin = 1, nspins
          IF (penalty_occ_vol) THEN
             penalty_occ_vol_g_prefactor(ispin) = &
                -2.0_dp*penalty_amplitude*spin_factor*nocc(ispin)
             penalty_occ_vol_h_prefactor(ispin) = 0.0_dp
-         ENDIF
-      ENDDO ! ispin
+         END IF
+      END DO ! ispin
 
       ! start the outer step-size-adjustment loop
       scf_converged = .FALSE.
@@ -9376,7 +9383,7 @@ CONTAINS
          DO ispin = 1, nspins
             CALL dbcsr_set(step(ispin), 0.0_dp)
             CALL dbcsr_filter(step(ispin), almo_scf_env%eps_filter)
-         ENDDO
+         END DO
 
          IF (.NOT. same_position) THEN
 
@@ -9411,9 +9418,9 @@ CONTAINS
                   spin_factor=spin_factor, &
                   special_case=my_special_case)
 
-            ENDDO ! ispin
+            END DO ! ispin
 
-         ENDIF ! skip_grad
+         END IF ! skip_grad
 
          ! check convergence and other exit criteria
          DO ispin = 1, nspins
@@ -9421,7 +9428,7 @@ CONTAINS
                             norm_scalar=grad_norm_spin(ispin))
             !grad_norm_frob = dbcsr_frobenius_norm(grad(ispin)) / &
             !                 dbcsr_frobenius_norm(quench_t(ispin))
-         ENDDO ! ispin
+         END DO ! ispin
          grad_norm_ref = MAXVAL(grad_norm_spin)
 
          t2outer = m_walltime()
@@ -9446,7 +9453,7 @@ CONTAINS
                EXIT adjust_r_loop
          ELSE
             scf_converged = .FALSE.
-         ENDIF
+         END IF
 
          DO ispin = 1, nspins
 
@@ -9478,11 +9485,11 @@ CONTAINS
 
             ELSE
                CPABORT("Unknown XALMO special case")
-            ENDIF
+            END IF
 
             CALL dbcsr_copy(m_model_d(ispin), m_model_rt(ispin))
 
-         ENDDO ! ispin
+         END DO ! ispin
 
          ! compute model Hessian
          IF (.NOT. same_position) THEN
@@ -9517,7 +9524,7 @@ CONTAINS
                      spin_factor=spin_factor, &
                      skip_inversion=.TRUE., &
                      special_case=my_special_case)
-               ENDDO ! ispin
+               END DO ! ispin
 
             CASE DEFAULT
 
@@ -9525,7 +9532,7 @@ CONTAINS
 
             END SELECT ! preconditioner type fork
 
-         ENDIF  ! not same position
+         END IF  ! not same position
 
          ! print the header (argument values are ignored)
          CALL fixed_r_report(unit_nr, &
@@ -9570,13 +9577,13 @@ CONTAINS
                      my_action=0, &
                      filter_eps=almo_scf_env%eps_filter)
 
-               ENDIF ! special case
+               END IF ! special case
 
                ! Get y=d^T.B.d
                CALL dbcsr_dot(m_model_d(ispin), m_model_Bd(ispin), real_temp)
                y_scalar = y_scalar + real_temp
 
-            ENDDO ! ispin
+            END DO ! ispin
             IF (unit_nr > 0 .AND. debug_mode) WRITE (unit_nr, *) "...Curvature: ", y_scalar
 
             ! step to the border
@@ -9594,7 +9601,7 @@ CONTAINS
 
                DO ispin = 1, nspins
                   CALL dbcsr_add(step(ispin), m_model_d(ispin), 1.0_dp, step_size)
-               ENDDO
+               END DO
 
                border_reached = .TRUE.
                inner_loop_success = .TRUE.
@@ -9624,14 +9631,14 @@ CONTAINS
 
                EXIT fixed_r_loop ! the inner loop
 
-            ENDIF ! y is negative
+            END IF ! y is negative
 
             ! Step 3. Compute the step size along the direction
             step_size = 0.0_dp
             DO ispin = 1, nspins
                CALL dbcsr_dot(m_model_r(ispin), m_model_rt(ispin), real_temp)
                step_size = step_size + real_temp
-            ENDDO ! ispin
+            END DO ! ispin
             step_size = step_size/y_scalar
             IF (unit_nr > 0 .AND. debug_mode) WRITE (unit_nr, *) "...Proposed step size: ", step_size
 
@@ -9639,7 +9646,7 @@ CONTAINS
             DO ispin = 1, nspins
                CALL dbcsr_copy(prev_step(ispin), step(ispin))
                CALL dbcsr_add(step(ispin), m_model_d(ispin), 1.0_dp, step_size)
-            ENDDO
+            END DO
 
             ! Compute step norm
             CALL contravariant_matrix_norm( &
@@ -9669,7 +9676,7 @@ CONTAINS
                DO ispin = 1, nspins
                   CALL dbcsr_copy(step(ispin), prev_step(ispin))
                   CALL dbcsr_add(step(ispin), m_model_d(ispin), 1.0_dp, step_size)
-               ENDDO
+               END DO
 
                IF (debug_mode) THEN
                   ! Compute step norm
@@ -9683,7 +9690,7 @@ CONTAINS
                      )
                   IF (unit_nr > 0) WRITE (unit_nr, *) "...Step norm: ", step_norm
                   IF (unit_nr > 0) WRITE (unit_nr, *) "...Current radius: ", radius_current
-               ENDIF
+               END IF
 
                border_reached = .TRUE.
                inner_loop_success = .TRUE.
@@ -9713,7 +9720,7 @@ CONTAINS
 
                EXIT fixed_r_loop ! the inner loop
 
-            ENDIF
+            END IF
 
             IF (optimizer%trustr_algorithm .EQ. trustr_cauchy) THEN
                ! trustr_steihaug, trustr_cauchy, trustr_dogleg
@@ -9761,7 +9768,7 @@ CONTAINS
                            matrix_out=m_model_hessian_inv(ispin), &
                            nocc=almo_scf_env%nocc_of_domain(:, ispin) &
                            )
-                     ENDDO
+                     END DO
 
                   ELSE IF (special_case .EQ. xalmo_case_fully_deloc) THEN ! the entire system is a block
 
@@ -9778,7 +9785,7 @@ CONTAINS
                                                       upper_to_full=.TRUE.)
                         CALL dbcsr_filter(m_model_hessian_inv(ispin), &
                                           eps=almo_scf_env%eps_filter)
-                     ENDDO
+                     END DO
 
                   ELSE
 
@@ -9796,9 +9803,9 @@ CONTAINS
                            my_action=0, & ! do not do domain (1-r0) projection
                            skip_inversion=.FALSE. &
                            )
-                     ENDDO
+                     END DO
 
-                  ENDIF ! special_case
+                  END IF ! special_case
 
                   ! slower but more reliable way to get inverted hessian
                   !DO ispin = 1, nspins
@@ -9860,9 +9867,9 @@ CONTAINS
                         my_action=0, &
                         filter_eps=almo_scf_env%eps_filter)
 
-                  ENDIF ! special case
+                  END IF ! special case
 
-               ENDDO ! ispin
+               END DO ! ispin
 
                ! Compute norm of pB
                CALL contravariant_matrix_norm( &
@@ -9883,7 +9890,7 @@ CONTAINS
 
                   DO ispin = 1, nspins
                      CALL dbcsr_copy(step(ispin), m_model_Bd(ispin))
-                  ENDDO
+                  END DO
 
                   fake_step_size_to_report = 2.0_dp
                   iteration_type_to_report = 6
@@ -9898,7 +9905,7 @@ CONTAINS
                   ! this destroys -Binv.grad content
                   DO ispin = 1, nspins
                      CALL dbcsr_add(m_model_Bd(ispin), step(ispin), 1.0_dp, -1.0_dp)
-                  ENDDO
+                  END DO
 
                   CALL step_size_to_border( &
                      step_size_out=step_size, &
@@ -9910,18 +9917,20 @@ CONTAINS
                      eps_filter_in=almo_scf_env%eps_filter &
                      )
                   IF (unit_nr > 0 .AND. debug_mode) WRITE (unit_nr, *) "...Step size to border: ", step_size
-                  IF (step_size .GE. 1.0_dp .OR. step_size .LE. 0.0_dp) THEN
-                     CPABORT("Wrong dog-leg step, should not be here")
-                  ENDIF
+                  IF (step_size .GT. 1.0_dp .OR. step_size .LT. 0.0_dp) THEN
+                     IF (unit_nr > 0) &
+                        WRITE (unit_nr, *) "Step size (", step_size, ") must lie inside (0,1)"
+                     CPABORT("Wrong dog leg step. We should never end up here.")
+                  END IF
 
                   DO ispin = 1, nspins
                      CALL dbcsr_add(step(ispin), m_model_Bd(ispin), 1.0_dp, step_size)
-                  ENDDO
+                  END DO
 
                   fake_step_size_to_report = 1.0_dp + step_size
                   iteration_type_to_report = 7
 
-               ENDIF ! full or partial dogleg?
+               END IF ! full or partial dogleg?
 
                IF (debug_mode) THEN
                   ! Compute step norm
@@ -9935,7 +9944,7 @@ CONTAINS
                      )
                   IF (unit_nr > 0) WRITE (unit_nr, *) "...Step norm: ", step_norm
                   IF (unit_nr > 0) WRITE (unit_nr, *) "...Current radius: ", radius_current
-               ENDIF
+               END IF
 
                CALL predicted_reduction( &
                   reduction_out=expected_reduction, &
@@ -9964,7 +9973,7 @@ CONTAINS
 
                EXIT fixed_r_loop ! the inner loop
 
-            ENDIF ! Non-iterative subproblem methods exit here
+            END IF ! Non-iterative subproblem methods exit here
 
             ! Step 4: update model gradient
             DO ispin = 1, nspins
@@ -9972,7 +9981,7 @@ CONTAINS
                CALL dbcsr_copy(m_model_r_prev(ispin), m_model_r(ispin))
                CALL dbcsr_add(m_model_r(ispin), m_model_Bd(ispin), &
                               1.0_dp, -step_size)
-            ENDDO ! ispin
+            END DO ! ispin
 
             ! Model grad norm
             DO ispin = 1, nspins
@@ -9980,7 +9989,7 @@ CONTAINS
                                norm_scalar=grad_norm_spin(ispin))
                !grad_norm_frob = dbcsr_frobenius_norm(grad(ispin)) / &
                !                 dbcsr_frobenius_norm(quench_t(ispin))
-            ENDDO ! ispin
+            END DO ! ispin
             model_grad_norm = MAXVAL(grad_norm_spin)
 
             ! Check norm reduction
@@ -10015,13 +10024,13 @@ CONTAINS
 
                EXIT fixed_r_loop ! the inner loop
 
-            ENDIF
+            END IF
 
             ! Step 5: update model direction
             DO ispin = 1, nspins
                ! save previous data
                CALL dbcsr_copy(m_model_rt_prev(ispin), m_model_rt(ispin))
-            ENDDO ! ispin
+            END DO ! ispin
 
             DO ispin = 1, nspins
 
@@ -10046,9 +10055,9 @@ CONTAINS
                      my_action=0, &
                      filter_eps=almo_scf_env%eps_filter)
 
-               ENDIF
+               END IF
 
-            ENDDO ! ispin
+            END DO ! ispin
 
             CALL compute_cg_beta( &
                beta=beta, &
@@ -10063,7 +10072,7 @@ CONTAINS
             DO ispin = 1, nspins
                ! update direction
                CALL dbcsr_add(m_model_d(ispin), m_model_rt(ispin), beta, 1.0_dp)
-            ENDDO ! ispin
+            END DO ! ispin
 
             t2 = m_walltime()
             CALL fixed_r_report(unit_nr, &
@@ -10076,21 +10085,21 @@ CONTAINS
                                 time=t2 - t1)
             t1 = m_walltime()
 
-         ENDDO fixed_r_loop
+         END DO fixed_r_loop
          !!!! done with the inner loop
          ! the inner loop must return: step, predicted reduction,
          ! whether it reached the border and completed successfully
 
          IF (.NOT. inner_loop_success) THEN
             CPABORT("Inner loop did not produce solution")
-         ENDIF
+         END IF
 
          DO ispin = 1, nspins
 
             CALL dbcsr_copy(m_theta_trial(ispin), m_theta(ispin))
             CALL dbcsr_add(m_theta_trial(ispin), step(ispin), 1.0_dp, 1.0_dp)
 
-         ENDDO ! ispin
+         END DO ! ispin
 
          ! compute the energy
          !IF (.NOT. same_position) THEN
@@ -10126,26 +10135,26 @@ CONTAINS
          ELSE
             IF (rho > 0.75_dp .AND. border_reached) THEN
                radius_current = MIN(2.0_dp*radius_current, radius_max)
-            ENDIF
-         ENDIF ! radius adjustment
+            END IF
+         END IF ! radius adjustment
 
          IF (rho > eta) THEN
             DO ispin = 1, nspins
                CALL dbcsr_copy(m_theta(ispin), m_theta_trial(ispin))
-            ENDDO ! ispin
+            END DO ! ispin
             loss_start = loss_trial
             energy_start = energy_trial
             penalty_start = penalty_trial
             same_position = .FALSE.
             IF (my_special_case .EQ. xalmo_case_block_diag) THEN
                almo_scf_env%almo_scf_energy = energy_trial
-            ENDIF
+            END IF
          ELSE
             same_position = .TRUE.
             IF (my_special_case .EQ. xalmo_case_block_diag) THEN
                almo_scf_env%almo_scf_energy = energy_start
-            ENDIF
-         ENDIF ! finalize step
+            END IF
+         END IF ! finalize step
 
          t2outer = m_walltime()
          CALL trust_r_report(unit_nr, &
@@ -10161,7 +10170,7 @@ CONTAINS
                              time=t2outer - t1outer)
          t1outer = m_walltime()
 
-      ENDDO adjust_r_loop
+      END DO adjust_r_loop
 
       ! post SCF-loop calculations
       IF (scf_converged) THEN
@@ -10174,7 +10183,7 @@ CONTAINS
             m_quench_in=quench_t, &
             energy_inout=energy_start)
 
-      ENDIF ! if converged
+      END IF ! if converged
 
       DO ispin = 1, nspins
          CALL dbcsr_release(m_model_hessian_inv(ispin))
@@ -10197,7 +10206,12 @@ CONTAINS
          CALL dbcsr_release(m_theta_trial(ispin))
          CALL release_submatrices(domain_r_down(:, ispin))
          CALL release_submatrices(domain_model_hessian_inv(:, ispin))
-      ENDDO ! ispin
+      END DO ! ispin
+
+      IF (my_special_case .EQ. xalmo_case_block_diag .OR. &
+          my_special_case .EQ. xalmo_case_fully_deloc) THEN
+         CALL dbcsr_release(m_s_inv)
+      END IF
 
       DEALLOCATE (m_model_hessian)
       DEALLOCATE (m_model_hessian_inv)
@@ -10229,7 +10243,7 @@ CONTAINS
 
       IF (.NOT. scf_converged .AND. .NOT. optimizer%early_stopping_on) THEN
          CPABORT("Optimization not converged! ")
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -10285,8 +10299,7 @@ CONTAINS
                                                             perturbation_only, do_penalty
       INTEGER, INTENT(IN)                                :: special_case
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'main_var_to_xalmos_and_loss_func', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'main_var_to_xalmos_and_loss_func'
 
       INTEGER                                            :: handle, ispin, nspins
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: nocc
@@ -10303,7 +10316,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       penalty_amplitude = 0.0_dp !almo_scf_env%penalty%occ_vol_coeff
 
@@ -10311,7 +10324,7 @@ CONTAINS
       DO ispin = 1, nspins
          CALL dbcsr_get_info(almo_scf_env%matrix_sigma_inv(ispin), &
                              nfullrows_total=nocc(ispin))
-      ENDDO
+      END DO
 
       DO ispin = 1, nspins
 
@@ -10364,7 +10377,7 @@ CONTAINS
          CALL dbcsr_scale(almo_scf_env%matrix_p(ispin), &
                           spin_factor)
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       ! update the KS matrix and energy if necessary
       IF (perturbation_only) THEN
@@ -10373,8 +10386,8 @@ CONTAINS
             DO ispin = 1, nspins
                CALL dbcsr_copy(almo_scf_env%matrix_ks(ispin), &
                                almo_scf_env%matrix_ks_0deloc(ispin))
-            ENDDO
-         ENDIF
+            END DO
+         END IF
       ELSE
          ! the KS matrix is updated outside the spin loop
          CALL almo_dm_to_almo_ks(qs_env, &
@@ -10383,7 +10396,7 @@ CONTAINS
                                  energy_out, &
                                  almo_scf_env%eps_filter, &
                                  almo_scf_env%mat_distr_aos)
-      ENDIF
+      END IF
 
       penalty_out = 0.0_dp
       DO ispin = 1, nspins
@@ -10403,7 +10416,7 @@ CONTAINS
             IF (ispin .EQ. 1) energy_out = 0.0_dp
             CALL dbcsr_dot(m_t_out(ispin), m_FTsiginv_out(ispin), energy_ispin)
             energy_out = energy_out + energy_ispin*spin_factor
-         ENDIF
+         END IF
 
          IF (do_penalty) THEN
 
@@ -10412,9 +10425,9 @@ CONTAINS
             penalty_out = penalty_out - &
                           penalty_amplitude*spin_factor*nocc(ispin)*LOG(det1)
 
-         ENDIF
+         END IF
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       DEALLOCATE (nocc)
 
@@ -10461,7 +10474,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (nocc(nspins))
       ALLOCATE (m_temp_no(nspins))
@@ -10498,7 +10511,7 @@ CONTAINS
 
          CALL dbcsr_release(m_temp_no(ispin))
 
-      ENDDO !ispin
+      END DO !ispin
 
       DEALLOCATE (nocc)
       DEALLOCATE (m_temp_no)
@@ -10515,24 +10528,24 @@ CONTAINS
          CPABORT("Step to border: no solutions")
       ELSE
          nsolutions = 1
-      ENDIF
+      END IF
 
       discrim_sign = 1.0_dp
       nsolutions_found = 0
       DO isol = 1, nsolutions
-         solution = -coef(2) + discrim_sign*SQRT(discriminant)/(2.0_dp*coef(1))
+         solution = (-coef(2) + discrim_sign*SQRT(discriminant))/(2.0_dp*coef(1))
          IF (solution .GT. 0.0_dp) THEN
             nsolutions_found = nsolutions_found + 1
             step_size_out = solution
-         ENDIF
+         END IF
          discrim_sign = -discrim_sign
-      ENDDO
+      END DO
 
       IF (nsolutions_found == 0) THEN
          CPABORT("Step to border: no positive solutions")
       ELSE IF (nsolutions_found == 2) THEN
          CPABORT("Two positive border steps possible!")
-      ENDIF
+      END IF
 
    END SUBROUTINE step_size_to_border
 
@@ -10567,7 +10580,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (nocc(nspins))
       ALLOCATE (m_temp_no(nspins))
@@ -10593,7 +10606,7 @@ CONTAINS
 
          CALL dbcsr_release(m_temp_no(ispin))
 
-      ENDDO !ispin
+      END DO !ispin
 
       DEALLOCATE (nocc)
       DEALLOCATE (m_temp_no)
@@ -10646,7 +10659,7 @@ CONTAINS
          spin_factor = 2.0_dp
       ELSE
          spin_factor = 1.0_dp
-      ENDIF
+      END IF
 
       ALLOCATE (m_temp_no(nspins))
 
@@ -10680,7 +10693,7 @@ CONTAINS
                my_action=0, &
                filter_eps=eps_filter)
 
-         ENDIF ! special case
+         END IF ! special case
 
          ! Get y=step^T.Hess.step
          CALL dbcsr_dot(step_in(ispin), m_temp_no(ispin), temp_real)
@@ -10688,10 +10701,10 @@ CONTAINS
 
          CALL dbcsr_release(m_temp_no(ispin))
 
-      ENDDO ! ispin
+      END DO ! ispin
 
       !RZK-critical: do we need to multiply by the spin factor?
-      !my_reduction = spin_factor*my_reduction
+      my_reduction = spin_factor*my_reduction
 
       reduction_out = my_reduction
 
@@ -10734,7 +10747,7 @@ CONTAINS
          loss_or_grad_change = predicted_reduction
       ELSE
          CPABORT("one argument is missing")
-      ENDIF
+      END IF
 
       SELECT CASE (iter_type)
       CASE (0)
@@ -10791,7 +10804,7 @@ CONTAINS
 
          END SELECT
 
-      ENDIF
+      END IF
 
    END SUBROUTINE fixed_r_report
 
@@ -10833,14 +10846,14 @@ CONTAINS
             iter_status = "  New" ! new point
          ELSE
             iter_status = " Redo" ! restarted
-         ENDIF
+         END IF
       CASE (2) ! typical
          iter_type_str = TRIM("TR FIN")
          IF (new) THEN
             iter_status = "  Acc" ! accepted
          ELSE
             iter_status = "  Rej" ! rejected
-         ENDIF
+         END IF
       CASE DEFAULT
          CPABORT("unknown report type")
       END SELECT
@@ -10889,7 +10902,7 @@ CONTAINS
                time
 
          END SELECT
-      ENDIF
+      END IF
 
    END SUBROUTINE trust_r_report
 
@@ -10914,7 +10927,7 @@ CONTAINS
          WRITE (unit_nr, '(T2,A35,F25.10)') "CORRECTED ENERGY:", &
             ref_energy + energy_lowering
          WRITE (unit_nr, *)
-      ENDIF
+      END IF
 
    END SUBROUTINE energy_lowering_report
 
@@ -10937,8 +10950,7 @@ CONTAINS
       TYPE(dbcsr_type), DIMENSION(:), INTENT(IN)         :: m_xalmo_in, m_quench_in
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_inout
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'wrap_up_xalmo_scf', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'wrap_up_xalmo_scf'
 
       INTEGER                                            :: eda_unit, handle, ispin, nspins, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -10953,7 +10965,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspins = almo_scf_env%nspins
 
@@ -10967,7 +10979,7 @@ CONTAINS
          DO ispin = 1, nspins
             CALL dbcsr_create(m_temp_no1(ispin), template=m_xalmo_in(ispin))
             CALL dbcsr_create(m_temp_no2(ispin), template=m_xalmo_in(ispin))
-         ENDDO
+         END DO
 
          ! return perturbed density to qs_env
          CALL almo_dm_to_qs_env(qs_env, almo_scf_env%matrix_p, &
@@ -10998,7 +11010,7 @@ CONTAINS
                ! energy decomposition analysis (EDA)
                IF (unit_nr > 0) THEN
                   WRITE (unit_nr, '(T2,A)') "DECOMPOSITION OF THE DELOCALIZATION ENERGY"
-               ENDIF
+               END IF
 
                ! open the output file, print and close
                CALL get_qs_env(qs_env, input=input)
@@ -11012,7 +11024,7 @@ CONTAINS
                ! charge transfer analysis (CTA)
                IF (unit_nr > 0) THEN
                   WRITE (unit_nr, '(T2,A)') "DECOMPOSITION OF CHARGE TRANSFER TERMS"
-               ENDIF
+               END IF
 
                eda_unit = cp_print_key_unit_nr(logger, almo_print_section, &
                                                "ALMO_CTA", extension=".dat", local=.TRUE.)
@@ -11020,9 +11032,9 @@ CONTAINS
                CALL cp_print_key_finished_output(eda_unit, logger, almo_print_section, &
                                                  "ALMO_CTA", local=.TRUE.)
 
-            ENDDO ! ispin
+            END DO ! ispin
 
-         ENDIF ! do ALMO EDA/CTA
+         END IF ! do ALMO EDA/CTA
 
          CALL energy_lowering_report( &
             unit_nr=unit_nr, &
@@ -11035,7 +11047,7 @@ CONTAINS
          DO ispin = 1, nspins
             CALL dbcsr_release(m_temp_no1(ispin))
             CALL dbcsr_release(m_temp_no2(ispin))
-         ENDDO
+         END DO
 
          DEALLOCATE (m_temp_no1)
          DEALLOCATE (m_temp_no2)
@@ -11045,7 +11057,7 @@ CONTAINS
          CALL almo_scf_update_ks_energy(qs_env, &
                                         energy=energy_inout)
 
-      ENDIF ! if perturbation only
+      END IF ! if perturbation only
 
       CALL timestop(handle)
 

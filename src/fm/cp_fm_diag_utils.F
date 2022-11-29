@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -89,21 +91,29 @@ CONTAINS
       CLASS(cp_fm_redistribute_info), INTENT(IN) :: self
       INTEGER, INTENT(IN) :: io_unit
 
-      WRITE (io_unit, '(/,A,I10)') "CP_FM_DIAG| Matrix order:           ", self%matrix_order
-      WRITE (io_unit, '(A,I6,A)') "CP_FM_DIAG| Matrix distributed on ", self%num_pe_old, " processes"
-      WRITE (io_unit, '(A,I5)') "CP_FM_DIAG| Optimal number of CPUs:      ", self%num_pe_opt
+      WRITE (UNIT=io_unit, FMT="(A)") ""
+      WRITE (UNIT=io_unit, FMT="(T2,A,T71,I10)") &
+         "CP_FM_DIAG| Number of processes over which the matrix is distributed ", self%num_pe_old, &
+         "CP_FM_DIAG| Matrix order ", self%matrix_order
+      WRITE (UNIT=io_unit, FMT="(T2,A,T71,I10)") &
+         "CP_FM_DIAG| Optimal number of CPUs ", self%num_pe_opt
       IF (self%num_pe_max_nz_col < 0) THEN
-         WRITE (io_unit, '(A,A)') "CP_FM_DIAG| Max number of CPUs (with non-zero columns): ", "<N/A>"
+         WRITE (UNIT=io_unit, FMT="(T2,A,T71,A10)") &
+            "CP_FM_DIAG| Maximum number of CPUs (with non-zero columns) ", "<N/A>"
       ELSE
-         WRITE (io_unit, '(A,I5)') "CP_FM_DIAG| Max number of CPUs (with non-zero columns): ", self%num_pe_max_nz_col
+         WRITE (UNIT=io_unit, FMT="(T2,A,T71,I10)") &
+            "CP_FM_DIAG| Maximum number of CPUs (with non-zero columns): ", self%num_pe_max_nz_col
       END IF
       IF (self%redistribute) THEN
-         WRITE (io_unit, '(A,I5,A)') "CP_FM_DIAG| The matrix will be redistributed onto ", self%num_pe_new, " processes"
+         WRITE (UNIT=io_unit, FMT="(T2,A,T71,I10)") &
+            "CP_FM_DIAG| Number of processes for the redistribution ", self%num_pe_new
       ELSE
-         WRITE (io_unit, '(A)') "CP_FM_DIAG| The matrix will NOT be redistributed"
+         WRITE (UNIT=io_unit, FMT="(T2,A)") &
+            "CP_FM_DIAG| The matrix will NOT be redistributed"
       END IF
-      WRITE (io_unit, '(A)') " "
-   END SUBROUTINE
+      WRITE (UNIT=io_unit, FMT="(A)") ""
+
+   END SUBROUTINE cp_fm_redistribute_info_write
 
 ! **************************************************************************************************
 !> \brief  Initializes temporary storage needed when redistributing arrays
@@ -126,7 +136,7 @@ CONTAINS
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_work_finalize(has_redistributed)
-      LOGICAL                                            :: has_redistributed
+      LOGICAL, INTENT(IN)                                :: has_redistributed
 
       IF (ASSOCIATED(work_redistribute%group_distribution)) THEN
          IF (has_redistributed) THEN
@@ -134,7 +144,7 @@ CONTAINS
             CALL cp_para_env_release(work_redistribute%para_env_new)
          ELSE
             CALL mp_comm_free(work_redistribute%subgroup)
-         ENDIF
+         END IF
          DEALLOCATE (work_redistribute%group_distribution)
          DEALLOCATE (work_redistribute%group_partition)
       END IF
@@ -152,16 +162,13 @@ CONTAINS
 !>                         number of CPUs for diagonalization
 !> \param should_print     flag that determines if information about the redistribution process
 !>                         should be printed
-!> \param elpa_force_redistribute  flag that if redistribution should always be perfomed when
+!> \param elpa_force_redistribute  flag that if redistribution should always be performed when
 !>                                 the ELPA diagonalization library is in use
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_init(a, x, should_print, elpa_force_redistribute)
-      INTEGER                                            :: a, x
-      LOGICAL                                            :: should_print, elpa_force_redistribute
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_init', &
-         routineP = moduleN//':'//routineN
+      INTEGER, INTENT(IN)                                :: a, x
+      LOGICAL, INTENT(IN)                                :: should_print, elpa_force_redistribute
 
       work_redistribute%a = a
       work_redistribute%x = x
@@ -182,9 +189,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: size
       INTEGER                                            :: ncpu
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_diag_get_optimal_ncpu', &
-         routineP = moduleN//':'//routineN
-
       ncpu = ((size + work_redistribute%a*work_redistribute%x - 1)/ &
               (work_redistribute%a*work_redistribute%x))*work_redistribute%a
 
@@ -199,11 +203,8 @@ CONTAINS
 !> \author Nico Holmberg [01.2018]
 ! **************************************************************************************************
    FUNCTION cp_fm_max_ncpu_non_zero_column(matrix) RESULT(ncpu)
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       INTEGER                                            :: ncpu
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_max_ncpu_non_zero_column', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: gcd_max, ipe, jpe, ncol_block, &
                                                             ncol_global, npcol, nrow_block, &
@@ -242,7 +243,7 @@ CONTAINS
             IF (gcd(ipe, jpe) >= gcd_max) THEN
                npcol = jpe
                gcd_max = gcd(ipe, jpe)
-            ENDIF
+            END IF
          END DO
 
          ! Count the number of processors without any columns
@@ -283,12 +284,11 @@ CONTAINS
    SUBROUTINE cp_fm_redistribute_start(matrix, eigenvectors, matrix_new, eigenvectors_new, &
                                        caller_is_elpa, redist_info)
 
-      TYPE(cp_fm_type), POINTER                :: matrix, eigenvectors
-      TYPE(cp_fm_type), POINTER, INTENT(OUT)   :: matrix_new, eigenvectors_new
+      TYPE(cp_fm_type), INTENT(IN)             :: matrix, eigenvectors
+      TYPE(cp_fm_type), INTENT(OUT)            :: matrix_new, eigenvectors_new
       LOGICAL, OPTIONAL, INTENT(IN)            :: caller_is_elpa
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_start', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_start'
 
       INTEGER                                  :: handle
       LOGICAL                                  :: is_elpa
@@ -316,8 +316,6 @@ CONTAINS
 
 #if defined(__SCALAPACK)
 
-      NULLIFY (matrix_new)
-      NULLIFY (eigenvectors_new)
       logger => cp_get_default_logger()
       io_unit = cp_logger_get_default_io_unit(logger)
 
@@ -365,11 +363,18 @@ CONTAINS
       rdinfo%redistribute = (rdinfo%num_pe_old > rdinfo%num_pe_new)
 
       IF (work_redistribute%should_print .AND. io_unit > 0) THEN
-         IF (is_elpa) &
-            WRITE (io_unit, '(A,L5)') "CP_FM_DIAG| Force redistribute (ELPA):", work_redistribute%elpa_force_redistribute
-
+         IF (is_elpa) THEN
+            IF (work_redistribute%elpa_force_redistribute) THEN
+               WRITE (UNIT=io_unit, FMT="(T2,A,T78,A3)") &
+                  "CP_FM_DIAG| Force redistribute (ELPA):", "YES"
+            ELSE
+               WRITE (UNIT=io_unit, FMT="(T2,A,T79,A2)") &
+                  "CP_FM_DIAG| Force redistribute (ELPA):", "NO"
+            END IF
+         END IF
          CALL rdinfo%write(io_unit)
       END IF
+      CALL mp_sync(para_env%group)
 
       ! if the optimal is smaller than num_pe, we will redistribute the input matrix
       IF (rdinfo%redistribute) THEN
@@ -418,12 +423,12 @@ CONTAINS
                           matrix%matrix_struct%descriptor, &
                           fake_local_data(1, 1), 1, 1, fake_descriptor, &
                           matrix%matrix_struct%context%group)
-         ENDIF
+         END IF
       ELSE
          ! No need to redistribute, just return pointers to the original arrays
-         matrix_new => matrix
-         eigenvectors_new => eigenvectors
-      ENDIF
+         matrix_new = matrix
+         eigenvectors_new = eigenvectors
+      END IF
 
       IF (PRESENT(redist_info)) &
          redist_info = rdinfo
@@ -456,12 +461,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_end(matrix, eigenvectors, eig, matrix_new, eigenvectors_new)
 
-      TYPE(cp_fm_type), POINTER                :: matrix, eigenvectors
-      REAL(KIND=dp), DIMENSION(:)              :: eig
-      TYPE(cp_fm_type), POINTER, INTENT(OUT)   :: matrix_new, eigenvectors_new
+      TYPE(cp_fm_type), INTENT(IN)             :: matrix, eigenvectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN)  :: eig
+      TYPE(cp_fm_type), INTENT(INOUT)          :: matrix_new, eigenvectors_new
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_end', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_redistribute_end'
 
       INTEGER                                  :: handle
 #if defined(__SCALAPACK)
@@ -495,19 +499,13 @@ CONTAINS
             CALL pdgemr2d(n, n, fake_local_data(1, 1), 1, 1, fake_descriptor, &
                           eigenvectors%local_data(1, 1), 1, 1, eigenvectors%matrix_struct%descriptor, &
                           eigenvectors%matrix_struct%context%group)
-         ENDIF
+         END IF
          ! free work
          CALL cp_fm_redistribute_work_finalize(work_redistribute%group_distribution(mepos_old) == 0)
 
          ! finally, also the eigenvalues need to end up on the non-group member tasks
          CALL mp_bcast(eig, 0, para_env%group)
-
-      ELSE
-         ! Just nullify pointers to the original matrices
-         NULLIFY (matrix_new)
-         NULLIFY (eigenvectors_new)
-
-      ENDIF
+      END IF
 
 #else
 

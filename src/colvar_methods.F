@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -125,7 +127,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: colvar_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_read', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'colvar_read'
 
       CHARACTER(LEN=3)                                   :: fmid
       CHARACTER(LEN=7)                                   :: tag, tag_comp, tag_comp1, tag_comp2
@@ -516,10 +518,10 @@ CONTAINS
                DO i = 1, ncol
                   NULLIFY (colvar%reaction_path_param%colvar_p(i)%colvar)
                   CALL colvar_read(colvar%reaction_path_param%colvar_p(i)%colvar, i, colvar_subsection, para_env)
-               ENDDO
+               END DO
             ELSE
                CPABORT("CV REACTION PATH: the number of CV to define the path must be >0 ")
-            ENDIF
+            END IF
             colvar%reaction_path_param%n_components = ncol
             NULLIFY (range)
             CALL section_vals_val_get(path_section, "RANGE", r_vals=range)
@@ -597,7 +599,7 @@ CONTAINS
             WRITE (iw, '( A )') '          '// &
                '**********************************************************************'
             WRITE (iw, '( A,I8)') ' COLVARS| COLVAR INPUT INDEX: ', icol
-            WRITE (iw, '( A,T49,4I8)') ' COLVARS| COMBINATION OF THE FOLOWING COLVARS:'
+            WRITE (iw, '( A,T49,4I8)') ' COLVARS| COMBINATION OF THE FOLLOWING COLVARS:'
          END IF
          CALL cp_print_key_finished_output(iw, logger, colvar_section, &
                                            "PRINT%PROGRAM_RUN_INFO")
@@ -924,7 +926,7 @@ CONTAINS
          DO i = 1, colvar%HBP%nPoints
             CALL section_vals_val_get(wrk_section, "ATOMS", i_rep_val=i, i_vals=iatms)
             colvar%HBP%ids(i, :) = iatms
-         ENDDO
+         END DO
       ELSE IF (my_subsection(22)) THEN
          ! Ring Puckering
          CALL colvar_create(colvar, ring_puckering_colvar_id)
@@ -1308,7 +1310,7 @@ CONTAINS
             DO i = 1, colvar%HBP%nPoints
                WRITE (iw, '( A,T57,3I8)') ' COLVARS| HBP          >>> '//tag, &
                   colvar%HBP%ids(i, :)
-            ENDDO
+            END DO
          CASE (ring_puckering_colvar_id)
             WRITE (iw, '( A,T57,I8)') ' COLVARS| Ring Puckering      >>> ring size', &
                colvar%ring_puckering_param%nring
@@ -1401,9 +1403,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: n_oxygens, n_hydrogens
       INTEGER, DIMENSION(:), POINTER                     :: i_oxygens, i_hydrogens
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_hydronium_colvars', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: k, n_var, ndim
       INTEGER, DIMENSION(:), POINTER                     :: iatms
 
@@ -1480,9 +1479,6 @@ CONTAINS
                                                             n_hydrogens
       INTEGER, DIMENSION(:), POINTER                     :: i_oxygens_water, i_oxygens_acid, &
                                                             i_hydrogens
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_acid_hydronium_colvars', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: k, n_var, ndim
       INTEGER, DIMENSION(:), POINTER                     :: iatms
@@ -1562,9 +1558,6 @@ CONTAINS
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(section_vals_type), POINTER                   :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_check_points', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, irep, natoms, npoints, nrep, nweights
       INTEGER, DIMENSION(:), POINTER                     :: atoms
       LOGICAL                                            :: explicit
@@ -1643,9 +1636,6 @@ CONTAINS
          OPTIONAL                                        :: pos
       TYPE(fixd_constraint_type), DIMENSION(:), &
          OPTIONAL, POINTER                               :: fixd_list
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_eval_mol_f', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       LOGICAL                                            :: colvar_ok
@@ -1737,9 +1727,6 @@ CONTAINS
       INTEGER                                            :: icolvar
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_eval_glob_f', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: colvar_ok
       TYPE(cell_type), POINTER                           :: cell
       TYPE(colvar_type), POINTER                         :: colvar
@@ -1826,9 +1813,6 @@ CONTAINS
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(cell_type), POINTER                           :: cell
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'colvar_recursive_eval', &
-         routineP = moduleN//':'//routineN
 
 ! Initialize the content of the derivative
 
@@ -1966,9 +1950,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xyz_diag_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(dp)                                           :: fi(3), r, r0(3), ss(3), xi(3), xpi(3)
       TYPE(particle_list_type), POINTER                  :: particles_i
@@ -1996,7 +1977,7 @@ CONTAINS
          r0 = colvar%xyz_diag_param%r0
       ELSE
          r0 = 0.0_dp
-      ENDIF
+      END IF
 
       IF (colvar%xyz_diag_param%use_pbc) THEN
          ss = MATMUL(cell%h_inv, xpi - r0)
@@ -2051,7 +2032,7 @@ CONTAINS
             CPABORT("")
          END SELECT
          fi(:) = xi
-      ENDIF
+      END IF
 
       colvar%ss = r
       CALL put_derivative(colvar, 1, fi)
@@ -2072,9 +2053,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xyz_outerdiag_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, k, l
       REAL(dp)                                           :: fi(3, 2), r, r0(3), ss(3), xi(3, 2), &
@@ -2156,8 +2134,6 @@ CONTAINS
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(force_env_type), OPTIONAL, POINTER            :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'u_colvar', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: coupling_function
       CHARACTER(LEN=default_string_length)               :: def_error, this_error
       CHARACTER(LEN=default_string_length), &
@@ -2188,7 +2164,7 @@ CONTAINS
          CALL reallocate(colvar%dsdr, 1, 3, 1, natom)
          DO iatom = 1, natom
             colvar%i_atom(iatom) = iatom
-         ENDDO
+         END DO
 
          IF (.NOT. ASSOCIATED(colvar%u_param%mixed_energy_section)) THEN
             CALL force_env_get(force_env, potential_energy=potential_energy)
@@ -2198,7 +2174,7 @@ CONTAINS
                ! store derivative
                fi(:) = -particles_main%els(iatom)%f
                CALL put_derivative(colvar, iatom, fi)
-            ENDDO
+            END DO
          ELSE
             IF (force_env%in_use /= use_mixed_force) &
                CALL cp_abort(__LOCATION__, &
@@ -2308,7 +2284,7 @@ CONTAINS
          END IF
       ELSE
          CPABORT("need force_env!")
-      ENDIF
+      END IF
    END SUBROUTINE u_colvar
 
 ! **************************************************************************************************
@@ -2326,9 +2302,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'plane_distance_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k, l
       REAL(dp) :: a, b, dsdxpn(3), dxpndxi(3, 3), dxpndxj(3, 3), dxpndxk(3, 3), fi(3), fj(3), &
@@ -2443,9 +2416,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'plane_plane_angle_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i1, i2, j1, j2, k1, k2, np
       LOGICAL                                            :: check
       REAL(dp) :: a1, a2, d, dnorm_dxpn(3), dprod12_dxpn(3), dsdxpn(3), dt_dxpn(3), dxpndxi(3, 3), &
@@ -2543,7 +2513,7 @@ CONTAINS
          fmod = 0.0_dp
       ELSE
          fmod = -1.0_dp/SIN(colvar%ss)
-      ENDIF
+      END IF
       ! Compute derivatives
       np = 0
       ! Plane 1
@@ -2664,9 +2634,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotation_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, idum
       REAL(dp)                                           :: a, b, fmod, t0, t1, t2, t3, xdum(3), &
                                                             xij(3), xkj(3)
@@ -2714,7 +2681,7 @@ CONTAINS
          fmod = 0.0_dp
       ELSE
          fmod = -1.0_dp/SIN(colvar%ss)
-      ENDIF
+      END IF
       dp1b1 = xkj(:)*t0 - xij(:)*t1*t3
       dp2b1 = -xkj(:)*t0 + xij(:)*t1*t3
       dp1b2 = xij(:)*t0 - xkj(:)*t2*t3
@@ -2750,8 +2717,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dfunct_colvar', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k, l
       REAL(dp)                                           :: fi(3), fj(3), fk(3), fl(3), r12, r34, &
@@ -2824,8 +2789,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'angle_colvar', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, k
       REAL(dp)                                           :: a, b, fi(3), fj(3), fk(3), fmod, ri(3), &
                                                             rj(3), rk(3), ss(3), t0, t1, t2, t3, &
@@ -2869,7 +2832,7 @@ CONTAINS
          fmod = 0.0_dp
       ELSE
          fmod = -1.0_dp/SIN(colvar%ss)
-      ENDIF
+      END IF
       fi(:) = xkj(:)*t0 - xij(:)*t1*t3
       fj(:) = -xkj(:)*t0 + xij(:)*t1*t3 - xij(:)*t0 + xkj(:)*t2*t3
       fk(:) = xij(:)*t0 - xkj(:)*t2*t3
@@ -2896,8 +2859,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dist_colvar', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       REAL(dp)                                           :: fi(3), fj(3), r12, ss(3), xij(3), &
@@ -2970,8 +2931,6 @@ CONTAINS
          POINTER                                         :: particles
       LOGICAL, INTENT(IN), OPTIONAL                      :: no_riemann_sheet_op
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'torsion_colvar', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ii
       LOGICAL                                            :: no_riemann_sheet
       REAL(dp) :: angle, cosine, dedphi, dedxia, dedxib, dedxic, dedxid, dedxt, dedxu, dedyia, &
@@ -2997,7 +2956,7 @@ CONTAINS
          i = colvar%torsion_param%i_at_tors(ii)
          CALL get_coordinates(colvar, i, rtmp, my_particles)
          rr(:, ii) = rtmp(1:3)
-      ENDDO
+      END DO
       o0 = colvar%torsion_param%o0
       ! ba
       ss = MATMUL(cell%h_inv, rr(:, 2) - rr(:, 1))
@@ -3081,7 +3040,6 @@ CONTAINS
          dedxia = zcb*dedyt - ycb*dedzt
          dedyia = xcb*dedzt - zcb*dedxt
          dedzia = ycb*dedxt - xcb*dedyt
-         dedzia = ycb*dedxt - xcb*dedyt
          dedxib = yca*dedzt - zca*dedyt + zdc*dedyu - ydc*dedzu
          dedyib = zca*dedxt - xca*dedzt + xdc*dedzu - zdc*dedxu
          dedzib = xca*dedyt - yca*dedxt + ydc*dedxu - xdc*dedyu
@@ -3091,7 +3049,20 @@ CONTAINS
          dedxid = zcb*dedyu - ycb*dedzu
          dedyid = xcb*dedzu - zcb*dedxu
          dedzid = ycb*dedxu - xcb*dedyu
-      ENDIF
+      ELSE
+         dedxia = 0.0_dp
+         dedyia = 0.0_dp
+         dedzia = 0.0_dp
+         dedxib = 0.0_dp
+         dedyib = 0.0_dp
+         dedzib = 0.0_dp
+         dedxic = 0.0_dp
+         dedyic = 0.0_dp
+         dedzic = 0.0_dp
+         dedxid = 0.0_dp
+         dedyid = 0.0_dp
+         dedzid = 0.0_dp
+      END IF
       !
       colvar%ss = e
       IF (no_riemann_sheet) colvar%ss = ATAN2(SIN(e), COS(e))
@@ -3126,8 +3097,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qparm_colvar', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: aa, bb, cc, i, idim, ii, j, jj, l, mm, &
                                                             n_atoms_from, n_atoms_to, ncells(3)
@@ -3205,7 +3174,7 @@ CONTAINS
                      xij_shift = MATMUL(cell%hmat, shift)
                      rij_shift = SQRT(DOT_PRODUCT(xij_shift, xij_shift))
                      ncells(idim) = FLOOR(rcut/rij_shift - 0.5)
-                  ENDDO !idim
+                  END DO !idim
 
                   !IF (mm.eq.0) WRITE(*,'(A8,3I3,A3,I10)') "Ncells:", ncells, "J:", j
                   shift(1:3) = 0.0_dp
@@ -3231,9 +3200,9 @@ CONTAINS
                                                              denominator_tolerance, l, mm, nbond, re_qlm, im_qlm, &
                                                              d_re_qlm_dxi, d_im_qlm_dxi, d_nbond_dxi)
 
-                        ENDDO
-                     ENDDO
-                  ENDDO
+                        END DO
+                     END DO
+                  END DO
 
                ELSE
 
@@ -3247,9 +3216,9 @@ CONTAINS
                                                     denominator_tolerance, l, mm, nbond, re_qlm, im_qlm, &
                                                     d_re_qlm_dxi, d_im_qlm_dxi, d_nbond_dxi)
 
-               ENDIF ! include images
+               END IF ! include images
 
-            ENDDO jloop
+            END DO jloop
 
             ! this factor is necessary if one whishes to sum over m=0,L
             ! instead of m=-L,+L. This is off now because it is cheap and safe
@@ -3274,7 +3243,7 @@ CONTAINS
             d_ql_dxi(:) = d_ql_dxi(:) &
                           + fact*2.0_dp*(re_qlm*d_re_qlm_dxi(:) + im_qlm*d_im_qlm_dxi(:))
 
-         ENDDO ! loop over m
+         END DO ! loop over m
 
          pre_fac = (4.0_dp*pi)/(2.0_dp*l + 1)
          !WRITE(*,'(A8,2F10.5)') "  si = ", SQRT(pre_fac*ql)
@@ -3285,7 +3254,7 @@ CONTAINS
 
          CALL put_derivative(colvar, ii, ftmp)
 
-      ENDDO ! loop over i
+      END DO ! loop over i
 
       colvar%ss = qparm*inv_n_atoms_from
       colvar%dsdr(:, :) = colvar%dsdr(:, :)*inv_n_atoms_from
@@ -3341,8 +3310,8 @@ CONTAINS
             exp0 = EXP((r1cut - rcut)/(rij - rcut) - (r1cut - rcut)/(r1cut - rij))
             bond = 1.0_dp/(1.0_dp + exp0)
             exp_fac = ((rcut - r1cut)/(rij - rcut)**2 + (rcut - r1cut)/(r1cut - rij)**2)*exp0/(1.0_dp + exp0)**2
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       IF (bond > 1.0_dp) THEN
          CPABORT("bond > 1.0_dp")
       END IF
@@ -3353,7 +3322,7 @@ CONTAINS
          fi = 0.0_dp
       ELSE
          fi = ATAN2(xij(2), xij(1))
-      ENDIF
+      END IF
 
       costheta = xij(3)/rij
       IF (costheta > 1.0_dp) costheta = 1.0_dp
@@ -3417,9 +3386,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'hydronium_shell_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, n_hydrogens, n_oxygens, &
                                                             pm, poh, poo, qm, qoh, qoo
@@ -3494,7 +3460,7 @@ CONTAINS
                noh(ii) = noh(ii) + REAL(poh, dp)/REAL(qoh, dp)
                fscalar = REAL(poh*(poh - qoh), dp)/(REAL(2*qoh, dp)*roh*drji)
                dnoh(1:3, jj, ii) = rji(1:3)*fscalar
-            ENDIF
+            END IF
          END DO
          M(ii) = 1.0_dp - (1.0_dp - (noh(ii)/nh)**pm)/ &
                  (1.0_dp - (noh(ii)/nh)**qm)
@@ -3519,7 +3485,7 @@ CONTAINS
                noo(ii) = noo(ii) + REAL(poo, dp)/REAL(qoo, dp)
                fscalar = REAL(poo*(poo - qoo), dp)/(REAL(2*qoo, dp)*roo*drji)
                dnoo(1:3, jj, ii) = rji(1:3)*fscalar
-            ENDIF
+            END IF
          END DO
       END DO
 
@@ -3577,9 +3543,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'hydronium_dist_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, k, kk, n_hydrogens, &
                                                             n_oxygens, offsetH, pf, pm, poh, qf, &
@@ -3666,7 +3629,7 @@ CONTAINS
                noh(ii) = noh(ii) + REAL(poh, dp)/REAL(qoh, dp)
                fscalar = REAL(poh*(poh - qoh), dp)/(REAL(2*qoh, dp)*roh*drji)
                dnoh(1:3, jj, ii) = rji(1:3)*fscalar
-            ENDIF
+            END IF
          END DO
       END DO
 
@@ -3708,9 +3671,9 @@ CONTAINS
             expfac_F_rki(ii) = expfac_F_rki(ii) + drki*expfac_F(kk)
             ddist_rki(1:3, kk, ii) = rki(1:3)/drki
             dexpfac_F_rki(kk, ii) = drki*dexpfac_F(kk)
-         ENDDO
+         END DO
          rion_num = rion_num + M(ii)*expfac_noh(ii)*expfac_F_rki(ii)
-      ENDDO
+      END DO
 
       !*** Final H3O+/OH- distance
       rion_den = sum_expfac_noh*sum_expfac_F
@@ -3733,7 +3696,7 @@ CONTAINS
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              - M(ii)*dexpfac_noh(ii)*dnoh(1:3, jj, ii) &
                                              *expfac_F_rki(ii)/rion_den
-         ENDDO
+         END DO
          DO kk = 1, n_oxygens
             IF (ii == kk) CYCLE
             colvar%dsdr(1:3, kk) = colvar%dsdr(1:3, kk) &
@@ -3749,9 +3712,9 @@ CONTAINS
                colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                                 - M(ii)*expfac_noh(ii)*dexpfac_F_rki(kk, ii) &
                                                 *dF(kk)*dnoh(1:3, jj, kk)/rion_den
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
       !*** Derivatives denominator
       DO ii = 1, n_oxygens
          DO jj = 1, n_hydrogens
@@ -3767,8 +3730,8 @@ CONTAINS
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              + rion_num*sum_expfac_noh*dexpfac_F(ii)*dF(ii) &
                                              *dnoh(1:3, jj, ii)/(rion_den**2)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DEALLOCATE (noh, M, F, expfac_noh, expfac_F)
       DEALLOCATE (dnoh, dM, dF, dexpfac_noh, dexpfac_F)
@@ -3793,9 +3756,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'acid_hyd_dist_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, k, kk, n_hydrogens, &
                                                             n_oxygens_acid, n_oxygens_water, &
@@ -3873,12 +3833,12 @@ CONTAINS
                nwoh(ii) = nwoh(ii) + REAL(pwoh, dp)/REAL(qwoh, dp)
                fscalar = REAL(pwoh*(pwoh - qwoh), dp)/(REAL(2*qwoh, dp)*rwoh*drji)
                dnwoh(1:3, jj, ii) = rji(1:3)*fscalar
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          expfac(ii) = EXP(lambda*nwoh(ii))
          dexpfac(ii) = lambda*expfac(ii)
          rion_den = rion_den + expfac(ii)
-      ENDDO
+      END DO
 
       ! Calculate nominator of rion
       DO kk = 1, n_oxygens_acid
@@ -3892,8 +3852,8 @@ CONTAINS
             rion_num = rion_num + drik*expfac(ii)
             ddist_rik(1:3, ii, kk) = rik(1:3)/drik
             dexpfac_rik(ii, kk) = drik*dexpfac(ii)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       !Calculate cutoff function
       DO kk = 1, n_oxygens_acid
@@ -3917,9 +3877,9 @@ CONTAINS
                naoh = naoh + REAL(paoh, dp)/REAL(qaoh, dp)
                fscalar = REAL(paoh*(paoh - qaoh), dp)/(REAL(2*qaoh, dp)*raoh*drjk)
                dnaoh(1:3, jj, kk) = rjk(1:3)*fscalar
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
       num_cut = 1.0_dp - (naoh/nc)**pcut
       invden_cut = 1.0_dp/(1.0_dp - (naoh/nc)**qcut)
       fcut = num_cut*invden_cut
@@ -3940,8 +3900,8 @@ CONTAINS
                                              + dfcut*dnaoh(1:3, jj, kk)*fbrace
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              - dfcut*dnaoh(1:3, jj, kk)*fbrace
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       !Derivatives of fbrace
       !***nominator
@@ -3956,9 +3916,9 @@ CONTAINS
                                       + fcut*dexpfac_rik(ii, kk)*dnwoh(1:3, jj, ii)/rion_den/2.0_dp
                colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                                 - fcut*dexpfac_rik(ii, kk)*dnwoh(1:3, jj, ii)/rion_den/2.0_dp
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
       !***denominator
       DO ii = 1, n_oxygens_water
          DO jj = 1, n_hydrogens
@@ -3966,8 +3926,8 @@ CONTAINS
                                    - fcut*rion_num*dexpfac(ii)*dnwoh(1:3, jj, ii)/2.0_dp/(rion_den**2)
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              + fcut*rion_num*dexpfac(ii)*dnwoh(1:3, jj, ii)/2.0_dp/(rion_den**2)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE acid_hyd_dist_colvar
 
@@ -3988,9 +3948,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'acid_hyd_shell_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: i, ii, j, jj, k, kk, n_hydrogens, n_oxygens_acid, n_oxygens_water, offsetH, &
          offsetO, paoh, pcut, pm, poo, pwoh, qaoh, qcut, qm, qoo, qwoh, tt
@@ -4072,9 +4029,9 @@ CONTAINS
                nwoh(ii) = nwoh(ii) + REAL(pwoh, dp)/REAL(qwoh, dp)
                fscalar = REAL(pwoh*(pwoh - qwoh), dp)/(REAL(2*qwoh, dp)*rwoh*drji)
                dnwoh(1:3, jj, ii) = rji(1:3)*fscalar
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
       ! calculate M function
       DO ii = 1, n_oxygens_water
@@ -4083,7 +4040,7 @@ CONTAINS
          M(ii) = 1.0_dp - num*invden
          dM(ii) = (pm*(nwoh(ii)/nh)**(pm - 1)*invden - qm*num*(invden**2)* &
                    (nwoh(ii)/nh)**(qm - 1))/nh
-      ENDDO
+      END DO
 
       ! Computing noo(i)
       DO ii = 1, n_oxygens_water
@@ -4098,7 +4055,7 @@ CONTAINS
                tt = kk - n_oxygens_water
                k = colvar%acid_hyd_shell_param%i_oxygens_acid(tt)
                rpk(:) = my_particles(k)%r(1:3)
-            ENDIF
+            END IF
             rki = pbc(rpk, rpi, cell)
             drki = SQRT(SUM(rki**2))
             rrel = drki/roo
@@ -4114,9 +4071,9 @@ CONTAINS
                noo(ii) = noo(ii) + REAL(poo, dp)/REAL(qoo, dp)
                fscalar = REAL(poo*(poo - qoo), dp)/(REAL(2*qoo, dp)*roo*drki)
                dnoo(1:3, kk, ii) = rki(1:3)*fscalar
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
 
       !Calculate cutoff function
       DO kk = 1, n_oxygens_acid
@@ -4140,9 +4097,9 @@ CONTAINS
                naoh = naoh + REAL(paoh, dp)/REAL(qaoh, dp)
                fscalar = REAL(paoh*(paoh - qaoh), dp)/(REAL(2*qaoh, dp)*raoh*drjk)
                dnaoh(1:3, jj, kk) = rjk(1:3)*fscalar
-            ENDIF
-         ENDDO
-      ENDDO
+            END IF
+         END DO
+      END DO
       num_cut = 1.0_dp - (naoh/nc)**pcut
       invden_cut = 1.0_dp/(1.0_dp - (naoh/nc)**qcut)
       fcut = num_cut*invden_cut
@@ -4151,7 +4108,7 @@ CONTAINS
       DO ii = 1, n_oxygens_water
          qloc(ii) = EXP(lambda*M(ii)*noo(ii))
          qtot = qtot + qloc(ii)
-      ENDDO
+      END DO
       qsol = LOG(qtot)/lambda
       colvar%ss = fcut*qsol
 
@@ -4166,8 +4123,8 @@ CONTAINS
                                              + dfcut*dnaoh(1:3, jj, kk)*qsol
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              - dfcut*dnaoh(1:3, jj, kk)*qsol
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! Derivatives of qsol
       !*** M derivatives
@@ -4178,8 +4135,8 @@ CONTAINS
                                    + fscalar*dnwoh(1:3, jj, ii)
             colvar%dsdr(1:3, offsetH + jj) = colvar%dsdr(1:3, offsetH + jj) &
                                              - fscalar*dnwoh(1:3, jj, ii)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       !*** noo derivatives
       DO ii = 1, n_oxygens_water
          fscalar = fcut*qloc(ii)*M(ii)/qtot
@@ -4187,8 +4144,8 @@ CONTAINS
             IF (ii == kk) CYCLE
             colvar%dsdr(1:3, ii) = colvar%dsdr(1:3, ii) + fscalar*dnoo(1:3, kk, ii)
             colvar%dsdr(1:3, kk) = colvar%dsdr(1:3, kk) - fscalar*dnoo(1:3, kk, ii)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE acid_hyd_shell_colvar
 
@@ -4208,8 +4165,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'coord_colvar', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, k, kk, n_atoms_from, &
                                                             n_atoms_to_a, n_atoms_to_b, p_a, p_b, &
@@ -4302,7 +4257,7 @@ CONTAINS
                      ! Provide the correct limit for function value and derivative
                      func_jk = REAL(p_b, KIND=dp)/REAL(q_b, KIND=dp)
                      dfunc_jk = REAL(p_b, KIND=dp)*REAL((-q_b + p_b), KIND=dp)/(REAL(2*q_b, KIND=dp)*r_0_b)
-                  ENDIF
+                  END IF
                   func_k = func_k + func_jk
                   ftmp_k = -func_ij*dfunc_jk*xjk
                   CALL put_derivative(colvar, n_atoms_from + n_atoms_to_a + kk, ftmp_k)
@@ -4319,8 +4274,8 @@ CONTAINS
             ncoord = ncoord + func_ij*func_k
             ftmp_i = dfunc_ij*xij*func_k
             CALL put_derivative(colvar, ii, ftmp_i)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       colvar%ss = ncoord*inv_n_atoms_from
       colvar%dsdr(:, :) = colvar%dsdr(:, :)*inv_n_atoms_from
    END SUBROUTINE coord_colvar
@@ -4339,8 +4294,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mindist_colvar', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, n_coord_from, n_coord_to, &
                                                             n_dist_from, p, q
@@ -4507,8 +4460,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'combine_colvar', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: def_error, this_error
       CHARACTER(LEN=default_string_length), &
          ALLOCATABLE, DIMENSION(:)                       :: my_par
@@ -4536,7 +4487,7 @@ CONTAINS
       DO i = 1, ncolv
          CALL colvar_recursive_eval(colvar%combine_cvs_param%colvar_p(i)%colvar, cell, my_particles)
          ss_vals(i) = colvar%combine_cvs_param%colvar_p(i)%colvar%ss
-      ENDDO
+      END DO
 
       ! Evaluate the combination of the COLVARs
       CALL initf(1)
@@ -4607,9 +4558,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'reaction_path_colvar', &
-         routineP = moduleN//':'//routineN
-
       TYPE(particle_list_type), POINTER                  :: particles_i
       TYPE(particle_type), DIMENSION(:), POINTER         :: my_particles
 
@@ -4646,8 +4594,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rpath_colvar', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iend, ii, istart, j, k, ncolv, nconf
       REAL(dp)                                           :: lambda, step_size
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: s1, ss_vals
@@ -4668,7 +4614,7 @@ CONTAINS
       DO i = 1, ncolv
          CALL colvar_recursive_eval(colvar%reaction_path_param%colvar_p(i)%colvar, cell, particles)
          ss_vals(i) = colvar%reaction_path_param%colvar_p(i)%colvar%ss
-      ENDDO
+      END DO
 
       ALLOCATE (s1v(2, istart:iend))
       ALLOCATE (ds1v(ncolv, 2, istart:iend))
@@ -4730,9 +4676,6 @@ CONTAINS
    SUBROUTINE rpath_dist_rmsd(colvar, particles)
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rpath_dist_rmsd', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ii, ik, natom, nconf, rmsd_atom
       INTEGER, DIMENSION(:), POINTER                     :: iatom
@@ -4845,8 +4788,6 @@ CONTAINS
    SUBROUTINE rpath_rmsd(colvar, particles)
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rpath_rmsd', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ii, ik, natom, nconf, rmsd_atom
       INTEGER, DIMENSION(:), POINTER                     :: iatom
@@ -4970,9 +4911,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'distance_from_path_colvar', &
-         routineP = moduleN//':'//routineN
-
       TYPE(particle_list_type), POINTER                  :: particles_i
       TYPE(particle_type), DIMENSION(:), POINTER         :: my_particles
 
@@ -5010,8 +4948,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dpath_colvar', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iend, ii, istart, j, k, ncolv
       REAL(dp)                                           :: lambda, s1
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: ds1, s1v, ss_vals
@@ -5029,7 +4965,7 @@ CONTAINS
       DO i = 1, ncolv
          CALL colvar_recursive_eval(colvar%reaction_path_param%colvar_p(i)%colvar, cell, particles)
          ss_vals(i) = colvar%reaction_path_param%colvar_p(i)%colvar%ss
-      ENDDO
+      END DO
 
       ALLOCATE (s1v(istart:iend))
       ALLOCATE (ds1v(ncolv, istart:iend))
@@ -5085,9 +5021,6 @@ CONTAINS
 
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dpath_dist_rmsd', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ii, ik, natom, nconf, rmsd_atom
       INTEGER, DIMENSION(:), POINTER                     :: iatom
@@ -5188,8 +5121,6 @@ CONTAINS
 
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dpath_rmsd', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ii, ik, natom, nconf, rmsd_atom
       INTEGER, DIMENSION(:), POINTER                     :: iatom
@@ -5301,9 +5232,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'population_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ii, jj, n_atoms_from, n_atoms_to, &
                                                             ndcrd, nncrd
       REAL(dp) :: dfunc, dfunc_coord, ftmp(3), func, func_coord, inv_n_atoms_from, invden, n_0, &
@@ -5382,9 +5310,9 @@ CONTAINS
             ftmp(2) = -ftmp_coord(2, jj)*dfunc
             ftmp(3) = -ftmp_coord(3, jj)*dfunc
             CALL put_derivative(colvar, n_atoms_from + jj, ftmp)
-         ENDDO
+         END DO
          ncoord = 0.0_dp
-      ENDDO
+      END DO
       colvar%ss = population
    END SUBROUTINE population_colvar
 
@@ -5405,9 +5333,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'gyration_radius_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, n_atoms
       REAL(dp)                                           :: dri2, func, gyration, inv_n, mass_tot, mi
@@ -5486,8 +5411,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rmsd_colvar', routineP = moduleN//':'//routineN
-
       CALL rmsd_colvar_low(colvar, subsys, particles)
    END SUBROUTINE rmsd_colvar
 
@@ -5510,9 +5433,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rmsd_colvar_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, natom, nframes
       REAL(kind=dp)                                      :: cv_val, f1, ftmp(3)
@@ -5620,9 +5540,6 @@ CONTAINS
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: subsys
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ring_puckering_colvar', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, j, jj, m, nring
       REAL(KIND=dp)                                      :: a, at, b, da, db, ds, kr, rpxpp, svar
@@ -5877,14 +5794,11 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: r_ref
       INTEGER, INTENT(OUT)                               :: n_atoms
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_frames', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: filename
       CHARACTER(LEN=default_string_length)               :: dummy_char
       INTEGER                                            :: i, j, natom
       LOGICAL                                            :: explicit, my_end
       REAL(KIND=dp), DIMENSION(:), POINTER               :: rptr
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(section_vals_type), POINTER                   :: coord_section
 
       NULLIFY (rptr)
@@ -5908,35 +5822,37 @@ CONTAINS
                r_ref((j - 1)*3 + 1:(j - 1)*3 + 3, i) = rptr(1:3)
             END DO ! natom
          ELSE
-            CALL section_vals_val_get(frame_section, "COORD_FILE_NAME", i_rep_section=i, c_val=filename)
-            CPASSERT(TRIM(filename) /= "")
-            NULLIFY (parser)
-            ALLOCATE (rptr(3))
-            CALL parser_create(parser, filename, para_env=para_env, parse_white_lines=.TRUE.)
-            CALL parser_get_next_line(parser, 1)
-            ! Start parser
-            CALL parser_get_object(parser, natom)
-            CALL parser_get_next_line(parser, 1)
-            IF (i == 1) THEN
-               ALLOCATE (r_ref(3*natom, nr_frames))
-               n_atoms = natom
-            ELSE
-               CPASSERT(3*natom == SIZE(r_ref, 1))
-            END IF
-            DO j = 1, natom
-               ! Atom coordinates
-               CALL parser_get_next_line(parser, 1, at_end=my_end)
-               IF (my_end) &
-                  CALL cp_abort(__LOCATION__, &
-                                "Number of lines in XYZ format not equal to the number of atoms."// &
-                                " Error in XYZ format for COORD_A (CV rmsd). Very probably the"// &
-                                " line with title is missing or is empty. Please check the XYZ file and rerun your job!")
-               READ (parser%input_line, *) dummy_char, rptr(1:3)
-               r_ref((j - 1)*3 + 1, i) = cp_unit_to_cp2k(rptr(1), "angstrom")
-               r_ref((j - 1)*3 + 2, i) = cp_unit_to_cp2k(rptr(2), "angstrom")
-               r_ref((j - 1)*3 + 3, i) = cp_unit_to_cp2k(rptr(3), "angstrom")
-            END DO ! natom
-            CALL parser_release(parser)
+            BLOCK
+               TYPE(cp_parser_type)               :: parser
+               CALL section_vals_val_get(frame_section, "COORD_FILE_NAME", i_rep_section=i, c_val=filename)
+               CPASSERT(TRIM(filename) /= "")
+               ALLOCATE (rptr(3))
+               CALL parser_create(parser, filename, para_env=para_env, parse_white_lines=.TRUE.)
+               CALL parser_get_next_line(parser, 1)
+               ! Start parser
+               CALL parser_get_object(parser, natom)
+               CALL parser_get_next_line(parser, 1)
+               IF (i == 1) THEN
+                  ALLOCATE (r_ref(3*natom, nr_frames))
+                  n_atoms = natom
+               ELSE
+                  CPASSERT(3*natom == SIZE(r_ref, 1))
+               END IF
+               DO j = 1, natom
+                  ! Atom coordinates
+                  CALL parser_get_next_line(parser, 1, at_end=my_end)
+                  IF (my_end) &
+                     CALL cp_abort(__LOCATION__, &
+                                   "Number of lines in XYZ format not equal to the number of atoms."// &
+                                   " Error in XYZ format for COORD_A (CV rmsd). Very probably the"// &
+                                   " line with title is missing or is empty. Please check the XYZ file and rerun your job!")
+                  READ (parser%input_line, *) dummy_char, rptr(1:3)
+                  r_ref((j - 1)*3 + 1, i) = cp_unit_to_cp2k(rptr(1), "angstrom")
+                  r_ref((j - 1)*3 + 2, i) = cp_unit_to_cp2k(rptr(2), "angstrom")
+                  r_ref((j - 1)*3 + 3, i) = cp_unit_to_cp2k(rptr(3), "angstrom")
+               END DO ! natom
+               CALL parser_release(parser)
+            END BLOCK
             DEALLOCATE (rptr)
          END IF
       END DO ! nr_frames
@@ -5959,9 +5875,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), &
          OPTIONAL, POINTER                      :: particles
       TYPE(qs_environment_type), POINTER, OPTIONAL       :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Wc_colvar', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: Od, H, Oa
       REAL(dp)                                 :: rOd(3), rOa(3), rH(3), &
@@ -6004,12 +5917,12 @@ CONTAINS
             nwcd = nwcd + 1
             wcdi(nwcd) = j
             CYCLE
-         ENDIF
+         END IF
          IF (y < rcut) THEN
             nwca = nwca + 1
             wcai(nwca) = j
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       dmin = distance(rH - wc(1)%centres(:, wcdi(1)))
       amin = distance(rH - wc(1)%centres(:, wcai(1)))
@@ -6021,15 +5934,15 @@ CONTAINS
          IF (x < dmin) THEN
             dmin = x
             idmin = wcdi(i)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       DO i = 2, nwca
          x = distance(rH - wc(1)%centres(:, wcai(i)))
          IF (x < amin) THEN
             amin = x
             iamin = wcai(i)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 !     zero=0.0_dp
 !     CALL put_derivative(colvar, 1, zero)
 !     CALL put_derivative(colvar, 2,zero)
@@ -6073,9 +5986,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), &
          OPTIONAL, POINTER                      :: particles
       TYPE(qs_environment_type), POINTER, OPTIONAL       :: qs_env ! optional just because I am lazy... but I should get rid of it...
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'HBP_colvar', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: Od, H, Oa
       REAL(dp)                                 :: rOd(3), rOa(3), rH(3), &
@@ -6122,12 +6032,12 @@ CONTAINS
                nwcd = nwcd + 1
                wcdi(nwcd) = j
                CYCLE
-            ENDIF
+            END IF
             IF (y < rcut) THEN
                nwca = nwca + 1
                wcai(nwca) = j
-            ENDIF
-         ENDDO
+            END IF
+         END DO
 
          dmin = distance(rH - wc(1)%centres(:, wcdi(1)))
          amin = distance(rH - wc(1)%centres(:, wcai(1)))
@@ -6139,24 +6049,24 @@ CONTAINS
             IF (x < dmin) THEN
                dmin = x
                idmin = wcdi(i)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          DO i = 2, nwca
             x = distance(rH - wc(1)%centres(:, wcai(i)))
             IF (x < amin) THEN
                amin = x
                iamin = wcai(i)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          colvar%HBP%ewc(il) = colvar%HBP%shift + wc(1)%WannierHamDiag(idmin) - wc(1)%WannierHamDiag(iamin)
          colvar%ss = colvar%ss + colvar%HBP%shift + wc(1)%WannierHamDiag(idmin) - wc(1)%WannierHamDiag(iamin)
-      ENDDO
+      END DO
       IF (output_unit > 0) THEN
          DO il = 1, colvar%HBP%nPoints
             WRITE (output_unit, '(a,1(f16.8,1x))') "HBP| = ", colvar%HBP%ewc(il)
-         ENDDO
+         END DO
          WRITE (output_unit, '(a,1(f16.8,1x))') "HBP|\theta(x) = ", colvar%ss
-      ENDIF
+      END IF
       DEALLOCATE (wcai)
       DEALLOCATE (wcdi)
 

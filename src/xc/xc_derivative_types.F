@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -12,17 +14,12 @@ MODULE xc_derivative_types
    USE kinds,                           ONLY: dp
    USE pw_pool_types,                   ONLY: pw_pool_give_back_cr3d,&
                                               pw_pool_type
-   USE xc_derivative_desc,              ONLY: MAX_DERIVATIVE_DESC_LENGTH,&
-                                              MAX_LABEL_LENGTH,&
-                                              create_split_derivative_desc,&
-                                              standardize_derivative_desc
+   USE xc_derivative_desc,              ONLY: create_split_desc
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
 
    PRIVATE
-
-   INTEGER, SAVE :: derivative_id_nr = 1
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'xc_derivative_types'
 
@@ -34,10 +31,8 @@ MODULE xc_derivative_types
 !> \brief represent a derivative of a functional
 ! **************************************************************************************************
    TYPE xc_derivative_type
-      INTEGER                                   :: ref_count, id_nr
-      CHARACTER(len=MAX_DERIVATIVE_DESC_LENGTH) :: desc
-      CHARACTER(len=MAX_LABEL_LENGTH), DIMENSION(:), POINTER :: split_desc
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER    :: deriv_data
+      INTEGER, DIMENSION(:), POINTER                :: split_desc => NULL()
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER, CONTIGUOUS    :: deriv_data => NULL()
    END TYPE xc_derivative_type
 
 ! **************************************************************************************************
@@ -62,44 +57,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xc_derivative_create(derivative, desc, cr3d_ptr)
 
-      TYPE(xc_derivative_type), POINTER                  :: derivative
-      CHARACTER(len=*), INTENT(in)                       :: desc
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: cr3d_ptr
+      TYPE(xc_derivative_type)                           :: derivative
+      INTEGER, DIMENSION(:), INTENT(in)                  :: desc
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: cr3d_ptr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_derivative_create', &
-         routineP = moduleN//':'//routineN
-
-      CHARACTER(len=MAX_DERIVATIVE_DESC_LENGTH)          :: my_desc
-
-      ALLOCATE (derivative)
-
-      derivative%ref_count = 1
-      derivative%id_nr = derivative_id_nr
-      derivative_id_nr = derivative_id_nr + 1
-      CALL standardize_derivative_desc(desc, my_desc)
-      CALL create_split_derivative_desc(my_desc, derivative%split_desc)
-      derivative%desc = my_desc
+      CALL create_split_desc(desc, derivative%split_desc)
       derivative%deriv_data => cr3d_ptr
 
    END SUBROUTINE xc_derivative_create
-
-! **************************************************************************************************
-!> \brief retains the given derivative (see doc/ReferenceCounting.html)
-!> \param deriv the object you want to retain
-!> \par History
-!>      11.2003 created [fawzi]
-!> \author fawzi
-! **************************************************************************************************
-   SUBROUTINE xc_derivative_retain(deriv)
-      TYPE(xc_derivative_type), POINTER                  :: deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_derivative_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(deriv))
-      CPASSERT(deriv%ref_count > 0)
-      deriv%ref_count = deriv%ref_count + 1
-   END SUBROUTINE xc_derivative_retain
 
 ! **************************************************************************************************
 !> \brief allocates and initializes a derivative type
@@ -109,70 +75,45 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xc_derivative_release(derivative, pw_pool)
 
-      TYPE(xc_derivative_type), POINTER                  :: derivative
+      TYPE(xc_derivative_type)                           :: derivative
       TYPE(pw_pool_type), OPTIONAL, POINTER              :: pw_pool
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_derivative_release', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(derivative))
-      CPASSERT(derivative%ref_count >= 1)
-
-      derivative%ref_count = derivative%ref_count - 1
-      IF (derivative%ref_count == 0) THEN
-         IF (PRESENT(pw_pool)) THEN
-            IF (ASSOCIATED(pw_pool)) THEN
-               CALL pw_pool_give_back_cr3d(pw_pool, derivative%deriv_data, &
-                                           accept_non_compatible=.TRUE.)
-            END IF
+      IF (PRESENT(pw_pool)) THEN
+         IF (ASSOCIATED(pw_pool)) THEN
+            CALL pw_pool_give_back_cr3d(pw_pool, derivative%deriv_data, &
+                                        accept_non_compatible=.TRUE.)
          END IF
-         IF (ASSOCIATED(derivative%deriv_data)) THEN
-            DEALLOCATE (derivative%deriv_data)
-         END IF
-         DEALLOCATE (derivative%split_desc)
-
-         DEALLOCATE (derivative)
       END IF
-      NULLIFY (derivative)
+      IF (ASSOCIATED(derivative%deriv_data)) THEN
+         DEALLOCATE (derivative%deriv_data)
+      END IF
+      IF (ASSOCIATED(derivative%split_desc)) DEALLOCATE (derivative%split_desc)
 
    END SUBROUTINE xc_derivative_release
 
 ! **************************************************************************************************
 !> \brief returns various information on the given derivative
-!> \param deriv thederivative you whant information about
-!> \param desc a string that describes the derivative (empty string
-!>        for the function itself, otherwise a string of the form
-!>        "(rho)(rho)(norm_drhoa)")
-!> \param split_desc the same as desc but with an array of strings,
-!>        and a derivative coordinate in each string (the previous
-!>        example would become (/"rho","rho","norm_drhoa"/)
+!> \param deriv the derivative you want information about
+!> \param split_desc an array that describes the derivative (each position represents a variable,
+!>        see xc_derivative_desc.F)
 !> \param order the order of the derivative
 !> \param deriv_data the 3d real array with the derivative
 !> \param accept_null_data if deriv_data can be unassociated (defaults to no)
 ! **************************************************************************************************
-   SUBROUTINE xc_derivative_get(deriv, desc, split_desc, &
+   SUBROUTINE xc_derivative_get(deriv, split_desc, &
                                 order, deriv_data, accept_null_data)
-      TYPE(xc_derivative_type), POINTER                  :: deriv
-      CHARACTER(len=MAX_DERIVATIVE_DESC_LENGTH), &
-         INTENT(out), OPTIONAL                           :: desc
-      CHARACTER(len=MAX_LABEL_LENGTH), DIMENSION(:), &
-         OPTIONAL, POINTER                               :: split_desc
+      TYPE(xc_derivative_type), INTENT(IN)               :: deriv
+      INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: split_desc
       INTEGER, INTENT(out), OPTIONAL                     :: order
       REAL(kind=dp), DIMENSION(:, :, :), OPTIONAL, &
          POINTER                                         :: deriv_data
       LOGICAL, INTENT(in), OPTIONAL                      :: accept_null_data
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xc_derivative_get', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: my_accept_null_data
 
       my_accept_null_data = .FALSE.
       IF (PRESENT(accept_null_data)) my_accept_null_data = accept_null_data
 
-      CPASSERT(ASSOCIATED(deriv))
-      CPASSERT(deriv%ref_count > 0)
-      IF (PRESENT(desc)) desc = deriv%desc
       IF (PRESENT(split_desc)) split_desc => deriv%split_desc
       IF (PRESENT(deriv_data)) THEN
          deriv_data => deriv%deriv_data

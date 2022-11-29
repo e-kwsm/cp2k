@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,7 +18,6 @@
 MODULE cube_utils
 
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE realspace_grid_types,            ONLY: realspace_grid_desc_type
 #include "../base/base_uses.f90"
 
@@ -88,13 +89,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE return_cube_nonortho(info, radius, lb, ub, rp)
 
-      TYPE(cube_info_type)                               :: info
-      REAL(KIND=dp)                                      :: radius
-      INTEGER                                            :: lb(3), ub(3)
-      REAL(KIND=dp)                                      :: rp(3)
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'return_cube_nonortho', &
-         routineP = moduleN//':'//routineN
+      TYPE(cube_info_type), INTENT(IN)                   :: info
+      REAL(KIND=dp), INTENT(IN)                          :: radius
+      INTEGER, INTENT(OUT)                               :: lb(3), ub(3)
+      REAL(KIND=dp), INTENT(IN)                          :: rp(3)
 
       INTEGER                                            :: i, j, k
       REAL(KIND=dp)                                      :: point(3), res(3)
@@ -108,25 +106,25 @@ CONTAINS
          !
          WRITE (*, *) info%max_rad_ga, radius
          CPABORT("Called with too large radius.")
-      ENDIF
+      END IF
 
-      ! get the min max indices that contain at least the cube that contains a sphere around rp of radius radius
+      ! get the min/max indices of a cube that contains a sphere of the given radius around rp
       ! if the cell is very non-orthogonal this implies that many useless points are included
       ! this estimate can be improved (i.e. not box but sphere should be used)
       lb = HUGE(lb)
       ub = -HUGE(ub)
       DO i = -1, 1
-      DO j = -1, 1
-      DO k = -1, 1
-         point(1) = rp(1) + i*radius
-         point(2) = rp(2) + j*radius
-         point(3) = rp(3) + k*radius
-         CALL matvec_3x3(res, info%dh_inv, point)
-         lb = MIN(lb, FLOOR(res))
-         ub = MAX(ub, CEILING(res))
-      ENDDO
-      ENDDO
-      ENDDO
+         DO j = -1, 1
+            DO k = -1, 1
+               point(1) = rp(1) + i*radius
+               point(2) = rp(2) + j*radius
+               point(3) = rp(3) + k*radius
+               res = MATMUL(info%dh_inv, point)
+               lb = MIN(lb, FLOOR(res))
+               ub = MAX(ub, CEILING(res))
+            END DO
+         END DO
+      END DO
 
    END SUBROUTINE return_cube_nonortho
 
@@ -145,8 +143,6 @@ CONTAINS
       INTEGER                                            :: lb_cube(3), ub_cube(3)
       INTEGER, DIMENSION(:), POINTER                     :: sphere_bounds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'return_cube', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: imr
 
       IF (info%orthorhombic) THEN
@@ -159,13 +155,13 @@ CONTAINS
             ! in the call to init_cube_info
             !
             CPABORT("Called with too large radius.")
-         ENDIF
+         END IF
          lb_cube(:) = info%lb_cube(:, imr)
          ub_cube(:) = info%ub_cube(:, imr)
          sphere_bounds => info%sphere_bounds(imr)%p
       ELSE
          ! nothing yet, we should check the radius
-      ENDIF
+      END IF
 
    END SUBROUTINE return_cube
 
@@ -188,9 +184,6 @@ CONTAINS
    SUBROUTINE destroy_cube_info(info)
       TYPE(cube_info_type)                               :: info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'destroy_cube_info', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (info%orthorhombic) THEN
@@ -203,7 +196,7 @@ CONTAINS
          DEALLOCATE (info%sphere_bounds)
       ELSE
          ! no info to be deallocated
-      ENDIF
+      END IF
    END SUBROUTINE
 
 ! **************************************************************************************************
@@ -221,7 +214,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: ortho
       REAL(KIND=dp), INTENT(IN)                          :: max_radius
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_cube_info', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'init_cube_info'
 
       INTEGER                                            :: check_1, check_2, handle, i, igmin, imr, &
                                                             jg, jg2, jgmin, k, kg, kg2, kgmin, &
@@ -282,11 +275,11 @@ CONTAINS
                   igmin = do_and_hide_it_1(dxi, i, drmin, dz2, dy2, kg2, jg2)
                   check_1 = MODULO((kgmin*97 + jgmin*37 + igmin*113)*check_1 + 1277, 9343)
                   k = k + 1
-               ENDDO
-            ENDDO
+               END DO
+            END DO
             info%sphere_bounds_count(i) = k - 1
             ALLOCATE (info%sphere_bounds(i)%p(info%sphere_bounds_count(i)))
-         ENDDO
+         END DO
 
 !       init sphere_bounds array
          ! notice : as many points in lb_cube..0 as 1..ub_cube
@@ -312,10 +305,10 @@ CONTAINS
                   info%lb_cube(1, i) = MIN(igmin, info%lb_cube(1, i))
                   info%sphere_bounds(i)%p(k) = igmin
                   k = k + 1
-               ENDDO
-            ENDDO
+               END DO
+            END DO
             info%ub_cube(:, i) = 1 - info%lb_cube(:, i)
-         ENDDO
+         END DO
          IF (check_1 .NE. check_2) THEN
             CPABORT("Irreproducible fp math caused memory corruption")
          END IF

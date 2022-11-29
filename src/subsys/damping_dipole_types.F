@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,9 +68,6 @@ CONTAINS
       TYPE(damping_p_type), POINTER                      :: damping
       INTEGER, INTENT(IN)                                :: nkinds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'damping_p_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       CPASSERT(.NOT. ASSOCIATED(damping))
@@ -87,9 +86,6 @@ CONTAINS
    SUBROUTINE damping_p_release(damping)
       TYPE(damping_p_type), POINTER                      :: damping
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'damping_p_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(damping)) THEN
          IF (ASSOCIATED(damping%damp)) THEN
             DEALLOCATE (damping%damp)
@@ -105,7 +101,7 @@ CONTAINS
 !> \param damping ...
 ! **************************************************************************************************
    SUBROUTINE init_damping(damping)
-      TYPE(damping_type)                                 :: damping
+      TYPE(damping_type), INTENT(INOUT)                  :: damping
 
       damping%itype = no_damping
       damping%order = 1

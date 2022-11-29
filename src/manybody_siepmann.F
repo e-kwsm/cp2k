@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,7 +29,6 @@ MODULE manybody_siepmann
    USE fist_nonbond_env_types,          ONLY: pos_type
    USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE message_passing,                 ONLY: mp_sum
    USE pair_potential_types,            ONLY: pair_potential_pp_type,&
                                               pair_potential_single_type,&
@@ -80,9 +81,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER, INTENT(INOUT)                             :: nr_oh, nr_h3o, nr_o
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siepmann_energy', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: a_ij, D, E, f2, Phi_ij, pot_loc_v2, &
                                                             pot_loc_v3
 
@@ -116,8 +114,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: r
       REAL(KIND=dp)                                      :: siep_f2
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_f2', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: rcut
 
       rcut = SQRT(siepmann%rcutsq)
@@ -137,8 +133,6 @@ CONTAINS
       TYPE(siepmann_pot_type), POINTER                   :: siepmann
       REAL(KIND=dp), INTENT(IN)                          :: r
       REAL(KIND=dp)                                      :: siep_f2_d
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_f2_d', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: B, rcut
 
@@ -179,8 +173,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp)                                      :: siep_a_ij
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_a_ij', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: ilist, kparticle
@@ -241,8 +233,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp), INTENT(IN)                          :: rcutsq
       LOGICAL, INTENT(IN)                                :: use_virial
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_a_ij_d', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ilist, kparticle, nparticle
       REAL(KIND=dp)                                      :: costheta, d_expterm, dcos_thetahalf, &
@@ -333,8 +323,6 @@ CONTAINS
       INTEGER, INTENT(INOUT), OPTIONAL                   :: nr_oh, nr_h3o, nr_o
       REAL(KIND=dp)                                      :: siep_Phi_ij
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_Phi_ij', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: count_h, iatom, index_h1, index_h2, natom
       REAL(KIND=dp)                                      :: cosphi, drih, drix, drji, h_max_dist, &
@@ -366,8 +354,8 @@ CONTAINS
             index_h1 = iatom
          ELSEIF (count_h == 2) THEN
             index_h2 = iatom
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       IF (count_h == 0) THEN
          IF (siepmann%allow_o_formation) THEN
@@ -375,24 +363,24 @@ CONTAINS
             siep_Phi_ij = 0.0_dp
          ELSE
             CPABORT("No H atoms for O found")
-         ENDIF
+         END IF
       ELSEIF (count_h == 1) THEN
          IF (siepmann%allow_oh_formation) THEN
             IF (PRESENT(nr_oh)) nr_oh = nr_oh + 1
             siep_Phi_ij = 0.0_dp
          ELSE
             CPABORT("Only one H atom of O atom found")
-         ENDIF
+         END IF
       ELSEIF (count_h == 3) THEN
          IF (siepmann%allow_h3o_formation) THEN
             IF (PRESENT(nr_h3o)) nr_h3o = nr_h3o + 1
             siep_Phi_ij = 0.0_dp
          ELSE
             CPABORT("Three H atoms for O atom found")
-         ENDIF
+         END IF
       ELSEIF (count_h > 3) THEN
          CPABORT("Error in Siepmann-Sprik part: too many H atoms for O")
-      ENDIF
+      END IF
 
       IF (count_h == 2) THEN
          !dipole vector rix of the H2O molecule
@@ -404,7 +392,7 @@ CONTAINS
          IF (cosphi < -1.0_dp) cosphi = -1.0_dp
          IF (cosphi > +1.0_dp) cosphi = +1.0_dp
          siep_Phi_ij = EXP(-8.0_dp*((cosphi - 1)/4.0_dp)**4)
-      ENDIF
+      END IF
    END FUNCTION siep_Phi_ij
 
 ! **************************************************************************************************
@@ -435,8 +423,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: rcutsq
       LOGICAL, INTENT(IN)                                :: use_virial
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siep_Phi_ij_d', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: count_h, iatom, index_h1, index_h2, natom
@@ -471,8 +457,8 @@ CONTAINS
             index_h1 = iatom
          ELSEIF (count_h == 2) THEN
             index_h2 = iatom
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       IF (count_h == 0 .AND. .NOT. siepmann%allow_o_formation) THEN
          CPABORT("No H atoms for O found")
@@ -482,7 +468,7 @@ CONTAINS
          CPABORT("Three H atoms for O atom found")
       ELSEIF (count_h > 3) THEN
          CPABORT("Error in Siepmann-Sprik part: too many H atoms for O")
-      ENDIF
+      END IF
 
       IF (count_h == 2) THEN
          !dipole vector rix of the H2O molecule
@@ -528,7 +514,7 @@ CONTAINS
                           " not implemented")
          END IF
 
-      ENDIF
+      END IF
    END SUBROUTINE siep_Phi_ij_d
 
 ! **************************************************************************************************
@@ -562,9 +548,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: rcutsq
       TYPE(cell_type), POINTER                           :: cell
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siepmann_forces_v3', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       REAL(KIND=dp)                                      :: a_ij, beta, drji, E, f2, f2_d, f_A1, &
@@ -653,9 +636,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: rcutsq
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'siepmann_forces_v2', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: element_symbol
       REAL(KIND=dp)                                      :: D, drji, f2, f2_d, f_A1, f_A2, fac, &
                                                             Phi_ij, prefactor, rji(3)
@@ -732,8 +712,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_siepmann_arrays', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_siepmann_arrays'
 
       INTEGER                                            :: handle, i, iend, igrp, ikind, ilist, &
                                                             ipair, istart, jkind, nkinds, npairs, &
@@ -788,7 +767,7 @@ CONTAINS
             pot => potparm%pot(ikind, jkind)%pot
             npairs = iend - istart + 1
             IF (pot%no_mb) CYCLE
-            CALL matvec_3x3(cell_v, cell%hmat, cvi)
+            cell_v = MATMUL(cell%hmat, cvi)
             DO i = 1, SIZE(pot%type)
                ! SIEPMANN
                IF (pot%type(i) == siepmann_type) THEN
@@ -831,9 +810,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: glob_cell_v
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'destroy_siepmann_arrays', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(glob_loc_list)) THEN
          DEALLOCATE (glob_loc_list)
       END IF
@@ -862,9 +838,6 @@ CONTAINS
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
       LOGICAL, INTENT(IN)                                :: print_oh, print_h3o, print_o
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_nr_ions_siepmann', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iw
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -878,13 +851,13 @@ CONTAINS
 
       IF (iw > 0 .AND. nr_ions > 0 .AND. print_oh) THEN
          WRITE (iw, '(/,A,T71,I10,/)') " SIEPMANN: number of OH- ions at surface", nr_ions
-      ENDIF
+      END IF
       IF (iw > 0 .AND. nr_ions > 0 .AND. print_h3o) THEN
          WRITE (iw, '(/,A,T71,I10,/)') " SIEPMANN: number of H3O+ ions at surface", nr_ions
-      ENDIF
+      END IF
       IF (iw > 0 .AND. nr_ions > 0 .AND. print_o) THEN
          WRITE (iw, '(/,A,T71,I10,/)') " SIEPMANN: number of O^2- ions at surface", nr_ions
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(iw, logger, mm_section, "PRINT%PROGRAM_RUN_INFO")
 

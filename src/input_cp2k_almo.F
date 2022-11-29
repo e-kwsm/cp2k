@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,6 +49,7 @@ MODULE input_cp2k_almo
    INTEGER, PARAMETER, PRIVATE :: optimizer_xalmo_trustr = 4
    INTEGER, PARAMETER, PRIVATE :: optimizer_newton_pcg_solver = 5
    INTEGER, PARAMETER, PRIVATE :: optimizer_nlmo_pcg = 6
+   INTEGER, PARAMETER, PRIVATE :: optimizer_block_diagonal_trustr = 7
 
    PUBLIC :: create_almo_scf_section
 
@@ -61,9 +64,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_almo_scf_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_almo_scf_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -135,16 +135,17 @@ CONTAINS
                           usage="ALMO_ALGORITHM DIAG", &
                           default_i_val=almo_scf_diag, &
                           !enum_c_vals=s2a("DIAG", "DM_SIGN","PCG"),&
-                          !enum_c_vals=s2a("DIAG", "PCG"), &
-                          enum_c_vals=s2a("DIAG", "PCG", "SKIP"), &
+                          enum_c_vals=s2a("DIAG", "PCG", "TRUST_REGION", "SKIP"), &
                           enum_desc=s2a("DIIS-accelerated diagonalization controlled by ALMO_OPTIMIZER_DIIS. "// &
                                         "Recommended for large systems containing small fragments.", &
                                         !"Update the density matrix using linear scaling routines. "//&
                                         !"Recommended if large fragments are present.",&
                                         "Energy minimization with a PCG algorithm controlled by ALMO_OPTIMIZER_PCG.", &
+                                        "Trust-region optimizer is recommended if PCG has difficulty converging. "// &
+                                        "It is controlled by ALMO_OPTIMIZER_TRUSTR", &
                                         "Skip optimization of block-diagonal ALMOs."), &
                           !enum_i_vals=(/almo_scf_diag,almo_scf_dm_sign,almo_scf_pcg/),&
-                          enum_i_vals=(/almo_scf_diag, almo_scf_pcg, almo_scf_skip/))
+                          enum_i_vals=(/almo_scf_diag, almo_scf_pcg, almo_scf_trustr, almo_scf_skip/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -530,6 +531,11 @@ CONTAINS
       CALL section_release(subsection)
 
       NULLIFY (subsection)
+      CALL create_optimizer_section(subsection, optimizer_block_diagonal_trustr)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      NULLIFY (subsection)
       CALL create_optimizer_section(subsection, optimizer_xalmo_pcg)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -570,9 +576,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
       INTEGER, INTENT(IN)                                :: optimizer_id
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimizer_section', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: optimizer_type
       TYPE(keyword_type), POINTER                        :: keyword
@@ -615,9 +618,15 @@ CONTAINS
          CALL section_create(section, __LOCATION__, name="XALMO_OPTIMIZER_TRUSTR", &
                              description="Controls the trust-region optimization of extended ALMOs. "// &
                              "Trust radius is varied in the outer loop. Once the trust radius is "// &
-                             "chosen (and fixed) the model function can be minized using varius "// &
+                             "chosen (and fixed) the model function can be minized using various "// &
                              "approaches. Currently, an iterative conjugate-gradient approach is "// &
-                             "used and controled by the inner loop", &
+                             "used and controlled by the inner loop", &
+                             n_keywords=10, n_subsections=0, repeats=.FALSE.)
+         optimizer_type = optimizer_trustr
+      CASE (optimizer_block_diagonal_trustr)
+         CALL section_create(section, __LOCATION__, name="ALMO_OPTIMIZER_TRUSTR", &
+                             description="Controls the trust-region optimization of block-diagonal ALMOs. "// &
+                             "See XALMO_OPTIMIZER_TRUSTR section for brief explanations.", &
                              n_keywords=10, n_subsections=0, repeats=.FALSE.)
          optimizer_type = optimizer_trustr
       CASE (optimizer_newton_pcg_solver)
@@ -669,7 +678,7 @@ CONTAINS
          CALL section_add_keyword(section, keyword)
          CALL keyword_release(keyword)
 
-      ENDIF
+      END IF
 
       IF (optimizer_type .EQ. optimizer_pcg .OR. &
           optimizer_type .EQ. optimizer_lin_eq_pcg .OR. &
@@ -698,7 +707,7 @@ CONTAINS
          CALL section_add_keyword(section, keyword)
          CALL keyword_release(keyword)
 
-      ENDIF
+      END IF
 
       IF (optimizer_type .EQ. optimizer_pcg) THEN
 
@@ -721,11 +730,11 @@ CONTAINS
                              "how large the threshold is the maximum number of projected "// &
                              "eienvectors for a fragment equals to the number of occupied "// &
                              "orbitals of fragment's neighbors.", &
-                             usage="PRECOND_FILTER_THRESHOLD 0.1", default_r_val=0.5_dp)
+                             usage="PRECOND_FILTER_THRESHOLD 0.1", default_r_val=-1.0_dp)
          CALL section_add_keyword(section, keyword)
          CALL keyword_release(keyword)
 
-      ENDIF
+      END IF
 
       IF (optimizer_type .EQ. optimizer_pcg .OR. &
           optimizer_type .EQ. optimizer_trustr) THEN
@@ -746,7 +755,7 @@ CONTAINS
          CALL section_add_keyword(section, keyword)
          CALL keyword_release(keyword)
 
-      ENDIF
+      END IF
 
       IF (optimizer_type .EQ. optimizer_trustr) THEN
 
@@ -792,7 +801,7 @@ CONTAINS
          CALL section_add_keyword(section, keyword)
          CALL keyword_release(keyword)
 
-      ENDIF
+      END IF
 
    END SUBROUTINE create_optimizer_section
 
@@ -928,9 +937,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_almo_analysis_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -985,9 +991,6 @@ CONTAINS
    SUBROUTINE create_almo_print_section(section)
 
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_almo_print_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(section_type), POINTER                        :: print_key
 

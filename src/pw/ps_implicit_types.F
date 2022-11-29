@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -85,8 +87,7 @@ CONTAINS
       TYPE(ps_implicit_parameters), INTENT(INOUT)        :: ps_implicit_params
       TYPE(pw_pool_type), INTENT(IN), OPTIONAL, POINTER  :: pw_pool
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ps_implicit_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'ps_implicit_release'
 
       INTEGER                                            :: boundary_condition, handle
       LOGICAL                                            :: can_give_back, do_dbc_cube
@@ -99,17 +100,19 @@ CONTAINS
          do_dbc_cube = ps_implicit_env%do_dbc_cube
 
          IF (can_give_back) THEN
-            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%initial_guess, &
-                                      accept_non_compatible=.TRUE.)
-            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%v_eps, &
-                                      accept_non_compatible=.TRUE.)
-            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%cstr_charge, &
-                                      accept_non_compatible=.TRUE.)
+            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%initial_guess)
+            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%v_eps)
+            CALL pw_pool_give_back_pw(pw_pool, ps_implicit_env%cstr_charge)
+            DEALLOCATE (ps_implicit_env%initial_guess, ps_implicit_env%v_eps, ps_implicit_env%cstr_charge)
             CALL dbc_release(ps_implicit_env%contacts, do_dbc_cube, pw_pool=pw_pool)
          ELSE
             CALL pw_release(ps_implicit_env%initial_guess)
             CALL pw_release(ps_implicit_env%v_eps)
-            CALL pw_release(ps_implicit_env%cstr_charge)
+            IF (ASSOCIATED(ps_implicit_env%cstr_charge)) THEN
+               CALL pw_release(ps_implicit_env%cstr_charge)
+               DEALLOCATE (ps_implicit_env%cstr_charge)
+            END IF
+            DEALLOCATE (ps_implicit_env%initial_guess, ps_implicit_env%v_eps)
             CALL dbc_release(ps_implicit_env%contacts, do_dbc_cube)
          END IF
 

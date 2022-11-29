@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -37,7 +39,7 @@ MODULE localization_tb
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
                                               set_qs_env
@@ -45,14 +47,14 @@ MODULE localization_tb
    USE qs_loc_dipole,                   ONLY: loc_dipole
    USE qs_loc_states,                   ONLY: get_localization_info
    USE qs_loc_types,                    ONLY: qs_loc_env_create,&
-                                              qs_loc_env_destroy,&
-                                              qs_loc_env_new_type
+                                              qs_loc_env_release,&
+                                              qs_loc_env_type
    USE qs_loc_utils,                    ONLY: loc_write_restart,&
                                               qs_loc_control_init,&
                                               qs_loc_init,&
                                               retain_history
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
                                               qs_subsys_type
 #include "./base/base_uses.f90"
@@ -80,8 +82,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       CHARACTER(LEN=*)                                   :: tb_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'wfn_localization_tb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'wfn_localization_tb'
 
       INTEGER                                            :: handle, iounit, ispin, nspins
       INTEGER, DIMENSION(:, :, :), POINTER               :: marked_states
@@ -95,15 +96,15 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env_homo
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env_homo
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section, loc_print_section, &
                                                             localize_section
@@ -167,10 +168,11 @@ CONTAINS
             ALLOCATE (occupied_evals(nspins))
             ALLOCATE (homo_localized(nspins))
             DO ispin = 1, nspins
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                                eigenvalues=mo_eigenvalues)
                occupied_orbs(ispin)%matrix => mo_coeff
                occupied_evals(ispin)%array => mo_eigenvalues
+               ALLOCATE (homo_localized(ispin)%matrix)
                CALL cp_fm_create(homo_localized(ispin)%matrix, occupied_orbs(ispin)%matrix%matrix_struct)
                CALL cp_fm_to_fm(occupied_orbs(ispin)%matrix, homo_localized(ispin)%matrix)
             END DO
@@ -180,14 +182,15 @@ CONTAINS
 
             CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
             CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, pw_pools=pw_pools)
-            CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                                    use_data=REALDATA3D, &
                                    in_space=REALSPACE)
-            CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, &
                                    use_data=COMPLEXDATA1D, &
                                    in_space=RECIPROCALSPACE)
 
             NULLIFY (marked_states, qs_loc_env_homo)
+            ALLOCATE (qs_loc_env_homo)
             CALL qs_loc_env_create(qs_loc_env_homo)
             CALL qs_loc_control_init(qs_loc_env_homo, localize_section, do_homo=do_homo)
             CALL qs_loc_init(qs_env, qs_loc_env_homo, localize_section, homo_localized, do_homo, &
@@ -199,7 +202,7 @@ CONTAINS
             IF (qs_loc_env_homo%localized_wfn_control%use_history) THEN
                CALL retain_history(mo_loc_history, homo_localized)
                CALL set_qs_env(qs_env, mo_loc_history=mo_loc_history)
-            ENDIF
+            END IF
 
             !write restart for localization of occupied orbitals
             CALL loc_write_restart(qs_loc_env_homo, loc_print_section, mos, &
@@ -211,13 +214,14 @@ CONTAINS
             IF (qs_loc_env_homo%do_localize) THEN
                CALL loc_dipole(qs_env%input, dft_control, qs_loc_env_homo, logger, qs_env)
             END IF
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-            CALL qs_loc_env_destroy(qs_loc_env_homo)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+            CALL qs_loc_env_release(qs_loc_env_homo)
+            DEALLOCATE (qs_loc_env_homo)
             IF (ASSOCIATED(marked_states)) THEN
                DEALLOCATE (marked_states)
             END IF
-         ENDIF
+         END IF
 
       END IF
 

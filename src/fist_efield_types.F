@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,9 +50,6 @@ CONTAINS
    SUBROUTINE read_efield_section(input_section, efield)
       TYPE(section_vals_type), POINTER                   :: input_section
       TYPE(fist_efield_type), POINTER                    :: efield
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_efield_section', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp), DIMENSION(:), POINTER               :: pp
       TYPE(section_vals_type), POINTER                   :: tmp_section

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,9 +16,10 @@ MODULE pair_potential_util
    USE fparser,                         ONLY: EvalErrType,&
                                               evalf
    USE kinds,                           ONLY: dp
+   USE mathconstants,                   ONLY: ifac
    USE pair_potential_types,            ONLY: &
         b4_type, bm_type, ea_type, ft_type, ftd_type, gp_type, gw_type, ip_type, lj_charmm_type, &
-        lj_type, not_initialized, pair_potential_single_type, wl_type
+        lj_type, not_initialized, pair_potential_single_type, tab_type, wl_type
    USE physcon,                         ONLY: bohr,&
                                               evolt
 #include "./base/base_uses.f90"
@@ -45,11 +48,9 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: r, energy_cutoff
       REAL(KIND=dp)                                      :: value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ener_pot', routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: i, index, j, n
-      REAL(KIND=dp)                                      :: damp, dampexp, dampsum, f6, f8, &
-                                                            factorial, lvalue, pp, qq, scale, xf
+      INTEGER                                            :: i, index, index1, index2, j, n
+      REAL(KIND=dp)                                      :: bd6, bd8, dampsum, f6, f8, lvalue, pp, &
+                                                            qq, scale, xf
 
       value = 0.0_dp
       DO j = 1, SIZE(pot%type)
@@ -74,7 +75,7 @@ CONTAINS
             ELSE
                ! use a linear potential
                lvalue = pot%set(j)%ipbv%m*r + pot%set(j)%ipbv%b
-            ENDIF
+            END IF
             lvalue = lvalue
          ELSE IF (pot%type(j) == wl_type) THEN
             lvalue = pot%set(j)%willis%a*EXP(-pot%set(j)%willis%b*r) - pot%set(j)%willis%c/r**6
@@ -85,23 +86,24 @@ CONTAINS
          ELSE IF (pot%type(j) == ft_type) THEN
             lvalue = pot%set(j)%ft%a*EXP(-pot%set(j)%ft%b*r) - pot%set(j)%ft%c/r**6 - pot%set(j)%ft%d/r**8
          ELSE IF (pot%type(j) == ftd_type) THEN
+            ! Compute 6th order dispersion correction term
+            bd6 = pot%set(j)%ftd%bd(1)
             dampsum = 1.0_dp
             xf = 1.0_dp
-            factorial = 1.0_dp
-            damp = pot%set(j)%ftd%bd
-            dampexp = dexp(-damp*r)
             DO i = 1, 6
-               xf = xf*damp*r
-               factorial = factorial*REAL(i, KIND=dp)
-               dampsum = dampsum + xf/factorial
-            ENDDO
-            f6 = 1.0_dp - dampexp*dampsum
-            DO i = 7, 8
-               xf = xf*damp*r
-               factorial = factorial*REAL(i, KIND=dp)
-               dampsum = dampsum + xf/factorial
-            ENDDO
-            f8 = 1.0_dp - dampexp*dampsum
+               xf = xf*bd6*r
+               dampsum = dampsum + xf*ifac(i)
+            END DO
+            f6 = 1.0_dp - EXP(-bd6*r)*dampsum
+            ! Compute 8th order dispersion correction term
+            bd8 = pot%set(j)%ftd%bd(2)
+            dampsum = 1.0_dp
+            xf = 1.0_dp
+            DO i = 1, 8
+               xf = xf*bd8*r
+               dampsum = dampsum + xf*ifac(i)
+            END DO
+            f8 = 1.0_dp - EXP(-bd8*r)*dampsum
             lvalue = pot%set(j)%ftd%a*EXP(-pot%set(j)%ftd%b*r) - f6*pot%set(j)%ftd%c/r**6 - f8*pot%set(j)%ftd%d/r**8
          ELSE IF (pot%type(j) == ea_type) THEN
             index = INT(r/pot%set(j)%eam%drar) + 1
@@ -109,7 +111,7 @@ CONTAINS
                index = pot%set(j)%eam%npoints
             ELSEIF (index < 1) THEN
                index = 1
-            ENDIF
+            END IF
             qq = r - pot%set(j)%eam%rval(index)
             pp = pot%set(j)%eam%phi(index) + &
                  qq*pot%set(j)%eam%phip(index)
@@ -130,6 +132,20 @@ CONTAINS
             ELSEIF (r > pot%set(j)%buck4r%r3) THEN
                pp = -pot%set(j)%buck4r%c/r**6
             END IF
+            lvalue = pp
+         ELSE IF (pot%type(j) == tab_type) THEN
+            index1 = FLOOR((r - pot%set(j)%tab%r(1))/pot%set(j)%tab%dr) + 1
+            index2 = index1 + 1
+            IF (index2 > pot%set(j)%tab%npoints) THEN
+               index2 = pot%set(j)%tab%npoints
+               index1 = index2 - 1
+            ELSEIF (index1 < 1) THEN
+               index1 = 1
+               index2 = 2
+            END IF
+            pp = pot%set(j)%tab%e(index1) + (r - pot%set(j)%tab%r(index1))* &
+                 (pot%set(j)%tab%e(index2) - pot%set(j)%tab%e(index1))/ &
+                 (pot%set(j)%tab%r(index2) - pot%set(j)%tab%r(index1))
             lvalue = pp
          ELSE IF (pot%type(j) == bm_type) THEN
             lvalue = pot%set(j)%buckmo%f0*(pot%set(j)%buckmo%b1 + pot%set(j)%buckmo%b2)* &

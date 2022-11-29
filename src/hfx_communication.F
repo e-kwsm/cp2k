@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -86,9 +88,6 @@ CONTAINS
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: rho_beta
       LOGICAL, INTENT(IN)                                :: antisymmetric
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_full_density', &
-         routineP = moduleN//':'//routineN
-
       INTEGER :: blk, block_size, data_from, dest, i, iatom, icpu, ikind, iset, jatom, jkind, &
          jset, mepos, ncpu, nseta, nsetb, pa, pa1, pb, pb1, req(2), source, source_cpu
       INTEGER, DIMENSION(:), POINTER                     :: nsgfa, nsgfb
@@ -164,7 +163,7 @@ CONTAINS
          IF (icpu .NE. ncpu - 1) THEN
             CALL mp_isendrecv(sendbuffer, dest, recbuffer, source, &
                               para_env%group, req(1), req(2), 13)
-         ENDIF
+         END IF
          data_from = MODULO(mepos - icpu, ncpu)
          source_cpu = MODULO(data_from, ncpu) + 1
          block_size = block_offset(source_cpu + 1) - block_offset(source_cpu)
@@ -172,11 +171,11 @@ CONTAINS
 
          IF (icpu .NE. ncpu - 1) THEN
             CALL mp_waitall(req)
-         ENDIF
+         END IF
          swapbuffer => sendbuffer
          sendbuffer => recbuffer
          recbuffer => swapbuffer
-      ENDDO
+      END DO
       DEALLOCATE (sendbuffer, recbuffer)
       ! sync before/after a ring of isendrecv
       CALL mp_sync(para_env%group)
@@ -212,9 +211,6 @@ CONTAINS
       INTEGER                                            :: kind_of(*)
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: basis_parameter
       REAL(dp), INTENT(IN), OPTIONAL                     :: off_diag_fac, diag_fac
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'distribute_ks_matrix', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: blk, block_size, data_to, dest, dest_cpu, i, iatom, icpu, ikind, iset, jatom, &
          jkind, jset, mepos, ncpu, nseta, nsetb, pa, pa1, pb, pb1, req(2), source
@@ -254,7 +250,7 @@ CONTAINS
          swapbuffer => sendbuffer
          sendbuffer => recbuffer
          recbuffer => swapbuffer
-      ENDDO
+      END DO
       ! sync before/after a ring of isendrecv
       CALL mp_sync(para_env%group)
 
@@ -317,9 +313,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix
       INTEGER, INTENT(IN)                                :: irep
       REAL(dp), INTENT(IN)                               :: scaling_factor
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_and_add_fock_to_ks_matrix', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, ikind, img, natom, nimages, nspins
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of, last_sgf_global
@@ -448,8 +441,7 @@ CONTAINS
       TYPE(hfx_2D_map), DIMENSION(:), POINTER            :: map_atoms_to_cpus
       INTEGER                                            :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_atomic_block_maps', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_atomic_block_maps'
 
       INTEGER :: blk, handle, iatom, ibuf, icpu, ikind, ilist, iset, itask, jatom, jkind, jset, &
          natom, ncpu, nseta, nsetb, number_of_p_blocks, offset, tmp(2)
@@ -509,7 +501,7 @@ CONTAINS
       rdispl(1) = 0
       DO icpu = 2, para_env%num_pe
          rdispl(icpu) = rdispl(icpu - 1) + rcount(icpu - 1)
-      ENDDO
+      END DO
       CALL mp_allgather(buffer_in, buffer_out, rcount, rdispl, para_env%group)
 
       DO ibuf = 0, number_of_p_blocks*para_env%num_pe*3 - 3, 3
@@ -521,8 +513,8 @@ CONTAINS
             jatom = buffer_out(ibuf + 2)
             is_assoc_atomic_block(iatom, jatom) = itask
             is_assoc_atomic_block(jatom, iatom) = itask
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       IF (ASSOCIATED(map_atoms_to_cpus)) THEN
          DO icpu = 1, para_env%num_pe

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -36,8 +38,6 @@ CONTAINS
       TYPE(ilist_type), POINTER                          :: ilist
       CHARACTER(LEN=*)                                   :: token
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ilist_setup', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ind
 
       CPASSERT(ASSOCIATED(ilist))
@@ -64,8 +64,6 @@ CONTAINS
    SUBROUTINE ilist_update(ilist)
       TYPE(ilist_type), POINTER                          :: ilist
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ilist_update', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(ilist))
       ilist%ipresent = ilist%ipresent + 1
       IF (ilist%ipresent > ilist%iend) THEN
@@ -81,8 +79,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE ilist_reset(ilist)
       TYPE(ilist_type), POINTER                          :: ilist
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ilist_reset', routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(ilist))
       IF (ilist%ipresent == ilist%iend) THEN

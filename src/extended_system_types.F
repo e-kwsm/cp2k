@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -92,8 +94,6 @@ CONTAINS
       TYPE(lnhc_parameters_type), POINTER                :: lnhc
       TYPE(section_vals_type), POINTER                   :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lnhc_init', routineP = moduleN//':'//routineN
-
       NULLIFY (lnhc%dt_yosh)
       NULLIFY (lnhc%nvt)
       NULLIFY (lnhc%map_info)
@@ -117,9 +117,6 @@ CONTAINS
    SUBROUTINE create_map_info_type(map_info)
       TYPE(map_info_type), POINTER                       :: map_info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_map_info_type', &
-         routineP = moduleN//':'//routineN
-
       ALLOCATE (map_info)
       NULLIFY (map_info%index, map_info%map_index)
       NULLIFY (map_info%v_scale)
@@ -136,9 +133,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_map_info_type(map_info)
       TYPE(map_info_type), POINTER                       :: map_info
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_map_info_type', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(map_info)) THEN
          IF (ASSOCIATED(map_info%p_kin)) THEN
@@ -172,18 +166,16 @@ CONTAINS
    SUBROUTINE lnhc_dealloc(lnhc)
       TYPE(lnhc_parameters_type), POINTER                :: lnhc
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lnhc_dealloc', routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(lnhc)) THEN
          IF (ASSOCIATED(lnhc%dt_yosh)) THEN
             DEALLOCATE (lnhc%dt_yosh)
          END IF
          IF (ASSOCIATED(lnhc%nvt)) THEN
             DEALLOCATE (lnhc%nvt)
-         ENDIF
+         END IF
          CALL release_map_info_type(lnhc%map_info)
          DEALLOCATE (lnhc)
-      ENDIF
+      END IF
 
    END SUBROUTINE lnhc_dealloc
 

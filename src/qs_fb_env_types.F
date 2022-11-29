@@ -1,17 +1,17 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_fb_env_types
 
    USE kinds,                           ONLY: dp
    USE qs_fb_atomic_halo_types,         ONLY: fb_atomic_halo_list_associate,&
-                                              fb_atomic_halo_list_has_data,&
                                               fb_atomic_halo_list_nullify,&
                                               fb_atomic_halo_list_obj,&
-                                              fb_atomic_halo_list_release,&
-                                              fb_atomic_halo_list_retain
+                                              fb_atomic_halo_list_release
    USE qs_fb_trial_fns_types,           ONLY: fb_trial_fns_associate,&
                                               fb_trial_fns_has_data,&
                                               fb_trial_fns_nullify,&
@@ -36,7 +36,6 @@ MODULE qs_fb_env_types
              fb_env_set
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_fb_env_types'
-   INTEGER, PRIVATE, SAVE :: last_fb_env_id = 0
 
 ! **********************************************************************
 !> \brief wrapper to the simulation parameters used for filtered basis
@@ -62,12 +61,11 @@ MODULE qs_fb_env_types
 !>                             expense of larger memory usage
 !> \param local_atoms        : atoms corresponding to the
 !>                             atomic halos responsible by this processor
-!> \param id_nr : unique id of this object
 !> \param ref_count : reference counter of this object
 !> \author Lianheng Tong (LT) lianheng.tong@kcl.ac.uk
 ! **********************************************************************
    TYPE fb_env_data
-      INTEGER :: id_nr, ref_count
+      INTEGER :: ref_count
       REAL(KIND=dp), DIMENSION(:), POINTER :: rcut
       TYPE(fb_atomic_halo_list_obj) :: atomic_halos
       TYPE(fb_trial_fns_obj) :: trial_fns
@@ -99,8 +97,6 @@ CONTAINS
    SUBROUTINE fb_env_retain(fb_env)
       TYPE(fb_env_obj), INTENT(IN)                       :: fb_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(fb_env%obj))
       CPASSERT(fb_env%obj%ref_count > 0)
       fb_env%obj%ref_count = fb_env%obj%ref_count + 1
@@ -114,8 +110,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fb_env_release(fb_env)
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_release', routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(fb_env%obj)) THEN
          CPASSERT(fb_env%obj%ref_count > 0)
@@ -150,8 +144,6 @@ CONTAINS
    SUBROUTINE fb_env_nullify(fb_env)
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_nullify', routineP = moduleN//':'//routineN
-
       NULLIFY (fb_env%obj)
    END SUBROUTINE fb_env_nullify
 
@@ -164,9 +156,6 @@ CONTAINS
    SUBROUTINE fb_env_associate(a, b)
       TYPE(fb_env_obj), INTENT(OUT)                      :: a
       TYPE(fb_env_obj), INTENT(IN)                       :: b
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_associate', &
-         routineP = moduleN//':'//routineN
 
       a%obj => b%obj
    END SUBROUTINE fb_env_associate
@@ -182,9 +171,6 @@ CONTAINS
       TYPE(fb_env_obj), INTENT(IN)                       :: fb_env
       LOGICAL                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_has_data', &
-         routineP = moduleN//':'//routineN
-
       res = ASSOCIATED(fb_env%obj)
    END FUNCTION fb_env_has_data
 
@@ -196,8 +182,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fb_env_create(fb_env)
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_create', routineP = moduleN//':'//routineN
 
       CPASSERT(.NOT. ASSOCIATED(fb_env%obj))
       ALLOCATE (fb_env%obj)
@@ -211,8 +195,6 @@ CONTAINS
       NULLIFY (fb_env%obj%local_atoms)
       fb_env%obj%nlocal_atoms = 0
       fb_env%obj%ref_count = 1
-      fb_env%obj%id_nr = last_fb_env_id + 1
-      last_fb_env_id = fb_env%obj%id_nr
    END SUBROUTINE fb_env_create
 
 ! **********************************************************************
@@ -224,8 +206,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fb_env_init(fb_env)
       TYPE(fb_env_obj), INTENT(INOUT)                    :: fb_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_init', routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(fb_env%obj))
       IF (ASSOCIATED(fb_env%obj%rcut)) THEN
@@ -283,8 +263,6 @@ CONTAINS
       LOGICAL, INTENT(OUT), OPTIONAL                     :: collective_com
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: local_atoms
       INTEGER, INTENT(OUT), OPTIONAL                     :: nlocal_atoms
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_get', routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(fb_env%obj))
       CPASSERT(fb_env%obj%ref_count > 0)
@@ -344,8 +322,6 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: local_atoms
       INTEGER, INTENT(IN), OPTIONAL                      :: nlocal_atoms
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_env_set', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(fb_env%obj))
       IF (PRESENT(rcut)) THEN
          IF (ASSOCIATED(fb_env%obj%rcut)) THEN
@@ -360,8 +336,6 @@ CONTAINS
       IF (PRESENT(eps_default)) &
          fb_env%obj%eps_default = eps_default
       IF (PRESENT(atomic_halos)) THEN
-         IF (fb_atomic_halo_list_has_data(atomic_halos)) &
-            CALL fb_atomic_halo_list_retain(atomic_halos)
          CALL fb_atomic_halo_list_release(fb_env%obj%atomic_halos)
          CALL fb_atomic_halo_list_associate(fb_env%obj%atomic_halos, atomic_halos)
       END IF

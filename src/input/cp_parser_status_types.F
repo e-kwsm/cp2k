@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,9 +45,6 @@ CONTAINS
    SUBROUTINE create_status_type(status)
       TYPE(status_type), POINTER                         :: status
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_status_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(status))
       ALLOCATE (status)
       status%in_use = .FALSE.
@@ -66,9 +65,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_status_type(status)
       TYPE(status_type), POINTER                         :: status
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_status_type', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(status))
       CALL release_buffer_type(status%buffer)

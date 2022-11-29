@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief input constants for xc
@@ -32,10 +34,9 @@ MODULE xc_input_constants
                                                xc_pbe_rev = 12, &
                                                xc_pbe_sol = 13
 
-   INTEGER, PARAMETER, PUBLIC               :: xc_old_f_routine = 0, &
-                                               xc_new_f_routine = 1, &
-                                               xc_test_lsd_f_routine = 3, &
-                                               xc_debug_new_routine = 4
+   INTEGER, PARAMETER, PUBLIC               :: xc_default_f_routine = 1, &
+                                               xc_test_lsd_f_routine = 2, &
+                                               xc_debug_new_routine = 3
 
    INTEGER, PARAMETER, PUBLIC               :: xgga_b88 = 101, &
                                                xgga_b88x = 102, &

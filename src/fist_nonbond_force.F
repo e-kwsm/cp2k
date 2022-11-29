@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -33,16 +35,11 @@ MODULE fist_nonbond_force
    USE machine,                         ONLY: m_memory
    USE mathconstants,                   ONLY: oorootpi,&
                                               sqrthalf
-   USE mathlib,                         ONLY: matvec_3x3
    USE message_passing,                 ONLY: mp_sum
    USE pair_potential_coulomb,          ONLY: potential_coulomb
-   USE pair_potential_types,            ONLY: nosh_nosh,&
-                                              nosh_sh,&
-                                              pair_potential_pp_type,&
-                                              pair_potential_single_type,&
-                                              sh_sh,&
-                                              siepmann_type,&
-                                              tersoff_type
+   USE pair_potential_types,            ONLY: &
+        gal21_type, gal_type, nosh_nosh, nosh_sh, pair_potential_pp_type, &
+        pair_potential_single_type, sh_sh, siepmann_type, tersoff_type
    USE particle_types,                  ONLY: particle_type
    USE shell_potential_types,           ONLY: get_shell,&
                                               shell_kind_type
@@ -95,7 +92,7 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind_set(:)
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_nonbond', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'force_nonbond'
 
       INTEGER :: atom_a, atom_b, ewald_type, handle, i, iend, igrp, ikind, ilist, ipair, istart, &
          j, kind_a, kind_b, nkind, npairs, shell_a, shell_b, shell_type
@@ -185,7 +182,7 @@ CONTAINS
          IF (npairs == 0) CYCLE
          list => neighbor_kind_pair%list
          cvi = neighbor_kind_pair%cell_vector
-         CALL matvec_3x3(cell_v, cell%hmat, cvi)
+         cell_v = MATMUL(cell%hmat, cvi)
          Kind_Group_Loop: DO igrp = 1, neighbor_kind_pair%ngrp_kind
             istart = neighbor_kind_pair%grp_kind_start(igrp)
             iend = neighbor_kind_pair%grp_kind_end(igrp)
@@ -230,7 +227,8 @@ CONTAINS
                ! Determine the scaling factors
                fac_ei = fac_kind
                fac_vdw = fac_kind
-               full_nl = ANY(pot%type == tersoff_type) .OR. ANY(pot%type == siepmann_type)
+               full_nl = ANY(pot%type == tersoff_type) .OR. ANY(pot%type == siepmann_type) &
+                         .OR. ANY(pot%type == gal_type) .OR. ANY(pot%type == gal21_type)
                IF ((.NOT. full_nl) .AND. (atom_a == atom_b)) THEN
                   fac_ei = 0.5_dp*fac_ei
                   fac_vdw = 0.5_dp*fac_vdw
@@ -339,6 +337,8 @@ CONTAINS
                      rab_list(1:3, 2) = 0.0_dp
                      rab_list(1:3, 3) = 0.0_dp
                      rab_list(1:3, 4) = rab_ss(1:3) + cell_v(1:3)
+                  ELSE
+                     rab_list(:, :) = 0.0_dp
                   END IF
                   ! Compute the term only if all the pairs (cc,cs,sc,ss) are within the cut-off
                   Check_terms: DO i = 1, 4
@@ -355,6 +355,7 @@ CONTAINS
                   rab_com = rab_cc
                   shell_a = 0
                   shell_b = 0
+                  rab_list(:, :) = 0.0_dp
                END IF
                rab_com = rab_com + cell_v
                rab2_com = rab_com(1)**2 + rab_com(2)**2 + rab_com(3)**2
@@ -657,8 +658,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'bonded_correct_gaussian', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'bonded_correct_gaussian'
 
       INTEGER :: atom_a, atom_b, group, handle, iatom, iend, igrp, ilist, ipair, istart, kind_a, &
          kind_b, natoms_per_kind, nkind, npairs, shell_a, shell_b
@@ -724,7 +724,8 @@ CONTAINS
 
                ! Determine the scaling factors
                fac_ei = ij_kind_full_fac(kind_a, kind_b)
-               full_nl = ANY(pot%type == tersoff_type) .OR. ANY(pot%type == siepmann_type)
+               full_nl = ANY(pot%type == tersoff_type) .OR. ANY(pot%type == siepmann_type) &
+                         .OR. ANY(pot%type == gal_type) .OR. ANY(pot%type == gal21_type)
                IF ((.NOT. full_nl) .AND. (atom_a == atom_b)) THEN
                   fac_ei = fac_ei*0.5_dp
                END IF
@@ -916,8 +917,6 @@ CONTAINS
       TYPE(atprop_type), POINTER                         :: atprop_env
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'bonded_correct_gaussian_low', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER :: ac1 = 0.254829592_dp, ac2 = -0.284496736_dp, &
          ac3 = 1.421413741_dp, ac4 = -1.453152027_dp, ac5 = 1.061405429_dp, pc = 0.3275911_dp
 
@@ -1021,8 +1020,6 @@ CONTAINS
       TYPE(atprop_type), POINTER                         :: atprop_env
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'bonded_correct_gaussian_low_sh', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER :: ac1 = 0.254829592_dp, ac2 = -0.284496736_dp, &
          ac3 = 1.421413741_dp, ac4 = -1.453152027_dp, ac5 = 1.061405429_dp, pc = 0.3275911_dp
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -103,9 +105,6 @@ CONTAINS
    SUBROUTINE create_simpar_type(simpar)
       TYPE(simpar_type), POINTER                         :: simpar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_simpar_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(simpar))
       ALLOCATE (simpar)
    END SUBROUTINE create_simpar_type
@@ -117,9 +116,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_simpar_type(simpar)
       TYPE(simpar_type), POINTER                         :: simpar
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_simpar_type', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(simpar))
       DEALLOCATE (simpar)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,26 +41,26 @@
 ! **************************************************************************************************
 PROGRAM cp2k
 
+   USE OMP_LIB,                         ONLY: omp_get_max_threads,&
+                                              omp_set_num_threads
    USE cp2k_info,                       ONLY: compile_revision,&
                                               cp2k_flags,&
                                               cp2k_version,&
-                                              id_cp2k_version,&
                                               print_cp2k_license
    USE cp2k_runs,                       ONLY: run_input,&
                                               write_xml_file
    USE cp2k_shell,                      ONLY: launch_cp2k_shell
+   USE cp_files,                        ONLY: open_file
    USE f77_interface,                   ONLY: check_input,&
                                               default_para_env,&
                                               finalize_cp2k,&
                                               init_cp2k
-   USE input_constants,                 ONLY: id_development_version
    USE input_cp2k,                      ONLY: create_cp2k_root_section
    USE input_section_types,             ONLY: section_release,&
                                               section_type
    USE iso_fortran_env,                 ONLY: compiler_options,&
                                               compiler_version
-   USE kinds,                           ONLY: default_path_length,&
-                                              default_string_length
+   USE kinds,                           ONLY: default_path_length
    USE machine,                         ONLY: default_output_unit
 #include "../base/base_uses.f90"
 
@@ -66,7 +68,6 @@ PROGRAM cp2k
 
    CHARACTER(LEN=default_path_length)   :: input_file_name, output_file_name, &
                                            arg_att, command
-   CHARACTER(LEN=default_string_length) :: dev_flag
    CHARACTER(LEN=default_path_length), &
       DIMENSION(:, :), ALLOCATABLE      :: initial_variables, initial_variables_tmp
    CHARACTER(LEN=:), ALLOCATABLE        :: compiler_options_string
@@ -97,8 +98,8 @@ PROGRAM cp2k
    output_file_name = "__STD_OUT__" ! by default we go to std_out
    ALLOCATE (initial_variables(2, 1:0))
 
-   ! get command and strip path
-   CALL GET_COMMAND(command, status=ierr)
+   ! Get command and strip path
+   CALL GET_COMMAND_ARGUMENT(NUMBER=0, VALUE=command, STATUS=ierr)
    CPASSERT(ierr == 0)
    l = LEN_TRIM(command)
    DO i = l, 1, -1
@@ -106,7 +107,42 @@ PROGRAM cp2k
    END DO
    command = command(i + 1:l)
 
-   ! check if binary was invoked as cp2k_shell
+   ! Consider output redirection
+   i_arg = 0
+   DO WHILE (i_arg < COMMAND_ARGUMENT_COUNT())
+      i_arg = i_arg + 1
+      CALL GET_COMMAND_ARGUMENT(NUMBER=i_arg, VALUE=arg_att, STATUS=ierr)
+      CPASSERT(ierr == 0)
+      SELECT CASE (arg_att)
+      CASE ("-o")
+         IF (output_file_name == "__STD_OUT__") THEN
+            ! Consider only the first -o flag
+            i_arg = i_arg + 1
+            CALL GET_COMMAND_ARGUMENT(NUMBER=i_arg, VALUE=arg_att, STATUS=ierr)
+            CPASSERT(ierr == 0)
+            IF (arg_att(1:1) == "-") THEN
+               WRITE (output_unit, "(/,T2,A)") &
+                  "ERROR: The output file name "//TRIM(arg_att)//" starts with -"
+               command_line_error = .TRUE.
+            ELSE
+               output_file_name = arg_att
+               CALL open_file(file_name=output_file_name, &
+                              file_status="UNKNOWN", &
+                              file_action="WRITE", &
+                              file_position="APPEND", &
+                              skip_get_unit_number=.TRUE., &
+                              unit_number=output_unit)
+            END IF
+         ELSE
+            i_arg = i_arg + 1
+            WRITE (output_unit, "(/,T2,A)") &
+               "ERROR: The command line flag -o has been specified multiple times"
+            command_line_error = .TRUE.
+         END IF
+      END SELECT
+   END DO
+
+   ! Check if binary was invoked as cp2k_shell
    IF (command(1:10) == "cp2k_shell") THEN
       shell_mode = .TRUE.
       run_it = .FALSE.
@@ -115,6 +151,31 @@ PROGRAM cp2k
          "ERROR: At least one command line argument must be specified"
       command_line_error = .TRUE.
    END IF
+
+   ! Check if binary was invoked as sopt or popt alias
+   l = LEN_TRIM(command)
+   IF (command(l - 4:l) == ".sopt" .OR. command(l - 4:l) == ".popt") THEN
+      CALL omp_set_num_threads(1)
+   END IF
+
+#ifdef __ACCELERATE
+   IF (omp_get_max_threads() > 1) THEN
+      BLOCK
+         CHARACTER(len=default_path_length) :: env_var
+         INTEGER :: veclib_max_threads, ierr
+         CALL get_environment_variable("VECLIB_MAXIMUM_THREADS", env_var, status=ierr)
+         veclib_max_threads = 0
+         IF (ierr == 0) &
+            READ (env_var, *) veclib_max_threads
+         IF (ierr == 1 .OR. (ierr == 0 .AND. veclib_max_threads > 1)) THEN
+            CALL cp_warn(__LOCATION__, &
+                         "macOS' Accelerate framework has its own threading enabled which may interfere"// &
+                         " with the OpenMP threading. You can disable the Accelerate threading by setting"// &
+                         " the environment variable VECLIB_MAXIMUM_THREADS=1")
+         END IF
+      END BLOCK
+   END IF
+#endif
 
    i_arg = 0
    arg_loop: DO WHILE (i_arg < COMMAND_ARGUMENT_COUNT())
@@ -154,10 +215,10 @@ PROGRAM cp2k
             has_input = .TRUE.
          ELSE
             WRITE (output_unit, "(/,T2,A)") &
-               "ERROR: The input file name"//TRIM(arg_att)//" starts with -"
+               "ERROR: The input file name "//TRIM(arg_att)//" starts with -"
             command_line_error = .TRUE.
             EXIT arg_loop
-         ENDIF
+         END IF
       CASE ("-E", "--set")
          i_arg = i_arg + 1
          CALL GET_COMMAND_ARGUMENT(i_arg, arg_att, status=ierr)
@@ -169,7 +230,7 @@ PROGRAM cp2k
             WRITE (output_unit, "(/,T2,A)") "ERROR: Invalid initializer for preprocessor variable: "//TRIM(arg_att)
             command_line_error = .TRUE.
             EXIT arg_loop
-         ENDIF
+         END IF
 
          DO inp_var_idx = 1, SIZE(initial_variables, 2)
             ! check whether the variable was already set, in this case, overwrite
@@ -182,27 +243,20 @@ PROGRAM cp2k
             ALLOCATE (initial_variables_tmp(2, SIZE(initial_variables, 2) + 1))
             initial_variables_tmp(:, 1:SIZE(initial_variables, 2)) = initial_variables
             CALL MOVE_ALLOC(initial_variables_tmp, initial_variables)
-         ENDIF
+         END IF
 
          initial_variables(1, inp_var_idx) = arg_att(:var_set_sep - 1)
          initial_variables(2, inp_var_idx) = arg_att(var_set_sep + 1:)
       CASE ("-o")
+         ! Skip -o flag which have been processed already
          i_arg = i_arg + 1
          CALL GET_COMMAND_ARGUMENT(i_arg, arg_att, status=ierr)
          CPASSERT(ierr == 0)
-         ! argument does not start with a - it is an filename
-         IF (.NOT. arg_att(1:1) == "-") THEN
-            output_file_name = arg_att
-         ELSE
-            WRITE (output_unit, "(/,T2,A)") &
-               "ERROR: The output file name"//TRIM(arg_att)//" starts with -"
-            command_line_error = .TRUE.
-            EXIT arg_loop
-         ENDIF
+         IF (arg_att(1:1) == "-") EXIT arg_loop
       CASE ("--xml")
          xml = .TRUE.
          run_it = .FALSE.
-      CASE default
+      CASE DEFAULT
          ! if the last argument does not start with a - it is an input filename
          !MK in order to digest the additional flags of mpirun
          IF ((.NOT. has_input) .AND. &
@@ -210,8 +264,8 @@ PROGRAM cp2k
              (.NOT. arg_att(1:1) == "-")) THEN
             input_file_name = arg_att
             has_input = .TRUE.
-         ELSEIF (has_input .AND. &
-                 (.NOT. arg_att(1:1) == "-")) THEN
+         ELSE IF (has_input .AND. &
+                  (.NOT. arg_att(1:1) == "-")) THEN
             WRITE (output_unit, "(/,T2,A)") &
                "Error: Tried to specify two input files"
             command_line_error = .TRUE.
@@ -219,6 +273,7 @@ PROGRAM cp2k
          END IF
       END SELECT
    END DO arg_loop
+
    IF ((run_it .OR. force_run .OR. check .OR. echo_input) .AND. &
        (.NOT. has_input) .AND. (.NOT. command_line_error)) THEN
       WRITE (UNIT=output_unit, FMT="(/,T2,A)") &
@@ -270,11 +325,7 @@ PROGRAM cp2k
          ! write the version string
          IF (print_version) THEN
             IF (default_para_env%ionode) THEN
-               dev_flag = ""
-               IF (id_cp2k_version == id_development_version) &
-                  dev_flag = " (Development Version)"
-               WRITE (output_unit, "(T2,A)") &
-                  cp2k_version//TRIM(dev_flag), &
+               WRITE (output_unit, "(T2,A)") cp2k_version, &
                   "Source code revision "//TRIM(compile_revision), &
                   TRIM(cp2k_flags())
                compiler_options_string = compiler_options()
@@ -292,8 +343,8 @@ PROGRAM cp2k
          IF (print_license) THEN
             IF (default_para_env%ionode) THEN
                CALL print_cp2k_license(output_unit)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          IF (xml) THEN
             IF (default_para_env%ionode) THEN
@@ -310,26 +361,26 @@ PROGRAM cp2k
                IF (ierr == 0) THEN
                   IF (.NOT. echo_input) THEN
                      WRITE (output_unit, "(A)") "SUCCESS, the input could be parsed correctly."
-                     WRITE (output_unit, "(A)") "         This is does not guarantee that this input is meaningful"
+                     WRITE (output_unit, "(A)") "         This does not guarantee that this input is meaningful"
                      WRITE (output_unit, "(A)") "         or will run successfully"
-                  ENDIF
+                  END IF
                ELSE
                   WRITE (output_unit, "(A)") "ERROR,   the input could *NOT* be parsed correctly."
                   WRITE (output_unit, "(A)") "         Please, check and correct it"
                END IF
             END IF
-         ENDIF
+         END IF
 
          IF (shell_mode) THEN
             CALL launch_cp2k_shell(input_declaration)
-         ENDIF
+         END IF
 
          IF (run_it .OR. force_run) THEN
             CALL run_input(input_declaration, input_file_name, output_file_name, initial_variables)
          END IF
 
          CALL section_release(input_declaration)
-      ENDIF
+      END IF
    ELSE
       WRITE (UNIT=output_unit, FMT="(/,A)") "initial setup (MPI ?) error"
    END IF

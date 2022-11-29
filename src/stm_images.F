@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,13 +52,13 @@ MODULE stm_images
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_elec
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
 #include "./base/base_uses.f90"
@@ -98,7 +100,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: unoccupied_orbs
       TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: unoccupied_evals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'th_stm_image', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'th_stm_image'
 
       INTEGER                                            :: handle, irep, ispin, n_rep, ndim, nmo, &
                                                             nspin, output_unit
@@ -113,11 +115,11 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
       TYPE(dbcsr_type), POINTER                          :: stm_density_ao
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
 
@@ -157,10 +159,10 @@ CONTAINS
 
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                       pw_pools=pw_pools)
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
@@ -178,13 +180,13 @@ CONTAINS
       ALLOCATE (occupation(nspin))
       DO ispin = 1, nspin
          IF (nadd_unocc(ispin) == 0) THEN
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                             eigenvalues=mo_eigenvalues, nmo=nmo, mu=efermi, occupation_numbers=mo_occ)
             mo_arrays(ispin)%matrix => mo_coeff
             evals(ispin)%array => mo_eigenvalues
             occupation(ispin)%array => mo_occ
          ELSE
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                             eigenvalues=mo_eigenvalues, nmo=nmo, mu=efermi, occupation_numbers=mo_occ)
             ndim = nmo + nadd_unocc(ispin)
             ALLOCATE (evals(ispin)%array(ndim))
@@ -195,13 +197,14 @@ CONTAINS
             occupation(ispin)%array(1 + nmo:ndim) = 0.0_dp
             CALL cp_fm_struct_create(fm_struct_tmp, ncol_global=ndim, &
                                      template_fmstruct=mo_coeff%matrix_struct)
+            ALLOCATE (mo_arrays(ispin)%matrix)
             CALL cp_fm_create(mo_arrays(ispin)%matrix, fm_struct_tmp, name="mo_arrays")
             CALL cp_fm_struct_release(fm_struct_tmp)
             CALL cp_fm_to_fm(mo_coeff, mo_arrays(ispin)%matrix, nmo, 1, 1)
             CALL cp_fm_to_fm(unoccupied_orbs(ispin)%matrix, mo_arrays(ispin)%matrix, &
                              nadd_unocc(ispin), 1, nmo + 1)
          END IF
-      ENDDO
+      END DO
       IF (use_ref_energy) efermi = ref_energy
 
       CALL stm_cubes(ks_env, stm_section, stm_density_ao, wf_r, wf_g, mo_arrays, evals, &
@@ -212,6 +215,7 @@ CONTAINS
             DEALLOCATE (evals(ispin)%array)
             DEALLOCATE (occupation(ispin)%array)
             CALL cp_fm_release(mo_arrays(ispin)%matrix)
+            DEALLOCATE (mo_arrays(ispin)%matrix)
          END IF
       END DO
       DEALLOCATE (mo_arrays)
@@ -219,8 +223,8 @@ CONTAINS
       DEALLOCATE (occupation)
 
       CALL dbcsr_deallocate_matrix(stm_density_ao)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
 
       DEALLOCATE (stm_th_torb)
       DEALLOCATE (nadd_unocc)
@@ -260,7 +264,7 @@ CONTAINS
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(section_vals_type), POINTER                   :: stm_section
       TYPE(dbcsr_type), POINTER                          :: stm_density_ao
-      TYPE(pw_p_type)                                    :: wf_r, wf_g
+      TYPE(pw_type), INTENT(INOUT)                       :: wf_r, wf_g
       TYPE(cp_fm_p_type), DIMENSION(:), INTENT(IN)       :: mo_arrays
       TYPE(cp_1d_r_p_type), DIMENSION(:), INTENT(IN)     :: evals, occupation
       REAL(KIND=dp)                                      :: efermi
@@ -272,7 +276,7 @@ CONTAINS
 
       CHARACTER(LEN=*), DIMENSION(0:9), PARAMETER :: &
          torb_string = (/"  s", " px", " py", " pz", "dxy", "dyz", "dzx", "dx2", "dy2", "dz2"/)
-      CHARACTER(len=*), PARAMETER :: routineN = 'stm_cubes', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'stm_cubes'
 
       CHARACTER(LEN=default_path_length)                 :: filename
       CHARACTER(LEN=default_string_length)               :: my_pos, oname, title
@@ -280,10 +284,10 @@ CONTAINS
                                                             istates, nmo, nspin, nstates(2), &
                                                             state_start(2), unit_nr
       LOGICAL                                            :: mpi_io
-      REAL(KIND=dp)                                      :: alpha, total_rho
+      REAL(KIND=dp)                                      :: alpha
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: occ_tot
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: matrix_v, matrix_vf
+      TYPE(cp_fm_type)                                   :: matrix_v, matrix_vf
       TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL timeset(routineN, handle)
@@ -327,9 +331,9 @@ CONTAINS
                END DO
                IF ((output_unit > 0) .AND. evals(ispin)%array(nmo) < efermi + stm_biases(ibias)) &
                   WRITE (output_unit, '(T4,A)') "Warning: E-Fermi+bias above highest computed unoccupied MO"
-            ENDIF
+            END IF
             istates = istates + nstates(ispin)
-         ENDDO
+         END DO
          IF ((output_unit > 0)) WRITE (output_unit, '(T4,A,I0,A)') "Using a total of ", istates, " states"
          IF (istates == 0) CYCLE
 
@@ -356,7 +360,7 @@ CONTAINS
                   alpha - occupation(ispin)%array(state_start(ispin):state_start(ispin) - 1 + nstates(ispin))
             END IF
             istates = istates + nstates(ispin)
-         ENDDO
+         END DO
 
          CALL cp_fm_column_scale(matrix_vf, occ_tot(1:istates))
          alpha = 1.0_dp
@@ -368,7 +372,7 @@ CONTAINS
          DO i = 1, SIZE(stm_th_torb)
             iorb = stm_th_torb(i)
             CALL calculate_rho_elec(matrix_p=stm_density_ao, &
-                                    rho=wf_r, rho_gspace=wf_g, total_rho=total_rho, &
+                                    rho=wf_r, rho_gspace=wf_g, &
                                     ks_env=ks_env, der_type=iorb)
 
             oname = torb_string(iorb)
@@ -384,7 +388,7 @@ CONTAINS
                                            middle_name=TRIM(filename), file_position=my_pos, file_action="WRITE", &
                                            log_filename=.FALSE., mpi_io=mpi_io)
             WRITE (title, '(A,I0,A,I0,A,F16.8)') "STM cube ", ibias, " wfn deriv. ", iorb, " at bias ", stm_biases(ibias)
-            CALL cp_pw_to_cube(wf_r%pw, unit_nr, title, particles=particles, &
+            CALL cp_pw_to_cube(wf_r, unit_nr, title, particles=particles, &
                                stride=section_get_ivals(stm_section, "STRIDE"), zero_tails=.TRUE., &
                                mpi_io=mpi_io)
 
@@ -395,7 +399,7 @@ CONTAINS
          CALL cp_fm_release(matrix_vf)
          DEALLOCATE (occ_tot)
 
-      ENDDO
+      END DO
 
       CALL timestop(handle)
 

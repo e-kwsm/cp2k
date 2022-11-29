@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -117,7 +119,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: psockfd
       REAL(KIND=dp), INTENT(IN)                          :: fdata
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'writebuffer_d', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'writebuffer_d'
 
       INTEGER                                            :: handle
       REAL(KIND=C_DOUBLE), TARGET                        :: cdata
@@ -138,7 +140,7 @@ CONTAINS
    SUBROUTINE writebuffer_i(psockfd, fdata)
       INTEGER, INTENT(IN)                                :: psockfd, fdata
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'writebuffer_i', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'writebuffer_i'
 
       INTEGER                                            :: handle
       INTEGER(KIND=C_INT), TARGET                        :: cdata
@@ -162,7 +164,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: fstring
       INTEGER, INTENT(IN)                                :: plen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'writebuffer_s', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'writebuffer_s'
 
       INTEGER                                            :: handle, i
       CHARACTER(LEN=1, KIND=C_CHAR), TARGET              :: cstring(plen)
@@ -171,7 +173,7 @@ CONTAINS
 
       DO i = 1, plen
          cstring(i) = fstring(i:i)
-      ENDDO
+      END DO
       CALL writebuffer_csocket(psockfd, c_loc(cstring(1)), plen)
 
       CALL timestop(handle)
@@ -188,7 +190,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: psockfd, plen
       REAL(KIND=dp), INTENT(IN), TARGET                  :: fdata(plen)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'writebuffer_dv', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'writebuffer_dv'
 
       INTEGER                                            :: handle
 
@@ -208,7 +210,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: psockfd
       REAL(KIND=dp), INTENT(OUT)                         :: fdata
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'readbuffer_d', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'readbuffer_d'
 
       INTEGER                                            :: handle
       REAL(KIND=C_DOUBLE), TARGET                        :: cdata
@@ -230,7 +232,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: psockfd
       INTEGER, INTENT(OUT)                               :: fdata
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'readbuffer_i', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'readbuffer_i'
 
       INTEGER                                            :: handle
       INTEGER(KIND=C_INT), TARGET                        :: cdata
@@ -254,7 +256,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(OUT)                      :: fstring
       INTEGER, INTENT(IN)                                :: plen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'readbuffer_s', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'readbuffer_s'
 
       INTEGER                                            :: handle, i
       CHARACTER(LEN=1, KIND=C_CHAR), TARGET              :: cstring(plen)
@@ -265,7 +267,7 @@ CONTAINS
       fstring = ""
       DO i = 1, plen
          fstring(i:i) = cstring(i)
-      ENDDO
+      END DO
 
       CALL timestop(handle)
 
@@ -281,7 +283,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: psockfd, plen
       REAL(KIND=dp), INTENT(OUT), TARGET                 :: fdata(plen)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'readbuffer_dv', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'readbuffer_dv'
 
       INTEGER                                            :: handle
 
@@ -307,8 +309,7 @@ CONTAINS
       TYPE(force_env_type), POINTER            :: force_env
       TYPE(global_environment_type), POINTER   :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'run_driver', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'run_driver'
 
 #ifdef __NO_IPI_DRIVER
       INTEGER                                  :: handle
@@ -373,7 +374,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (output_unit, *) "@ i-PI DRIVER BEING LOADED"
          WRITE (output_unit, *) "@ INPUT DATA: ", TRIM(drv_hostname), drv_port, drv_unix
-      ENDIF
+      END IF
 
       c_hostname = TRIM(drv_hostname)//C_NULL_CHAR
       IF (ionode) CALL open_socket(socket, i_drv_unix, drv_port, c_hostname)
@@ -396,8 +397,8 @@ CONTAINS
             DO iwait = 0, para_env%num_pe - 1
                IF (iwait /= para_env%source) THEN
                   CALL mp_send(msg=wait_msg, dest=iwait, gid=para_env%group, tag=666)
-               ENDIF
-            ENDDO
+               END IF
+            END DO
          ELSE
             CALL mp_irecv(msgout=wait_msg, source=para_env%source, comm=para_env%group, &
                           tag=666, request=wait_req(2))
@@ -405,8 +406,8 @@ CONTAINS
             DO WHILE (.NOT. fwait)
                CALL mp_testany(wait_req(2:), flag=fwait)
                CALL uwait(sleeptime)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
          CALL mp_sync(para_env%group)
 
@@ -421,8 +422,8 @@ CONTAINS
                   CALL writebuffer(socket, "HAVEDATA    ", MSGLEN)
                ELSE
                   CALL writebuffer(socket, "READY       ", MSGLEN)
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             CALL mp_sync(para_env%group)
          ELSE IF (TRIM(header) == "POSDATA") THEN
             IF (ionode) THEN
@@ -433,7 +434,7 @@ CONTAINS
                CALL readbuffer(socket, nat)
                cellh = TRANSPOSE(cellh)
                cellih = TRANSPOSE(cellih)
-            ENDIF
+            END IF
             CALL mp_bcast(cellh, para_env%source, para_env%group)
             CALL mp_bcast(cellih, para_env%source, para_env%group)
             CALL mp_bcast(nat, para_env%source, para_env%group)
@@ -490,13 +491,13 @@ CONTAINS
                ! the string. here we just send back zero characters.
                nat = 0
                CALL writebuffer(socket, nat) ! writes out zero for the length of the "extra" field (not implemented yet!)
-            ENDIF
+            END IF
             hasdata = .FALSE.
          ELSE
             IF (output_unit > 0) WRITE (output_unit, *) " @DRIVER MODE:  Socket disconnected, time to exit. "
             EXIT
-         ENDIF
-      ENDDO driver_loop
+         END IF
+      END DO driver_loop
 
       ! clean up
       CALL cell_release(cpcell)

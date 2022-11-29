@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -55,7 +57,7 @@ MODULE mscfg_methods
                                               qs_env_release,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -79,9 +81,6 @@ CONTAINS
 
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(force_env_type), POINTER                      :: force_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'loop_over_molecules', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nmols
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: charge_of_frag, first_atom_of_frag, &
@@ -141,8 +140,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: first_atom_of_frag, last_atom_of_frag, &
                                                             charge_of_frag, multip_of_frag
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calcs_on_isolated_molecules', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calcs_on_isolated_molecules'
 
       CHARACTER(LEN=default_string_length)               :: name
       CHARACTER(LEN=default_string_length), &
@@ -156,7 +154,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_subsys_type), POINTER                      :: subsys, subsys_loc
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_of_frag
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_of_frag
       TYPE(molecular_scf_guess_env_type), POINTER        :: mscfg_env
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(qs_energy_type), POINTER                      :: qs_energy
@@ -206,7 +204,7 @@ CONTAINS
             !! Get total number of MOs
             CALL get_qs_env(qs_env, mos=mos)
             IF (SIZE(mos) .GT. 1) CPABORT("Unrestricted ALMO methods are NYI") !! Unrestricted ALMO is not implemented yet
-            CALL get_mo_set(mo_set=mos(1)%mo_set, nmo=nmo)
+            CALL get_mo_set(mo_set=mos(1), nmo=nmo)
             !! Initialize storage of MO energies for ALMO smearing
             CPASSERT(ASSOCIATED(almo_scf_env))
             ALLOCATE (almo_scf_env%mo_energies(nmo, SIZE(mos)))
@@ -286,6 +284,7 @@ CONTAINS
                                   small_para_env=para_env, small_cell=cell, sub_atom_index=atom_index, &
                                   sub_atom_kind_name=atom_type, para_env=para_env, &
                                   force_env_section=force_env_section, subsys_section=subsys_section)
+         ALLOCATE (qs_env_loc)
          CALL qs_env_create(qs_env_loc, globenv)
          CALL qs_init(qs_env_loc, para_env, root_section, globenv=globenv, cp_subsys=subsys_loc, &
                       force_env_section=force_env_section, subsys_section=subsys_section, &
@@ -319,13 +318,13 @@ CONTAINS
                !! Manually add compatibility between ALMO SCF and diag SCF (used for smearing compatibility)
                !! MOs are required to compute ALMO orbitals, but not stored with diag SCF algorithm...
                !! RS-WARNING: Should be properly fixed, this is just a raw fix.
-               CALL copy_fm_to_dbcsr(mos_of_frag(imo)%mo_set%mo_coeff, &
-                                     mos_of_frag(imo)%mo_set%mo_coeff_b)
+               CALL copy_fm_to_dbcsr(mos_of_frag(imo)%mo_coeff, &
+                                     mos_of_frag(imo)%mo_coeff_b)
                IF (smear_almo_scf) THEN
                   !! Store MOs energies for ALMO smearing purpose
-                  nmo_of_frag = SIZE(mos_of_frag(imo)%mo_set%eigenvalues)
+                  nmo_of_frag = SIZE(mos_of_frag(imo)%eigenvalues)
                   almo_scf_env%mo_energies(nb_eigenval_stored + 1:nb_eigenval_stored + nmo_of_frag, imo) &
-                     = mos_of_frag(imo)%mo_set%eigenvalues(:)
+                     = mos_of_frag(imo)%eigenvalues(:)
                   !! update stored energies offset. Assumes nmosets_of_frag == 1 (general smearing ALMO assumption)
                   nb_eigenval_stored = nb_eigenval_stored + nmo_of_frag
                END IF
@@ -333,16 +332,17 @@ CONTAINS
 
             ! the matrices have been allocated already - copy the results there
             CALL dbcsr_create(mscfg_env%mos_of_frag(ifrag, imo), &
-                              template=mos_of_frag(imo)%mo_set%mo_coeff_b, &
+                              template=mos_of_frag(imo)%mo_coeff_b, &
                               matrix_type=dbcsr_type_no_symmetry)
             CALL dbcsr_copy(mscfg_env%mos_of_frag(ifrag, imo), &
-                            mos_of_frag(imo)%mo_set%mo_coeff_b)
-         ENDDO
+                            mos_of_frag(imo)%mo_coeff_b)
+         END DO
          !
          ! Clean up
          !
          NULLIFY (qs_energy)
          CALL qs_env_release(qs_env_loc)
+         DEALLOCATE (qs_env_loc)
          DEALLOCATE (atom_index)
          DEALLOCATE (atom_type)
 
@@ -377,9 +377,6 @@ CONTAINS
          DIMENSION(:), POINTER                           :: atom_type
       INTEGER, INTENT(IN)                                :: frag, nfrags, charge, multpl
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_frag_info', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=11)                                  :: charI
       INTEGER                                            :: i, iw
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -390,7 +387,7 @@ CONTAINS
          iw = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          iw = -1
-      ENDIF
+      END IF
 
       IF (iw > 0) THEN
 
@@ -425,8 +422,6 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       LOGICAL                                            :: do_mol_loop
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_mol_loop', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: almo_guess_type, frz_term_type, &
                                                             method_name_id, scf_guess_type
       LOGICAL                                            :: almo_scf_is_on, is_crystal, is_fast_dirty
@@ -455,7 +450,7 @@ CONTAINS
          !!!! RZK-warning: All decisions are based on the values of input keywords
          !!!! The real danger is that many of these keywords might not be even
          !!!! in control of the job. They might be simply present in the input
-         !!!! This section must be re-writen more accurately
+         !!!! This section must be re-written more accurately
 
          ! check ALMO SCF guess option
          NULLIFY (subsection)
@@ -490,10 +485,10 @@ CONTAINS
                is_fast_dirty = .FALSE.
                IF (frz_term_type .EQ. almo_frz_crystal) THEN
                   is_crystal = .TRUE.
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
-         ENDIF
+         END IF
 
          mscfg_env%is_fast_dirty = is_fast_dirty
          mscfg_env%is_crystal = is_crystal

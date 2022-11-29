@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,8 +52,6 @@ MODULE outer_scf_control_types
 !> \param max_iter_lumus maxumum number of iterations used to calculate
 !>        the lumos at the end of the scf
 !> \param max_scf max scf iterations
-!> \param id_nr unique number to identify an scf control
-!> \param ref_count reference count (see cp2k/doc/ReferenceCounting.html)
 !> \param added_mos additional number of MOs that might be used in the SCF
 !> \param step_size the optimizer step size
 !> \param cdft_opt_control settings for optimizers that work only together with CDFT constraints
@@ -101,9 +101,6 @@ CONTAINS
 
       TYPE(outer_scf_control_type)                       :: outer_scf
       TYPE(section_vals_type), POINTER                   :: outer_scf_section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'outer_scf_read_parameters', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: exists
 

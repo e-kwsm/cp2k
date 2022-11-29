@@ -8,6 +8,17 @@
       CUTOFF 120
       REL_CUTOFF 30
     &END MGRID
+    &PRINT
+      &DFT_CONTROL_PARAMETERS
+      &END DFT_CONTROL_PARAMETERS
+      &MO
+        NDIGITS 10
+        RANGE 4 25
+        &EACH
+          QS_SCF 3
+        &END EACH
+      &END MO
+    &END PRINT
     &QS
       METHOD GPW
       EPS_DEFAULT 1.0E-12
@@ -34,9 +45,9 @@
     &END XC
     &KPOINTS
        SCHEME  MONKHORST-PACK  1 1 1
-       SYMMETRY ON 
+       SYMMETRY ON
        EPS_GEO 1.e-8
-       FULL_GRID ON 
+       FULL_GRID ON
        VERBOSE F
        PARALLEL_GROUP_SIZE  0
        WAVEFUNCTIONS REAL

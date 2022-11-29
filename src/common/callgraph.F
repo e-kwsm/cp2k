@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 MODULE callgraph
    USE kinds, ONLY: int_4, int_8
@@ -10,12 +12,12 @@ MODULE callgraph
    IMPLICIT NONE
    PRIVATE
 
-#:include 'hash_map.fypp'
+   #:include 'hash_map.fypp'
 
-#:call hash_map(prefix='callgraph', &
-                key_type='INTEGER(kind=int_4), DIMENSION(2)', &
-                value_type='TYPE(call_stat_type), POINTER')
-#:endcall hash_map
+   #:call hash_map(prefix='callgraph', &
+      key_type='INTEGER(kind=int_4), DIMENSION(2)', &
+      value_type='TYPE(call_stat_type), POINTER')
+   #:endcall hash_map
 
 ! **************************************************************************************************
 !> \brief ...

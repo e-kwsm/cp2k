@@ -36,7 +36,7 @@
           MINIMAX_QUADRATURE
           RPA_NUM_QUAD_POINTS    16
         &END
-        &INTEGRALS 
+        &INTEGRALS
           &WFC_GPW
             CUTOFF      200
             REL_CUTOFF  35
@@ -72,9 +72,7 @@
 &GLOBAL
   PROJECT     H2O-32-RI-RPA-TZ
   RUN_TYPE    ENERGY
+  PREFERRED_DIAG_LIBRARY SL
   PRINT_LEVEL MEDIUM
-  &TIMINGS
-     THRESHOLD 0.0001
-  &END
 &END GLOBAL
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,12 +12,9 @@
 !> \author MDB
 ! **************************************************************************************************
 MODULE input_cp2k_mp2
-   USE bibliography,                    ONLY: Bates2013,&
-                                              DelBen2012,&
-                                              DelBen2013,&
-                                              DelBen2015,&
-                                              DelBen2015b,&
-                                              Rybkin2016
+   USE bibliography,                    ONLY: &
+        Bates2013, DelBen2012, DelBen2013, DelBen2015, DelBen2015b, Rybkin2016, Wilhelm2016a, &
+        Wilhelm2016b, Wilhelm2017, Wilhelm2018
    USE cp_eri_mme_interface,            ONLY: create_eri_mme_section
    USE cp_output_handling,              ONLY: add_last_numeric,&
                                               cp_print_key_section_create,&
@@ -27,13 +26,17 @@ MODULE input_cp2k_mp2
    USE cp_units,                        ONLY: cp_unit_to_cp2k
    USE input_constants,                 ONLY: &
         do_eri_gpw, do_eri_mme, do_eri_os, do_potential_coulomb, do_potential_id, &
-        do_potential_long, do_potential_short, do_potential_truncated, do_potential_tshpsc, &
-        eri_default, gaussian, gw_no_print_exx, gw_pade_approx, gw_print_exx, gw_read_exx, &
-        gw_skip_for_regtest, gw_two_pole_model, mp2_method_direct, mp2_method_gpw, &
-        mp2_method_none, numerical, ri_default, ri_rpa_g0w0_crossing_bisection, &
+        do_potential_long, do_potential_mix_cl, do_potential_short, do_potential_truncated, &
+        do_potential_tshpsc, eri_default, gaussian, gw_gf_gamma, gw_gf_mic, gw_no_print_exx, &
+        gw_pade_approx, gw_print_exx, gw_read_exx, gw_skip_for_regtest, gw_two_pole_model, &
+        kp_weights_W_auto, kp_weights_W_tailored, kp_weights_W_uniform, mp2_method_direct, &
+        mp2_method_gpw, mp2_method_none, numerical, ot_precond_full_all, ot_precond_full_kinetic, &
+        ot_precond_full_single, ot_precond_full_single_inverse, ot_precond_none, &
+        ot_precond_s_inverse, ri_default, ri_rpa_g0w0_crossing_bisection, &
         ri_rpa_g0w0_crossing_newton, ri_rpa_g0w0_crossing_z_shot, wfc_mm_style_gemm, &
-        wfc_mm_style_syrk
+        wfc_mm_style_syrk, z_solver_cg, z_solver_pople, z_solver_richardson, z_solver_sd
    USE input_cp2k_hfx,                  ONLY: create_hfx_section
+   USE input_cp2k_kpoints,              ONLY: create_kpoint_set_section
    USE input_keyword_types,             ONLY: keyword_create,&
                                               keyword_release,&
                                               keyword_type
@@ -65,18 +68,16 @@ CONTAINS
    SUBROUTINE create_mp2_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mp2_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: subsection
+      TYPE(section_type), POINTER                        :: print_key, subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="WF_CORRELATION", &
                           description="Sets up the wavefunction-based correlation methods as MP2, "// &
                           "RI-MP2, RI-SOS-MP2, RI-RPA and GW (inside RI-RPA). ", &
                           n_keywords=4, n_subsections=7, repeats=.TRUE., &
-                          citations=(/DelBen2012, DelBen2013, DelBen2015, DelBen2015b, Rybkin2016/))
+                          citations=(/DelBen2012, DelBen2013, DelBen2015, DelBen2015b, Rybkin2016, &
+                                      Wilhelm2016a, Wilhelm2016b, Wilhelm2017, Wilhelm2018/))
 
       NULLIFY (keyword, subsection)
 
@@ -86,6 +87,31 @@ CONTAINS
          description="Maximum allowed total memory usage during MP2 methods [MiB].", &
          usage="MEMORY 1500 ", &
          default_r_val=1.024E+3_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="E_GAP", &
+         description="Gap energy for integration grids in Hartree. Defaults to -1.0 (automatic determination). "// &
+         "Recommended to set if several RPA or SOS-MP2 gradient calculations are requested or to be restarted. "// &
+         "In this way, differences of integration grids across different runs are removed as CP2K "// &
+         "does not include derivatives thereof.", &
+         usage="E_GAP  0.5", &
+         default_r_val=-1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="E_RANGE", &
+         description="Energy range (ratio of largest and smallest) energy difference "// &
+         "of unoccupied and occupied orbitals for integration grids. Defaults to 0.0 (automatic determination). "// &
+         "Recommended to set if several RPA or SOS-MP2 gradient calculations are requested or to be restarted. "// &
+         "In this way, differences of integration grids across different runs are removed as CP2K "// &
+         "does not include derivatives thereof.", &
+         usage="E_RANGE  10.0", &
+         default_r_val=-1.0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -114,11 +140,11 @@ CONTAINS
          name="GROUP_SIZE", &
          variants=(/"NUMBER_PROC"/), &
          description="Group size used in the computation of GPW and MME integrals and the MP2 correlation energy. "// &
-         "A smaller GROUP_SIZE (for example GROUP_SIZE = number of MPI ranks per node) "// &
-         "accelerates the computation of integrals but a too small "// &
-         "GROUP_SIZE may lead to out of memory. To use all processors set GROUP_SIZE -1 "// &
-         "(might lead to VERY high computation times).", &
-         usage="GROUP_SIZE 32", &
+         "The group size must be a divisor of the total number of MPI ranks. "// &
+         "A smaller group size (for example the number of MPI ranks per node) "// &
+         "accelerates the computation of integrals but a too large group size increases communication costs. "// &
+         "A too small group size may lead to out of memory.", &
+         usage="GROUP_SIZE 2", &
          default_i_val=1)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -153,6 +179,17 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_canonical_gradients(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      NULLIFY (print_key)
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "PRINT", &
+                                       description="Controls the printing basic info about WFC methods", &
+                                       print_level=low_print_level, add_last=add_last_numeric, filename="__STD_OUT__")
+      CALL section_add_subsection(section, print_key)
+      CALL section_release(print_key)
+
    END SUBROUTINE create_mp2_section
 
 ! **************************************************************************************************
@@ -162,11 +199,7 @@ CONTAINS
    SUBROUTINE create_mp2_details_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mp2_details_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: print_key
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="MP2", &
@@ -196,13 +229,6 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      NULLIFY (print_key)
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "MP2_INFO", &
-                                       description="Controls the printing basic info about MP2 method", &
-                                       print_level=low_print_level, add_last=add_last_numeric, filename="__STD_OUT__")
-      CALL section_add_subsection(section, print_key)
-      CALL section_release(print_key)
-
       CALL keyword_create( &
          keyword, __LOCATION__, &
          name="BIG_SEND", &
@@ -223,10 +249,7 @@ CONTAINS
    SUBROUTINE create_ri_mp2(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_mp2', routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
-      TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="RI_MP2", &
@@ -242,11 +265,6 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      NULLIFY (subsection)
-      CALL create_cphf(subsection)
-      CALL section_add_subsection(section, subsection)
-      CALL section_release(subsection)
-
       CALL keyword_create(keyword, __LOCATION__, name="BLOCK_SIZE", &
                           variants=(/"MESSAGE_SIZE"/), &
                           description="Determines the blocking used for communication in RI-MP2. Larger BLOCK_SIZE "// &
@@ -256,25 +274,12 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="EPS_CANONICAL", &
-                          description="Threshold for discriminate if a given ij pairs "// &
-                          "of the unrelaxed MP2 density matrix has to be "// &
-                          "calculated with a canonical reformulation based "// &
-                          "on the occupied eigenvalues differences.", &
-                          usage="EPS_CANONICAL 1.0E-8", type_of_var=real_t, &
-                          default_r_val=1.0E-7_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
       CALL keyword_create( &
          keyword, __LOCATION__, &
-         name="FREE_HFX_BUFFER", &
-         description="Free the buffer containing the 4 center integrals used in the Hartree-Fock exchange calculation. "// &
-         "This will be effective only for gradients calculations, since for the energy only "// &
-         "case, the buffers are released by default. (Right now debugging only).", &
-         usage="FREE_HFX_BUFFER", &
-         default_l_val=.TRUE., &
-         lone_keyword_l_val=.TRUE.)
+         name="PRINT_DGEMM_INFO", &
+         description="Print details about all DGEMM calls.", &
+         lone_keyword_l_val=.TRUE., &
+         default_l_val=.FALSE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -286,9 +291,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_opt_ri_basis(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_opt_ri_basis', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -373,9 +375,6 @@ CONTAINS
    SUBROUTINE create_ri_laplace(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_laplace', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -402,13 +401,11 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create( &
-         keyword, __LOCATION__, name="SIZE_INTEG_GROUP", &
-         variants=(/"LAPLACE_GROUP_SIZE"/), &
-         description="Group size for the integration in the Laplace method, that is the number of processes involved in "// &
-         "the computation of each integration point. SIZE_INTEG_GROUP has to be a multiple "// &
-         "of GROUP_SIZE in the WF_CORRELATION section. The default (-1) "// &
-         "is automatic.", &
-         usage="SIZE_INTEG_GROUP 16", &
+         keyword, __LOCATION__, name="NUM_INTEG_GROUPS", &
+         description="Number of groups for the integration in the Laplace method. Each groups processes "// &
+         "the same amount of quadrature points. It must be a divisor of the number of quadrature points and "// &
+         "NUM_INTEG_GROUPS*GROUP_SIZE must be a divisor of the total number of processes. The default (-1) is automatic.", &
+         usage="SIZE_INTEG_GROUP 2", &
          default_i_val=-1)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -419,10 +416,73 @@ CONTAINS
 !> \brief ...
 !> \param section ...
 ! **************************************************************************************************
-   SUBROUTINE create_ri_rpa(section)
+   SUBROUTINE create_canonical_gradients(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_rpa', routineP = moduleN//':'//routineN
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="CANONICAL_GRADIENTS", &
+                          description="Parameters influencing gradient calculations of canonical RI methods. "// &
+                          "Ignored if the IM_TIME section is set.", &
+                          n_keywords=3, n_subsections=1, repeats=.FALSE.)
+
+      NULLIFY (subsection, keyword)
+      CALL create_cphf(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EPS_CANONICAL", &
+                          description="Threshold under which a given ij or ab pair is considered to be degenerate and "// &
+                          "its contribution to the density matrix is calculated directly. "// &
+                          "Ignored in case of energy-only calculation.", &
+                          usage="EPS_CANONICAL 1.0E-8", type_of_var=real_t, &
+                          default_r_val=1.0E-7_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="FREE_HFX_BUFFER", &
+         description="Free the buffer containing the 4 center integrals used in the Hartree-Fock exchange calculation. "// &
+         "This will be effective only for gradients calculations, since for the energy only "// &
+         "case, the buffers are released by default. (Right now debugging only).", &
+         usage="FREE_HFX_BUFFER", &
+         default_l_val=.TRUE., &
+         lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="USE_OLD_GRADIENT_CODE", &
+         description="Use the original RI-MP2 gradient code.", &
+         usage="USE_OLD_GRADIENT_CODE  T", &
+         lone_keyword_l_val=.TRUE., &
+         default_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="DOT_PRODUCT_BLKSIZE", &
+         description="Dot products for the calculation of the RPA/SOS-MP2 density matrices "// &
+         "are calculated in batches of the size given by this keyword. Larger block sizes "// &
+         "improve the performance but reduce the numerical accuracy. Recommended block sizes are multiples of the number of "// &
+         "doubles per cache line (usually 8). Ignored with MP2 gradients. Set it to -1 to prevent blocking.", &
+         default_i_val=32)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_canonical_gradients
+
+! **************************************************************************************************
+!> \brief ...
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_ri_rpa(section)
+      TYPE(section_type), POINTER                        :: section
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -449,13 +509,12 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="SIZE_FREQ_INTEG_GROUP", &
-                          variants=(/"RPA_GROUP_SIZE"/), &
-                          description="Group size for frequency integration, that is the number of processes involved in "// &
-                          "the computation of each integration point. SIZE_FREQ_INTEG_GROUP has to be a multiple "// &
-                          "of GROUP_SIZE in the WF_CORRELATION section. The default (-1) "// &
-                          "is automatic.", &
-                          usage="SIZE_FREQ_INTEG_GROUP 16", &
+      CALL keyword_create(keyword, __LOCATION__, name="NUM_INTEG_GROUPS", &
+                          description="Number of groups for the integration in the Laplace method. Each groups processes "// &
+                          "the same amount of quadrature points. It must be a divisor of the number of quadrature points and "// &
+                          "NUM_INTEG_GROUPS*GROUP_SIZE must be a divisor of the total number of processes. "// &
+                          "The default (-1) is automatic.", &
+                          usage="SIZE_INTEG_GROUP 2", &
                           default_i_val=-1)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -510,10 +569,10 @@ CONTAINS
          keyword, __LOCATION__, &
          name="ADMM", &
          description="Decide whether to perform ADMM in the exact exchange calc. for RPA and/or GW. "// &
-         "Not really recommended. In most cases, the Hartree-Fock exchange is not expensive "// &
-         "and there is no need for ADMM. Only in case of diffuse functions for periodic systems "// &
-         "(only reasonable for GW bandgap calculations) exact exchange can be expensive and then, "// &
-         "we recommend using RI for exchange.", &
+         "The ADMM XC correction is governed by the AUXILIARY_DENSITY_MATRIX_METHOD section in &DFT. "// &
+         "In most cases, the Hartree-Fock exchange is not too expensive and there is no need for ADMM, "// &
+         "ADMM can however provide significant speedup and memory savings in case of diffuse basis sets. "// &
+         "If it is a GW bandgap calculations, RI_SIGMA_X can also be used. ", &
          usage="ADMM", &
          default_l_val=.FALSE., &
          lone_keyword_l_val=.TRUE.)
@@ -526,6 +585,15 @@ CONTAINS
          description="Scales RPA energy contributions (RPA, AXK).", &
          usage="SCALE_RPA 1.0", &
          default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="PRINT_DGEMM_INFO", &
+         description="Print details about all DGEMM calls.", &
+         lone_keyword_l_val=.TRUE., &
+         default_l_val=.FALSE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -553,8 +621,6 @@ CONTAINS
    SUBROUTINE create_ri_axk(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_axk', routineP = moduleN//':'//routineN
-
       !TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -574,8 +640,6 @@ CONTAINS
    SUBROUTINE create_ri_g0w0(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_g0w0', routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -587,7 +651,7 @@ CONTAINS
       NULLIFY (keyword, subsection)
 
       CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="Activates cubic-scaling RPA, GW and Laplace-SOS-MP2 calculations.", &
+                          description="Activates GW calculations.", &
                           usage="&GW .TRUE.", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -718,10 +782,9 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="RI_SIGMA_X", &
                           description="If true, the exchange self-energy is calculated approximatively with RI. "// &
-                          "This is only recommended in case exact exchange is very costly, e.g. when "// &
-                          "using diffuse basis functions (seems not to work for periodic systems).", &
+                          "If false, the Hartree-Fock implementation in CP2K is used.", &
                           usage="RI_SIGMA_X", &
-                          default_l_val=.FALSE., &
+                          default_l_val=.TRUE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -744,9 +807,11 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="PERIODIC", &
-                          description="If true, the periodic correction scheme is used employing k-points.", &
-                          usage="PERIODIC", &
+      CALL keyword_create(keyword, __LOCATION__, name="PERIODIC_CORRECTION", &
+                          description="If true, the periodic correction scheme is used employing k-points. "// &
+                          "Method is not recommended to use, use instead PERIODIC_LOW_SCALING which much "// &
+                          "more accurate than the periodic correction.", &
+                          usage="PERIODIC_CORRECTION", &
                           default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -806,6 +871,24 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="UPDATE_XC_ENERGY", &
+                          description="If true, the Hartree-Fock and RPA total energy are printed and the total energy "// &
+                          "is corrected using exact exchange and the RPA correlation energy.", &
+                          usage="UPDATE_XC_ENERGY", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="KPOINTS_SELF_ENERGY", &
+                          description="Specify number of k-points for the k-point grid of the self-energy. Internally, a "// &
+                          "Monkhorst-Pack grid is used. A dense k-point grid may be necessary to compute an accurate density "// &
+                          "of state from GW. Large self-energy k-meshes do not cost much more computation time.", &
+                          usage="KPOINTS  nx  ny  nz", repeats=.TRUE., &
+                          n_var=3, type_of_var=integer_t, default_i_vals=(/0, 0, 0/))
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       ! here we generate a subsection for the periodic GW correction
       CALL create_periodic_gw_correction_section(subsection)
       CALL section_add_subsection(section, subsection)
@@ -826,6 +909,11 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      ! here we generate a subsection for calculating the GW band structures
+      CALL create_kpoint_set_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
    END SUBROUTINE create_ri_g0w0
 
 ! **************************************************************************************************
@@ -834,9 +922,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -847,11 +932,11 @@ CONTAINS
 
       NULLIFY (keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="", &
-                          variants=(/"SELF_ENERGY"/), &
+      CALL keyword_create(keyword, __LOCATION__, name="SELF_ENERGY", &
                           description="If true, print the self-energy for all levels for real energy "// &
-                          "together with the straight line to see the quasiparticle energy as intersection.", &
-                          usage="SELF_ENERGY TRUE", &
+                          "together with the straight line to see the quasiparticle energy as intersection. "// &
+                          "In addition, prints the self-energy for imaginary frequencies together with the Pade fit.", &
+                          usage="SELF_ENERGY", &
                           default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -866,14 +951,12 @@ CONTAINS
    SUBROUTINE create_periodic_gw_correction_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_periodic_gw_correction_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
-      CALL section_create(section, __LOCATION__, name="PERIODIC", &
-                          description="Parameters influencing correction for periodic GW.", &
+      CALL section_create(section, __LOCATION__, name="PERIODIC_CORRECTION", &
+                          description="Parameters influencing correction for periodic GW. Old method, "// &
+                          "not recommended to use", &
                           n_keywords=12, n_subsections=1, repeats=.FALSE.)
 
       NULLIFY (keyword)
@@ -976,9 +1059,6 @@ CONTAINS
    SUBROUTINE create_bse_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_bse_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -999,7 +1079,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="THRESHOLD_MIN_TRANS", &
                           variants=(/"EPS"/), &
-                          description="Threshold for stopping the iteration for computing the transistion energies. "// &
+                          description="Threshold for stopping the iteration for computing the transition energies. "// &
                           "If the lowest excitation changes by less than THRESHOLD_MIN_TRANS (in eV), the ieration"// &
                           "stops.", &
                           usage="THRESHOLD_MIN_TRANS 0.001", &
@@ -1008,7 +1088,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="MAX_ITER", &
-                          description="Maximum number of iterations for determining the transistion energies.", &
+                          description="Maximum number of iterations for determining the transition energies.", &
                           usage="MAX_ITER 200", &
                           default_i_val=200)
       CALL section_add_keyword(section, keyword)
@@ -1022,9 +1102,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_ic_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ic_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1061,9 +1138,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_low_scaling(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_low_scaling', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -1123,6 +1197,16 @@ CONTAINS
 
       CALL keyword_create( &
          keyword, __LOCATION__, &
+         name="EPS_STORAGE_SCALING", &
+         variants=(/"EPS_STORAGE"/), &
+         description="Scaling factor to scale EPS_FILTER. Storage threshold for compression "// &
+         "will be EPS_FILTER*EPS_STORAGE_SCALING.", &
+         default_r_val=1.0E-3_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
          name="DO_KPOINTS", &
          description="Besides in DFT, this keyword has to be switched on if one wants to do kpoints in. "// &
          "cubic RPA.", &
@@ -1133,19 +1217,11 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create( &
-         keyword, __LOCATION__, &
-         name="CUTOFF_W", &
-         description="Cutoff for screened Coulomb interaction for GW kpoints.", &
-         usage="CUTOFF_W 0.5", &
-         default_r_val=0.5_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create( &
          keyword, __LOCATION__, name="KPOINTS", &
-         description="For periodic calculations, using kpoints for the density response and the "// &
-         "Coulomb operator are strongly recommended. For 2d periodic systems (e.g. xy "// &
-         "periodicity, please specify KPOINTS  N_x  0  N_z.", &
+         description="Keyword activates periodic, low-scaling GW calculations (&LOW_SCALING section also needed). "// &
+         "For periodic calculations, kpoints are used for the density response, the "// &
+         "Coulomb interaction and the screened Coulomb interaction. For 2d periodic systems, e.g. xz "// &
+         "periodicity, please also specify KPOINTS, e.g.  N_x  1  N_z.", &
          usage="KPOINTS  N_x  N_y  N_z", &
          n_var=3, type_of_var=integer_t, default_i_vals=(/0, 0, 0/))
       CALL section_add_keyword(section, keyword)
@@ -1153,17 +1229,148 @@ CONTAINS
 
       CALL keyword_create( &
          keyword, __LOCATION__, &
-         name="EXP_KPOINTS", &
-         description="For kpoints in low-scaling GW, a Monkhorst-Pack mesh is used. Because the screened Coulomb "// &
-         "interaction W(k) diverges at the Gamma point with W(k) ~ k^alpha, we adapt the weights of the "// &
-         "Monkhorst-Pack mesh to compute int_BZ k^alpha dk (BZ=Brllouin zone) correctly with the Monkhorst-Pack "// &
-         "mesh. You can enter here the exponent alpha. For solids, the exponent is -2 (known from plane waves), "// &
-         "for 2d periodic systems -1 and for 1d systems W(k) ~ log(1-cos(a*k)) where a is the length of the unit "// &
-         "cell in periodic direction. If you enter 1.0, one of these three functions are picked according to the "// &
-         "periodicity. If you enter a value bigger than 2.0, the ordinary Monkhorst-Pack mesh with identical "// &
-         "weights is chosen.", &
-         usage="EXP_KPOINTS -2.0", &
-         default_r_val=1.0_dp)
+         name="KPOINT_WEIGHTS_W", &
+         description="For kpoints in low-scaling GW, a Monkhorst-Pack mesh is used. The screened Coulomb "// &
+         "interaction W(k) needs special care near the Gamma point (e.g. in 3d, W(k) diverges at the "// &
+         "Gamma point with W(k) ~ k^alpha). KPOINT_WEIGHTS_W decides how the weights of the "// &
+         "Monkhorst-Pack mesh are chosen to compute W(R) = int_BZ W(k) exp(ikR) dk (BZ=Brllouin zone). ", &
+         usage="KPOINT_WEIGHTS_W AUTO", &
+         enum_c_vals=s2a("TAILORED", "AUTO", "UNIFORM"), &
+         enum_i_vals=(/kp_weights_W_tailored, kp_weights_W_auto, kp_weights_W_uniform/), &
+         enum_desc=s2a("Choose k-point integration weights such that the function f(k)=k^alpha is "// &
+                       "exactly integrated. alpha is specified using EXPONENT_TAILORED_WEIGHTS.", &
+                       "As 'TAILORED', but alpha is chosen automatically according to dimensionality "// &
+                       "(3D: alpha = -2 for 3D, 2D: alpha = -1 for exchange self-energy, uniform "// &
+                       "weights for correlation self-energy).", &
+                       "Choose the same weight for every k-point (original Monkhorst-Pack method)."), &
+         default_i_val=kp_weights_W_uniform)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="EXPONENT_TAILORED_WEIGHTS", &
+         description="Gives the exponent of exactly integrated function in case 'KPOINT_WEIGHTS_W "// &
+         "TAILORED' is chosen.", &
+         usage="EXPONENT_TAILORED_WEIGHTS -2", &
+         default_r_val=-2.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="REL_CUTOFFS_CHI_W", &
+         description="For periodic calculations, the irreducible density reponse chi^0(r,r') and the screened "// &
+         "Coulomb interaction W(r,r') is truncated "// &
+         "in real space. No truncation of chi^0(r,r') and W(r,r') for |r-r'| < cutoff_1*(smallest lattice vector length), "// &
+         "chi^0(r,r') is set to zero for |r-r'| > cutoff_2*(smallest lattice vector length). Smooth transition "// &
+         "in between. For cutoff_1 = 0.5, and cutoff_2 = 0.5, we have the minimum image convention (that is also default).", &
+         usage="REL_CUTOFFS_CHI cutoff_1 cutoff_2", &
+         n_var=2, type_of_var=real_t, default_r_vals=(/0.5_dp, 0.5_dp/))
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="REGULARIZATION_RI", &
+         description="Parameter to reduce the expansion coefficients in RI for periodic GW. Larger parameter "// &
+         "means smaller expansion coefficients that leads to a more stable calculation at the price "// &
+         "of a slightly worse RI approximation. In case the parameter 0.0 is chosen, ordinary RI is used.", &
+         usage="REGULARIZATION_RI 1.0E-4", &
+         default_r_val=0.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="EPS_EIGVAL_S", &
+         description="Parameter to reduce the expansion coefficients in RI for periodic GW. Removes all "// &
+         "eigenvectors and eigenvalues of S_PQ(k) that are smaller than EPS_EIGVAL_S. ", &
+         usage="EPS_EIGVAL_S 1.0E-3", &
+         default_r_val=0.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="MAKE_CHI_POS_DEFINITE", &
+         description="If true, makes eigenvalue decomposition of chi(iw,k) and removes negative "// &
+         "eigenvalues. May increase computational cost significantly. Only recommended to try in case "// &
+         "Cholesky decomposition of epsilon(iw,k) fails.", &
+         usage="MAKE_CHI_POS_DEFINITE", &
+         default_l_val=.TRUE., &
+         lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="DO_EXTRAPOLATE_KPOINTS", &
+         description="If true, use a larger k-mesh to extrapolate the k-point integration of W. "// &
+         "For example, in 2D, when using  KPOINTS 4 4 1, an additional 6x6x1 mesh will be used to "// &
+         "extrapolate the k-point integration of W with N_k^-0.5, where Nk is the number of k-points.", &
+         usage="DO_EXTRAPOLATE_KPOINTS FALSE", &
+         default_l_val=.TRUE., &
+         lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="TRUNC_COULOMB_RI_X", &
+         description="If true, use the truncated Coulomb operator for the exchange-self-energy in "// &
+         "periodic GW.", &
+         usage="TRUNC_COULOMB_RI_X", &
+         default_l_val=.TRUE., &
+         lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="REL_CUTOFF_TRUNC_COULOMB_RI_X", &
+         description="Only active in case TRUNC_COULOMB_RI_X = True. Normally, relative cutoff = 0.5 is "// &
+         "good choice; still needs to be evaluated for RI schemes. ", &
+         usage="REL_CUTOFF_TRUNC_COULOMB_RI_X 0.3", &
+         default_r_val=0.5_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="KEEP_QUADRATURE", &
+         variants=s2a("KEEP_WEIGHTS", "KEEP_QUAD", "KEEP_WEIGHT"), &
+         description="Keep the Laplace quadrature defined at the first energy evaluations throughout "// &
+         "the run. Allows to have consistent force evaluations.", &
+         usage="KEEP_QUADRATURE", &
+         default_l_val=.TRUE., &
+         lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="K_MESH_G_FACTOR", &
+         description="The k-mesh for the Green's function can be chosen to be larger than the k-mesh for "// &
+         "W (without much higher computational cost). The factor given here multiplies the mesh for W to obtain"// &
+         "the k-mesh for G. Example: factor 4, k-mesh for W: 4x4x1 -> k-mesh for G: 16x16x1 (z-dir. is "// &
+         "non-periodic).", &
+         default_i_val=1)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      NULLIFY (keyword)
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="GREENS_FUNCTION", &
+         description="Decides which scheme is used for the periodic Green's function "// &
+         "(only relevant for periodic GW calculations)."// &
+         "Both schemes are exact in the limit of large unit cells.", &
+         usage="GREENS_FUNCTION GAMMA", &
+         enum_c_vals=s2a("GAMMA", "MIC"), &
+         enum_i_vals=(/gw_gf_gamma, gw_gf_mic/), &
+         enum_desc=s2a("Use the Green's functions at the Gamma point. ", &
+                       "Use the minimum-image convention for the Green's function."), &
+         default_i_val=gw_gf_gamma)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1172,40 +1379,23 @@ CONTAINS
          name="MIN_BLOCK_SIZE", &
          description="Minimum tensor block size. Adjusting this value may have minor effect on "// &
          "performance but default should be good enough.", &
-         default_i_val=8)
+         default_i_val=5)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="MIN_BLOCK_SIZE_MO", &
+         description="Tensor block size for MOs. Only relevant for GW calculations. "// &
+         "The memory consumption of GW scales as O(MIN_BLOCK_SIZE_MO). It is recommended to "// &
+         "set this parameter to a smaller number if GW runs out of memory. "// &
+         "Otherwise the default should not be changed.", &
+         default_i_val=64)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       NULLIFY (subsection)
-      CALL section_create(subsection, __LOCATION__, name="TEST", &
-                          description="Manually set performance-critical parameters that are otherwise automatically chosen. "// &
-                          "This section should not be "// &
-                          "placed except for testing/debugging.", &
-                          repeats=.FALSE.)
-
-      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="Activates use of parameters in this section.", &
-                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="GROUP_SIZE_3c", &
-                          description= &
-                          "Group size used for "// &
-                          "the multiplication M^occ/virt(it)=(alpha beta P)*D^occ/virt.", &
-                          usage="GROUP_SIZE_3c 8", &
-                          default_i_val=1)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL keyword_create(keyword, __LOCATION__, name="GROUP_SIZE_P", &
-                          description= &
-                          "Group size used for the calculation of P(it)=(Mocc(it))^T*Mvirt(it). ", &
-                          usage="GROUP_SIZE_P 8", &
-                          default_i_val=1)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
+      CALL create_low_scaling_cphf(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -1217,8 +1407,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_wfc_gpw(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_wfc_gpw', routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1291,8 +1479,6 @@ CONTAINS
    SUBROUTINE create_cphf(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_cphf', routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1312,6 +1498,26 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="RESTART_EVERY", &
+                          description="Restart iteration every given number of steps.", &
+                          usage="RESTART_EVERY 5", &
+                          default_i_val=5)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SOLVER_METHOD", &
+                          description="Chose solver of the z-vector equations.", &
+                          usage="SOLVER_METHOD POPLE", enum_c_vals= &
+                          s2a("POPLE", "CG", "RICHARDSON", "SD"), &
+                          enum_desc=s2a("Pople's method (Default).", &
+                                        "Conjugated gradient method (equivalent to Pople).", &
+                                        "Richardson iteration", &
+                                        "Steepest Descent iteration"), &
+                          enum_i_vals=(/z_solver_pople, z_solver_cg, z_solver_richardson, z_solver_sd/), &
+                          default_i_val=z_solver_pople)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="EPS_CONV", &
                           description="Convergence threshold for the solution of the Z-vector equations. "// &
                           "The Z-vector equations have the form of a linear system of equations Ax=b, "// &
@@ -1321,7 +1527,104 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="SCALE_STEP_SIZE", &
+                          description="Scaling factor of each step.", &
+                          usage="SCALE_STEP_SIZE 1.0", &
+                          default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ENFORCE_DECREASE", &
+                          description="Restarts if residual does not decrease.", &
+                          usage="ENFORCE_DECREASE T", &
+                          lone_keyword_l_val=.TRUE., &
+                          default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="DO_POLAK_RIBIERE", &
+                          description="Use a Polak-Ribiere update of the search vector in CG instead of the Fletcher "// &
+                          "Reeves update. Improves the convergence with modified step sizes. "// &
+                          "Ignored with other methods than CG.", &
+                          usage="ENFORCE_DECREASE T", &
+                          lone_keyword_l_val=.TRUE., &
+                          default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="RECALC_RESIDUAL", &
+                          description="Recalculates residual in every step.", &
+                          usage="RECALC_RESIDUAL T", &
+                          lone_keyword_l_val=.TRUE., &
+                          default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
    END SUBROUTINE create_cphf
+
+! **************************************************************************************************
+!> \brief ...
+!> \param section ...
+! **************************************************************************************************
+   SUBROUTINE create_low_scaling_cphf(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+
+      NULLIFY (keyword)
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="CPHF", &
+                          description="Parameters influencing the solution of the Z-vector equations "// &
+                          "in low-scaling Laplace-SOS-MP2 gradients calculations.", &
+                          n_keywords=5, n_subsections=0, repeats=.FALSE.)
+
+      CALL keyword_create(keyword, __LOCATION__, name="EPS_CONV", &
+                          description="Target accuracy for Z-vector euation solution.", &
+                          usage="EPS 1.e-6", default_r_val=1.e-6_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MAX_ITER", &
+                          description="Maximum number of conjugate gradient iteration to be performed for one optimization.", &
+                          usage="MAX_ITER 200", default_i_val=50)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="PRECONDITIONER", &
+         description="Type of preconditioner to be used with all minimization schemes. "// &
+         "They differ in effectiveness, cost of construction, cost of application. "// &
+         "Properly preconditioned minimization can be orders of magnitude faster than doing nothing.", &
+         usage="PRECONDITIONER FULL_ALL", &
+         default_i_val=ot_precond_full_all, &
+         enum_c_vals=s2a("FULL_ALL", "FULL_SINGLE_INVERSE", "FULL_SINGLE", "FULL_KINETIC", "FULL_S_INVERSE", &
+                         "NONE"), &
+         enum_desc=s2a("Most effective state selective preconditioner based on diagonalization, "// &
+                       "requires the ENERGY_GAP parameter to be an underestimate of the HOMO-LUMO gap. "// &
+                       "This preconditioner is recommended for almost all systems, except very large systems where "// &
+                       "make_preconditioner would dominate the total computational cost.", &
+                       "Based on H-eS cholesky inversion, similar to FULL_SINGLE in preconditioning efficiency "// &
+                       "but cheaper to construct, "// &
+                       "might be somewhat less robust. Recommended for large systems.", &
+                       "Based on H-eS diagonalisation, not as good as FULL_ALL, but somewhat cheaper to apply. ", &
+                       "Cholesky inversion of S and T, fast construction, robust, and relatively good, "// &
+                       "use for very large systems.", &
+                       "Cholesky inversion of S, not as good as FULL_KINETIC, yet equally expensive.", &
+                       "skip preconditioning"), &
+         enum_i_vals=(/ot_precond_full_all, ot_precond_full_single_inverse, ot_precond_full_single, &
+                       ot_precond_full_kinetic, ot_precond_s_inverse, ot_precond_none/))
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ENERGY_GAP", &
+                          description="Energy gap estimate [a.u.] for preconditioning", &
+                          usage="ENERGY_GAP 0.1", &
+                          default_r_val=0.2_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_low_scaling_cphf
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1329,9 +1632,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_mp2_potential(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mp2_potential', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1347,10 +1647,14 @@ CONTAINS
          description="Which interaction potential should be used "// &
          "(Coulomb, TShPSC operator).", &
          usage="POTENTIAL_TYPE TSHPSC", &
-         enum_c_vals=s2a("COULOMB", "TShPSC", "LONGRANGE"), &
+         enum_c_vals=s2a("COULOMB", "TShPSC", "LONGRANGE", "SHORTRANGE", "TRUNCATED", "MIX_CL", "IDENTITY"), &
          enum_i_vals=(/do_potential_coulomb, &
                        do_potential_TShPSC, &
-                       do_potential_long/), &
+                       do_potential_long, &
+                       do_potential_short, &
+                       do_potential_truncated, &
+                       do_potential_mix_cl, &
+                       do_potential_id/), &
          enum_desc=s2a("Coulomb potential: 1/r", &
                        "TShPSC:<ul><li>1/x - s/Rc for x &le; Rc</li>"// &
                        "<li>(1 - s)/Rc - (x - Rc)/Rc^2 + (x - Rc)^2/Rc^3 - "// &
@@ -1358,14 +1662,19 @@ CONTAINS
                        "(6-3*s - 4*n + n^2)*(x - Rc)^4/(Rc^5*(n^4 - 4*n^3 + 6*n^2 - 4*n + 1)) "// &
                        "for Rc &lt; x &le; n*Rc (4th order polynomial)</li>"// &
                        "<li>0 for x &gt; n*Rc</li></ul>", &
-                       "Longrange Coulomg potential: erf(w*r)/r)"), &
+                       "Longrange Coulomb potential: erf(w*r)/r)", &
+                       "Shortrange Coulomb potential: erfc(w*r)/r", &
+                       "Truncated Coulomb potential", &
+                       "Mixed Coulomb/Longrange Coulomb potential", &
+                       "Delta potential"), &
          default_i_val=do_potential_coulomb)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="TRUNCATION_RADIUS", &
-                          description="Determines truncation radius for the truncated TShPSC potential. "// &
-                          "Only valid when doing truncated calculation", &
+                          variants=(/"CUTOFF_RADIUS"/), &
+                          description="Determines truncation radius for the truncated potentials. "// &
+                          "Only valid when doing truncated calculations", &
                           usage="TRUNCATION_RADIUS 10.0", type_of_var=real_t, &
                           default_r_val=10.0_dp, &
                           unit_str="angstrom")
@@ -1374,9 +1683,10 @@ CONTAINS
 
       CALL keyword_create( &
          keyword, __LOCATION__, &
-         name="TShPSC_DATA", &
-         description="Location of the file TShPSC.dat that contains the data for the "// &
-         "evaluation of the TShPSC G0 ", &
+         name="POTENTIAL_DATA", &
+         variants=s2a("TShPSC_DATA", "T_C_G_DATA"), &
+         description="Location of the file TShPSC.dat or t_c_g.dat that contains the data for the "// &
+         "evaluation of the evaluation of the truncated potentials", &
          usage="TShPSC_DATA t_sh_p_s_c.dat", &
          default_c_val="t_sh_p_s_c.dat")
       CALL section_add_keyword(section, keyword)
@@ -1385,9 +1695,30 @@ CONTAINS
       CALL keyword_create( &
          keyword, __LOCATION__, &
          name="OMEGA", &
-         description="Range separation parameter for the longrange potential. Only valid when longrange potential is requested.", &
+         description="Range separation parameter for the longrange or shortrange potential. "// &
+         "Only valid when longrange or shortrange potential is requested.", &
          usage="OMEGA 0.5", type_of_var=real_t, &
          default_r_val=0.5_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="SCALE_COULOMB", &
+         description="Scaling factor of (truncated) Coulomb potential in mixed (truncated) Coulomb/Longrange potential."// &
+         "Only valid when mixed potential is requested.", &
+         usage="OMEGA 0.5", type_of_var=real_t, &
+         default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create( &
+         keyword, __LOCATION__, &
+         name="SCALE_LONGRANGE", &
+         description="Scaling factor of longrange Coulomb potential in mixed (truncated) Coulomb/Longrange potential."// &
+         "Only valid when mixed potential is requested.", &
+         usage="OMEGA 0.5", type_of_var=real_t, &
+         default_r_val=1.0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1399,9 +1730,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_ri_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ri_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -1467,14 +1795,6 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="EPS_SVD", &
-                          description="Include all singular vectors with a singular value smaller than EPS_SVD. "// &
-                          "Is used to provide info on smallest eigenvalues.", &
-                          usage="EPS_SVD  1.0e-5", &
-                          default_r_val=1.0E-3_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-
       CALL keyword_create(keyword, __LOCATION__, name="ERI_BLKSIZE", &
                           description="block sizes for tensors (only used if ERI_METHOD=MME). First value "// &
                           "is the block size for ORB basis, second value is the block size for RI_AUX basis.", &
@@ -1492,9 +1812,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_integrals_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_integrals_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -1539,7 +1856,7 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="SIZE_LATTICE_SUM", &
                           description="Size of sum range L. ", &
                           usage="SIZE_LATTICE_SUM  10", &
-                          default_i_val=6)
+                          default_i_val=5)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1551,9 +1868,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_RI_metric_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_RI_metric_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1572,13 +1886,14 @@ CONTAINS
          enum_i_vals=(/ri_default, do_potential_coulomb, do_potential_id, do_potential_long, &
                        do_potential_short, do_potential_truncated/), &
          enum_desc=s2a("Use Coulomb metric for RI-MP2 and normal-scaling RI-SOS-MP2, RI-RPA and GW. "// &
-                       "Use truncated metric for low-scaling RI-SOS-MP2, RI-RPA and GW.", &
+                       "Use Overlap metric for low-scaling RI-SOS-MP2, RI-RPA and GW for periodic systems. "// &
+                       "Use truncated Coulomb metric for low-scaling RI-SOS-MP2, RI-RPA and GW for non-periodic systems.", &
                        "Coulomb metric: 1/r. Recommended for RI-MP2,", &
                        "Overlap metric: delta(r).", &
                        "Longrange metric: erf(omega*r)/r. Not recommended with DO_SVD .TRUE.", &
                        "Shortrange metric: erfc(omega*r)/r", &
                        "Truncated Coulomb metric: if (r &lt; R_c) 1/r else 0. More "// &
-                       "accurate than IDENTITY. Recommended for low-scaling methods."), &
+                       "accurate than IDENTITY for non-periodic systems. Recommended for low-scaling methods."), &
          default_i_val=ri_default)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)

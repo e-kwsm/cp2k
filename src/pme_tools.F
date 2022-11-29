@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,7 +48,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: npart
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: center
       INTEGER, INTENT(OUT)                               :: p1
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
       INTEGER, INTENT(INOUT)                             :: ipart
       INTEGER, DIMENSION(:, :), OPTIONAL, POINTER        :: core_center
 
@@ -80,14 +82,14 @@ CONTAINS
                IF (part(ipart)%shell_index /= 0 .AND. PRESENT(core_center)) THEN
                   IF (in_slice(core_center(:, part(ipart)%shell_index), lb, ub)) THEN
                      p1 = ipart
-                  ENDIF
+                  END IF
                ELSE
                   IF (in_slice(center(:, ipart), lb, ub)) THEN
                      p1 = ipart
                      EXIT
                   END IF
                END IF
-            ENDIF
+            END IF
          ELSE
             p1 = ipart
             EXIT
@@ -121,37 +123,46 @@ CONTAINS
 !> \param part ...
 !> \param box ...
 !> \param center ...
+!> \param delta ...
 !> \param npts ...
 !> \param n ...
 ! **************************************************************************************************
-   SUBROUTINE get_center(part, box, center, npts, n)
+   SUBROUTINE get_center(part, box, center, delta, npts, n)
 
       TYPE(particle_type), DIMENSION(:), INTENT(IN)      :: part
       TYPE(cell_type), POINTER                           :: box
       INTEGER, DIMENSION(:, :), INTENT(OUT)              :: center
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: delta
       INTEGER, DIMENSION(:), INTENT(IN)                  :: npts
       INTEGER, INTENT(IN)                                :: n
 
       INTEGER                                            :: ipart, mp
       REAL(KIND=dp)                                      :: rmp
-      REAL(KIND=dp), DIMENSION(3)                        :: gp, s
+      REAL(KIND=dp), DIMENSION(3)                        :: ca, gp, s
 
+      ! The pbc algorithm is sensitive to numeric noise and compiler optimization because of ANINT.
+      ! Therefore center and delta have to be computed simultaneously to ensure they are consistent.
       mp = MAXVAL(npts(:))
       rmp = REAL(mp, KIND=dp)
       DO ipart = 1, SIZE(part)
          ! compute the scaled coordinate of atom ipart
          CALL real_to_scaled(s, part(ipart)%r, box)
-         s = s - NINT(s)
+         s = s - ANINT(s)
+         ! find the continuous ``grid'' point
          gp = REAL(npts, KIND=dp)*s
          ! find the closest grid point (on big grid)
          IF (MOD(n, 2) == 0) THEN
             center(:, ipart) = INT(gp + rmp) - mp
+            ca(:) = REAL(center(:, ipart), KIND=dp) + 0.5_dp
          ELSE
             center(:, ipart) = NINT(gp)
+            ca(:) = REAL(center(:, ipart), KIND=dp)
          END IF
          center(:, ipart) = center(:, ipart) + npts(:)/2
          center(:, ipart) = MODULO(center(:, ipart), npts(:))
          center(:, ipart) = center(:, ipart) - npts(:)/2
+         ! find the distance vector
+         delta(:, ipart) = gp - ca(:)
       END DO
 
    END SUBROUTINE get_center

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -71,7 +73,7 @@
 !>      _  vnucp                   : potential of the nuclei
 !>      -  vnuc                    : potential of the electrons
 !>      _  pVpa, pVpb              : pVpl=coset(lx,ly,lz)
-!>      -  na_pgf,nb_pgf           : indice for primitive gaussian functions
+!>      -  na_pgf,nb_pgf           : indices for primitive gaussian functions
 !> \par History
 !>      10.2008 added pVp matrix elements (jens)
 !> \author Matthias Krack (04.10.2000)
@@ -152,8 +154,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: vabc_plus, vnabc, pVp_sum, pVp
       LOGICAL, OPTIONAL                                  :: dkh_erfc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'verfc', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ay, az, bx, by, bz, coamx, coamy, coamz, coapx, coapy, coapz, cobmx, cobmy, &
          cobmz, cobpx, cobpy, cobpz, i, ipgf, j, jpgf, la, la_max, la_min, la_start, lb, lb_max, &

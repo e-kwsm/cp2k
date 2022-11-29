@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,7 +48,6 @@ MODULE cp_ddapc
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -85,14 +86,14 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
-      TYPE(pw_p_type)                                    :: rho_tot_gspace, v_hartree_gspace, &
-                                                            v_spin_ddapc_rest_r
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_gspace, v_hartree_gspace
+      TYPE(pw_type), POINTER                             :: v_spin_ddapc_rest_r
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix
       LOGICAL, INTENT(in)                                :: just_energy
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_ks_ddapc', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'qs_ks_ddapc'
 
       INTEGER                                            :: ddapc_size, handle, i, my_id
       LOGICAL                                            :: ddapc_restraint_is_spin, &
@@ -100,7 +101,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(ddapc_restraint_type), POINTER                :: ddapc_restraint_control
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(pw_p_type)                                    :: v_spin_ddapc_rest_g
+      TYPE(pw_type)                                      :: v_spin_ddapc_rest_g
       TYPE(pw_type), POINTER                             :: v_hartree_rspace
 
       NULLIFY (v_hartree_rspace, dft_control)
@@ -128,22 +129,24 @@ CONTAINS
          END IF
 
          DO i = 1, SIZE(dft_control%qs_control%ddapc_restraint_control)
-            my_id = dft_control%qs_control%ddapc_restraint_control(i)%ddapc_restraint_control%density_type
+            my_id = dft_control%qs_control%ddapc_restraint_control(i)%density_type
             IF (my_id == do_spin_density .OR. ddapc_restraint_is_spin) ddapc_restraint_is_spin = .TRUE.
          END DO
          et_coupling_calc = dft_control%qs_control%et_coupling_calc
-      ENDIF
+      END IF
 
       explicit_potential = ddapc_restraint_is_spin .OR. et_coupling_calc
       dft_control%qs_control%ddapc_explicit_potential = explicit_potential
       dft_control%qs_control%ddapc_restraint_is_spin = ddapc_restraint_is_spin
       IF (explicit_potential) THEN
-         CALL pw_pool_create_pw(auxbas_pw_pool, v_spin_ddapc_rest_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, v_spin_ddapc_rest_g, &
                                 use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-         CALL pw_zero(v_spin_ddapc_rest_g%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, v_spin_ddapc_rest_r%pw, &
+         CALL pw_zero(v_spin_ddapc_rest_g)
+         NULLIFY (v_spin_ddapc_rest_r)
+         ALLOCATE (v_spin_ddapc_rest_r)
+         CALL pw_pool_create_pw(auxbas_pw_pool, v_spin_ddapc_rest_r, &
                                 use_data=REALDATA3D, in_space=REALSPACE)
-      ENDIF
+      END IF
 
       IF (calculate_forces) CALL reset_ch_pulay(qs_env)
 
@@ -154,7 +157,7 @@ CONTAINS
          ! Restraints/Constraints
          DO i = 1, ddapc_size
             NULLIFY (ddapc_restraint_control)
-            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(i)%ddapc_restraint_control
+            ddapc_restraint_control => dft_control%qs_control%ddapc_restraint_control(i)
 
             CALL cp_ddapc_apply_RS(qs_env, energy%ddapc_restraint(i), v_hartree_gspace, &
                                    v_spin_ddapc_rest_g, ddapc_restraint_control, calculate_forces)
@@ -165,11 +168,11 @@ CONTAINS
 
       ! CJM Copying the real-space Hartree potential to KS_ENV
       IF ((.NOT. just_energy) .OR. et_coupling_calc) THEN
-         CALL pw_transfer(v_hartree_gspace%pw, v_hartree_rspace)
+         CALL pw_transfer(v_hartree_gspace, v_hartree_rspace)
          CALL pw_scale(v_hartree_rspace, v_hartree_rspace%pw_grid%dvol)
          IF (explicit_potential) THEN
-            CALL pw_transfer(v_spin_ddapc_rest_g%pw, v_spin_ddapc_rest_r%pw)
-            CALL pw_scale(v_spin_ddapc_rest_r%pw, v_spin_ddapc_rest_r%pw%pw_grid%dvol)
+            CALL pw_transfer(v_spin_ddapc_rest_g, v_spin_ddapc_rest_r)
+            CALL pw_scale(v_spin_ddapc_rest_r, v_spin_ddapc_rest_r%pw_grid%dvol)
             IF (et_coupling_calc) THEN
                IF (qs_env%et_coupling%keep_matrix) THEN
                   IF (qs_env%et_coupling%first_run) THEN
@@ -182,8 +185,8 @@ CONTAINS
                                              hmat=qs_env%et_coupling%rest_mat(1), &
                                              qs_env=qs_env, calculate_forces=.FALSE.)
                      qs_env%et_coupling%order_p = &
-                        dft_control%qs_control%ddapc_restraint_control(1)%ddapc_restraint_control%ddapc_order_p
-                     qs_env%et_coupling%e1 = dft_control%qs_control%ddapc_restraint_control(1)%ddapc_restraint_control%strength
+                        dft_control%qs_control%ddapc_restraint_control(1)%ddapc_order_p
+                     qs_env%et_coupling%e1 = dft_control%qs_control%ddapc_restraint_control(1)%strength
                      qs_env%et_coupling%keep_matrix = .FALSE.
                   ELSE
                      NULLIFY (qs_env%et_coupling%rest_mat(2)%matrix)
@@ -197,12 +200,12 @@ CONTAINS
                   END IF
                END IF
             END IF
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (explicit_potential) THEN
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_spin_ddapc_rest_g%pw)
-      ENDIF
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_spin_ddapc_rest_g)
+      END IF
       CALL timestop(handle)
 
    END SUBROUTINE qs_ks_ddapc
@@ -228,14 +231,13 @@ CONTAINS
    SUBROUTINE cp_ddapc_apply_CD(qs_env, rho_tot_gspace, energy, v_hartree_gspace, &
                                 calculate_forces, Itype_of_density)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type)                                    :: rho_tot_gspace
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_gspace
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
-      TYPE(pw_p_type)                                    :: v_hartree_gspace
+      TYPE(pw_type), INTENT(IN)                          :: v_hartree_gspace
       LOGICAL, INTENT(IN), OPTIONAL                      :: calculate_forces
       CHARACTER(LEN=*)                                   :: Itype_of_density
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_ddapc_apply_CD', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_ddapc_apply_CD'
 
       INTEGER                                            :: handle, iw
       LOGICAL                                            :: apply_decpl, need_f
@@ -296,7 +298,7 @@ CONTAINS
                            qout1=charges, &
                            out_radii=radii, &
                            dq_out=dq, &
-                           ext_rho_tot_g=rho_tot_gspace%pw, &
+                           ext_rho_tot_g=rho_tot_gspace, &
                            Itype_of_density=Itype_of_density)
          ELSE
             CALL get_ddapc(qs_env, &
@@ -304,7 +306,7 @@ CONTAINS
                            density_fit_section, &
                            qout1=charges, &
                            out_radii=radii, &
-                           ext_rho_tot_g=rho_tot_gspace%pw, &
+                           ext_rho_tot_g=rho_tot_gspace, &
                            Itype_of_density=Itype_of_density)
          END IF
          ! Evaluate the Ewald contribution to the decoupling/coupling E2 and E3
@@ -324,7 +326,7 @@ CONTAINS
                                  radii, &
                                  charges)
          ! Modify the Hartree potential due to the decoupling/recoupling
-         energy = 0.5_dp*pw_integral_ab(rho_tot_gspace%pw, v_hartree_gspace%pw)
+         energy = 0.5_dp*pw_integral_ab(rho_tot_gspace, v_hartree_gspace)
          IF (need_f) THEN
             CALL ewald_ddapc_force(qs_env, qs_env%cp_ddapc_ewald%coeff_qm, &
                                    .FALSE., 1.0_dp, multipole_section, cell, particle_set, &
@@ -364,12 +366,11 @@ CONTAINS
                                 v_spin_ddapc_rest_g, ddapc_restraint_control, calculate_forces)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: energy_res
-      TYPE(pw_p_type)                                    :: v_hartree_gspace, v_spin_ddapc_rest_g
+      TYPE(pw_type), INTENT(IN)                          :: v_hartree_gspace, v_spin_ddapc_rest_g
       TYPE(ddapc_restraint_type), POINTER                :: ddapc_restraint_control
       LOGICAL, INTENT(IN), OPTIONAL                      :: calculate_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_ddapc_apply_RS', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_ddapc_apply_RS'
 
       INTEGER                                            :: handle, iw, my_id
       LOGICAL                                            :: apply_restrain, need_f
@@ -431,7 +432,7 @@ CONTAINS
             CALL restraint_functional_potential(v_hartree_gspace, density_fit_section, &
                                                 particle_set, qs_env%cp_ddapc_env%AmI, radii, charges, &
                                                 ddapc_restraint_control, energy_res)
-         ENDIF
+         END IF
 
          IF (need_f) THEN
             CALL restraint_functional_force(qs_env, &
@@ -468,14 +469,13 @@ CONTAINS
    SUBROUTINE cp_ddapc_apply_RF(qs_env, rho_tot_gspace, energy, &
                                 v_hartree_gspace, calculate_forces, Itype_of_density)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type)                                    :: rho_tot_gspace
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_gspace
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
-      TYPE(pw_p_type)                                    :: v_hartree_gspace
+      TYPE(pw_type), INTENT(IN)                          :: v_hartree_gspace
       LOGICAL, INTENT(IN), OPTIONAL                      :: calculate_forces
       CHARACTER(LEN=*)                                   :: Itype_of_density
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_ddapc_apply_RF', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_ddapc_apply_RF'
 
       INTEGER                                            :: handle, iw
       LOGICAL                                            :: apply_solvation, need_f
@@ -517,7 +517,7 @@ CONTAINS
                            qout1=charges, &
                            out_radii=radii, &
                            dq_out=dq, &
-                           ext_rho_tot_g=rho_tot_gspace%pw, &
+                           ext_rho_tot_g=rho_tot_gspace, &
                            Itype_of_density=Itype_of_density)
          ELSE
             CALL get_ddapc(qs_env, &
@@ -525,7 +525,7 @@ CONTAINS
                            density_fit_section, &
                            qout1=charges, &
                            out_radii=radii, &
-                           ext_rho_tot_g=rho_tot_gspace%pw, &
+                           ext_rho_tot_g=rho_tot_gspace, &
                            Itype_of_density=Itype_of_density)
          END IF
          ! Evaluate the Ewald contribution to the decoupling/coupling E2 and E3
@@ -541,7 +541,7 @@ CONTAINS
                                  radii, &
                                  charges)
          ! Modify the Hartree potential due to the reaction field
-         energy = 0.5_dp*pw_integral_ab(rho_tot_gspace%pw, v_hartree_gspace%pw)
+         energy = 0.5_dp*pw_integral_ab(rho_tot_gspace, v_hartree_gspace)
          IF (need_f) THEN
             CALL solvation_ddapc_force(qs_env, solvation_section, particle_set, &
                                        radii, dq, charges)

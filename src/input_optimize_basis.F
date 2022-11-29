@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,9 +47,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_optimize_basis_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_optimize_basis_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -160,9 +159,6 @@ CONTAINS
    SUBROUTINE create_fit_kinds_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_fit_kinds_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -248,9 +244,6 @@ CONTAINS
    SUBROUTINE create_derived_sets_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_derived_sets_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -273,8 +266,8 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="REFERENCE_SET", &
                           description="Specifies the reference basis ID which is used as template to create the new set. "// &
-                          "The original basis has ID 0. All follwing sets are counted in order as specified in the Input."// &
-                          " The decriptors always assume the structure of the input basis set.", &
+                          "The original basis has ID 0. All following sets are counted in order as specified in the Input."// &
+                          " The descriptors always assume the structure of the input basis set.", &
                           repeats=.FALSE., usage="REFERNCE_SET INTEGER", default_i_val=0)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -282,7 +275,7 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="REMOVE_CONTRACTION", &
                           description="Can be used to remove a contraction from the reference basis set. "// &
                           "The contraction is speciefied by set number, angular momentum and number of contraction."// &
-                          " The decriptors always assume the structure of the input basis set.", &
+                          " The descriptors always assume the structure of the input basis set.", &
                           repeats=.TRUE., usage="REMOVE_CONTRACTION SET L ICONTRACTION", type_of_var=integer_t, n_var=3)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -302,21 +295,18 @@ CONTAINS
    SUBROUTINE create_constrain_exp_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_constrain_exp_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="CONSTRAIN_EXPONENTS", &
-                          description="specicifies contraints for the exponents to be fitted."// &
+                          description="specicifies constraints for the exponents to be fitted."// &
                           " Only a single constraint can be applied to an exponent", &
                           repeats=.TRUE.)
 
       CALL keyword_create(keyword, __LOCATION__, name="USE_EXP", &
                           description="Defines the exponent to be constraint. The two integers indicate "// &
-                          "the set number and i'th exponent. The value -1 can be used to mark all sets/expoenents in a set.", &
+                          "the set number and i'th exponent. The value -1 can be used to mark all sets/exponents in a set.", &
                           repeats=.FALSE., usage="USE_EXP SET IEXP", type_of_var=integer_t, n_var=2)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -344,16 +334,13 @@ CONTAINS
    SUBROUTINE create_training_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_training_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="TRAINING_FILES", &
                           description="specicifies the location in which the files necessary for"// &
-                          " fitting procedure are located. Each Training set needs a reptition of this section.", &
+                          " fitting procedure are located. Each Training set needs a repetition of this section.", &
                           repeats=.TRUE.)
 
       CALL keyword_create(keyword, __LOCATION__, name="DIRECTORY", &
@@ -364,7 +351,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="INPUT_FILE_NAME", &
-                          description="the filename of the input file used to run the original calcuation", &
+                          description="the filename of the input file used to run the original calculation", &
                           usage="INPUT_FILE_NAME my_input.inp", &
                           default_lc_val="input.inp")
       CALL section_add_keyword(section, keyword)
@@ -378,9 +365,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_powell_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_powell_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

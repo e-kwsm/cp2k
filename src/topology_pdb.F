@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -101,8 +103,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_pdb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_pdb'
       INTEGER, PARAMETER                                 :: nblock = 1000
 
       CHARACTER(LEN=default_path_length)                 :: line
@@ -113,9 +114,9 @@ CONTAINS
       REAL(KIND=dp)                                      :: pfactor
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser, logger)
+      NULLIFY (logger)
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/PDB_INFO", &
                                 extension=".subsysLog")
@@ -282,8 +283,7 @@ CONTAINS
       TYPE(topology_parameters_type)                     :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_coordinate_pdb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_coordinate_pdb'
 
       CHARACTER(LEN=120)                                 :: line
       CHARACTER(LEN=default_string_length)               :: my_tag1, my_tag2, my_tag3, my_tag4, &
@@ -377,7 +377,7 @@ CONTAINS
             ELSE IF (charge_extended) THEN
                WRITE (UNIT=line(81:), FMT="(F20.16)") atom_info%atm_charge(i)
             ELSE
-               ! Wrtie no atomic charge
+               ! Write no atomic charge
             END IF
          END IF
          WRITE (UNIT=line(73:76), FMT="(A4)") ADJUSTL(my_tag3)

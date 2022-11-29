@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -15,8 +17,8 @@ MODULE hirshfeld_types
    USE input_constants,                 ONLY: radius_default,&
                                               shape_function_gaussian
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -42,7 +44,7 @@ MODULE hirshfeld_types
          POINTER                    :: kind_shape_fn
       REAL(KIND=dp), DIMENSION(:), &
          POINTER                    :: charges
-      TYPE(pw_p_type), POINTER      :: fnorm
+      TYPE(pw_type), POINTER      :: fnorm
    END TYPE hirshfeld_type
 
    TYPE shape_fn
@@ -63,9 +65,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_hirshfeld_type(hirshfeld_env)
       TYPE(hirshfeld_type), POINTER                      :: hirshfeld_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hirshfeld_type', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(hirshfeld_env)) THEN
          CALL release_hirshfeld_type(hirshfeld_env)
@@ -90,9 +89,6 @@ CONTAINS
    SUBROUTINE release_hirshfeld_type(hirshfeld_env)
       TYPE(hirshfeld_type), POINTER                      :: hirshfeld_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_hirshfeld_type', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind
       TYPE(shape_fn), DIMENSION(:), POINTER              :: kind_shape
 
@@ -116,9 +112,9 @@ CONTAINS
          END IF
 
          IF (ASSOCIATED(hirshfeld_env%fnorm)) THEN
-            CALL pw_release(hirshfeld_env%fnorm%pw)
+            CALL pw_release(hirshfeld_env%fnorm)
             DEALLOCATE (hirshfeld_env%fnorm)
-         ENDIF
+         END IF
 
          DEALLOCATE (hirshfeld_env)
 
@@ -130,7 +126,7 @@ CONTAINS
 !> \brief Get information from a Hirshfeld env
 !> \param hirshfeld_env the env that holds the information
 !> \param shape_function_type the type of shape function used
-!> \param iterative logical which determins if iterative Hirshfeld charges should be computed
+!> \param iterative logical which determines if iterative Hirshfeld charges should be computed
 !> \param ref_charge the reference charge type (core charge or mulliken)
 !> \param fnorm normalization of the shape function
 !> \param radius_type the type of radius used for building the shape functions
@@ -143,12 +139,9 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: shape_function_type
       LOGICAL, INTENT(OUT), OPTIONAL                     :: iterative
       INTEGER, INTENT(OUT), OPTIONAL                     :: ref_charge
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: fnorm
+      TYPE(pw_type), OPTIONAL, POINTER                   :: fnorm
       INTEGER, INTENT(OUT), OPTIONAL                     :: radius_type
       LOGICAL, INTENT(OUT), OPTIONAL                     :: use_bohr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_hirshfeld_info', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(hirshfeld_env))
 
@@ -177,7 +170,7 @@ CONTAINS
 !> \brief Set values of a Hirshfeld env
 !> \param hirshfeld_env the env that holds the information
 !> \param shape_function_type the type of shape function used
-!> \param iterative logical which determins if iterative Hirshfeld charges should be computed
+!> \param iterative logical which determines if iterative Hirshfeld charges should be computed
 !> \param ref_charge the reference charge type (core charge or mulliken)
 !> \param fnorm normalization of the shape function
 !> \param radius_type the type of radius used for building the shape functions
@@ -190,12 +183,9 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: shape_function_type
       LOGICAL, INTENT(IN), OPTIONAL                      :: iterative
       INTEGER, INTENT(IN), OPTIONAL                      :: ref_charge
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: fnorm
+      TYPE(pw_type), OPTIONAL, POINTER                   :: fnorm
       INTEGER, INTENT(IN), OPTIONAL                      :: radius_type
       LOGICAL, INTENT(IN), OPTIONAL                      :: use_bohr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_hirshfeld_info', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(hirshfeld_env))
 

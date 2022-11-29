@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -129,8 +131,7 @@ CONTAINS
       TYPE(simpar_type), POINTER               :: simpar
       INTEGER, INTENT(IN)                      :: itimes
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'metadyn_initialise_plumed', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'metadyn_initialise_plumed'
 
       INTEGER                                  :: handle
 
@@ -146,8 +147,8 @@ CONTAINS
 #endif
 
       CALL timeset(routineN, handle)
-      CPASSERT(ASSOCIATED(simpar))
       CPASSERT(ASSOCIATED(force_env))
+      CPASSERT(ASSOCIATED(simpar))
 
 #if defined (__PLUMED2)
       NULLIFY (cell, subsys)
@@ -155,6 +156,9 @@ CONTAINS
       CALL pbc_cp2k_plumed_getset_cell(cell, set=.TRUE.) !Store the cell pointer for later use.
       timestep_plumed = simpar%dt
       natom_plumed = subsys%particles%n_els
+#else
+      MARK_USED(force_env)
+      MARK_USED(simpar)
 #endif
 
       MARK_USED(itimes)
@@ -194,8 +198,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE metadyn_finalise_plumed()
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'metadyn_finalise_plumed', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'metadyn_finalise_plumed'
 
       INTEGER                                            :: handle
 
@@ -228,8 +231,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, &
          POINTER                                :: rand
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_integrator', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_integrator'
 
       INTEGER                                  :: handle, plumed_itimes
 #if defined (__PLUMED2)
@@ -345,11 +347,11 @@ CONTAINS
                CALL metadyn_velocities_colvar(force_env, rand)
             ELSE
                CALL metadyn_forces(force_env, vel)
-            ENDIF
+            END IF
             !    *** Write down COVAR informations
             CALL metadyn_write_colvar(force_env)
          END IF
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -368,7 +370,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: vel
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_forces', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'metadyn_forces'
 
       INTEGER                                            :: handle, i, i_c, icolvar, ii, iwall
       LOGICAL                                            :: explicit
@@ -408,7 +410,7 @@ CONTAINS
          DO i_c = 1, meta_env%n_colvar
             cv => meta_env%metavar(i_c)
             cv%vvp = cv%vvp*fac_t
-         ENDDO
+         END DO
          meta_env%ekin_s = 0.0_dp
       END IF
 
@@ -448,7 +450,7 @@ CONTAINS
             cv%ss0 = cv%ss
             cv%vvp = 0.0_dp
          END IF
-      ENDDO
+      END DO
       ! History dependent forces (evaluated at s0)
       IF (meta_env%do_hills) CALL hills(meta_env)
 
@@ -473,8 +475,8 @@ CONTAINS
                i = colvar_p(icolvar)%colvar%i_atom(ii)
                fft = cv%ff_hills + cv%ff_walls
                particles%els(i)%f = particles%els(i)%f + fft*colvar_p(icolvar)%colvar%dsdr(:, ii)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
       ELSE
          meta_env%ekin_s = 0.0_dp
          meta_env%epot_s = 0.0_dp
@@ -496,7 +498,7 @@ CONTAINS
             DO ii = 1, colvar_p(icolvar)%colvar%n_atom_s
                i = colvar_p(icolvar)%colvar%i_atom(ii)
                particles%els(i)%f = particles%els(i)%f - cv%ff_s*colvar_p(icolvar)%colvar%dsdr(:, ii)
-            ENDDO
+            END DO
             !  velocity verlet on the s0 if NOT langevin
             IF (.NOT. meta_env%langevin) THEN
                fft = cv%ff_s + cv%ff_hills + cv%ff_walls
@@ -505,7 +507,7 @@ CONTAINS
                meta_env%epot_s = meta_env%epot_s + cv%epot_s
                meta_env%epot_walls = meta_env%epot_walls + cv%epot_walls
             END IF
-         ENDDO
+         END DO
          !  velocity rescaling on the s0
          IF (meta_env%tempcontrol .AND. (.NOT. meta_env%langevin)) THEN
             ekin_w = 0.5_dp*meta_env%temp_wanted*REAL(meta_env%n_colvar, KIND=dp)
@@ -515,10 +517,10 @@ CONTAINS
                DO i_c = 1, meta_env%n_colvar
                   cv => meta_env%metavar(i_c)
                   cv%vvp = cv%vvp*fac_t
-               ENDDO
+               END DO
                meta_env%ekin_s = ekin_w
-            ENDIF
-         ENDIF
+            END IF
+         END IF
          ! Reflective Wall only for s0
          DO i_c = 1, meta_env%n_colvar
             cv => meta_env%metavar(i_c)
@@ -539,8 +541,8 @@ CONTAINS
                      END SELECT
                   END SELECT
                END DO
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          ! Update of ss0 if NOT langevin
          IF (.NOT. meta_env%langevin) THEN
             DO i_c = 1, meta_env%n_colvar
@@ -550,9 +552,9 @@ CONTAINS
                   ! A periodic COLVAR is always within [-pi,pi]
                   cv%ss0 = SIGN(1.0_dp, ASIN(SIN(cv%ss0)))*ACOS(COS(cv%ss0))
                END IF
-            ENDDO
+            END DO
          END IF
-      ENDIF
+      END IF
       ! Constraints ONLY of Fixed Atom type
       CALL fix_atom_control(force_env)
 
@@ -594,7 +596,7 @@ CONTAINS
                      norm = norm + colvar_p(icolvar)%colvar%dsdr(1, ii)**2
                      norm = norm + colvar_p(icolvar)%colvar%dsdr(2, ii)**2
                      norm = norm + colvar_p(icolvar)%colvar%dsdr(3, ii)**2
-                  ENDDO
+                  END DO
                   IF (norm /= 0.0_dp) scal = scal/norm
                   IF (norm /= 0.0_dp) scalf = scalf/norm
 
@@ -608,11 +610,11 @@ CONTAINS
                      END IF
                      ! Nullify forces along the colvar (this avoids the weird behaviors of the reflective wall)
                      particles%els(i)%f(:) = particles%els(i)%f(:) - colvar_p(icolvar)%colvar%dsdr(:, ii)*scalf
-                  ENDDO
+                  END DO
                END SELECT
             END DO
          END IF
-      ENDDO
+      END DO
 
       CALL timestop(handle)
    END SUBROUTINE metadyn_forces
@@ -630,8 +632,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT), &
          OPTIONAL                                        :: rand
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_velocities_colvar', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_velocities_colvar'
 
       INTEGER                                            :: handle, i_c
       REAL(kind=dp)                                      :: diff_ss, dt, fft, sigma
@@ -671,7 +672,7 @@ CONTAINS
                   0.5_dp*SQRT(dt)*sigma*rand(i_c)
          meta_env%ekin_s = meta_env%ekin_s + 0.5_dp*cv%mass*cv%vvp**2
          meta_env%epot_walls = meta_env%epot_walls + cv%epot_walls
-      ENDDO
+      END DO
       CALL timestop(handle)
 
    END SUBROUTINE metadyn_velocities_colvar
@@ -686,8 +687,7 @@ CONTAINS
    SUBROUTINE metadyn_position_colvar(force_env)
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_position_colvar', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_position_colvar'
 
       INTEGER                                            :: handle, i_c
       REAL(kind=dp)                                      :: dt
@@ -714,7 +714,7 @@ CONTAINS
             ! A periodic COLVAR is always within [-pi,pi]
             cv%ss0 = SIGN(1.0_dp, ASIN(SIN(cv%ss0)))*ACOS(COS(cv%ss0))
          END IF
-      ENDDO
+      END DO
       CALL timestop(handle)
 
    END SUBROUTINE metadyn_position_colvar
@@ -729,8 +729,7 @@ CONTAINS
    SUBROUTINE metadyn_write_colvar(force_env)
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_write_colvar', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'metadyn_write_colvar'
 
       INTEGER                                            :: handle, i, i_c, iw
       REAL(KIND=dp)                                      :: diff_ss, temp
@@ -765,7 +764,7 @@ CONTAINS
 
             meta_env%epot_s = meta_env%epot_s + cv%epot_s
             meta_env%ekin_s = meta_env%ekin_s + 0.5_dp*cv%mass*cv%vvp**2
-         ENDDO
+         END DO
       END IF
 
       ! write COLVAR file
@@ -808,7 +807,7 @@ CONTAINS
             WRITE (iw, '( A,T51,f10.2,T71,f10.2)') ' COLVARS INSTANTANEOUS/AVERAGE TEMPERATURE ', &
                temp, meta_env%avg_temp
             WRITE (iw, '(T2,79("-"))')
-         ENDIF
+         END IF
          CALL cp_print_key_finished_output(iw, logger, meta_env%metadyn_section, &
                                            "PRINT%TEMPERATURE_COLVAR")
       END IF
@@ -828,7 +827,7 @@ CONTAINS
    SUBROUTINE hills(meta_env)
       TYPE(meta_env_type), POINTER                       :: meta_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hills', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'hills'
 
       INTEGER                                            :: handle, i, i_hills, ih, intermeta_steps, &
                                                             iter_nr, iw, n_colvar, n_hills_start, &
@@ -890,7 +889,7 @@ CONTAINS
                ddp(i) = SIGN(1.0_dp, ASIN(SIN(ddp(i))))*ACOS(COS(ddp(i)))
             END IF
             dp2 = dp2 + ddp(i)**2
-         ENDDO
+         END DO
          dp2 = SQRT(dp2)
          IF (dp2 > hills_env%min_disp) THEN
             force_gauss = .TRUE.
@@ -928,10 +927,10 @@ CONTAINS
                   END IF
                   diff = (diff)/hills_env%delta_s_history(i, ih)
                   dp2 = dp2 + diff**2
-               ENDDO
+               END DO
                V_to_fes = 1.0_dp + meta_env%wttemperature*hills_env%invdt_history(ih)
                V_now_here = V_now_here + hills_env%ww_history(ih)/V_to_fes*EXP(-0.5_dp*dp2)
-            ENDDO
+            END DO
             wtww = hills_env%ww*EXP(-V_now_here*meta_env%invdt)
             ww = wtww*(1.0_dp + meta_env%wttemperature*meta_env%invdt)
             CALL add_hill_single(hills_env, colvars, ww, hills_env%n_hills, n_colvar, meta_env%invdt)
@@ -1007,7 +1006,7 @@ CONTAINS
       hills_env%energy = 0.0_dp
       DO ih = 1, n_colvar
          colvars(ih)%ff_hills = 0.0_dp
-      ENDDO
+      END DO
       DO ih = 1, hills_env%n_hills
          slow_growth = 1.0_dp
          IF (hills_env%slow_growth .AND. (ih == hills_env%n_hills)) THEN
@@ -1036,8 +1035,8 @@ CONTAINS
                numf(i) = frac**hills_env%p_exp
                denf(i) = frac**hills_env%q_exp
                cut_func = cut_func*(1.0_dp - numf(i))/(1.0_dp - denf(i))
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          ! ff_hills contains the "force" due to the hills
          dfunc = hills_env%ww_history(ih)*EXP(-0.5_dp*dp2)*slow_growth
          IF (meta_env%well_tempered) dfunc = dfunc/(1.0_dp + meta_env%wttemperature*hills_env%invdt_history(ih))
@@ -1054,8 +1053,8 @@ CONTAINS
                                         dfunc*cut_func/ABS(diff_ss(i))
                END IF
             END IF
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       DEALLOCATE (ddp)
       DEALLOCATE (diff_ss)
       DEALLOCATE (numf)

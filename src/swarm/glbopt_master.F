@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -96,9 +98,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: root_section
       INTEGER, INTENT(IN)                                :: n_walkers, iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_master_init', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -196,9 +195,6 @@ CONTAINS
       TYPE(swarm_message_type)                           :: report, cmd
       LOGICAL, INTENT(INOUT)                             :: should_stop
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_master_steer', &
-         routineP = moduleN//':'//routineN
-
       CALL progress_report(this, report)
 
       SELECT CASE (this%method)
@@ -247,7 +243,7 @@ CONTAINS
          IF (report_Epot < this%E_lowest) THEN
             this%E_lowest = report_Epot
             CALL write_progress_traj(this, report)
-         ENDIF
+         END IF
 
          IF (this%iw > 0) THEN
             WRITE (this%iw, '(A,46X,I8)') &
@@ -311,9 +307,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE glbopt_master_finalize(this)
       TYPE(glbopt_master_type), INTENT(INOUT)            :: this
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_master_finalize', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_logger_type), POINTER                      :: logger
 

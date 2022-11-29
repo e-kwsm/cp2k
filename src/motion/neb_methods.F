@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -93,7 +95,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'neb'
 
       INTEGER                                            :: handle, ierr, iw, iw2, nrep, &
                                                             output_unit, prep, proc_dist_type
@@ -130,7 +132,7 @@ CONTAINS
                       TRIM(ADJUSTL(cp_to_string(prep)))//") and the number of replicas ("// &
                       TRIM(ADJUSTL(cp_to_string(nrep)))//") . ["// &
                       TRIM(ADJUSTL(cp_to_string(para_env%num_pe - nrep*prep)))//"] processors will be wasted!")
-      ENDIF
+      END IF
       force_env_section => section_vals_get_subs_vals(input, "FORCE_EVAL")
       ! Create Replica Environments
       IF (output_unit > 0) WRITE (output_unit, '(T2,"NEB|",A)') " Replica_env Setup. START"
@@ -153,7 +155,7 @@ CONTAINS
          neb_env%nsize_int = number_of_colvar(f_env%force_env)
          check = (neb_env%nsize_xyz >= neb_env%nsize_int)
          CPASSERT(check)
-         ! Check that teh used colvar are uniquely determined
+         ! Check that the used colvar are uniquely determined
          check = (number_of_colvar(f_env%force_env) == &
                   number_of_colvar(f_env%force_env, unique=.TRUE.))
          CPASSERT(check)
@@ -231,7 +233,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_md', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'neb_md'
 
       INTEGER                                            :: handle, iatom, ic, is, istep, iw, &
                                                             max_steps, natom, shell_index
@@ -371,7 +373,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_diis', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'neb_diis'
 
       INTEGER                                            :: handle, istep, iw, iw2, max_sd_steps, &
                                                             max_steps, n_diis

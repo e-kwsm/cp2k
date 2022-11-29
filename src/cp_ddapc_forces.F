@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -73,7 +75,7 @@ CONTAINS
    RECURSIVE SUBROUTINE ewald_ddapc_force(qs_env, coeff, apply_qmmm_periodic, &
                                           factor, multipole_section, cell, particle_set, radii, dq, charges)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_type), POINTER                             :: coeff
+      TYPE(pw_type), INTENT(IN), POINTER                 :: coeff
       LOGICAL, INTENT(IN)                                :: apply_qmmm_periodic
       REAL(KIND=dp), INTENT(IN)                          :: factor
       TYPE(section_vals_type), POINTER                   :: multipole_section
@@ -84,8 +86,7 @@ CONTAINS
          POINTER                                         :: dq
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ewald_ddapc_force', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ewald_ddapc_force'
 
       INTEGER                                            :: handle, ip1, ip2, iparticle1, &
                                                             iparticle2, k1, k2, k3, n_rep, nmax1, &
@@ -246,8 +247,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: d_el
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_decpl_ddapc_forces', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_decpl_ddapc_forces'
 
       INTEGER                                            :: handle, i, iatom, ikind, j, k, natom
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
@@ -302,7 +302,7 @@ CONTAINS
    SUBROUTINE reset_ch_pulay(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'reset_ch_pulay', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'reset_ch_pulay'
 
       INTEGER                                            :: handle, ind
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
@@ -338,9 +338,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
       REAL(KIND=dp), INTENT(INOUT)                       :: energy_res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'evaluate_restraint_functional', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: I, ind
       REAL(KIND=dp)                                      :: dE, order_p
 
@@ -350,7 +347,7 @@ CONTAINS
       DO I = 1, ddapc_restraint_control%natoms
          ind = (ddapc_restraint_control%atoms(I) - 1)*n_gauss
          order_p = order_p + ddapc_restraint_control%coeff(I)*SUM(charges(ind + 1:ind + n_gauss))
-      ENDDO
+      END DO
       ddapc_restraint_control%ddapc_order_p = order_p
 
       SELECT CASE (ddapc_restraint_control%functional_form)
@@ -363,7 +360,7 @@ CONTAINS
          DO I = 1, ddapc_restraint_control%natoms
             ind = (ddapc_restraint_control%atoms(I) - 1)*n_gauss
             uv(ind + 1:ind + n_gauss) = dE*ddapc_restraint_control%coeff(I)
-         ENDDO
+         END DO
       CASE (do_ddapc_constraint)
          energy_res = ddapc_restraint_control%strength*(order_p - ddapc_restraint_control%target)
 
@@ -371,7 +368,7 @@ CONTAINS
          DO I = 1, ddapc_restraint_control%natoms
             ind = (ddapc_restraint_control%atoms(I) - 1)*n_gauss
             uv(ind + 1:ind + n_gauss) = ddapc_restraint_control%strength*ddapc_restraint_control%coeff(I)
-         ENDDO
+         END DO
 
       CASE DEFAULT
          CPABORT("")
@@ -403,8 +400,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: n_gauss
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'restraint_functional_force', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'restraint_functional_force'
 
       INTEGER                                            :: handle, i, iatom, ikind, j, k, natom
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
@@ -475,9 +471,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), OPTIONAL, &
          POINTER                                         :: dq
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: charges
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'solvation_ddapc_force', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ip1, ip2, iparticle1, iparticle2, l, &
                                                             lmax, n_rep1, n_rep2, weight

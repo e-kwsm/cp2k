@@ -1,21 +1,17 @@
-&GLOBAL                                                                                           
+&GLOBAL
   PROJECT     STRESS_NUM_RI-MP2
   PRINT_LEVEL LOW
-  RUN_TYPE    CELL_OPT
+  RUN_TYPE    ENERGY_FORCE
 &END GLOBAL
-&MOTION
-  &CELL_OPT
-    MAX_ITER  1
-  &END
-&END MOTION
 &FORCE_EVAL
   METHOD         Quickstep
   STRESS_TENSOR  DIAGONAL_NUMERICAL
   &PRINT
     &FORCES
-    &END
+    &END FORCES
     &STRESS_TENSOR
-    &END
+     COMPONENTS
+    &END STRESS_TENSOR
   &END
   &DFT
     BASIS_SET_FILE_NAME  HFX_BASIS
@@ -56,6 +52,8 @@
       &WF_CORRELATION
         &RI_MP2
           BLOCK_SIZE  1
+        &END
+        &CANONICAL_GRADIENTS
           EPS_CANONICAL 0.0001
           FREE_HFX_BUFFER .TRUE.
           &CPHF

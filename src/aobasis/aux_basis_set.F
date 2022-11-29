@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -57,9 +59,6 @@ CONTAINS
       INTEGER, DIMENSION(0:, :), INTENT(IN)              :: nl
       INTEGER, DIMENSION(:), INTENT(IN)                  :: npgf
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: zet
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_aux_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ico, info, iset, ishell, j, l, &
                                                             lshell, m, maxco, maxpgf, maxshell, &
@@ -205,13 +204,15 @@ CONTAINS
                   sgf_symbol(aux_basis%n(ishell, iset), lshell, m)
             END DO
          END DO
-      ENDDO
+      END DO
 
       ! orbital radii (initialize later)
       aux_basis%kind_radius = 0.0_dp
       aux_basis%short_kind_radius = 0.0_dp
       ALLOCATE (aux_basis%set_radius(nsets))
       ALLOCATE (aux_basis%pgf_radius(maxpgf, nsets))
+      aux_basis%set_radius = 0.0_dp
+      aux_basis%pgf_radius = 0.0_dp
 
       ! basis transformation matrices
       ALLOCATE (aux_basis%cphi(maxco, ncgf))

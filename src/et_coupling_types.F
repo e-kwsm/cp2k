@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -53,9 +55,6 @@ CONTAINS
    SUBROUTINE et_coupling_create(et_coupling)
       TYPE(et_coupling_type), POINTER                    :: et_coupling
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'et_coupling_create', &
-         routineP = moduleN//':'//routineN
-
       ALLOCATE (et_coupling)
 
       NULLIFY (et_coupling%et_mo_coeff)
@@ -79,9 +78,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rest_mat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_et_coupling_type', &
-         routineP = moduleN//':'//routineN
-
       IF (PRESENT(et_mo_coeff)) et_mo_coeff => et_coupling%et_mo_coeff
       IF (PRESENT(rest_mat)) rest_mat => et_coupling%rest_mat
 
@@ -100,9 +96,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rest_mat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_et_coupling_type', &
-         routineP = moduleN//':'//routineN
-
       IF (PRESENT(et_mo_coeff)) et_coupling%et_mo_coeff = et_mo_coeff
       IF (PRESENT(rest_mat)) et_coupling%rest_mat => rest_mat
 
@@ -115,14 +108,13 @@ CONTAINS
    SUBROUTINE et_coupling_release(et_coupling)
       TYPE(et_coupling_type), POINTER                    :: et_coupling
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'et_coupling_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(et_coupling%et_mo_coeff)) THEN
          DO i = 1, SIZE(et_coupling%et_mo_coeff)
             CALL cp_fm_release(et_coupling%et_mo_coeff(i)%matrix)
+            DEALLOCATE (et_coupling%et_mo_coeff(i)%matrix)
+            NULLIFY (et_coupling%et_mo_coeff(i)%matrix)
          END DO
          DEALLOCATE (et_coupling%et_mo_coeff)
       END IF

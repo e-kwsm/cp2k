@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -54,9 +56,6 @@ CONTAINS
    SUBROUTINE create_hfx_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hfx_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -78,7 +77,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="TREAT_LSD_IN_CORE", &
-                          description="Determines how spin denisities are taken into account. "// &
+                          description="Determines how spin densities are taken into account. "// &
                           "If true, the beta spin density is included via a second in core call. "// &
                           "If false, alpha and beta spins are done in one shot ", &
                           usage="TREAT_LSD_IN_CORE TRUE", default_l_val=.FALSE.)
@@ -141,9 +140,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_hf_load_balance_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_load_balance_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -213,9 +209,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_hf_potential_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_potential_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -311,9 +304,6 @@ CONTAINS
    SUBROUTINE create_hf_screening_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_screening_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -387,9 +377,6 @@ CONTAINS
    SUBROUTINE create_hf_pbc_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_pbc_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -419,9 +406,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_hf_memory_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_memory_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -493,9 +477,6 @@ CONTAINS
    SUBROUTINE create_hf_ri_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hf_ri_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -525,10 +506,11 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="EPS_FILTER_3C", &
-                          description="Filter threshold for 3c integrals, limiting memory consumption "// &
-                          "of 3-center integral storage. Can be set looser than EPS_FILTER.", &
-                          default_r_val=1.0E-07_dp)
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="EPS_STORAGE_SCALING", &
+                          description="Scaling factor to scale EPS_FILTER for storage of 3-center integrals. Storage threshold "// &
+                          "will be EPS_FILTER*EPS_STORAGE_SCALING.", &
+                          default_r_val=0.01_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -577,7 +559,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="2C_MATRIX_FUNCTIONS", &
                           description="Methods for matrix inverse and matrix square root.", &
-                          default_i_val=hfx_ri_do_2c_diag, &
+                          default_i_val=hfx_ri_do_2c_cholesky, &
                           enum_c_vals=s2a("DIAG", "CHOLESKY", "ITER"), &
                           enum_desc=s2a("Diagonalization with eigenvalue quenching: stable", &
                                         "Cholesky: not stable in case of ill-conditioned RI basis", &
@@ -639,27 +621,37 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="RI_FLAVOR", &
                           description="Flavor of RI: how to contract 3-center integrals", &
                           enum_c_vals=s2a("MO", "RHO"), &
-                          enum_desc=s2a("MO coefficients", "density matrix"), &
+                          enum_desc=s2a("with MO coefficients", "with density matrix"), &
                           enum_i_vals=(/ri_mo, ri_pmat/), &
-                          default_i_val=ri_mo)
+                          default_i_val=ri_pmat)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="MIN_BLOCK_SIZE", &
                           description="Minimum tensor block size.", &
-                          default_i_val=8)
+                          default_i_val=4)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="MIN_BLOCK_SIZE_MO", &
-                          description="Minimum tensor block size for MOs.", &
-                          default_i_val=10)
+      CALL keyword_create(keyword, __LOCATION__, name="MAX_BLOCK_SIZE_MO", &
+                          description="Maximum tensor block size for MOs.", &
+                          default_i_val=64)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="MEMORY_CUT", &
-                          description="Memory reduction factor.", &
-                          default_i_val=10)
+                          description="Memory reduction factor. This keyword controls the batching of tensor "// &
+                          "contractions into smaller, more manageable chunks. The details vary "// &
+                          "depending on the RI_FLAVOR.", &
+                          default_i_val=3)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="FLAVOR_SWITCH_MEMORY_CUT", &
+                          description="Memory reduction factor to be applied upon RI_FLAVOR switching "// &
+                          "from MO to RHO. The RHO flavor typically requires more memory, "// &
+                          "and depending on the ressources available, a higher MEMORY_CUT.", &
+                          default_i_val=3)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -667,11 +659,44 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL section_create(subsection, __LOCATION__, name="PRINT", &
+                          description="Section of possible print options in the RI-HFX code.", &
+                          n_keywords=0, n_subsections=1, repeats=.FALSE.)
+
       CALL cp_print_key_section_create(print_key, __LOCATION__, "RI_INFO", &
                                        description="Controls the printing of DBCSR tensor log in RI HFX.", &
                                        print_level=high_print_level, add_last=add_last_numeric, filename="__STD_OUT__")
-      CALL section_add_subsection(section, print_key)
+      CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
+
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "RI_DENSITY_COEFFS", &
+                                       description="Controls the printing of the projection of the elecontric "// &
+                                       "density on the RI_HFX basis. n(r) = sum_s c_s*phi_RI_s(r), "// &
+                                       "where c_s = sum_pqr P_pq (pq|r) (r|s)^-1 and | is the RI_METRIC", &
+                                       print_level=high_print_level, filename="RI_DENSITY_COEFFS", &
+                                       common_iter_levels=3)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MULTIPLY_BY_RI_2C_INTEGRALS", &
+                          variants=s2a("MULT_BY_RI", "MULT_BY_S", "MULT_BY_RI_INTS"), &
+                          description="Whether the RI density coefficients to be printed should "// &
+                          "be pre-multiplied by the RI_METRIC 2c-integrals: (r|s)*C_s.", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "RI_METRIC_2C_INTS", &
+                                       description="Controls the printing of RI 2-center integrals for the "// &
+                                       "HFX potential.", &
+                                       print_level=high_print_level, filename="RI_2C_INTS", &
+                                       common_iter_levels=3)
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
 
    END SUBROUTINE
 

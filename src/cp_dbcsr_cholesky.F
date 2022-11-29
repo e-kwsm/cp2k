@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -60,8 +62,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER          :: para_env
       TYPE(cp_blacs_env_type), POINTER         :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_cholesky_decompose', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_cholesky_decompose'
 
       INTEGER                                  :: handle, info, my_n, &
                                                   nfullcols_total, &
@@ -69,14 +70,14 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a
       REAL(KIND=sp), DIMENSION(:, :), POINTER  :: a_sp
       TYPE(cp_fm_struct_type), POINTER         :: fm_struct
-      TYPE(cp_fm_type), POINTER                :: fm_matrix
+      TYPE(cp_fm_type)                :: fm_matrix
 #if defined(__SCALAPACK)
       INTEGER, DIMENSION(9)                    :: desca
 #endif
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
 
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -103,7 +104,7 @@ CONTAINS
          CALL pspotrf('U', my_n, a_sp(1, 1), 1, 1, desca, info)
       ELSE
          CALL pdpotrf('U', my_n, a(1, 1), 1, 1, desca, info)
-      ENDIF
+      END IF
 
 #else
 
@@ -111,7 +112,7 @@ CONTAINS
          CALL spotrf('U', my_n, a_sp(1, 1), SIZE(a_sp, 1), info)
       ELSE
          CALL dpotrf('U', my_n, a(1, 1), SIZE(a, 1), info)
-      ENDIF
+      END IF
 
 #endif
 
@@ -144,14 +145,13 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER          :: blacs_env
       LOGICAL, INTENT(IN)                       :: upper_to_full
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_cholesky_invert', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_cholesky_invert'
 
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a
       REAL(KIND=sp), DIMENSION(:, :), POINTER  :: a_sp
       INTEGER                                   :: info, handle
       INTEGER                                   :: my_n, nfullrows_total, nfullcols_total
-      TYPE(cp_fm_type), POINTER                 :: fm_matrix, fm_matrix_tmp
+      TYPE(cp_fm_type)                 :: fm_matrix, fm_matrix_tmp
       TYPE(cp_fm_struct_type), POINTER          :: fm_struct
 #if defined(__SCALAPACK)
       INTEGER, DIMENSION(9)                     :: desca
@@ -159,7 +159,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
 
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -187,7 +187,7 @@ CONTAINS
          CALL pspotri('U', my_n, a_sp(1, 1), 1, 1, desca, info)
       ELSE
          CALL pdpotri('U', my_n, a(1, 1), 1, 1, desca, info)
-      ENDIF
+      END IF
 
 #else
 
@@ -195,7 +195,7 @@ CONTAINS
          CALL spotri('U', my_n, a_sp(1, 1), SIZE(a_sp, 1), info)
       ELSE
          CALL dpotri('U', my_n, a(1, 1), SIZE(a, 1), info)
-      ENDIF
+      END IF
 
 #endif
 
@@ -205,7 +205,7 @@ CONTAINS
          CALL cp_fm_create(fm_matrix_tmp, fm_matrix%matrix_struct, name="fm_matrix_tmp")
          CALL cp_fm_upper_to_full(fm_matrix, fm_matrix_tmp)
          CALL cp_fm_release(fm_matrix_tmp)
-      ENDIF
+      END IF
 
       CALL copy_fm_to_dbcsr(fm_matrix, matrix)
 
@@ -237,8 +237,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                :: para_env
       TYPE(cp_blacs_env_type), POINTER               :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_cholesky_restore', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_cholesky_restore'
 
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a, b, out
       REAL(KIND=sp), DIMENSION(:, :), POINTER  :: a_sp, b_sp, out_sp
@@ -249,7 +248,7 @@ CONTAINS
                                                    nfullcols_total
       TYPE(cp_blacs_env_type), POINTER          :: context
       CHARACTER                                 :: chol_pos, chol_transa
-      TYPE(cp_fm_type), POINTER                 :: fm_matrix, fm_matrixb, fm_matrixout
+      TYPE(cp_fm_type)                 :: fm_matrix, fm_matrixb, fm_matrixout
       TYPE(cp_fm_struct_type), POINTER          :: fm_struct
 #if defined(__SCALAPACK)
       INTEGER                                   :: i
@@ -258,7 +257,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_matrixb, fm_matrixout, fm_struct)
+      NULLIFY (fm_struct)
 
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -301,7 +300,7 @@ CONTAINS
          END SELECT
       ELSE
          chol_pos = 'L'
-      ENDIF
+      END IF
 
       chol_transa = 'N'
       IF (PRESENT(transa)) chol_transa = transa
@@ -328,23 +327,23 @@ CONTAINS
             CALL pscopy(n, a_sp(1, 1), 1, i, desca, 1, out_sp(1, 1), 1, i, descout, 1)
          ELSE
             CALL pdcopy(n, a(1, 1), 1, i, desca, 1, out(1, 1), 1, i, descout, 1)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       IF (op .EQ. "SOLVE") THEN
          IF (fm_matrix%use_sp) THEN
             CALL pstrsm(chol_pos, 'U', chol_transa, 'N', n, neig, REAL(alpha, sp), b_sp(1, 1), 1, 1, descb, &
                         out_sp(1, 1), 1, 1, descout)
          ELSE
             CALL pdtrsm(chol_pos, 'U', chol_transa, 'N', n, neig, alpha, b(1, 1), 1, 1, descb, out(1, 1), 1, 1, descout)
-         ENDIF
+         END IF
       ELSE
          IF (fm_matrix%use_sp) THEN
             CALL pstrmm(chol_pos, 'U', chol_transa, 'N', n, neig, REAL(alpha, sp), b_sp(1, 1), 1, 1, descb, &
                         out_sp(1, 1), 1, 1, descout)
          ELSE
             CALL pdtrmm(chol_pos, 'U', chol_transa, 'N', n, neig, alpha, b(1, 1), 1, 1, descb, out(1, 1), 1, 1, descout)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 #else
 
       alpha = 1.0_dp
@@ -352,20 +351,20 @@ CONTAINS
          CALL scopy(neig*n, a_sp(1, 1), 1, out_sp(1, 1), 1)
       ELSE
          CALL dcopy(neig*n, a(1, 1), 1, out(1, 1), 1)
-      ENDIF
+      END IF
       IF (op .EQ. "SOLVE") THEN
          IF (fm_matrix%use_sp) THEN
             CALL strsm(chol_pos, 'U', chol_transa, 'N', n, neig, REAL(alpha, sp), b_sp(1, 1), SIZE(b_sp, 1), out_sp(1, 1), n)
          ELSE
             CALL dtrsm(chol_pos, 'U', chol_transa, 'N', n, neig, alpha, b(1, 1), SIZE(b, 1), out(1, 1), n)
-         ENDIF
+         END IF
       ELSE
          IF (fm_matrix%use_sp) THEN
             CALL strmm(chol_pos, 'U', chol_transa, 'N', n, neig, REAL(alpha, sp), b_sp(1, 1), n, out_sp(1, 1), n)
          ELSE
             CALL dtrmm(chol_pos, 'U', chol_transa, 'N', n, neig, alpha, b(1, 1), n, out(1, 1), n)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
 #endif
 

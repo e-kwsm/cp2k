@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,7 +26,6 @@ MODULE cell_opt
                                               gopt_f_release,&
                                               gopt_f_type
    USE gopt_param_types,                ONLY: gopt_param_read,&
-                                              gopt_param_release,&
                                               gopt_param_type
    USE input_constants,                 ONLY: default_bfgs_method_id,&
                                               default_cell_method_id,&
@@ -55,7 +56,7 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_cell_opt', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_cell_opt'
 
       INTEGER                                            :: handle, step_start_val
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x0
@@ -74,6 +75,7 @@ CONTAINS
       force_env_section => force_env%force_env_section
       geo_section => section_vals_get_subs_vals(root_section, "MOTION%CELL_OPT")
 
+      ALLOCATE (gopt_param)
       CALL gopt_param_read(gopt_param, geo_section, type_id=default_cell_method_id)
       CALL gopt_f_create(gopt_env, gopt_param, force_env=force_env, globenv=globenv, &
                          geo_opt_section=geo_section)
@@ -90,7 +92,7 @@ CONTAINS
       CALL section_vals_val_set(geo_section, "STEP_START_VAL", i_val=0)
       DEALLOCATE (x0)
       CALL gopt_f_release(gopt_env)
-      CALL gopt_param_release(gopt_param)
+      DEALLOCATE (gopt_param)
       CALL timestop(handle)
 
    END SUBROUTINE cp_cell_opt
@@ -115,9 +117,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: force_env_section, geo_section
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x0
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_cell_opt_low', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(force_env))
       CPASSERT(ASSOCIATED(globenv))
       CPASSERT(ASSOCIATED(gopt_param))
@@ -125,6 +124,7 @@ CONTAINS
       CPASSERT(ASSOCIATED(x0))
       CPASSERT(ASSOCIATED(force_env_section))
       CPASSERT(ASSOCIATED(geo_section))
+      MARK_USED(force_env_section)
 
       SELECT CASE (gopt_param%method_id)
       CASE (default_bfgs_method_id)

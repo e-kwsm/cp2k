@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -58,9 +60,6 @@ CONTAINS
    SUBROUTINE create_constraint_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_constraint_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -91,6 +90,13 @@ CONTAINS
                           description="Apply constraints to the initial position and velocities."// &
                           " Default is to apply constraints only after the first MD step.", &
                           usage="CONSTRAINT_INIT <LOGICAL>", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="PIMD_BEADWISE_CONSTRAINT", &
+                          description="Apply beadwise constraints to PIMD.", &
+                          usage="PIMD_BEADWISE_CONSTRAINT <LOGICAL>", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -158,9 +164,6 @@ CONTAINS
    SUBROUTINE create_clv_rest_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_clv_rest_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -189,9 +192,6 @@ CONTAINS
    SUBROUTINE create_f_a_rest_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_f_a_rest_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -217,9 +217,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE restraint_info_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'restraint_info_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -250,9 +247,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_collective_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_collective_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -340,14 +334,12 @@ CONTAINS
    SUBROUTINE create_fixed_atom_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_fixed_atom_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="fixed_atoms", &
-                          description="This section is used to constraint the overall atomic position (X,Y,Z). In case "// &
+                          description="This section is used to constraint the fractional atomic position (X,Y,Z). Note "// &
+                          "that fractional coordinates are constrained, not real space coordinates. In case "// &
                           "a restraint is specified the value of the TARGET is considered to be the value of the "// &
                           "coordinates at the beginning of the run or alternatively the corresponding value in the section: "// &
                           "FIX_ATOM_RESTART.", n_keywords=3, n_subsections=0, repeats=.TRUE.)
@@ -355,8 +347,8 @@ CONTAINS
 
       ! Section Parameter
       CALL keyword_create(keyword, __LOCATION__, name="COMPONENTS_TO_FIX", &
-                          description="Specify which components (X,Y,Z or combinations) of the atoms specified in the section "// &
-                          "will be constrained/restrained.", &
+                          description="Specify which fractional components (X,Y,Z or combinations) of the atoms specified "// &
+                          "in the section will be constrained/restrained.", &
                           usage="COMPONENTS_TO_FIX (x|y|z|xy|xz|yz|xyz)", &
                           default_i_val=use_perd_xyz, &
                           enum_c_vals=s2a("x", "y", "z", "xy", "xz", "yz", "xyz"), &
@@ -443,9 +435,6 @@ CONTAINS
    SUBROUTINE create_g3x3_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_g3x3_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -517,9 +506,6 @@ CONTAINS
    SUBROUTINE create_hbonds_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_hbonds_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -585,9 +571,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_g4x6_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_g4x6_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -660,9 +643,6 @@ CONTAINS
    SUBROUTINE create_vsite_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_vsite_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -704,7 +684,7 @@ CONTAINS
 
       ! Real
       CALL keyword_create(keyword, __LOCATION__, name="PARAMETERS", &
-                          description="The constrained paramters' values to construct virtual site."// &
+                          description="The constrained parameters' values to construct virtual site."// &
                           "r_v=a*r_ij+b*r_kj", &
                           usage="PARAMETERS {real} {real}", &
                           type_of_var=real_t, n_var=2, unit_str="internal_cp2k")

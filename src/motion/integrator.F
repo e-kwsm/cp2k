@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -29,12 +31,15 @@ MODULE integrator
    USE barostat_types,                  ONLY: barostat_type
    USE cell_types,                      ONLY: cell_type,&
                                               init_cell,&
-                                              parse_cell_line
+                                              parse_cell_line,&
+                                              set_cell_param
    USE constraint,                      ONLY: rattle_control,&
                                               shake_control,&
                                               shake_roll_control,&
                                               shake_update_targets
-   USE constraint_fxd,                  ONLY: fix_atom_control
+   USE constraint_fxd,                  ONLY: create_local_fixd_list,&
+                                              fix_atom_control,&
+                                              release_local_fixd_list
    USE constraint_util,                 ONLY: getold,&
                                               pv_constraint
    USE cp_control_types,                ONLY: dft_control_type
@@ -55,29 +60,29 @@ MODULE integrator
    USE global_types,                    ONLY: global_environment_type
    USE input_constants,                 ONLY: ehrenfest,&
                                               npe_f_ensemble,&
-                                              npe_i_ensemble
+                                              npe_i_ensemble,&
+                                              npt_ia_ensemble
    USE integrator_utils,                ONLY: &
         allocate_old, allocate_tmp, damp_v, damp_veps, deallocate_old, get_s_ds, &
         old_variables_type, rattle_roll_setup, set, tmp_variables_type, update_dealloc_tmp, &
         update_pv, update_veps, variable_timestep, vv_first, vv_second
-   USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matmul_3x3,&
-                                              transpose_3d
+   USE kinds,                           ONLY: dp,&
+                                              max_line_length
    USE md_environment_types,            ONLY: get_md_env,&
                                               md_environment_type,&
                                               set_md_env
    USE metadynamics,                    ONLY: metadyn_integrator,&
                                               metadyn_velocities_colvar
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
-   USE molecule_kind_types,             ONLY: molecule_kind_type
+   USE molecule_kind_types,             ONLY: local_fixd_constraint_type,&
+                                              molecule_kind_type
    USE molecule_list_types,             ONLY: molecule_list_type
    USE molecule_types,                  ONLY: global_constraint_type,&
                                               molecule_type
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type,&
                                               update_particle_set
-   USE physcon,                         ONLY: bohr,&
-                                              femtoseconds
+   USE physcon,                         ONLY: femtoseconds
    USE qmmm_util,                       ONLY: apply_qmmm_walls_reflective
    USE qmmmx_update,                    ONLY: qmmmx_update_force_env
    USE qs_environment_types,            ONLY: get_qs_env
@@ -88,6 +93,7 @@ MODULE integrator
    USE rt_propagation_types,            ONLY: rt_prop_type
    USE shell_opt,                       ONLY: optimize_shell_core
    USE simpar_types,                    ONLY: simpar_type
+   USE string_utilities,                ONLY: uppercase
    USE thermal_region_types,            ONLY: thermal_region_type,&
                                               thermal_regions_type
    USE thermostat_methods,              ONLY: apply_thermostat_baro,&
@@ -126,8 +132,6 @@ CONTAINS
    SUBROUTINE langevin(md_env)
 
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'langevin', routineP = moduleN//':'//routineN
 
       INTEGER :: iparticle, iparticle_kind, iparticle_local, iparticle_reg, ireg, nparticle, &
          nparticle_kind, nparticle_local, nshell
@@ -208,7 +212,7 @@ CONTAINS
 
       ! Allocate the temperature dependent variance (var_w) of the
       ! random variable for each atom. It may be different for different
-      ! atoms because of the possiblity of Langevin regions, and var_w
+      ! atoms because of the possibility of Langevin regions, and var_w
       ! for each region should depend on the temperature defined in the
       ! region
       ! RZK explains: sigma is the variance of the Wiener process associated
@@ -250,7 +254,7 @@ CONTAINS
             iparticle = local_particles%list(iparticle_kind)%array(iparticle_local)
             IF (do_langevin(iparticle)) THEN
                sigma = var_w(iparticle)*mass
-               ASSOCIATE (rng_stream=>local_particles%local_particle_set(iparticle_kind)% &
+               ASSOCIATE (rng_stream => local_particles%local_particle_set(iparticle_kind)% &
                           rng(iparticle_local))
                   w(1, iparticle) = rng_stream%stream%next(variance=sigma)
                   w(2, iparticle) = rng_stream%stream%next(variance=sigma)
@@ -385,8 +389,6 @@ CONTAINS
 
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nve', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_iter, n_iter, nparticle, &
                                                             nparticle_kind, nshell
@@ -531,7 +533,7 @@ CONTAINS
 
          IF (ehrenfest_md) THEN
             CALL rt_prop_output(force_env%qs_env, ehrenfest, delta_iter=force_env%qs_env%rtp%delta_iter)
-         ENDIF
+         END IF
 
          ! Metadynamics
          CALL metadyn_integrator(force_env, itimes, tmp%vel)
@@ -598,8 +600,6 @@ CONTAINS
    SUBROUTINE isokin(md_env)
 
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'isokin', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nparticle, nparticle_kind, nshell
       INTEGER, POINTER                                   :: itimes
@@ -718,8 +718,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nvt_adiabatic', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ivar, nparticle, nparticle_kind, nshell
       INTEGER, POINTER                                   :: itimes
       LOGICAL                                            :: shell_adiabatic, shell_check_distance, &
@@ -787,8 +785,8 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             ALLOCATE (rand(force_env%meta_env%n_colvar))
             rand(:) = 0.0_dp
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       !  Allocate work storage for positions and velocities
       IF (shell_present) THEN
@@ -829,10 +827,10 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             DO ivar = 1, force_env%meta_env%n_colvar
                rand(ivar) = force_env%meta_env%rng(ivar)%next()
-            ENDDO
+            END DO
             CALL metadyn_velocities_colvar(force_env, rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Velocity Verlet (first part)
       CALL vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
@@ -901,8 +899,8 @@ CONTAINS
       IF (ASSOCIATED(force_env%meta_env)) THEN
          IF (force_env%meta_env%langevin) THEN
             DEALLOCATE (rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Update constraint virial
       IF (simpar%constraint) CALL pv_constraint(gci, local_molecules, &
@@ -927,8 +925,6 @@ CONTAINS
 
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nvt', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ivar, nparticle, nparticle_kind, nshell
       INTEGER, POINTER                                   :: itimes
@@ -997,8 +993,8 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             ALLOCATE (rand(force_env%meta_env%n_colvar))
             rand(:) = 0.0_dp
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       !  Allocate work storage for positions and velocities
       IF (shell_present) THEN
@@ -1036,10 +1032,10 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             DO ivar = 1, force_env%meta_env%n_colvar
                rand(ivar) = force_env%meta_env%rng(ivar)%next()
-            ENDDO
+            END DO
             CALL metadyn_velocities_colvar(force_env, rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Velocity Verlet (first part)
       CALL vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
@@ -1143,8 +1139,8 @@ CONTAINS
       IF (ASSOCIATED(force_env%meta_env)) THEN
          IF (force_env%meta_env%langevin) THEN
             DEALLOCATE (rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! Update constraint virial
       IF (simpar%constraint) CALL pv_constraint(gci, local_molecules, &
@@ -1170,12 +1166,11 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'npt_i', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: e2 = 1.0_dp/6.0_dp, e4 = e2/20.0_dp, &
                                                             e6 = e4/42.0_dp, e8 = e6/72.0_dp
 
-      INTEGER                                            :: iroll, ivar, nparticle, nparticle_kind, &
-                                                            nshell
+      INTEGER                                            :: iroll, ivar, nkind, nparticle, &
+                                                            nparticle_kind, nshell
       INTEGER, POINTER                                   :: itimes
       LOGICAL                                            :: first, first_time, shell_adiabatic, &
                                                             shell_check_distance, shell_present
@@ -1192,6 +1187,8 @@ CONTAINS
       TYPE(distribution_1d_type), POINTER                :: local_molecules, local_particles
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(global_constraint_type), POINTER              :: gci
+      TYPE(local_fixd_constraint_type), DIMENSION(:), &
+         POINTER                                         :: lfixd_list
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
       TYPE(molecule_kind_type), DIMENSION(:), POINTER    :: molecule_kind_set
       TYPE(molecule_list_type), POINTER                  :: molecules
@@ -1213,7 +1210,7 @@ CONTAINS
       NULLIFY (molecule_kinds, molecules, molecule_kind_set, npt)
       NULLIFY (core_particles, particles, shell_particles, tmp, old)
       NULLIFY (core_particle_set, particle_set, shell_particle_set)
-      NULLIFY (simpar, virial, rand, itimes)
+      NULLIFY (simpar, virial, rand, itimes, lfixd_list)
 
       CALL get_md_env(md_env=md_env, simpar=simpar, force_env=force_env, &
                       thermostat_part=thermostat_part, thermostat_baro=thermostat_baro, &
@@ -1232,6 +1229,7 @@ CONTAINS
                          gci=gci, molecule_kinds=molecule_kinds, virial=virial)
 
       nparticle_kind = atomic_kinds%n_els
+      nkind = molecule_kinds%n_els
       atomic_kind_set => atomic_kinds%els
       molecule_kind_set => molecule_kinds%els
 
@@ -1256,8 +1254,8 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             ALLOCATE (rand(force_env%meta_env%n_colvar))
             rand(:) = 0.0_dp
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (shell_present) THEN
          CALL cp_subsys_get(subsys=subsys, &
@@ -1310,7 +1308,7 @@ CONTAINS
                      molecule_kind_set, particle_set, cell)
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       !    *** Velocity Verlet for Langeving *** v(t)--> v(t+1/2)
@@ -1318,10 +1316,10 @@ CONTAINS
          IF (force_env%meta_env%langevin) THEN
             DO ivar = 1, force_env%meta_env%n_colvar
                rand(ivar) = force_env%meta_env%rng(ivar)%next()
-            ENDDO
+            END DO
             CALL metadyn_velocities_colvar(force_env, rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       SR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! SHAKE-ROLL LOOP
 
@@ -1350,9 +1348,17 @@ CONTAINS
                                 (1.0_dp + 3.0_dp*infree))
 
          ! first half of velocity verlet
-         CALL vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
-                       core_particle_set, shell_particle_set, nparticle_kind, &
-                       shell_adiabatic, dt)
+         IF (simpar%ensemble == npt_ia_ensemble) THEN
+            CALL create_local_fixd_list(lfixd_list, nkind, molecule_kind_set, local_particles)
+            CALL vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
+                          core_particle_set, shell_particle_set, nparticle_kind, &
+                          shell_adiabatic, dt, lfixd_list=lfixd_list)
+            CALL release_local_fixd_list(lfixd_list)
+         ELSE
+            CALL vv_first(tmp, atomic_kind_set, local_particles, particle_set, &
+                          core_particle_set, shell_particle_set, nparticle_kind, &
+                          shell_adiabatic, dt)
+         END IF
 
          IF (simpar%variable_dt) CALL variable_timestep(md_env, tmp, dt, simpar, para_env, &
                                                         atomic_kind_set, local_particles, particle_set, core_particle_set, &
@@ -1406,7 +1412,7 @@ CONTAINS
          CALL set(old, atomic_kind_set, particle_set, tmp%vel, local_particles, cell, npt, 'F')
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       RR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! RATTLE-ROLL LOOP
@@ -1474,8 +1480,8 @@ CONTAINS
       IF (ASSOCIATED(force_env%meta_env)) THEN
          IF (force_env%meta_env%langevin) THEN
             DEALLOCATE (rand)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (first_time) THEN
          first_time = .FALSE.
@@ -1496,15 +1502,15 @@ CONTAINS
    SUBROUTINE reftraj(md_env)
       TYPE(md_environment_type), POINTER                 :: md_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'reftraj', routineP = moduleN//':'//routineN
-
-      CHARACTER(LEN=10)                                  :: AA
-      INTEGER                                            :: cell_itimes, I, nparticle, Nread, &
+      CHARACTER(LEN=2)                                   :: element_symbol, element_symbol_ref0
+      CHARACTER(LEN=max_line_length)                     :: errmsg
+      INTEGER                                            :: cell_itimes, i, nparticle, Nread, &
                                                             trj_itimes
       INTEGER, POINTER                                   :: itimes
-      LOGICAL                                            :: init, my_end, test_ok
+      LOGICAL                                            :: init, my_end, test_ok, traj_has_cell_info
       REAL(KIND=dp)                                      :: cell_time, h(3, 3), trj_epot, trj_time, &
                                                             vol
+      REAL(KIND=dp), DIMENSION(3)                        :: abc, albega
       REAL(KIND=dp), POINTER                             :: time
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -1527,16 +1533,30 @@ CONTAINS
       CALL cp_subsys_get(subsys=subsys, particles=particles)
       nparticle = particles%n_els
       particle_set => particles%els
+      abc(:) = 0.0_dp
+      albega(:) = 0.0_dp
 
       ! SnapShots read from an external file (parsers calls are buffered! please
       ! don't put any additional MPI call!) [tlaino]
       CALL parser_read_line(reftraj_env%info%traj_parser, 1)
       READ (reftraj_env%info%traj_parser%input_line, FMT="(I8)") nread
-      CPASSERT(nread == nparticle)
       CALL parser_read_line(reftraj_env%info%traj_parser, 1)
       test_ok = .FALSE.
-      READ (reftraj_env%info%traj_parser%input_line, FMT="(T6,I8,T23,F12.3,T41,F20.10)", ERR=999) &
-         trj_itimes, trj_time, trj_epot
+      IF (INDEX(reftraj_env%info%traj_parser%input_line, ", a = ") > 60) THEN
+         traj_has_cell_info = .TRUE.
+         READ (reftraj_env%info%traj_parser%input_line, &
+               FMT="(T6,I8,T23,F12.3,T41,F20.10,T67,F14.6,T87,F14.6,T107,F14.6,T131,F8.3,T149,F8.3,T167,F8.3)", &
+               ERR=999) trj_itimes, trj_time, trj_epot, abc(1:3), albega(1:3)
+         ! Convert cell parameters from angstrom and degree to the internal CP2K units
+         DO i = 1, 3
+            abc(i) = cp_unit_to_cp2k(abc(i), "angstrom")
+            albega(i) = cp_unit_to_cp2k(albega(i), "deg")
+         END DO
+      ELSE
+         traj_has_cell_info = .FALSE.
+         READ (reftraj_env%info%traj_parser%input_line, FMT="(T6,I8,T23,F12.3,T41,F20.10)", ERR=999) &
+            trj_itimes, trj_time, trj_epot
+      END IF
       test_ok = .TRUE.
 999   IF (.NOT. test_ok) THEN
          ! Handling properly the error when reading the title of an XYZ
@@ -1545,16 +1565,42 @@ CONTAINS
          trj_time = 0.0_dp
          trj_epot = 0.0_dp
       END IF
+      ! Delayed print of error message until the step number is known
+      IF (nread /= nparticle) THEN
+         errmsg = "Number of atoms for step "//TRIM(ADJUSTL(cp_to_string(trj_itimes)))// &
+                  " in the trajectory file does not match the reference configuration: "// &
+                  TRIM(ADJUSTL(cp_to_string(nread)))//" != "//TRIM(ADJUSTL(cp_to_string(nparticle)))
+         CPABORT(errmsg)
+      END IF
       DO i = 1, nread - 1
          CALL parser_read_line(reftraj_env%info%traj_parser, 1)
-        READ (reftraj_env%info%traj_parser%input_line(1:LEN_TRIM(reftraj_env%info%traj_parser%input_line)), *) AA, particle_set(i)%r
-         particle_set(i)%r = particle_set(i)%r*bohr
+         READ (UNIT=reftraj_env%info%traj_parser%input_line(1:LEN_TRIM(reftraj_env%info%traj_parser%input_line)), FMT=*) &
+            element_symbol, particle_set(i)%r
+         CALL uppercase(element_symbol)
+         element_symbol_ref0 = particle_set(i)%atomic_kind%element_symbol
+         CALL uppercase(element_symbol_ref0)
+         IF (element_symbol /= element_symbol_ref0) THEN
+            errmsg = "Atomic configuration from trajectory file does not match the reference configuration: Check atom "// &
+                     TRIM(ADJUSTL(cp_to_string(i)))//" of step "//TRIM(ADJUSTL(cp_to_string(trj_itimes)))
+            CPABORT(errmsg)
+         END IF
+         particle_set(i)%r(1) = cp_unit_to_cp2k(particle_set(i)%r(1), "angstrom")
+         particle_set(i)%r(2) = cp_unit_to_cp2k(particle_set(i)%r(2), "angstrom")
+         particle_set(i)%r(3) = cp_unit_to_cp2k(particle_set(i)%r(3), "angstrom")
       END DO
       ! End of file is properly addressed in the previous call..
       ! Let's check directly (providing some info) also for the last
       ! line of this frame..
       CALL parser_read_line(reftraj_env%info%traj_parser, 1, at_end=my_end)
-      READ (unit=reftraj_env%info%traj_parser%input_line, fmt=*) AA, particle_set(i)%r
+      READ (UNIT=reftraj_env%info%traj_parser%input_line, FMT=*) element_symbol, particle_set(i)%r
+      CALL uppercase(element_symbol)
+      element_symbol_ref0 = particle_set(i)%atomic_kind%element_symbol
+      CALL uppercase(element_symbol_ref0)
+      IF (element_symbol /= element_symbol_ref0) THEN
+         errmsg = "Atomic configuration from trajectory file does not match the reference configuration: Check atom "// &
+                  TRIM(ADJUSTL(cp_to_string(i)))//" of step "//TRIM(ADJUSTL(cp_to_string(trj_itimes)))
+         CPABORT(errmsg)
+      END IF
       particle_set(i)%r(1) = cp_unit_to_cp2k(particle_set(i)%r(1), "angstrom")
       particle_set(i)%r(2) = cp_unit_to_cp2k(particle_set(i)%r(2), "angstrom")
       particle_set(i)%r(3) = cp_unit_to_cp2k(particle_set(i)%r(3), "angstrom")
@@ -1567,7 +1613,8 @@ CONTAINS
                           "missing frames ("//cp_to_string((simpar%nsteps - 1) - reftraj_env%isnap)//").")
       END IF
 
-      IF (reftraj_env%info%variable_volume) THEN
+      ! Read cell parameters from cell file if requested and if not yet available
+      IF (reftraj_env%info%variable_volume .AND. (.NOT. traj_has_cell_info)) THEN
          CALL parser_get_next_line(reftraj_env%info%cell_parser, 1, at_end=my_end)
          CALL parse_cell_line(reftraj_env%info%cell_parser%input_line, cell_itimes, cell_time, h, vol)
          CPASSERT(trj_itimes == cell_itimes)
@@ -1594,7 +1641,9 @@ CONTAINS
       CALL get_md_env(md_env, t=time)
       time = reftraj_env%time
 
-      IF (reftraj_env%info%variable_volume) THEN
+      IF (traj_has_cell_info) THEN
+         CALL set_cell_param(cell, cell_length=abc, cell_angle=albega, do_init_cell=.TRUE.)
+      ELSE IF (reftraj_env%info%variable_volume) THEN
          cell%hmat = h
          CALL init_cell(cell)
       END IF
@@ -1639,7 +1688,6 @@ CONTAINS
 
       TYPE(md_environment_type), POINTER                 :: md_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nph_uniaxial', routineP = moduleN//':'//routineN
       REAL(dp), PARAMETER                                :: e2 = 1._dp/6._dp, e4 = e2/20._dp, &
                                                             e6 = e4/42._dp, e8 = e6/72._dp
 
@@ -1739,7 +1787,7 @@ CONTAINS
                      molecule_kind_set, particle_set, cell)
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       SR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! SHAKE-ROLL LOOP
@@ -1828,7 +1876,7 @@ CONTAINS
          CALL set(old, atomic_kind_set, particle_set, tmp%vel, local_particles, cell, npt, 'F')
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       RR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! RATTLE-ROLL LOOP
@@ -1883,8 +1931,6 @@ CONTAINS
 
       TYPE(md_environment_type), POINTER                 :: md_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nph_uniaxial_damped', &
-         routineP = moduleN//':'//routineN
       REAL(dp), PARAMETER                                :: e2 = 1._dp/6._dp, e4 = e2/20._dp, &
                                                             e6 = e4/42._dp, e8 = e6/72._dp
 
@@ -1987,7 +2033,7 @@ CONTAINS
                      molecule_kind_set, particle_set, cell)
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       SR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! SHAKE-ROLL LOOP
@@ -2076,7 +2122,7 @@ CONTAINS
          CALL set(old, atomic_kind_set, particle_set, tmp%vel, local_particles, cell, npt, 'F')
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       RR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! RATTLE-ROLL LOOP
@@ -2138,7 +2184,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'npt_f', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: e2 = 1.0_dp/6.0_dp, e4 = e2/20.0_dp, &
                                                             e6 = e4/42.0_dp, e8 = e6/72.0_dp
 
@@ -2266,7 +2311,7 @@ CONTAINS
                      molecule_kind_set, particle_set, cell)
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       SR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! SHAKE-ROLL LOOP
@@ -2320,7 +2365,7 @@ CONTAINS
       END DO SR
 
       ! Update h_mat
-      uh = MATMUL_3X3(TRANSPOSE_3D(tmp%u), cell%hmat)
+      uh = MATMUL(TRANSPOSE(tmp%u), cell%hmat)
 
       DO i = 1, 3
          DO j = 1, 3
@@ -2328,7 +2373,7 @@ CONTAINS
          END DO
       END DO
 
-      cell%hmat = MATMUL_3x3(tmp%u, uh)
+      cell%hmat = MATMUL(tmp%u, uh)
       ! Update the inverse
       CALL init_cell(cell)
 
@@ -2359,7 +2404,7 @@ CONTAINS
          CALL set(old, atomic_kind_set, particle_set, tmp%vel, local_particles, cell, npt, 'F')
       ELSE
          roll_tol_thrs = EPSILON(0.0_dp)
-      ENDIF
+      END IF
       roll_tol = -roll_tol_thrs
 
       RR: DO WHILE (ABS(roll_tol) >= roll_tol_thrs) ! RATTLE-ROLL LOOP
@@ -2442,8 +2487,6 @@ CONTAINS
    SUBROUTINE nve_respa(md_env)
 
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nve_respa', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_step, iparticle, iparticle_kind, &
                                                             iparticle_local, n_time_steps, &

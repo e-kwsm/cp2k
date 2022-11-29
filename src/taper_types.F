@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,8 +44,6 @@ CONTAINS
       TYPE(taper_type), POINTER                          :: taper
       REAL(KIND=dp), INTENT(IN)                          :: rc, range
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'taper_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(taper))
       ALLOCATE (taper)
       IF (range > EPSILON(0.0_dp)) THEN
@@ -64,8 +64,6 @@ CONTAINS
    SUBROUTINE taper_release(taper)
       TYPE(taper_type), POINTER                          :: taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'taper_release', routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(taper)) THEN
          DEALLOCATE (taper)
       END IF
@@ -81,8 +79,6 @@ CONTAINS
       TYPE(taper_type), POINTER                          :: taper
       REAL(KIND=dp), INTENT(IN)                          :: rij
       REAL(KIND=dp)                                      :: ft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'taper_eval', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: dr
 
@@ -103,8 +99,6 @@ CONTAINS
       TYPE(taper_type), POINTER                          :: taper
       REAL(KIND=dp), INTENT(IN)                          :: rij
       REAL(KIND=dp)                                      :: dft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dtaper_eval', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: dr
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -65,9 +67,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: ref_point
       INTEGER, INTENT(IN), OPTIONAL                      :: ifirst, ilast
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_reference_point', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: akind, ia, iatom, ikind
       LOGICAL                                            :: do_molecule
       REAL(dp)                                           :: charge, mass, mass_low, mtot, ztot
@@ -99,6 +98,7 @@ CONTAINS
       CASE (use_mom_ref_com)
          rpoint = 0._dp
          mtot = 0._dp
+         center(:) = 0._dp
          IF (do_molecule) THEN
             mass_low = -HUGE(mass_low)
             ! fold the molecule around the heaviest atom in the molecule
@@ -108,8 +108,8 @@ CONTAINS
                IF (mass > mass_low) THEN
                   mass_low = mass
                   center = particle_set(iatom)%r
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             DO iatom = ifirst, ilast
                ria = particle_set(iatom)%r
                ria = pbc(ria - center, cell) + center
@@ -142,6 +142,7 @@ CONTAINS
       CASE (use_mom_ref_coac)
          rpoint = 0._dp
          ztot = 0._dp
+         center(:) = 0._dp
          IF (do_molecule) THEN
             mass_low = -HUGE(mass_low)
             ! fold the molecule around the heaviest atom in the molecule
@@ -151,8 +152,8 @@ CONTAINS
                IF (mass > mass_low) THEN
                   mass_low = mass
                   center = particle_set(iatom)%r
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             DO iatom = ifirst, ilast
                ria = particle_set(iatom)%r
                ria = pbc(ria - center, cell) + center

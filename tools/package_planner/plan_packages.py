@@ -1,12 +1,12 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-#
+#!/usr/bin/env python3
+
+# author: Ole Schuett
+
 # A tool to help planning CP2K packages, listing currently violated dependencies if any
-#
 
-from __future__ import print_function
-
-import re, sys, os
+import os
+import re
+import sys
 from os import path
 from os.path import dirname, basename, normpath, abspath
 
@@ -24,7 +24,7 @@ def main():
         print("Usage: plan_packages.py <plan_file>")
         sys.exit(1)
 
-    planned_pkgs = eval(open(sys.argv[1]).read())
+    planned_pkgs = eval(open(sys.argv[1], encoding="utf8").read())
 
     srcdir = "../../src"
     abs_srcdir = abspath(srcdir)
@@ -48,11 +48,11 @@ def main():
         parse_file(parsed_files, fn)  # parses also included files
     print("Parsed %d source files" % len(parsed_files))
 
-    # create table mapping fortan module-names to file-name
+    # create table mapping fortran module-names to file-name
     mod2fn = dict()
     for fn in src_files:
         for m in parsed_files[fn]["module"]:
-            if mod2fn.has_key(m):
+            if m in mod2fn:
                 error('Multiple declarations of module "%s"' % m)
             mod2fn[m] = fn
     print("Created mod2fn table, found %d modules." % len(mod2fn))
@@ -77,15 +77,15 @@ def main():
     # update with manifest with planned packages
     for pp in planned_pkgs:
         p = abspath(path.join(srcdir, pp["dirname"]))
-        if not packages.has_key(p):
+        if p not in packages:
             packages[p] = {"problems": []}
         packages[p].update(pp)
-        if pp.has_key("files"):
+        if "files" in pp:
             for fn in pp["files"]:
                 fn2pkg[fn] = p
-        if pp.has_key("requires+"):
+        if "requires+" in pp:
             packages[p]["requires"] += pp["requires+"]
-        if pp.has_key("requires-"):
+        if "requires-" in pp:
             for i in pp["requires-"]:
                 while i in packages[p]["requires"]:
                     packages[p]["requires"].remove(i)
@@ -101,9 +101,7 @@ def main():
     for fn in src_files:
         p = fn2pkg[basename(fn)]
         deps = collect_include_deps(parsed_files, fn)
-        deps += [
-            mod2fn[m] for m in collect_use_deps(parsed_files, fn) if mod2fn.has_key(m)
-        ]
+        deps += [mod2fn[m] for m in collect_use_deps(parsed_files, fn) if m in mod2fn]
         n_deps += len(deps)
         for d in deps:
             dp = fn2pkg[basename(d)]
@@ -114,7 +112,7 @@ def main():
             )
             if dp not in packages[p]["allowed_deps"]:
                 packages[p]["problems"].append(msg + "(requirement not listed)")
-            if dp != p and packages[dp].has_key("public"):
+            if dp != p and "public" in packages[dp]:
                 if basename(d) not in packages[dp]["public"]:
                     packages[p]["problems"].append(msg + "(file not public)")
 
@@ -137,13 +135,13 @@ def parse_file(parsed_files, fn):
     if fn in parsed_files:
         return
 
-    content = open(fn).read()
+    content = open(fn, encoding="utf8").read()
 
     # re.IGNORECASE is horribly expensive. Converting to lower-case upfront
     content_lower = content.lower()
 
     mods = re_module.findall(content_lower)
-    prog = re_program.search(content_lower) != None
+    prog = re_program.search(content_lower) is not None
     uses = re_use.findall(content_lower)
     incl1_iter = re_incl1.finditer(content_lower)  # fortran includes
     incls = [content[m.start(1) : m.end(1)] for m in incl1_iter]
@@ -170,14 +168,14 @@ def parse_file(parsed_files, fn):
 
 # =============================================================================
 def read_manifest(packages, p):
-    if packages.has_key(p):
+    if p in packages:
         return
 
     fn = p + "/PACKAGE"
     if not path.exists(fn):
         error("Could not open PACKAGE manifest: " + fn)
 
-    content = open(fn).read()
+    content = open(fn, encoding="utf8").read()
     packages[p] = eval(content)
     packages[p]["problems"] = []
 
@@ -188,7 +186,7 @@ def read_manifest(packages, p):
 
 # =============================================================================
 def process_manifest(packages, p):
-    if not packages[p].has_key("archive"):
+    if "archive" not in packages[p]:
         packages[p]["archive"] = "libcp2k" + basename(p)
     packages[p]["allowed_deps"] = [normpath(p)]
     packages[p]["allowed_deps"] += [
@@ -197,7 +195,7 @@ def process_manifest(packages, p):
 
     for r in packages[p]["requires"]:
         rp = normpath(path.join(p, r))
-        if not packages.has_key(rp):
+        if rp not in packages:
             error(
                 "Unexpected package requirement: "
                 + r
@@ -224,7 +222,7 @@ def collect_include_deps(parsed_files, fn):
 
     for i in pf["include"]:
         fn_inc = normpath(path.join(dirname(fn), i))
-        if parsed_files.has_key(fn_inc):
+        if fn_inc in parsed_files:
             incs.append(fn_inc)
             incs += collect_include_deps(parsed_files, fn_inc)
 
@@ -238,7 +236,7 @@ def collect_use_deps(parsed_files, fn):
 
     for i in pf["include"]:
         fn_inc = normpath(path.join(dirname(fn), i))
-        if parsed_files.has_key(fn_inc):
+        if fn_inc in parsed_files:
             uses += collect_use_deps(parsed_files, fn_inc)
 
     return list(set(uses))
@@ -247,10 +245,10 @@ def collect_use_deps(parsed_files, fn):
 # =============================================================================
 def find_cycles(parsed_files, mod2fn, fn, S=None):
     pf = parsed_files[fn]
-    if pf.has_key("visited"):
+    if "visited" in pf:
         return
 
-    if S == None:
+    if S is None:
         S = []
 
     for m in pf["module"]:
@@ -260,7 +258,7 @@ def find_cycles(parsed_files, mod2fn, fn, S=None):
         S.append(m)
 
     for m in collect_use_deps(parsed_files, fn):
-        if mod2fn.has_key(m):
+        if m in mod2fn:
             find_cycles(parsed_files, mod2fn, mod2fn[m], S)
 
     for m in pf["module"]:
@@ -271,7 +269,7 @@ def find_cycles(parsed_files, mod2fn, fn, S=None):
 
 # =============================================================================
 def find_pkg_cycles(packages, p, S=None):
-    if S == None:
+    if S is None:
         S = []
 
     if p in S:

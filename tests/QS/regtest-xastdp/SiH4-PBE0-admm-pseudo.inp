@@ -19,7 +19,6 @@
     &AUXILIARY_DENSITY_MATRIX_METHOD
       METHOD BASIS_PROJECTION
       ADMM_PURIFICATION_METHOD MO_DIAG
-      EXCH_CORRECTION_FUNC NONE
     &END AUXILIARY_DENSITY_MATRIX_METHOD
 
     &QS
@@ -27,7 +26,7 @@
     &END QS
 
     &SCF
-      &OT 
+      &OT
          PRECONDITIONER FULL_ALL
          ENERGY_GAP 0.01
       &END OT
@@ -57,16 +56,14 @@
       TAMM_DANCOFF
       DIPOLE_FORM LENGTH
       GRID Si 150 150
-      
+
       &KERNEL
          &XC_FUNCTIONAL
-            &LIBXC
-               FUNCTIONAL GGA_X_PBE
+            &GGA_X_PBE
                SCALE 0.75
-            &END LIBXC
-            &LIBXC
-               FUNCTIONAL GGA_C_PBE
-            &END LIBXC
+            &END GGA_X_PBE
+            &GGA_C_PBE
+            &END GGA_C_PBE
          &END XC_FUNCTIONAL
          &EXACT_EXCHANGE
             OPERATOR COULOMB

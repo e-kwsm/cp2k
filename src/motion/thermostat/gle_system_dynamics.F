@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -17,7 +19,8 @@ MODULE gle_system_dynamics
    USE input_constants,                 ONLY: &
         do_thermo_communication, do_thermo_no_communication, isokin_ensemble, langevin_ensemble, &
         npe_f_ensemble, npe_i_ensemble, nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, &
-        npt_f_ensemble, npt_i_ensemble, nve_ensemble, nvt_ensemble, reftraj_ensemble
+        npt_f_ensemble, npt_i_ensemble, npt_ia_ensemble, nve_ensemble, nvt_ensemble, &
+        reftraj_ensemble
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_remove_values,&
@@ -84,7 +87,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :), shell_vel(:, :), &
                                                             core_vel(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'gle_particles', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'gle_particles'
 
       INTEGER                                            :: handle, iadd, ideg, imap, ndim, num
       LOGICAL                                            :: my_shell_adiabatic, present_vel
@@ -192,9 +195,6 @@ CONTAINS
       TYPE(global_constraint_type), POINTER              :: gci
       LOGICAL, INTENT(IN)                                :: save_mem
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_gle_part', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: restart
       REAL(dp)                                           :: Mtmp(gle%ndim, gle%ndim)
 
@@ -240,27 +240,27 @@ CONTAINS
       tc(1) = 1._dp
       DO i = 1, j
          tc(i + 1) = tc(i)/REAL(i, KIND=dp)
-      ENDDO
+      END DO
 
       !scale
       SM = M*(1._dp/2._dp**k)
       EM = 0._dp
       DO i = 1, n
          EM(i, i) = tc(j + 1)
-      ENDDO
+      END DO
 
       !taylor exp of scaled matrix
       DO p = j, 1, -1
          EM = MATMUL(SM, EM)
          DO i = 1, n
             EM(i, i) = EM(i, i) + tc(p)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       !square
       DO p = 1, k
          EM = MATMUL(EM, EM)
-      ENDDO
+      END DO
    END SUBROUTINE gle_matrix_exp
 
 ! **************************************************************************************************
@@ -292,20 +292,20 @@ CONTAINS
             L(i, j) = SST(i, j); 
             DO k = 1, j - 1
                L(i, j) = L(i, j) - L(i, k)*L(j, k)*D(k)
-            ENDDO
+            END DO
             IF (ABS(D(j)) > EPSILON(1.0_dp)) L(i, j) = L(i, j)/D(j)
-         ENDDO
+         END DO
          DO k = 1, i - 1
             D(i) = D(i) - L(i, k)*L(i, k)*D(k)
          END DO
-      ENDDO
+      END DO
       DO i = 1, n
          DO j = 1, i
             IF ((ABS(D(j)) > EPSILON(1.0_dp)) .AND. (D(j) > 0.0_dp)) THEN
                S(i, j) = S(i, j) + L(i, j)*SQRT(D(j))
             END IF
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE gle_cholesky_stab
 
@@ -333,9 +333,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gle_to_particle_mapping', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imap, j, mal_size, natoms_local, &
                                                             nkind, number, region, &
                                                             sum_of_thermostats
@@ -352,7 +349,7 @@ CONTAINS
       CASE (nve_ensemble, isokin_ensemble, npe_f_ensemble, npe_i_ensemble, nph_uniaxial_ensemble, &
             nph_uniaxial_damped_ensemble, reftraj_ensemble, langevin_ensemble)
          CPABORT("Never reach this point!")
-      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble)
+      CASE (nvt_ensemble, npt_i_ensemble, npt_f_ensemble, npt_ia_ensemble)
 
          map_info => gle%map_info
          nkind = SIZE(molecule_kind_set)
@@ -422,8 +419,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: gle_section
       LOGICAL, INTENT(IN)                                :: save_mem
       LOGICAL, INTENT(OUT)                               :: restart
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'restart_gle', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=rng_record_length)                   :: rng_record
       INTEGER                                            :: glob_num, i, ind, j, loc_num, n_rep
@@ -516,9 +511,6 @@ CONTAINS
    SUBROUTINE init_gle_variables(gle)
 
       TYPE(gle_type), POINTER                            :: gle
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_gle_variables', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       REAL(dp)                                           :: rr(gle%ndim), cc(gle%ndim, gle%ndim)

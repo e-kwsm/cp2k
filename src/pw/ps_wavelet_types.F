@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,9 +52,6 @@ CONTAINS
    SUBROUTINE ps_wavelet_release(wavelet)
 
       TYPE(ps_wavelet_type), POINTER                     :: wavelet
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ps_wavelet_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(wavelet)) THEN
          IF (ASSOCIATED(wavelet%karray)) &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,8 +50,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: e(:), mu, T, maxocc
       INTEGER, INTENT(IN), OPTIONAL                      :: estate
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: festate
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Fermi', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: I, Nstate
       REAL(KIND=dp)                                      :: arg, occupation, term1, term2, tmp, &
@@ -121,8 +121,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: mu
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: wk
       REAL(KIND=dp), INTENT(IN)                          :: t, maxocc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'Fermi2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ik, is, nkp, nmo
       REAL(KIND=dp)                                      :: arg, beta, term1, term2, tmp, tmp2, &
@@ -206,8 +204,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: estate
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: festate
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'FermiFixed', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iter, my_estate
       REAL(KIND=dp)                                      :: mu_max, mu_min, mu_now, my_festate, &
                                                             N_max, N_min, N_now
@@ -232,8 +228,8 @@ CONTAINS
             mu_min = mu_min - T
          ELSE
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       mu_max = MAXVAL(e)
       iter = 0
@@ -244,8 +240,8 @@ CONTAINS
             mu_max = mu_max + T
          ELSE
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! now bisect
       iter = 0
@@ -259,13 +255,13 @@ CONTAINS
             mu_min = mu_now
          ELSE
             mu_max = mu_now
-         ENDIF
+         END IF
 
          IF (iter > BISECT_MAX_ITER) THEN
             CPWARN("Maximum number of iterations reached while finding the Fermi energy")
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       mu = (mu_max + mu_min)/2.0_dp
       CALL Fermi(f, N_now, kTS, e, mu, T, maxocc, my_estate, my_festate)
@@ -291,7 +287,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: wk
       REAL(KIND=dp), INTENT(IN)                          :: t, maxocc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'Fermikp', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: epsocc = 1.0e-12_dp
 
       INTEGER                                            :: iter
@@ -314,13 +309,13 @@ CONTAINS
             mu_min = mu
          ELSE
             mu_max = mu
-         ENDIF
+         END IF
 
          IF (iter > BISECT_MAX_ITER) THEN
             CPWARN("Maximum number of iterations reached while finding the Fermi energy")
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       mu = (mu_max + mu_min)/2.0_dp
       CALL Fermi2(f, N_now, kTS, e, mu, wk, t, maxocc)
@@ -345,7 +340,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: wk
       REAL(KIND=dp), INTENT(IN)                          :: t
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'Fermikp2', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: epsocc = 1.0e-12_dp
 
       INTEGER                                            :: iter
@@ -374,13 +368,13 @@ CONTAINS
             mu_min = mu
          ELSE
             mu_max = mu
-         ENDIF
+         END IF
 
          IF (iter > BISECT_MAX_ITER) THEN
             CPWARN("Maximum number of iterations reached while finding the Fermi energy")
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       mu = (mu_max + mu_min)/2.0_dp
       CALL Fermi2(f(:, :, 1), na, kTSa, e(:, :, 1), mu, wk, t, 1.0_dp)
@@ -405,13 +399,13 @@ CONTAINS
 !> \param   N total number of electrons (output)
 !> \param   T  electronic temperature
 !> \param maxocc ...
-!> \param   l  typical lenght scale (~ 10 * T)
+!> \param   l  typical length scale (~ 10 * T)
 !> \param estate ...
 !> \param festate ...
 !> \date    09.2008
 !> \par   History
 !>          - Made estate and festate optional (LT, 2014/02/26)
-!>          - Changed order of input, so l is before the two optional varaibles
+!>          - Changed order of input, so l is before the two optional variables
 !>            (LT, 2014/02/26)
 !> \author  Joost VandeVondele
 ! **************************************************************************************************
@@ -421,8 +415,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: estate
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: festate
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'FermiFixedDeriv', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'FermiFixedDeriv'
 
       INTEGER                                            :: handle, I, my_estate, Nstate
       REAL(KIND=dp)                                      :: h, mux, my_festate
@@ -443,7 +436,7 @@ CONTAINS
 
       DO I = 1, Nstate
          ! NR 5.7.8
-         ! the problem here is that each f_i 'seems to have' a different lenght scale
+         ! the problem here is that each f_i 'seems to have' a different length scale
          ! and it would be to expensive to compute each single df_i/de_i using a finite difference
          h = (EPSILON(h)**(1.0_dp/3.0_dp))*l
          ! get an exact machine representable number close to this h
@@ -458,7 +451,7 @@ CONTAINS
          ex(i) = e(i) - h
          CALL FermiFixed(fx, mux, kTS, ex, N, T, maxocc, my_estate, my_festate)
          dfde(:, I) = (dfde(:, I) - fx)/(2.0_dp*h)
-      ENDDO
+      END DO
       DEALLOCATE (ex, fx)
 
       CALL FermiFixed(f, mu, kTS, e, N, T, maxocc, my_estate, my_festate)

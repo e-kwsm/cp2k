@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -119,7 +121,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: vac_plus
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'operator2', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'operator2'
 
       INTEGER                                            :: ax, ay, az, coc, cocx, cocy, cocz, cx, &
                                                             cy, cz, i, ipgf, j, jpgf, la, lc, &
@@ -443,8 +445,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_coulomb2', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: n
       REAL(KIND=dp)                                      :: f0, t
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: f
@@ -487,8 +487,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nmax
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_verf2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n
       REAL(KIND=dp)                                      :: arg, comega, f0, t
@@ -534,8 +532,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nmax
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_verfc2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n
       REAL(KIND=dp)                                      :: argerf, comega, f0, t
@@ -584,8 +580,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_vgauss2', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: j, n
       REAL(KIND=dp)                                      :: arg, dummy, eta, expT, f0, fsign, t, tau
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: f
@@ -616,8 +610,8 @@ CONTAINS
          DO j = 0, n - 1
             v(1, 1, n) = v(1, 1, n) + f0*fsign* &
                          fac(n - 1)/fac(n - j - 1)/fac(j)*(-tau)**(n - j - 1)*(-eta)**j*f(j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DEALLOCATE (f)
 
@@ -641,8 +635,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nmax
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_gauss2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n
       REAL(KIND=dp)                                      :: dummy, expT, f0, t, tau
@@ -688,8 +680,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nmax
       REAL(KIND=dp), INTENT(IN)                          :: zetp, zetq, zetw, rho, rac2, omega, &
                                                             r_cutoff
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cps_truncated2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n
       LOGICAL                                            :: use_gamma

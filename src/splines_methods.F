@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,12 +44,10 @@ CONTAINS
 !>      2001-09-21-HAF added this doc entry and changed formatting
 !> \author unknown
 ! **************************************************************************************************
-   SUBROUTINE init_splinexy(spl, nn)
+   PURE SUBROUTINE init_splinexy(spl, nn)
 
-      TYPE(spline_data_type), POINTER                    :: spl
+      TYPE(spline_data_type), INTENT(INOUT)              :: spl
       INTEGER, INTENT(IN)                                :: nn
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_splinexy', routineP = moduleN//':'//routineN
 
       spl%n = nn
 
@@ -96,13 +96,11 @@ CONTAINS
 !>      if dx is given, the x array will be used as y2 array instead of
 !>      allocating a new array. (y2 will become x, and x will be nullified)
 ! **************************************************************************************************
-   SUBROUTINE init_spline(spl, dx, y1a, y1b)
+   PURE SUBROUTINE init_spline(spl, dx, y1a, y1b)
 
-      TYPE(spline_data_type), POINTER                    :: spl
+      TYPE(spline_data_type), INTENT(INOUT)              :: spl
       REAL(KIND=dp), INTENT(IN)                          :: dx
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: y1a, y1b
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_spline', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, n
       REAL(KIND=dp)                                      :: p, s
@@ -218,7 +216,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION spline_value(spl, xx, y1)
       ! Return value
-      TYPE(spline_data_type), POINTER                    :: spl
+      TYPE(spline_data_type), INTENT(IN)                 :: spl
       REAL(KIND=dp), INTENT(IN)                          :: xx
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: y1
       REAL(KIND=dp)                                      :: spline_value

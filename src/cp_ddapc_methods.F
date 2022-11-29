@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -61,11 +63,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: gfunc
       REAL(kind=dp), DIMENSION(:), POINTER               :: w
       REAL(KIND=dp), INTENT(IN)                          :: gcut
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(kind=dp), DIMENSION(:), POINTER               :: radii
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ddapc_eval_gfunc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ddapc_eval_gfunc'
 
       INTEGER                                            :: e_dim, handle, ig, igauss, s_dim
       REAL(KIND=dp)                                      :: g2, gcut2, rc, rc2
@@ -115,10 +116,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: w
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(KIND=dp), INTENT(IN)                          :: gcut
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_b_vector', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_b_vector'
 
       COMPLEX(KIND=dp)                                   :: phase
       INTEGER                                            :: e_dim, handle, idim, ig, igauss, igmax, &
@@ -136,7 +137,7 @@ CONTAINS
          g2 = rho_tot_g%pw_grid%gsq(ig)
          IF (g2 > gcut2) EXIT
          igmax = ig
-      ENDDO
+      END DO
       IF (igmax .GE. s_dim) THEN
          ALLOCATE (my_bv(s_dim:igmax))
          ALLOCATE (my_bvw(s_dim:igmax))
@@ -193,11 +194,11 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: w
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(KIND=dp), INTENT(IN)                          :: gcut
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: g_dot_rvec_sin, g_dot_rvec_cos
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_A_matrix', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_A_matrix'
 
       INTEGER                                            :: e_dim, handle, idim1, idim2, ig, &
                                                             igauss1, igauss2, igmax, iparticle1, &
@@ -217,7 +218,7 @@ CONTAINS
          g2 = rho_tot_g%pw_grid%gsq(ig)
          IF (g2 > gcut2) EXIT
          igmax = ig
-      ENDDO
+      END DO
       IF (igmax .GE. s_dim) THEN
          ALLOCATE (my_Am(s_dim:igmax))
          ALLOCATE (my_Amw(s_dim:igmax))
@@ -279,12 +280,11 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: w
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: radii
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(KIND=dp), INTENT(IN)                          :: gcut
       INTEGER, INTENT(IN)                                :: iparticle0
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_der_b_vector', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_der_b_vector'
 
       COMPLEX(KIND=dp)                                   :: dphase
       INTEGER                                            :: e_dim, handle, idim, ig, igauss, igmax, &
@@ -303,7 +303,7 @@ CONTAINS
          g2 = rho_tot_g%pw_grid%gsq(ig)
          IF (g2 > gcut2) EXIT
          igmax = ig
-      ENDDO
+      END DO
       IF (igmax .GE. s_dim) THEN
          ALLOCATE (my_dbv(3, s_dim:igmax))
          ALLOCATE (my_dbvw(s_dim:igmax))
@@ -372,13 +372,12 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: w
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(KIND=dp), INTENT(IN)                          :: gcut
       INTEGER, INTENT(IN)                                :: iparticle0, nparticles
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: g_dot_rvec_sin, g_dot_rvec_cos
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_der_A_matrix_rows', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_der_A_matrix_rows'
 
       INTEGER                                            :: e_dim, handle, ig, igauss2, igmax, &
                                                             iparticle1, iparticle2, s_dim
@@ -400,7 +399,7 @@ CONTAINS
          g2 = rho_tot_g%pw_grid%gsq(ig)
          IF (g2 > gcut2) EXIT
          igmax = ig
-      ENDDO
+      END DO
 
       Nr = SIZE(radii)
       Np = SIZE(particle_set)
@@ -452,7 +451,7 @@ CONTAINS
                   lhs((ipp - 1)*Nr + 1:(ipp - 1)*Nr + Nr, ig - s_dim + 1) = w(ig)*rho_tot_g%pw_grid%g(icomp, ig)*gfunc(ig, 1:Nr)* &
                                                                             g_dot_rvec_sin(ig - s_dim + 1, iparticle1)
                END DO
-            ENDDO
+            END DO
             ! do main multiply
             CALL DGEMM('N', 'N', nparticles*Nr, Np*Nr, Ng, 1.0D0, lhs(1, 1), nparticles*Nr, rhs(1, 1), &
                        Ng, 1.0D0, dAm((iparticle0 - 1)*Nr + 1, 1, icomp), Np*Nr)
@@ -478,9 +477,6 @@ CONTAINS
    SUBROUTINE cleanup_g_dot_rvec_sin_cos(g_dot_rvec_sin, g_dot_rvec_cos)
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: g_dot_rvec_sin, g_dot_rvec_cos
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cleanup_g_dot_rvec_sin_cos', &
-         routineP = moduleN//':'//routineN
-
       IF (ALLOCATED(g_dot_rvec_sin)) DEALLOCATE (g_dot_rvec_sin)
       IF (ALLOCATED(g_dot_rvec_cos)) DEALLOCATE (g_dot_rvec_cos)
    END SUBROUTINE cleanup_g_dot_rvec_sin_cos
@@ -494,13 +490,10 @@ CONTAINS
 !> \param g_dot_rvec_cos ...
 ! **************************************************************************************************
    SUBROUTINE prep_g_dot_rvec_sin_cos(rho_tot_g, particle_set, gcut, g_dot_rvec_sin, g_dot_rvec_cos)
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), INTENT(IN)                          :: gcut
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: g_dot_rvec_sin, g_dot_rvec_cos
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'prep_g_dot_rvec_sin_cos', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: e_dim, ig, igmax, iparticle, s_dim
       REAL(KIND=dp)                                      :: g2, g_dot_rvec, gcut2, rvec(3)
@@ -513,7 +506,7 @@ CONTAINS
          g2 = rho_tot_g%pw_grid%gsq(ig)
          IF (g2 > gcut2) EXIT
          igmax = ig
-      ENDDO
+      END DO
 
       IF (igmax .GE. s_dim) THEN
          ALLOCATE (g_dot_rvec_sin(1:igmax - s_dim + 1, SIZE(particle_set)))
@@ -555,12 +548,12 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: w
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), INTENT(IN)                          :: gcut
-      TYPE(pw_type), POINTER                             :: rho_tot_g
+      TYPE(pw_type), INTENT(IN)                          :: rho_tot_g
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
       INTEGER, INTENT(IN)                                :: iw
       REAL(KIND=dp), INTENT(IN)                          :: Vol
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ddapc_eval_AmI', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ddapc_eval_AmI'
 
       INTEGER                                            :: handle, ndim
       REAL(KIND=dp)                                      :: condition_number, inv_error
@@ -633,7 +626,7 @@ CONTAINS
    RECURSIVE SUBROUTINE ewald_ddapc_pot(cp_para_env, coeff, factor, cell, multipole_section, &
                                         particle_set, M, radii)
       TYPE(cp_para_env_type), POINTER                    :: cp_para_env
-      TYPE(pw_type), POINTER                             :: coeff
+      TYPE(pw_type), INTENT(IN), POINTER                 :: coeff
       REAL(KIND=dp), INTENT(IN)                          :: factor
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: multipole_section
@@ -641,8 +634,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: M
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ewald_ddapc_pot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ewald_ddapc_pot'
 
       INTEGER :: ewmdim, handle, idim, idim1, idim2, idimo, igauss1, igauss2, ip1, ip2, &
          iparticle1, iparticle2, istart_g, k1, k2, k3, n_rep, ndim, nmax1, nmax2, nmax3, r1, r2, &
@@ -820,9 +812,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: M
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'solvation_ddapc_pot', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: i, idim, idim1, idim2, igauss1, igauss2, ip1, ip2, iparticle1, iparticle2, &
          istart_g, j, l, lmax, n_rep1, n_rep2, ndim, output_unit, weight

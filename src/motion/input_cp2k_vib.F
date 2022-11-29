@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -56,9 +58,6 @@ CONTAINS
    SUBROUTINE create_vib_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_vib_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -108,7 +107,10 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="INTENSITIES", &
-                          description="Calculation of the IR-Intensities. Calculation of dipoles has to be specified explicitly ", &
+                          description="Calculation of the IR/Raman-Intensities."// &
+                          "Calculation of dipoles and/or polarizabilities have to be "// &
+                          "specified explicitly in DFT/PRINT/MOMENTS and/or "// &
+                          "PROPERTIES/LINRES/POLAR", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -132,6 +134,12 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="NAMD_PRINT", &
+                          description="Adjust cartesian eigenvalues / vectors to NewtonX format.", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL create_mode_selective_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -148,9 +156,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_vib_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_vib_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -228,9 +233,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_mode_selective_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mode_selective_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -339,9 +341,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_involved_atoms_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_involved_atoms_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 

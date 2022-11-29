@@ -22,7 +22,7 @@
     BASIS_SET_FILE_NAME GTH_BASIS_SETS
     POTENTIAL_FILE_NAME POTENTIAL
     &MGRID
-      CUTOFF 250
+      CUTOFF 200
     &END MGRID
     &QS
     &END QS
@@ -33,7 +33,7 @@
     &SCF
       MAX_SCF 100
       EPS_SCF 1.e-5
-      SCF_GUESS ATOMIC 
+      SCF_GUESS ATOMIC
     &END SCF
     &XC
       &XC_FUNCTIONAL PBE
@@ -42,7 +42,7 @@
   &END DFT
   &SUBSYS
     &CELL
-      ABC 6.0 6.0 6.0
+      ABC 5.0 5.0 5.0
       PERIODIC NONE
     &END CELL
     &TOPOLOGY

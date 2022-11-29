@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -90,8 +92,7 @@ CONTAINS
       TYPE(qmmm_env_mm_type), OPTIONAL, POINTER          :: qmmm_env_mm
       TYPE(section_vals_type), POINTER                   :: subsys_section, force_env_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_reorder_atoms', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_reorder_atoms'
 
       CHARACTER(LEN=default_string_length)               :: mol_id
       CHARACTER(LEN=default_string_length), POINTER      :: molname(:), telement(:), &
@@ -162,7 +163,7 @@ CONTAINS
       DO I = 1, natom
          map_atom_type(I) = atom_info%id_atmname(i)
          ALLOCATE (atom_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%bond_a)) N = SIZE(conn_info%bond_a)
       CALL reorder_structure(atom_bond_list, conn_info%bond_a, conn_info%bond_b, N)
@@ -189,10 +190,10 @@ CONTAINS
             END IF
             imol = imol + 1
             mol_bnd(1, imol) = i
-         ENDIF
+         END IF
          iindex = iindex + 1
          atm_map2(atm_map1(i)) = iindex
-      ENDDO
+      END DO
       mol_bnd(2, imol) = natom
       ! Indexes of the two molecules to check
       iref = 1
@@ -210,7 +211,7 @@ CONTAINS
          DEALLOCATE (order)
          DO I = 1, SIZE(reference)
             DEALLOCATE (reference(I)%bonds)
-         ENDDO
+         END DO
          DEALLOCATE (reference)
       END DO
       ! Reorder molecules hashes
@@ -251,7 +252,7 @@ CONTAINS
                CALL reorder_graph(reference, unordered, order, matches)
                IF (matches) EXIT
                DEALLOCATE (order)
-            ENDDO
+            END DO
             IF (matches) THEN
                ! Reorder according the correct index
                ALLOCATE (wrk(SIZE(order)))
@@ -279,14 +280,14 @@ CONTAINS
                   mol_num(natom_loc) = unique_mol
                END DO
                DEALLOCATE (atm_map3)
-            ENDIF
+            END IF
             DO I = 1, SIZE(unordered)
                DEALLOCATE (unordered(I)%bonds)
-            ENDDO
+            END DO
             DEALLOCATE (unordered)
             DEALLOCATE (atm_map3)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(T2,"REORDER |  ",A,I7,A)') "Number of unique molecules found:", unique_mol, "."
       END IF
@@ -300,7 +301,7 @@ CONTAINS
       ! Deallocate working arrays
       DO I = 1, natom
          DEALLOCATE (atom_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (atom_bond_list)
       DEALLOCATE (atom_info%map_mol_num)
       ! Deallocate reference_set
@@ -465,9 +466,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :), POINTER                  :: map_mol
       INTEGER, DIMENSION(:), POINTER                     :: atm_map1, atm_map2, atm_map3
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_graph_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ldim
       TYPE(graph_type), DIMENSION(:), POINTER            :: tmp_graph_set
 
@@ -476,6 +474,7 @@ CONTAINS
       IF (ASSOCIATED(graph_set)) THEN
          ldim = SIZE(graph_set)
          CPASSERT(ldim + 1 == idim)
+         MARK_USED(idim)
          NULLIFY (tmp_graph_set)
          CALL allocate_graph_set(graph_set, tmp_graph_set)
       END IF
@@ -496,9 +495,6 @@ CONTAINS
    SUBROUTINE allocate_graph_set(graph_set_in, graph_set_out, ldim_in, ldim_out)
       TYPE(graph_type), DIMENSION(:), POINTER            :: graph_set_in, graph_set_out
       INTEGER, INTENT(IN), OPTIONAL                      :: ldim_in, ldim_out
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_graph_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: b_dim, i, j, mydim_in, mydim_out, v_dim
 
@@ -556,8 +552,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: atm_map1, atm_map2
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: atm_map3
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_graph', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, idim, ifirst, ilast, j, nbonds, &
                                                             nelement
 
@@ -603,9 +597,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: Ilist1
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: Ilist2, Ilist3, Ilist4
       INTEGER, INTENT(IN)                                :: nsize, ndim
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'reorder_list_array', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iend, istart, ldim
       INTEGER, DIMENSION(:), POINTER                     :: tmp, wrk
@@ -670,9 +661,6 @@ CONTAINS
                                                ldim, istart, iend)
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: Ilist2, Ilist3, Ilist4
       INTEGER, INTENT(IN)                                :: nsize, ldim, istart, iend
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'reorder_list_array_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER, DIMENSION(:), POINTER                     :: tmp_2, tmp_3, tmp_4
 
@@ -785,9 +773,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: list1, list2
       INTEGER, INTENT(IN)                                :: N
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'reorder_structure1d', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: I, index1, index2, Nsize
       INTEGER, DIMENSION(:), POINTER                     :: wrk_tmp
 
@@ -808,7 +793,7 @@ CONTAINS
          work(index2)%array1(1:Nsize) = wrk_tmp
          work(index2)%array1(Nsize + 1) = index1
          DEALLOCATE (wrk_tmp)
-      ENDDO
+      END DO
 
    END SUBROUTINE reorder_structure1d
 
@@ -827,9 +812,6 @@ CONTAINS
          INTENT(INOUT)                                   :: work
       INTEGER, DIMENSION(:), INTENT(IN)                  :: list1, list2, list3
       INTEGER, INTENT(IN)                                :: N
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'reorder_structure2d', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: I, index1, index2, index3, Nsize
       INTEGER, DIMENSION(:), POINTER                     :: wrk_tmp
@@ -866,7 +848,7 @@ CONTAINS
          work(index2)%array2(1:Nsize) = wrk_tmp
          work(index2)%array2(Nsize + 1) = -index3
          DEALLOCATE (wrk_tmp)
-      ENDDO
+      END DO
 
    END SUBROUTINE reorder_structure2d
 
@@ -893,8 +875,8 @@ CONTAINS
             my_mol_name = mol_name(I)
             CALL spread_mol(atom_bond_list, mol_info, i, nmol, my_mol_name, &
                             mol_name)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
    END SUBROUTINE find_molecule
 
 ! **************************************************************************************************
@@ -926,7 +908,7 @@ CONTAINS
             CALL spread_mol(atom_bond_list, mol_info, atom_b, imol, my_mol_name, mol_name)
             IF (mol_info(atom_b) /= imol) CPABORT("internal error")
          END IF
-      ENDDO
+      END DO
    END SUBROUTINE spread_mol
 
 ! **************************************************************************************************
@@ -938,8 +920,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_set_atm_mass', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_set_atm_mass'
 
       CHARACTER(LEN=2)                                   :: upper_sym_1
       CHARACTER(LEN=default_string_length)               :: atmname_upper
@@ -1017,8 +998,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_molecules_check', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_molecules_check'
 
       INTEGER                                            :: counter, first, first_loc, handle, i, &
                                                             iatom, iw, k, loc_counter, mol_num, &
@@ -1045,7 +1025,7 @@ CONTAINS
       ALLOCATE (atom_bond_list(natom))
       DO I = 1, natom
          ALLOCATE (atom_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%bond_a)) N = SIZE(conn_info%bond_a)
       CALL reorder_structure(atom_bond_list, conn_info%bond_a, conn_info%bond_b, N)
@@ -1109,7 +1089,7 @@ CONTAINS
                              cp_to_string(SIZE(atom_bond_list(first + loc_counter - 1)%array1))//" - "// &
                              cp_to_string(SIZE(atom_bond_list(iatom)%array1))// &
                              " NOT FOUND! Check the connectivity of your system.")
-            ENDIF
+            END IF
 
             DO k = 1, SIZE(atom_bond_list(iatom)%array1)
                IF (ALL(atom_bond_list(first + loc_counter - 1)%array1 - first /= &
@@ -1132,7 +1112,7 @@ CONTAINS
 
       DO I = 1, natom
          DEALLOCATE (atom_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (atom_bond_list)
       CALL timestop(handle)
       CALL cp_print_key_finished_output(iw, logger, subsys_section, &
@@ -1156,9 +1136,6 @@ CONTAINS
       CHARACTER(len=default_string_length), INTENT(OUT)  :: element_out
       TYPE(section_vals_type), POINTER                   :: subsys_section
       LOGICAL                                            :: use_mm_map_first
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_subsys_element', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: atom_name, element_symbol, keyword
       INTEGER                                            :: i, i_rep, n_rep
@@ -1206,8 +1183,8 @@ CONTAINS
          IF (in_ptable) THEN
             element_out = TRIM(element_symbol)
             found = .TRUE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! This is clearly a user error
       IF (.NOT. found .AND. defined_kind_section) &
@@ -1263,8 +1240,8 @@ CONTAINS
          IF (in_ptable) THEN
             element_out = TRIM(element_symbol)
             found = .TRUE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! If no element is found the job stops here.
       IF (.NOT. found) THEN

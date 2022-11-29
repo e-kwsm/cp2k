@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -68,9 +70,6 @@ CONTAINS
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
       TYPE(dbcsr_type), POINTER                          :: matrix_h
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'solve_preconditioner', &
-         routineP = moduleN//':'//routineN
-
       REAL(dp)                                           :: occ_matrix
 
 ! here comes the solver
@@ -125,11 +124,11 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_inverse_cholesky', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_inverse_cholesky'
 
       INTEGER                                            :: handle, info
-      TYPE(cp_fm_type), POINTER                          :: fm, fm_work
+      TYPE(cp_fm_type)                                   :: fm_work
+      TYPE(cp_fm_type), POINTER                          :: fm
 
       CALL timeset(routineN, handle)
 
@@ -138,8 +137,6 @@ CONTAINS
       CALL transfer_dbcsr_to_fm(preconditioner_env%sparse_matrix, preconditioner_env%fm, &
                                 preconditioner_env%para_env, preconditioner_env%ctxt)
       fm => preconditioner_env%fm
-
-      NULLIFY (fm_work)
 
       CALL cp_fm_create(fm_work, fm%matrix_struct, name="fm_work")
       !
@@ -156,8 +153,8 @@ CONTAINS
             CALL cp_fm_cholesky_decompose(fm)
          ELSE
             CALL cp_fm_set_all(fm, alpha=0._dp, beta=1._dp)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       CALL cp_fm_cholesky_invert(fm)
 
       CALL cp_fm_upper_to_full(fm, fm_work)
@@ -178,8 +175,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_fact_cholesky', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_full_fact_cholesky'
 
       INTEGER                                            :: handle, info_out
       TYPE(cp_fm_type), POINTER                          :: fm
@@ -205,8 +201,8 @@ CONTAINS
             CALL cp_fm_cholesky_decompose(fm)
          ELSE
             CALL cp_fm_set_all(fm, alpha=0._dp, beta=1._dp)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL timestop(handle)
 
@@ -221,8 +217,7 @@ CONTAINS
       TYPE(preconditioner_type)                          :: preconditioner_env
       TYPE(dbcsr_type), POINTER                          :: matrix_h
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_inverse_update', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_inverse_update'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: use_guess
@@ -248,7 +243,7 @@ CONTAINS
       ! Try to get a reasonbale guess for the filtering threshold
       filter_eps = 1.0_dp/preconditioner_env%condition_num*0.1_dp
 
-      ! Agressive filtering on the initial guess is needed to avoid fill ins and retain sparsity
+      ! Aggressive filtering on the initial guess is needed to avoid fill ins and retain sparsity
       CALL dbcsr_filter(preconditioner_env%dbcsr_matrix, filter_eps*100.0_dp)
       ! We don't need a high accuracy for the inverse so 0.4 is reasonable for convergence
       CALL invert_Hotelling(preconditioner_env%dbcsr_matrix, preconditioner_env%sparse_matrix, filter_eps*10.0_dp, &
@@ -268,8 +263,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix
       REAL(KIND=dp)                                      :: cond_num
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'estimate_cond_num', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'estimate_cond_num'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: max_ev, min_ev
@@ -311,8 +305,7 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: fm_matrix
       TYPE(dbcsr_type), POINTER                          :: dbcsr_matrix, template_mat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transfer_fm_to_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'transfer_fm_to_dbcsr'
 
       INTEGER                                            :: handle
 
@@ -324,12 +317,11 @@ CONTAINS
                               name="preconditioner_env%dbcsr_matrix", &
                               matrix_type=dbcsr_type_no_symmetry, &
                               nze=0, data_type=dbcsr_type_real_8)
-         ENDIF
-!       CALL cp_fm_create(fm_tmp, matrix_struct=fm_matrix%matrix_struct)
-!       CALL cp_fm_upper_to_full(fm_matrix, fm_tmp)
+         END IF
          CALL copy_fm_to_dbcsr(fm_matrix, dbcsr_matrix)
-!       CALL cp_fm_release(fm_tmp)
          CALL cp_fm_release(fm_matrix)
+         DEALLOCATE (fm_matrix)
+         NULLIFY (fm_matrix)
       END IF
 
       CALL timestop(handle)
@@ -350,8 +342,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: context
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transfer_dbcsr_to_fm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'transfer_dbcsr_to_fm'
 
       INTEGER                                            :: handle, n
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
@@ -362,11 +353,13 @@ CONTAINS
 
          IF (ASSOCIATED(fm_matrix)) THEN
             CALL cp_fm_release(fm_matrix)
-         ENDIF
+            DEALLOCATE (fm_matrix)
+         END IF
 
          CALL dbcsr_get_info(dbcsr_matrix, nfullrows_total=n)
          CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=n, ncol_global=n, &
                                   context=context, para_env=para_env)
+         ALLOCATE (fm_matrix)
          CALL cp_fm_create(fm_matrix, fm_struct_tmp)
          CALL cp_fm_struct_release(fm_struct_tmp)
 

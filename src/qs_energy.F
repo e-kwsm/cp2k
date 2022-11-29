@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -12,18 +14,20 @@
 MODULE qs_energy
    USE almo_scf,                        ONLY: almo_entry_scf
    USE cp_control_types,                ONLY: dft_control_type
+   USE cp_external_control,             ONLY: external_control
    USE dm_ls_scf,                       ONLY: ls_scf
    USE energy_corrections,              ONLY: energy_correction
+   USE excited_states,                  ONLY: excited_state_energy
    USE lri_environment_methods,         ONLY: lri_print_stat
+   USE mp2,                             ONLY: mp2_main
    USE qs_energy_init,                  ONLY: qs_energies_init
    USE qs_energy_types,                 ONLY: qs_energy_type
-   USE qs_energy_utils,                 ONLY: qs_energies_compute_matrix_w,&
-                                              qs_energies_mp2,&
-                                              qs_energies_properties
+   USE qs_energy_utils,                 ONLY: qs_energies_properties
    USE qs_environment_methods,          ONLY: qs_env_rebuild_pw_env
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
+   USE qs_matrix_w,                     ONLY: qs_energies_compute_matrix_w
    USE qs_scf,                          ONLY: scf
 #include "./base/base_uses.f90"
 
@@ -56,10 +60,11 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: consistent_energies, calc_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'qs_energies'
 
       INTEGER                                            :: handle
-      LOGICAL                                            :: my_calc_forces, run_rtp
+      LOGICAL                                            :: do_consistent_energies, my_calc_forces, &
+                                                            run_rtp
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(qs_energy_type), POINTER                      :: energy
 
@@ -67,6 +72,9 @@ CONTAINS
 
       my_calc_forces = .FALSE.
       IF (PRESENT(calc_forces)) my_calc_forces = calc_forces
+
+      do_consistent_energies = .FALSE.
+      IF (PRESENT(consistent_energies)) do_consistent_energies = consistent_energies
 
       CALL qs_env_rebuild_pw_env(qs_env)
 
@@ -84,37 +92,31 @@ CONTAINS
             CALL almo_entry_scf(qs_env=qs_env, calc_forces=my_calc_forces)
          ELSE
             CALL scf(qs_env=qs_env)
+         END IF
 
+         IF (do_consistent_energies) THEN
+            CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE., just_energy=.FALSE.)
+         END IF
+
+         IF (.NOT. (dft_control%qs_control%do_ls_scf .OR. dft_control%qs_control%do_almo_scf)) THEN
             ! Compute MP2 energy
             CALL qs_energies_mp2(qs_env, my_calc_forces)
 
-            ! if calculate forces, time to compute the w matrix
-            CALL qs_energies_compute_matrix_w(qs_env, my_calc_forces)
-
-         END IF
-
-         IF (PRESENT(consistent_energies)) THEN
-            IF (consistent_energies) THEN
-               IF (ASSOCIATED(dft_control%rtp_control)) THEN
-                  IF (dft_control%rtp_control%periodic) THEN
-                     CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE., just_energy=.FALSE.)
-                  ELSE
-                     CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE., just_energy=.TRUE.)
-                  ENDIF
-               ELSE
-                  CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE., just_energy=.TRUE.)
-               ENDIF
-               ! add MP2 energy if necessary
-               IF (ASSOCIATED(qs_env%mp2_env)) THEN
-                  energy%total = energy%total + energy%mp2
-               END IF
+            IF (.NOT. ASSOCIATED(qs_env%mp2_env)) THEN
+               ! if calculate forces, time to compute the w matrix
+               CALL qs_energies_compute_matrix_w(qs_env, my_calc_forces)
             END IF
+
          END IF
 
          ! Check for energy correction
-         CALL energy_correction(qs_env, ec_init=.TRUE., calculate_forces=.FALSE.)
+         IF (qs_env%energy_correction) THEN
+            CALL energy_correction(qs_env, ec_init=.TRUE., calculate_forces=.FALSE.)
+         END IF
 
-         CALL qs_energies_properties(qs_env)
+         CALL qs_energies_properties(qs_env, calc_forces)
+
+         CALL excited_state_energy(qs_env, calculate_forces=.FALSE.)
 
          IF (dft_control%qs_control%lrigpw) THEN
             CALL lri_print_stat(qs_env)
@@ -125,5 +127,29 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE qs_energies
+
+! **************************************************************************************************
+!> \brief Enters the mp2 part of cp2k
+!> \param qs_env ...
+!> \param calc_forces ...
+! **************************************************************************************************
+
+   SUBROUTINE qs_energies_mp2(qs_env, calc_forces)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL, INTENT(IN)                                :: calc_forces
+
+      LOGICAL                                            :: should_stop
+
+      ! Compute MP2 energy
+
+      IF (ASSOCIATED(qs_env%mp2_env)) THEN
+
+         CALL external_control(should_stop, "MP2", target_time=qs_env%target_time, &
+                               start_time=qs_env%start_time)
+
+         CALL mp2_main(qs_env=qs_env, calc_forces=calc_forces)
+      END IF
+
+   END SUBROUTINE qs_energies_mp2
 
 END MODULE qs_energy

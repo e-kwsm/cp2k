@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -79,9 +81,6 @@ CONTAINS
    SUBROUTINE pexsi_init_read_input(pexsi_section, pexsi_env)
       TYPE(section_vals_type), INTENT(IN), POINTER       :: pexsi_section
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pexsi_init_read_input', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: isInertiaCount_int, maxPEXSIIter, &
                                                             min_ranks_per_pole, npSymbFact, &
@@ -168,7 +167,7 @@ CONTAINS
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
       TYPE(dbcsr_type), INTENT(IN)                       :: template_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_init_scf', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pexsi_init_scf'
 
       INTEGER                                            :: handle, ispin, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -180,7 +179,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! Create template matrices fixing sparsity pattern for PEXSI
 
@@ -194,7 +193,7 @@ CONTAINS
                          "non-symmetric template matrix for CSR conversion")
          CALL dbcsr_copy(pexsi_env%dbcsr_template_matrix_sym, template_matrix, &
                          "symmetric template matrix for CSR conversion")
-      ENDIF
+      END IF
 
       CALL dbcsr_create(pexsi_env%csr_sparsity, "CSR sparsity", &
                         template=pexsi_env%dbcsr_template_matrix_sym, &
@@ -224,7 +223,7 @@ CONTAINS
          ! max_ev_vector only initialised to avoid warning in case max_scf==0
          CALL dbcsr_create(pexsi_env%matrix_w(ispin)%matrix, "W matrix", &
                            template=template_matrix, matrix_type=dbcsr_type_no_symmetry)
-      ENDDO
+      END DO
 
       CALL cp_pexsi_set_options(pexsi_env%options, numElectronPEXSITolerance=pexsi_env%tol_nel_initial)
 
@@ -241,8 +240,7 @@ CONTAINS
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
       REAL(KIND=dp), DIMENSION(2), INTENT(IN)            :: mu_spin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_finalize_scf', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_finalize_scf'
 
       INTEGER                                            :: handle, ispin, unit_nr
       REAL(KIND=dp)                                      :: kTS_total, mu_total
@@ -255,7 +253,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       mu_total = SUM(mu_spin(1:pexsi_env%nspin))/REAL(pexsi_env%nspin, KIND=dp)
       kTS_total = SUM(pexsi_env%kTS)
@@ -266,7 +264,7 @@ CONTAINS
             " PEXSI| Electronic entropic energy (a.u.):", kTS_total
          WRITE (unit_nr, "(A,T55,F26.15)") &
             " PEXSI| Chemical potential (a.u.):", mu_total
-      ENDIF
+      END IF
 
       CALL dbcsr_release(pexsi_env%dbcsr_template_matrix_sym)
       CALL dbcsr_release(pexsi_env%dbcsr_template_matrix_nonsym)
@@ -279,7 +277,7 @@ CONTAINS
       DO ispin = 1, pexsi_env%nspin
          CALL dbcsr_release(pexsi_env%max_ev_vector(ispin))
          CALL dbcsr_release(pexsi_env%matrix_w(ispin)%matrix)
-      ENDDO
+      END DO
       CALL timestop(handle)
       pexsi_env%tol_nel_initial = pexsi_env%tol_nel_target ! Turn off adaptive threshold for subsequent SCF cycles
    END SUBROUTINE pexsi_finalize_scf
@@ -312,8 +310,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: mu
       INTEGER, INTENT(IN)                                :: iscf, ispin
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_pexsi', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_pexsi'
       INTEGER, PARAMETER                                 :: S_not_identity = 0
 
       INTEGER :: handle, is_symbolic_factorize, isInertiaCount, isInertiaCount_out, mynode, &
@@ -334,7 +331,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       first_call = (iscf .EQ. 1) .AND. (ispin .EQ. 1)
 
@@ -356,7 +353,7 @@ CONTAINS
          !(TODO: update when PEXSI changes to Long Int)
          IF (pexsi_env%csr_mat_s%nze_total .GE. INT(2, kind=int_8)**31) &
             CPABORT("Total number of non-zero elements of CSR matrix is too large to be handled by PEXSI")
-      ENDIF
+      END IF
 
       CALL dbcsr_get_info(matrix_ks, distribution=dist)
       CALL dbcsr_distribution_get(dist, mynode=mynode)
@@ -401,7 +398,7 @@ CONTAINS
          CALL cp_pexsi_get_options(pexsi_env%options, isInertiaCount=isInertiaCount)
          CALL cp_pexsi_set_options(pexsi_env%options, isInertiaCount=1, &
                                    isSymbolicFactorize=1)
-      ENDIF
+      END IF
 
       ! Write PEXSI options to output
       CALL cp_pexsi_get_options(pexsi_env%options, isInertiaCount=isInertiaCount_out, &
@@ -458,7 +455,7 @@ CONTAINS
             WRITE (unit_nr, '(/A)') " PEXSI| Converged"
          ELSE
             WRITE (unit_nr, '(/A)') " PEXSI| PEXSI did not converge!"
-         ENDIF
+         END IF
 
 !      WRITE(unit_nr,'(A,T41,F20.10,T61,F20.10)') " PEXSI|   Number of electrons", &
 !                      nelectron_out/pexsi_env%nspin, nelectron_diff/pexsi_env%nspin
@@ -468,7 +465,7 @@ CONTAINS
          WRITE (unit_nr, '(A,T41,I20)') " PEXSI|   PEXSI iterations", n_total_pexsi_iter
          WRITE (unit_nr, '(A,T41,I20/)') " PEXSI|   Inertia counting iterations", &
             n_total_inertia_iter
-      ENDIF
+      END IF
 
       IF (.NOT. pexsi_convergence) &
          CPABORT("PEXSI did not converge. Consider logPEXSI0 for more information.")
@@ -483,7 +480,7 @@ CONTAINS
             energy_H, energy_S, free_energy)
          ! calculate entropic energy contribution -TS = A - U
          kTS = (free_energy - energy_H)
-      ENDIF
+      END IF
 
       ! send kTS to all nodes:
       CALL mp_bcast(kTS, 0, pexsi_env%mp_group)
@@ -508,12 +505,12 @@ CONTAINS
       IF (iscf .EQ. 1) THEN
          CALL cp_pexsi_set_options(pexsi_env%options, isInertiaCount= &
                                    isInertiaCount)
-      ENDIF
+      END IF
 
       ! Turn off symbolic factorization for subsequent calls
       IF (first_call) THEN
          CALL cp_pexsi_set_options(pexsi_env%options, isSymbolicFactorize=0)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE density_matrix_pexsi
@@ -543,8 +540,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: initialize
       LOGICAL, INTENT(OUT)                               :: check_convergence
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_set_convergence_tolerance', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_set_convergence_tolerance'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: tol_nel
@@ -559,12 +555,12 @@ CONTAINS
          pexsi_env%adaptive_nel_beta = &
             pexsi_env%tol_nel_initial - pexsi_env%adaptive_nel_alpha*ABS(delta_scf)
          pexsi_env%do_adaptive_tol_nel = .TRUE.
-      ENDIF
+      END IF
       IF (pexsi_env%do_adaptive_tol_nel) THEN
          tol_nel = pexsi_env%adaptive_nel_alpha*ABS(delta_scf) + pexsi_env%adaptive_nel_beta
          tol_nel = MAX(tol_nel, pexsi_env%tol_nel_target)
          tol_nel = MIN(tol_nel, pexsi_env%tol_nel_initial)
-      ENDIF
+      END IF
 
       check_convergence = (tol_nel .LE. pexsi_env%tol_nel_target)
 
@@ -590,7 +586,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), INTENT(IN), &
          OPTIONAL                                        :: matrix_w
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pexsi_to_qs', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pexsi_to_qs'
 
       INTEGER                                            :: handle, ispin, unit_nr
       REAL(KIND=dp)                                      :: kTS_total
@@ -608,7 +604,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env, energy=energy, matrix_w=matrix_w_qs)
 
@@ -617,14 +613,14 @@ CONTAINS
             CALL matrix_ls_to_qs(matrix_w_qs(ispin)%matrix, matrix_w(ispin)%matrix, &
                                  ls_scf_env%ls_mstruct, covariant=.FALSE.)
             IF (ls_scf_env%nspins .EQ. 1) CALL dbcsr_scale(matrix_w_qs(ispin)%matrix, 2.0_dp)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       IF (PRESENT(kTS)) THEN
          kTS_total = SUM(kTS)
          IF (ls_scf_env%nspins .EQ. 1) kTS_total = kTS_total*2.0_dp
          energy%kTS = kTS_total
-      ENDIF
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE pexsi_to_qs

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,8 +21,7 @@ MODULE qs_interactions
                                               get_atomic_kind
    USE basis_set_types,                 ONLY: get_gto_basis_set,&
                                               gto_basis_set_type,&
-                                              set_gto_basis_set,&
-                                              sort_gto_basis_set
+                                              set_gto_basis_set
    USE cp_control_types,                ONLY: qs_control_type,&
                                               semi_empirical_control_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -75,8 +76,7 @@ CONTAINS
       TYPE(qs_control_type), INTENT(IN)                  :: qs_control
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_interaction_radii', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_interaction_radii'
 
       INTEGER :: handle, i, iexp_ppl, ikind, ip, iprj_ppnl, j, l, lppl, lppnl, lprj, lprj_ppnl, &
          maxl, n_local, nexp_lpot, nexp_lsd, nexp_ppl, nkind, nloc
@@ -96,15 +96,17 @@ CONTAINS
       TYPE(all_potential_type), POINTER                  :: all_potential
       TYPE(gth_potential_type), POINTER                  :: gth_potential
       TYPE(gto_basis_set_type), POINTER :: aux_basis_set, aux_fit_basis_set, aux_gw_basis, &
-         harris_basis, lri_basis, mao_basis, orb_basis_set, ri_aux_basis_set, ri_basis, &
-         ri_xas_basis, soft_basis
+         aux_opt_basis_set, harris_basis, lri_basis, mao_basis, orb_basis_set, p_lri_basis, &
+         ri_aux_basis_set, ri_basis, ri_xas_basis, soft_basis
       TYPE(paw_proj_set_type), POINTER                   :: paw_proj_set
       TYPE(sgp_potential_type), POINTER                  :: sgp_potential
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (all_potential, gth_potential, sgp_potential, orb_basis_set, aux_basis_set, soft_basis, &
-               lri_basis, mao_basis, paw_proj_set, harris_basis, ri_xas_basis)
+      NULLIFY (all_potential, gth_potential, sgp_potential)
+      NULLIFY (aux_basis_set, aux_fit_basis_set, aux_gw_basis, &
+               harris_basis, lri_basis, mao_basis, orb_basis_set, p_lri_basis, ri_aux_basis_set, &
+               ri_basis, ri_xas_basis, soft_basis, aux_opt_basis_set)
       NULLIFY (nprj_ppnl, nprj)
       NULLIFY (alpha_ppnl, cexp_ppl, cprj_ppnl, zet)
 
@@ -116,7 +118,9 @@ CONTAINS
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, basis_type="ORB")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=aux_basis_set, basis_type="AUX")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=aux_fit_basis_set, basis_type="AUX_FIT")
+         CALL get_qs_kind(qs_kind_set(ikind), basis_set=aux_opt_basis_set, basis_type="AUX_OPT")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=lri_basis, basis_type="LRI_AUX")
+         CALL get_qs_kind(qs_kind_set(ikind), basis_set=p_lri_basis, basis_type="P_LRI_AUX")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=ri_basis, basis_type="RI_HXC")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=ri_aux_basis_set, basis_type="RI_AUX")
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=mao_basis, basis_type="MAO")
@@ -185,7 +189,8 @@ CONTAINS
                ppl_radius = MAX(ppl_radius, &
                                 exp_radius(lppl, alpha_ppl, &
                                            qs_control%eps_ppl, &
-                                           cexp_ppl(iexp_ppl)))
+                                           cexp_ppl(iexp_ppl), &
+                                           rlow=ppl_radius))
             END DO
             IF (lpot) THEN
                ! extended local potential
@@ -198,7 +203,8 @@ CONTAINS
                   DO i = 1, nct_lpot(j)
                      lppl = 2*(i - 1)
                      ppl_radius = MAX(ppl_radius, &
-                                      exp_radius(lppl, alpha_lpot(j), qs_control%eps_ppl, cval_lpot(i, j)))
+                                      exp_radius(lppl, alpha_lpot(j), qs_control%eps_ppl, &
+                                                 cval_lpot(i, j), rlow=ppl_radius))
                   END DO
                END DO
             END IF
@@ -213,7 +219,8 @@ CONTAINS
                   DO i = 1, nct_lsd(j)
                      lppl = 2*(i - 1)
                      ppl_radius = MAX(ppl_radius, &
-                                      exp_radius(lppl, alpha_lsd(j), qs_control%eps_ppl, cval_lsd(i, j)))
+                                      exp_radius(lppl, alpha_lsd(j), qs_control%eps_ppl, &
+                                                 cval_lsd(i, j), rlow=ppl_radius))
                   END DO
                END DO
             END IF
@@ -227,7 +234,8 @@ CONTAINS
                   ppnl_radius = MAX(ppnl_radius, &
                                     exp_radius(lprj_ppnl, alpha_ppnl(l), &
                                                qs_control%eps_pgf_orb, &
-                                               cprj_ppnl(iprj_ppnl, l)))
+                                               cprj_ppnl(iprj_ppnl, l), &
+                                               rlow=ppnl_radius))
                END DO
             END DO
             CALL set_potential(potential=gth_potential, &
@@ -252,13 +260,13 @@ CONTAINS
                DO i = 1, nloc
                   lppl = MAX(0, nrloc(i) - 2)
                   ppl_radius = MAX(ppl_radius, &
-                                   exp_radius(lppl, bloc(i), qs_control%eps_ppl, aloc(i)))
+                                   exp_radius(lppl, bloc(i), qs_control%eps_ppl, aloc(i), rlow=ppl_radius))
                END DO
             ELSE
                CALL get_potential(potential=sgp_potential, n_local=n_local, a_local=a_local, c_local=c_local)
                DO i = 1, n_local
                   ppl_radius = MAX(ppl_radius, &
-                                   exp_radius(0, a_local(i), qs_control%eps_ppl, c_local(i)))
+                                   exp_radius(0, a_local(i), qs_control%eps_ppl, c_local(i), rlow=ppl_radius))
                END DO
             END IF
             ! Calculate the radii of the non-local part
@@ -271,7 +279,7 @@ CONTAINS
                   DO i = 1, nloc
                      cval = MAXVAL(ABS(c_nonlocal(i, :, l)))
                      ppnl_radius = MAX(ppnl_radius, &
-                                       exp_radius(l, a_nonlocal(i), qs_control%eps_pgf_orb, cval))
+                                       exp_radius(l, a_nonlocal(i), qs_control%eps_pgf_orb, cval, rlow=ppnl_radius))
                   END DO
                END IF
             END DO
@@ -285,6 +293,11 @@ CONTAINS
          IF (ASSOCIATED(aux_fit_basis_set)) THEN
             CALL init_interaction_radii_orb_basis(aux_fit_basis_set, qs_control%eps_pgf_orb, &
                                                   qs_control%eps_kg_orb)
+         END IF
+
+         ! Calculate the aux opt orbital basis function radii
+         IF (ASSOCIATED(aux_opt_basis_set)) THEN
+            CALL init_interaction_radii_orb_basis(aux_opt_basis_set, qs_control%eps_pgf_orb)
          END IF
 
          ! Calculate the aux orbital basis function radii
@@ -329,6 +342,9 @@ CONTAINS
          IF (ASSOCIATED(ri_xas_basis)) THEN
             CALL init_interaction_radii_orb_basis(ri_xas_basis, qs_control%eps_pgf_orb)
          END IF
+         IF (ASSOCIATED(p_lri_basis)) THEN
+            CALL init_interaction_radii_orb_basis(p_lri_basis, qs_control%eps_pgf_orb)
+         END IF
 
          ! Calculate the paw projector basis function radii
          IF (ASSOCIATED(paw_proj_set)) THEN
@@ -343,11 +359,11 @@ CONTAINS
                DO ip = 1, nprj(lprj)
                   zeta = zet(ip, lprj)
                   rzetprj(ip, lprj) = MAX(rzetprj(ip, lprj), &
-                                          exp_radius(lprj, zeta, &
-                                                     qs_control%eps_pgf_orb, 1.0_dp))
+                                          exp_radius(lprj, zeta, qs_control%eps_pgf_orb, &
+                                                     1.0_dp, rlow=rzetprj(ip, lprj)))
                   rcprj = MAX(rcprj, rzetprj(ip, lprj))
-               ENDDO
-            ENDDO
+               END DO
+            END DO
             CALL set_paw_proj_set(paw_proj_set=paw_proj_set, &
                                   rzetprj=rzetprj, &
                                   rcprj=rcprj)
@@ -370,9 +386,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
       REAL(KIND=dp), INTENT(IN)                          :: eps_pgf_orb
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: eps_pgf_short
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_interaction_radii_orb_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ipgf, iset, ishell, l, nset
       INTEGER, DIMENSION(:), POINTER                     :: npgf, nshell
@@ -413,13 +426,11 @@ CONTAINS
                   gcca = gcc(ipgf, ishell, iset)
                   zeta = zet(ipgf, iset)
                   pgf_radius(ipgf, iset) = MAX(pgf_radius(ipgf, iset), &
-                                               exp_radius(l, zeta, &
-                                                          eps_pgf_orb, &
-                                                          gcca))
+                                               exp_radius(l, zeta, eps_pgf_orb, gcca, &
+                                                          rlow=pgf_radius(ipgf, iset)))
                   short_radius = MAX(short_radius, &
-                                     exp_radius(l, zeta, &
-                                                eps_short, &
-                                                gcca))
+                                     exp_radius(l, zeta, eps_short, gcca, &
+                                                rlow=short_radius))
                END DO
                set_radius(iset) = MAX(set_radius(iset), pgf_radius(ipgf, iset))
             END DO
@@ -431,8 +442,6 @@ CONTAINS
                                 set_radius=set_radius, &
                                 kind_radius=kind_radius, &
                                 short_kind_radius=short_radius)
-
-         CALL sort_gto_basis_set(orb_basis_set)
 
       END IF
 
@@ -452,9 +461,6 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: subsys_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_se_nlradius', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, nkind
       REAL(KIND=dp)                                      :: kind_radius
@@ -613,9 +619,6 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: subsys_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_pgf_orb_radii', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=10)                                  :: bas
       CHARACTER(LEN=default_string_length)               :: name, unit_str

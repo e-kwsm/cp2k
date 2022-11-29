@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,9 +79,6 @@ CONTAINS
    SUBROUTINE do_bsse_calculation(force_env, globenv)
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(global_environment_type), POINTER             :: globenv
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'do_bsse_calculation', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, istart, k, num_of_conf, Num_of_Frag
       INTEGER, DIMENSION(:, :), POINTER                  :: conf
@@ -166,9 +165,6 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       LOGICAL, INTENT(OUT)                               :: should_stop
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_bsse_energy', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, k, Num_of_sub_conf, Num_of_sub_frag
       INTEGER, DIMENSION(:, :), POINTER                  :: conf_loc
       REAL(KIND=dp)                                      :: my_energy
@@ -222,7 +218,7 @@ CONTAINS
 !> \param energy ...
 !> \par History
 !>      07.2005 created [tlaino]
-!>      2014/09/17 made atom list to be read from repeated occurance of LIST [LTong]
+!>      2014/09/17 made atom list to be read from repeated occurrence of LIST [LTong]
 !> \author Teodoro Laino
 ! **************************************************************************************************
    SUBROUTINE eval_bsse_energy_low(force_env, conf, conf_loc, n_frags, &
@@ -233,9 +229,6 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       REAL(KIND=dp), INTENT(OUT)                         :: energy
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_bsse_energy_low', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: name
       CHARACTER(len=default_string_length), &
          DIMENSION(:), POINTER                           :: atom_type
@@ -245,16 +238,14 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: atom_index, atom_list, my_conf, tmplist
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(cp_subsys_type), POINTER                      :: subsys, subsys_loc
+      TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(particle_list_type), POINTER                  :: particles
-      TYPE(qs_energy_type), POINTER                      :: qs_energy
-      TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: bsse_section, dft_section, &
                                                             force_env_section, subsys_section
 
       CALL section_vals_get(n_frags, n_repetition=num_of_frag)
       CPASSERT(SIZE(conf) == num_of_frag)
-      NULLIFY (subsys_loc, subsys, particles, para_env, cell, atom_index, atom_type, tmplist, &
+      NULLIFY (subsys, particles, para_env, cell, atom_index, atom_type, tmplist, &
                force_env_section)
       CALL force_env_get(force_env, force_env_section=force_env_section)
       CALL section_vals_val_get(force_env_section, "METHOD", i_val=method_name_id)
@@ -316,24 +307,32 @@ CONTAINS
       !
       energy = 0.0_dp
       IF (method_name_id == do_qs) THEN
-         CALL create_small_subsys(subsys_loc, big_subsys=subsys, &
-                                  small_para_env=para_env, small_cell=cell, sub_atom_index=atom_index, &
-                                  sub_atom_kind_name=atom_type, para_env=para_env, &
-                                  force_env_section=force_env_section, subsys_section=subsys_section)
+         BLOCK
+            TYPE(qs_environment_type), POINTER :: qs_env
+            TYPE(qs_energy_type), POINTER                      :: qs_energy
+            TYPE(cp_subsys_type), POINTER                      :: subsys_loc
+            NULLIFY (subsys_loc)
+            CALL create_small_subsys(subsys_loc, big_subsys=subsys, &
+                                     small_para_env=para_env, small_cell=cell, sub_atom_index=atom_index, &
+                                     sub_atom_kind_name=atom_type, para_env=para_env, &
+                                     force_env_section=force_env_section, subsys_section=subsys_section)
 
-         CALL qs_env_create(qs_env, globenv)
-         CALL qs_init(qs_env, para_env, root_section, globenv=globenv, cp_subsys=subsys_loc, &
-                      force_env_section=force_env_section, subsys_section=subsys_section, &
-                      use_motion_section=.FALSE.)
-         CALL cp_subsys_release(subsys_loc)
+            ALLOCATE (qs_env)
+            CALL qs_env_create(qs_env, globenv)
+            CALL qs_init(qs_env, para_env, root_section, globenv=globenv, cp_subsys=subsys_loc, &
+                         force_env_section=force_env_section, subsys_section=subsys_section, &
+                         use_motion_section=.FALSE.)
+            CALL cp_subsys_release(subsys_loc)
 
-         !
-         ! Evaluate Energy
-         !
-         CALL qs_energies(qs_env)
-         CALL get_qs_env(qs_env, energy=qs_energy)
-         energy = qs_energy%total
-         CALL qs_env_release(qs_env)
+            !
+            ! Evaluate Energy
+            !
+            CALL qs_energies(qs_env)
+            CALL get_qs_env(qs_env, energy=qs_energy)
+            energy = qs_energy%total
+            CALL qs_env_release(qs_env)
+            DEALLOCATE (qs_env)
+         END BLOCK
       ELSE
          CPABORT("")
       END IF
@@ -364,8 +363,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: conf, conf_loc
       TYPE(section_vals_type), POINTER                   :: bsse_section
       INTEGER, INTENT(IN)                                :: present_charge, present_multpl
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_bsse_info', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, istat, iw
       CHARACTER(len=20*SIZE(conf))                       :: conf_loc_s, conf_s
@@ -421,9 +418,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: conf, conf_loc
       TYPE(section_vals_type), POINTER                   :: bsse_section, dft_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'conf_info_setup', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, nconf
       INTEGER, DIMENSION(:), POINTER                     :: glb_conf, sub_conf
       LOGICAL                                            :: explicit
@@ -475,9 +469,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: Em
       INTEGER, INTENT(IN)                                :: num_of_frag
       TYPE(section_vals_type), POINTER                   :: bsse_section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dump_bsse_results', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iw
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -624,9 +615,6 @@ CONTAINS
 
       TYPE(section_vals_type), POINTER                   :: bsse_section, root_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_bsse_restart', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ires
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -637,7 +625,7 @@ CONTAINS
       IF (ires > 0) THEN
          CALL write_restart_header(ires)
          CALL section_vals_write(root_section, unit_nr=ires, hide_root=.TRUE.)
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(ires, logger, bsse_section, &
                                         "PRINT%RESTART")

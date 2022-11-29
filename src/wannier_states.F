@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,7 +20,6 @@ MODULE wannier_states
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type
@@ -32,6 +33,7 @@ MODULE wannier_states
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE wannier_states_types,            ONLY: wannier_centres_type
@@ -67,7 +69,7 @@ CONTAINS
    SUBROUTINE construct_wannier_states(mo_localized, &
                                        Hks, qs_env, loc_print_section, WannierCentres, ns, states)
 
-      TYPE(cp_fm_type), INTENT(in), POINTER              :: mo_localized
+      TYPE(cp_fm_type), INTENT(in)                       :: mo_localized
       TYPE(dbcsr_type), POINTER                          :: Hks
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: loc_print_section
@@ -75,8 +77,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ns
       INTEGER, INTENT(IN), POINTER                       :: states(:)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'construct_wannier_states', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'construct_wannier_states'
 
       CHARACTER(default_string_length)                   :: unit_str
       INTEGER                                            :: handle, i, iproc, ncol_global, nproc, &
@@ -84,7 +85,7 @@ CONTAINS
                                                             unit_mat
       REAL(KIND=dp)                                      :: unit_conv
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: b, c, d
+      TYPE(cp_fm_type)                                   :: b, c, d
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: print_key
@@ -107,7 +108,7 @@ CONTAINS
       nstates(1) = ns
       nstates(2) = para_env%mepos
       iproc = nstates(2)
-      NULLIFY (b, c, d, fm_struct_tmp, print_key)
+      NULLIFY (fm_struct_tmp, print_key)
 
       print_key => section_vals_get_subs_vals(loc_print_section, "WANNIER_CENTERS")
       CALL section_vals_val_get(print_key, "UNIT", c_val=unit_str)
@@ -139,12 +140,12 @@ CONTAINS
       IF (unit_mat > 0) THEN
          WRITE (unit_mat, '(a16,1(i0,1x))') "Wannier states: ", ns
          WRITE (unit_mat, '(a16)') "#No x y z energy "
-      ENDIF
+      END IF
       DO i = 1, ns
          CALL cp_fm_to_fm(mo_localized, b, 1, states(i), 1)
          CALL cp_dbcsr_sm_fm_multiply(Hks, b, c, 1)
-         CALL cp_gemm('T', 'N', 1, 1, nrow_global, 1.0_dp, &
-                      b, c, 0.0_dp, d)
+         CALL parallel_gemm('T', 'N', 1, 1, nrow_global, 1.0_dp, &
+                            b, c, 0.0_dp, d)
          CALL cp_fm_get_element(d, 1, 1, WannierCentres%WannierHamDiag(i))
          !               if (iproc==para_env%mepos) WRITE(unit_mat,'(f16.8,2x)', advance='no')WannierCentres%WannierHamDiag(i)
          IF (unit_mat > 0) WRITE (unit_mat, '(i0,1x,4(f16.8,2x))') states(i), &
@@ -160,8 +161,8 @@ CONTAINS
          WRITE (output_unit, *) "ENERGY      original MO-index"
          DO i = 1, ns
             WRITE (output_unit, '(f16.8,2x,i0)') WannierCentres%WannierHamDiag(i), states(i)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       CALL cp_fm_release(b)
       CALL cp_fm_release(c)
       CALL cp_fm_release(d)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,7 +25,6 @@ MODULE qs_energy_window
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type
@@ -41,6 +42,7 @@ MODULE qs_energy_window
                                               section_vals_val_get
    USE iterate_matrix,                  ONLY: matrix_sqrt_Newton_Schulz
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
@@ -52,7 +54,7 @@ MODULE qs_energy_window
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_elec
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -83,7 +85,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'energy_windows', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'energy_windows'
       LOGICAL, PARAMETER                                 :: debug = .FALSE.
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
@@ -94,14 +96,13 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: stride(:)
       LOGICAL                                            :: mpi_io, print_cube, restrict_range
       REAL(KIND=dp) :: bin_width, density_ewindow_total, density_total, energy_range, fermi_level, &
-         filter_eps, frob_norm, lanzcos_threshold, lower_bound, occupation, total_rho, upper_bound
+         filter_eps, frob_norm, lanzcos_threshold, lower_bound, occupation, upper_bound
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues, P_eigenvalues, &
                                                             window_eigenvalues
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: ao_ao_fmstruct, window_fm_struct
-      TYPE(cp_fm_type), POINTER :: eigenvectors, eigenvectors_nonorth, matrix_ks_fm, &
-         P_eigenvectors, P_window_fm, rho_ao_ortho_fm, S_minus_half_fm, tmp_fm, &
-         window_eigenvectors, window_fm
+      TYPE(cp_fm_type) :: eigenvectors, eigenvectors_nonorth, matrix_ks_fm, P_eigenvectors, &
+         P_window_fm, rho_ao_ortho_fm, S_minus_half_fm, tmp_fm, window_eigenvectors, window_fm
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, rho_ao
       TYPE(dbcsr_type)                                   :: matrix_ks_nosym, S_half, S_minus_half, &
@@ -109,8 +110,8 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: rho_ao_ortho, window
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: rho_g, rho_r
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rho_g, rho_r
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_subsys_type), POINTER                      :: subsys
@@ -159,11 +160,8 @@ CONTAINS
       CALL cp_fm_create(S_minus_half_fm, ao_ao_fmstruct)
       CALL cp_fm_create(eigenvectors, ao_ao_fmstruct)
       CALL cp_fm_create(eigenvectors_nonorth, ao_ao_fmstruct)
-      NULLIFY (rho_r, rho_g)
-      ALLOCATE (rho_r, rho_g)
-      NULLIFY (rho_r%pw, rho_g%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_r%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho_g%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho_r, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho_g, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
       !calculate S_minus_half
       CALL matrix_sqrt_Newton_Schulz(S_half, S_minus_half, matrix_s(1)%matrix, filter_eps, &
@@ -197,7 +195,7 @@ CONTAINS
       !Rotate the eigenvectors back out of the orthonormal basis
       CALL copy_dbcsr_to_fm(S_minus_half, S_minus_half_fm)
       !calculate the density caused by the mos in the energy window
-      CALL cp_gemm("N", "N", nao, nao, nao, one, S_minus_half_fm, eigenvectors, zero, eigenvectors_nonorth)
+      CALL parallel_gemm("N", "N", nao, nao, nao, one, S_minus_half_fm, eigenvectors, zero, eigenvectors_nonorth)
 
       IF (debug) THEN
          !check difference to actual density
@@ -205,7 +203,7 @@ CONTAINS
                                   ncol_global=nelectron_total/2)
          CALL cp_fm_create(window_fm, window_fm_struct)
          CALL cp_fm_to_fm(eigenvectors_nonorth, window_fm, nelectron_total/2, 1, 1)
-         CALL cp_gemm("N", "T", nao, nao, nelectron_total/2, 2*one, window_fm, window_fm, zero, P_window_fm)
+         CALL parallel_gemm("N", "T", nao, nao, nelectron_total/2, 2*one, window_fm, window_fm, zero, P_window_fm)
          !ensure the correct sparsity
          CALL copy_fm_to_dbcsr(P_window_fm, tmp)
          CALL dbcsr_copy(window, matrix_ks(1)%matrix)
@@ -213,9 +211,8 @@ CONTAINS
          CALL calculate_rho_elec(matrix_p=window, &
                                  rho=rho_r, &
                                  rho_gspace=rho_g, &
-                                 total_rho=total_rho, &
                                  ks_env=ks_env)
-         density_total = pw_integrate_function(rho_r%pw)
+         density_total = pw_integrate_function(rho_r)
          IF (unit_nr > 0) WRITE (unit_nr, *) " Ground-state density: ", density_total
          frob_norm = dbcsr_frobenius_norm(window)
          IF (unit_nr > 0) WRITE (unit_nr, *) " Frob norm of calculated ground-state density matrix: ", frob_norm
@@ -233,12 +230,12 @@ CONTAINS
          CALL cp_fm_create(window_eigenvectors, ao_ao_fmstruct)
          ALLOCATE (window_eigenvalues(nao))
          CALL cp_fm_to_fm(eigenvectors, window_fm, nelectron_total/2, 1, 1)
-         CALL cp_gemm("N", "T", nao, nao, nelectron_total/2, 2*one, window_fm, window_fm, zero, P_window_fm)
+         CALL parallel_gemm("N", "T", nao, nao, nelectron_total/2, 2*one, window_fm, window_fm, zero, P_window_fm)
          CALL choose_eigv_solver(P_window_fm, window_eigenvectors, window_eigenvalues)
          DO i = 1, nao
             IF (unit_nr > 0) THEN
               WRITE (unit_nr, *) i, "H:", eigenvalues(i), "P:", P_eigenvalues(nao - i + 1), "Pnew:", window_eigenvalues(nao - i + 1)
-            ENDIF
+            END IF
          END DO
          DEALLOCATE (P_eigenvalues)
          CALL cp_fm_release(tmp_fm)
@@ -267,13 +264,13 @@ CONTAINS
          CALL cp_fm_create(window_fm, window_fm_struct)
          !copy the mos in the energy window into a separate matrix
          CALL cp_fm_to_fm(eigenvectors, window_fm, next - last, last + 1, 1)
-         CALL cp_gemm("N", "T", nao, nao, next - last, one, window_fm, window_fm, zero, P_window_fm)
+         CALL parallel_gemm("N", "T", nao, nao, next - last, one, window_fm, window_fm, zero, P_window_fm)
          CALL cp_fm_trace(P_window_fm, rho_ao_ortho_fm, occupation)
          IF (print_cube) THEN
             CALL cp_fm_to_fm(eigenvectors_nonorth, window_fm, next - last, last + 1, 1)
             !print the energy window to a cube file
             !calculate the density caused by the mos in the energy window
-            CALL cp_gemm("N", "T", nao, nao, next - last, one, window_fm, window_fm, zero, P_window_fm)
+            CALL parallel_gemm("N", "T", nao, nao, next - last, one, window_fm, window_fm, zero, P_window_fm)
             CALL copy_fm_to_dbcsr(P_window_fm, tmp)
             !ensure the correct sparsity
             CALL dbcsr_copy(window, matrix_ks(1)%matrix)
@@ -281,7 +278,6 @@ CONTAINS
             CALL calculate_rho_elec(matrix_p=window, &
                                     rho=rho_r, &
                                     rho_gspace=rho_g, &
-                                    total_rho=total_rho, &
                                     ks_env=ks_env)
             WRITE (ext, "(A14,I5.5,A)") "-ENERGY-WINDOW", i, TRIM(cp_iter_string(logger%iter_info))//".cube"
             mpi_io = .TRUE.
@@ -289,10 +285,10 @@ CONTAINS
                                               extension=ext, file_status="REPLACE", file_action="WRITE", &
                                               log_filename=.FALSE., mpi_io=mpi_io)
             WRITE (title, "(A14,I5)") "ENERGY WINDOW ", i
-            CALL cp_pw_to_cube(rho_r%pw, print_unit, title, particles=particles, stride=stride, mpi_io=mpi_io)
+            CALL cp_pw_to_cube(rho_r, print_unit, title, particles=particles, stride=stride, mpi_io=mpi_io)
             CALL cp_print_key_finished_output(print_unit, logger, dft_section, &
                                               "PRINT%ENERGY_WINDOWS", mpi_io=mpi_io)
-            density_ewindow_total = pw_integrate_function(rho_r%pw)
+            density_ewindow_total = pw_integrate_function(rho_r)
             IF (unit_nr > 0) WRITE (unit_nr, "(A,F16.10,A,I5,A,F20.14,A,F20.14)") " Energy Level: ", &
                lower_bound + (i - 0.5_dp)*bin_width, " Number of states: ", next - last, " Occupation: ", &
                occupation, " Grid Density ", density_ewindow_total
@@ -321,9 +317,8 @@ CONTAINS
       CALL cp_fm_release(P_window_fm)
       CALL cp_fm_release(eigenvectors_nonorth)
       CALL cp_fm_release(S_minus_half_fm)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g%pw)
-      DEALLOCATE (rho_r, rho_g)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g)
       DEALLOCATE (eigenvalues)
       DEALLOCATE (STRIDE)
 

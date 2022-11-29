@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,7 +48,6 @@ MODULE input_section_types
    IMPLICIT NONE
    PRIVATE
 
-   INTEGER, SAVE, PRIVATE :: last_section_id = 0, last_section_vals_id = 0
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_section_types'
 
@@ -86,7 +87,6 @@ MODULE input_section_types
 !>        can be added)
 !>      - repeats: if the section can be repeated more than once in the same
 !>        context
-!>      - id_nr: identification number (different in each instance)
 !>      - ref_count: reference count (see doc/ReferenceCounting.html)
 !>      - n_keywords: the number of keywords in this section
 !>      - name: name of the section
@@ -100,7 +100,7 @@ MODULE input_section_types
 ! **************************************************************************************************
    TYPE section_type
       LOGICAL :: frozen, repeats
-      INTEGER :: id_nr, ref_count, n_keywords, n_subsections
+      INTEGER :: ref_count, n_keywords, n_subsections
       CHARACTER(len=default_string_length)        :: name
       CHARACTER(len=default_string_length)        :: location
       CHARACTER, DIMENSION(:), POINTER              :: description => Null()
@@ -123,7 +123,7 @@ MODULE input_section_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE section_vals_type
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       INTEGER, POINTER, DIMENSION(:)                     :: ibackup
       TYPE(section_type), POINTER                         :: section
       TYPE(cp_sll_val_p_type), DIMENSION(:, :), POINTER   :: values
@@ -158,8 +158,6 @@ CONTAINS
       LOGICAL, INTENT(in), OPTIONAL                      :: repeats
       INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL        :: citations
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_create', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, my_n_keywords, my_n_subsections, n
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -169,8 +167,6 @@ CONTAINS
       IF (PRESENT(n_subsections)) my_n_subsections = n_subsections
 
       ALLOCATE (section)
-      last_section_id = last_section_id + 1
-      section%id_nr = last_section_id
       section%ref_count = 1
 
       section%n_keywords = 0
@@ -193,7 +189,7 @@ CONTAINS
       IF (PRESENT(citations)) THEN
          ALLOCATE (section%citations(SIZE(citations)))
          section%citations = citations
-      ENDIF
+      END IF
 
       ALLOCATE (section%keywords(-1:my_n_keywords))
       DO i = -1, my_n_keywords
@@ -214,8 +210,6 @@ CONTAINS
    SUBROUTINE section_retain(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(section))
       CPASSERT(section%ref_count > 0)
       section%ref_count = section%ref_count + 1
@@ -229,9 +223,6 @@ CONTAINS
    RECURSIVE SUBROUTINE section_release(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(section)) THEN
@@ -240,7 +231,7 @@ CONTAINS
          IF (section%ref_count == 0) THEN
             IF (ASSOCIATED(section%citations)) THEN
                DEALLOCATE (section%citations)
-            ENDIF
+            END IF
             IF (ASSOCIATED(section%keywords)) THEN
                DO i = -1, UBOUND(section%keywords, 1)
                   CALL keyword_release(section%keywords(i)%keyword)
@@ -268,11 +259,8 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    FUNCTION get_section_info(section) RESULT(message)
-      TYPE(section_type), POINTER                        :: section
+      TYPE(section_type), INTENT(IN)                     :: section
       CHARACTER(LEN=default_path_length)                 :: message
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_section_info', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: length
 
@@ -281,8 +269,8 @@ CONTAINS
       IF (length > 0) THEN
          IF (section%description(length) /= ".") THEN
             message = "."
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       IF (section%repeats) THEN
          message = TRIM(message)//" This section can be repeated."
       ELSE
@@ -303,13 +291,10 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE section_describe(section, unit_nr, level, hide_root, recurse)
-      TYPE(section_type), POINTER                        :: section
+      TYPE(section_type), INTENT(IN), POINTER            :: section
       INTEGER, INTENT(in)                                :: unit_nr, level
       LOGICAL, INTENT(in), OPTIONAL                      :: hide_root
       INTEGER, INTENT(in), OPTIONAL                      :: recurse
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_describe', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_path_length)                 :: message
       INTEGER                                            :: ikeyword, isub, my_recurse
@@ -373,17 +358,13 @@ CONTAINS
 !>      private utility function
 ! **************************************************************************************************
    FUNCTION section_get_subsection_index(section, subsection_name) RESULT(res)
-      TYPE(section_type), POINTER                        :: section
-      CHARACTER(len=*), INTENT(in)                       :: subsection_name
+      TYPE(section_type), INTENT(IN)                     :: section
+      CHARACTER(len=*), INTENT(IN)                       :: subsection_name
       INTEGER                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_get_subsection_index', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: upc_name
       INTEGER                                            :: isub
 
-      CPASSERT(ASSOCIATED(section))
       CPASSERT(section%ref_count > 0)
       res = -1
       upc_name = subsection_name
@@ -405,12 +386,9 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    FUNCTION section_get_subsection(section, subsection_name) RESULT(res)
-      TYPE(section_type), POINTER                        :: section
-      CHARACTER(len=*), INTENT(in)                       :: subsection_name
+      TYPE(section_type), INTENT(IN)                     :: section
+      CHARACTER(len=*), INTENT(IN)                       :: subsection_name
       TYPE(section_type), POINTER                        :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_get_subsection', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: isub
 
@@ -432,17 +410,13 @@ CONTAINS
 !>      private utility function
 ! **************************************************************************************************
    FUNCTION section_get_keyword_index(section, keyword_name) RESULT(res)
-      TYPE(section_type), POINTER                        :: section
-      CHARACTER(len=*), INTENT(in)                       :: keyword_name
+      TYPE(section_type), INTENT(IN)                     :: section
+      CHARACTER(len=*), INTENT(IN)                       :: keyword_name
       INTEGER                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_get_keyword_index', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ik, in
       CHARACTER(len=default_string_length)               :: upc_name
 
-      CPASSERT(ASSOCIATED(section))
       CPASSERT(section%ref_count > 0)
       CPASSERT(ASSOCIATED(section%keywords))
       res = -2
@@ -476,12 +450,9 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    RECURSIVE FUNCTION section_get_keyword(section, keyword_name) RESULT(res)
-      TYPE(section_type), POINTER                        :: section
-      CHARACTER(len=*), INTENT(in)                       :: keyword_name
+      TYPE(section_type), INTENT(IN)                     :: section
+      CHARACTER(len=*), INTENT(IN)                       :: keyword_name
       TYPE(keyword_type), POINTER                        :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_get_keyword', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ik, my_index
 
@@ -510,16 +481,12 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE section_add_keyword(section, keyword)
-      TYPE(section_type), POINTER                        :: section
-      TYPE(keyword_type), POINTER                        :: keyword
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_add_keyword', &
-         routineP = moduleN//':'//routineN
+      TYPE(section_type), INTENT(INOUT)                  :: section
+      TYPE(keyword_type), INTENT(IN), POINTER            :: keyword
 
       INTEGER                                            :: i, j, k
       TYPE(keyword_p_type), DIMENSION(:), POINTER        :: new_keywords
 
-      CPASSERT(ASSOCIATED(section))
       CPASSERT(section%ref_count > 0)
       CPASSERT(.NOT. section%frozen)
       CPASSERT(ASSOCIATED(keyword))
@@ -540,7 +507,7 @@ CONTAINS
                                    "trying to add a keyword with a name ("// &
                                    TRIM(keyword%names(k))//") that was already used in section " &
                                    //TRIM(section%name))
-                  ENDIF
+                  END IF
                END DO
             END DO
          END DO
@@ -568,15 +535,12 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE section_add_subsection(section, subsection)
-      TYPE(section_type), POINTER                        :: section, subsection
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_add_subsection', &
-         routineP = moduleN//':'//routineN
+      TYPE(section_type), INTENT(INOUT)                  :: section
+      TYPE(section_type), INTENT(IN), POINTER            :: subsection
 
       INTEGER                                            :: i
       TYPE(section_p_type), DIMENSION(:), POINTER        :: new_subsections
 
-      CPASSERT(ASSOCIATED(section))
       CPASSERT(section%ref_count > 0)
       CPASSERT(ASSOCIATED(subsection))
       CPASSERT(subsection%ref_count > 0)
@@ -613,15 +577,10 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: section_vals
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       CPASSERT(.NOT. ASSOCIATED(section_vals))
       ALLOCATE (section_vals)
-      last_section_vals_id = last_section_vals_id + 1
-      section_vals%id_nr = last_section_vals_id
       section_vals%ref_count = 1
       CALL section_retain(section)
       section_vals%section => section
@@ -644,9 +603,6 @@ CONTAINS
    SUBROUTINE section_vals_retain(section_vals)
       TYPE(section_vals_type), POINTER                   :: section_vals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
       section_vals%ref_count = section_vals%ref_count + 1
@@ -659,9 +615,6 @@ CONTAINS
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE section_vals_release(section_vals)
       TYPE(section_vals_type), POINTER                   :: section_vals
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       TYPE(cp_sll_val_type), POINTER                     :: vals
@@ -700,7 +653,6 @@ CONTAINS
 !> \brief returns various attributes about the section_vals
 !> \param section_vals the section vals you want information from
 !> \param ref_count ...
-!> \param id_nr ...
 !> \param n_repetition number of repetitions of the section
 !> \param n_subs_vals_rep number of repetitions of the subsections values
 !>        (max(1,n_repetition))
@@ -709,21 +661,15 @@ CONTAINS
 !> \author fawzi
 !> \note     For the other arguments see the attributes of section_vals_type
 ! **************************************************************************************************
-   SUBROUTINE section_vals_get(section_vals, ref_count, id_nr, n_repetition, &
+   SUBROUTINE section_vals_get(section_vals, ref_count, n_repetition, &
                                n_subs_vals_rep, section, explicit)
-      TYPE(section_vals_type), POINTER                   :: section_vals
-      INTEGER, INTENT(out), OPTIONAL                     :: ref_count, id_nr, n_repetition, &
-                                                            n_subs_vals_rep
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
+      INTEGER, INTENT(out), OPTIONAL                     :: ref_count, n_repetition, n_subs_vals_rep
       TYPE(section_type), OPTIONAL, POINTER              :: section
       LOGICAL, INTENT(out), OPTIONAL                     :: explicit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_get', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
       IF (PRESENT(ref_count)) ref_count = section_vals%ref_count
-      IF (PRESENT(id_nr)) id_nr = section_vals%id_nr
       IF (PRESENT(section)) section => section_vals%section
       IF (PRESENT(n_repetition)) n_repetition = SIZE(section_vals%values, 2)
       IF (PRESENT(n_subs_vals_rep)) n_subs_vals_rep = SIZE(section_vals%subs_vals, 2)
@@ -742,19 +688,15 @@ CONTAINS
 ! **************************************************************************************************
    RECURSIVE FUNCTION section_vals_get_subs_vals(section_vals, subsection_name, &
                                                  i_rep_section, can_return_null) RESULT(res)
-      TYPE(section_vals_type), POINTER                   :: section_vals
-      CHARACTER(len=*), INTENT(in)                       :: subsection_name
-      INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section
-      LOGICAL, INTENT(in), OPTIONAL                      :: can_return_null
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
+      CHARACTER(len=*), INTENT(IN)                       :: subsection_name
+      INTEGER, INTENT(IN), OPTIONAL                      :: i_rep_section
+      LOGICAL, INTENT(IN), OPTIONAL                      :: can_return_null
       TYPE(section_vals_type), POINTER                   :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_get_subs_vals', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: irep, isection, my_index
       LOGICAL                                            :: is_path, my_can_return_null
 
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
 
       my_can_return_null = .FALSE.
@@ -772,7 +714,7 @@ CONTAINS
          is_path = .TRUE.
          irep = 1
          my_index = my_index - 1
-      ENDIF
+      END IF
 
       CPASSERT(irep <= SIZE(section_vals%subs_vals, 2))
 
@@ -785,7 +727,7 @@ CONTAINS
       IF (is_path .AND. ASSOCIATED(res)) THEN
          res => section_vals_get_subs_vals(res, subsection_name(my_index + 2:LEN_TRIM(subsection_name)), &
                                            i_rep_section, can_return_null)
-      ENDIF
+      END IF
 
    END FUNCTION section_vals_get_subs_vals
 
@@ -804,9 +746,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: i_section
       INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section
       TYPE(section_vals_type), POINTER                   :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_get_subs_vals2', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, irep, isect_att
 
@@ -840,17 +779,13 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_vals_get_subs_vals3(section_vals, subsection_name, &
                                         i_rep_section) RESULT(res)
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(LEN=*), INTENT(IN)                       :: subsection_name
       INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section
       TYPE(section_vals_type), POINTER                   :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_get_subs_vals3', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_section, irep
 
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
       NULLIFY (res)
       irep = 1
@@ -866,17 +801,13 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE section_vals_add_values(section_vals)
-      TYPE(section_vals_type), POINTER                   :: section_vals
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_add_values', &
-         routineP = moduleN//':'//routineN
+      TYPE(section_vals_type), INTENT(INOUT)             :: section_vals
 
       INTEGER                                            :: i, j
       TYPE(cp_sll_val_p_type), DIMENSION(:, :), POINTER  :: new_values
       TYPE(section_vals_p_type), DIMENSION(:, :), &
          POINTER                                         :: new_sps
 
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
       ALLOCATE (new_values(-1:UBOUND(section_vals%values, 1), SIZE(section_vals%values, 2) + 1))
       DO j = 1, SIZE(section_vals%values, 2)
@@ -918,9 +849,6 @@ CONTAINS
    SUBROUTINE section_vals_remove_values(section_vals)
       TYPE(section_vals_type), POINTER                   :: section_vals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_remove_values', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
       TYPE(cp_sll_val_p_type), DIMENSION(:, :), POINTER  :: new_values
       TYPE(cp_sll_val_type), POINTER                     :: vals
@@ -959,7 +887,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_cval(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       CHARACTER(LEN=default_string_length)               :: res
 
@@ -975,7 +903,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_rval(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       REAL(kind=dp)                                      :: res
 
@@ -991,7 +919,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_rvals(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       REAL(kind=dp), DIMENSION(:), POINTER               :: res
 
@@ -1007,7 +935,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_ival(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       INTEGER                                            :: res
 
@@ -1023,7 +951,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_ivals(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       INTEGER, DIMENSION(:), POINTER                     :: res
 
@@ -1039,7 +967,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION section_get_lval(section_vals, keyword_name) RESULT(res)
 
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       LOGICAL                                            :: res
 
@@ -1073,7 +1001,7 @@ CONTAINS
    SUBROUTINE section_vals_val_get(section_vals, keyword_name, i_rep_section, &
                                    i_rep_val, n_rep_val, val, l_val, i_val, r_val, c_val, l_vals, i_vals, r_vals, &
                                    c_vals, explicit)
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN), TARGET        :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section, i_rep_val
       INTEGER, INTENT(out), OPTIONAL                     :: n_rep_val
@@ -1089,9 +1017,6 @@ CONTAINS
          DIMENSION(:), OPTIONAL, POINTER                 :: c_vals
       LOGICAL, INTENT(out), OPTIONAL                     :: explicit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_val_get', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ik, irk, irs, len_key, my_index, &
                                                             tmp_index
       LOGICAL                                            :: valRequested
@@ -1101,7 +1026,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: s_vals
       TYPE(val_type), POINTER                            :: my_val
 
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
 
       my_index = INDEX(keyword_name, '%') + 1
@@ -1185,13 +1109,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE section_vals_list_get(section_vals, keyword_name, i_rep_section, &
                                     list)
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN), POINTER       :: section_vals
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       INTEGER, OPTIONAL                                  :: i_rep_section
       TYPE(cp_sll_val_type), POINTER                     :: list
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_list_get', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ik, irs, len_key, my_index, tmp_index
       TYPE(section_type), POINTER                        :: section
@@ -1267,9 +1188,6 @@ CONTAINS
       REAL(KIND=DP), DIMENSION(:), OPTIONAL, POINTER     :: r_vals_ptr
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), OPTIONAL, POINTER                 :: c_vals_ptr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_val_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ik, irk, irs, len_key, my_index, &
                                                             tmp_index
@@ -1392,9 +1310,6 @@ CONTAINS
       CHARACTER(len=*), INTENT(in)                       :: keyword_name
       INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section, i_rep_val
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_val_unset', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ik, irk, irs, len_key, my_index, &
                                                             tmp_index
       TYPE(cp_sll_val_type), POINTER                     :: pos
@@ -1462,12 +1377,9 @@ CONTAINS
 !>      skips required sections which weren't read
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE section_vals_write(section_vals, unit_nr, hide_root, hide_defaults)
-      TYPE(section_vals_type), POINTER                   :: section_vals
+      TYPE(section_vals_type), INTENT(IN)                :: section_vals
       INTEGER, INTENT(in)                                :: unit_nr
       LOGICAL, INTENT(in), OPTIONAL                      :: hide_root, hide_defaults
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_write', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: myfmt
       INTEGER                                            :: i_rep_s, ik, isec, ival, nr, nval
@@ -1485,7 +1397,6 @@ CONTAINS
       IF (PRESENT(hide_root)) my_hide_root = hide_root
       IF (PRESENT(hide_defaults)) my_hide_defaults = hide_defaults
 
-      CPASSERT(ASSOCIATED(section_vals))
       CPASSERT(section_vals%ref_count > 0)
       IF (unit_nr > 0) THEN
          CALL section_vals_get(section_vals, explicit=explicit, n_repetition=nr, section=section)
@@ -1589,9 +1500,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       INTEGER, INTENT(IN)                                :: level, unit_number
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_section_xml', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=3)                                   :: repeats
       CHARACTER(LEN=8)                                   :: short_string
       INTEGER                                            :: i, l0, l1, l2
@@ -1663,15 +1571,12 @@ CONTAINS
    RECURSIVE SUBROUTINE section_typo_match(section, section_name, unknown_string, location_string, &
                                            matching_rank, matching_string, bonus)
 
-      TYPE(section_type), POINTER                        :: section
+      TYPE(section_type), INTENT(IN), POINTER            :: section
       CHARACTER(LEN=*)                                   :: section_name, unknown_string, &
                                                             location_string
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: matching_rank
       CHARACTER(LEN=*), DIMENSION(:), INTENT(INOUT)      :: matching_string
       INTEGER, INTENT(IN)                                :: bonus
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_typo_match', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=LEN(matching_string(1)))             :: line
       INTEGER                                            :: i, imatch, imax, irank, newbonus
@@ -1686,20 +1591,20 @@ CONTAINS
             irank = imax + 1
             DO I = imax, 1, -1
                IF (imatch > matching_rank(I)) irank = i
-            ENDDO
+            END DO
             IF (irank <= imax) THEN
                matching_rank(irank + 1:imax) = matching_rank(irank:imax - 1)
                matching_string(irank + 1:imax) = matching_string(irank:imax - 1)
                matching_rank(irank) = imatch
                matching_string(irank) = line
-            ENDIF
+            END IF
          END IF
 
          IF (section_name == section%name) THEN
             newbonus = 10
          ELSE
             newbonus = 0
-         ENDIF
+         END IF
 
          DO i = -1, section%n_keywords
             IF (ASSOCIATED(section%keywords(i)%keyword)) THEN
@@ -1732,9 +1637,6 @@ CONTAINS
       CHARACTER(len=*), INTENT(in)                       :: subsection_name
       TYPE(section_vals_type), POINTER                   :: new_section_vals
       INTEGER, INTENT(in), OPTIONAL                      :: i_rep_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_set_subs_vals', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: irep, isection, len_key, my_index, &
                                                             tmp_index
@@ -1787,9 +1689,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: section_vals_in, section_vals_out
       INTEGER, INTENT(IN), OPTIONAL                      :: i_rep_start, i_rep_end
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_duplicate', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(section_vals_in))
       CPASSERT(.NOT. ASSOCIATED(section_vals_out))
       CALL section_vals_create(section_vals_out, section_vals_in%section)
@@ -1811,9 +1710,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: section_vals_in, section_vals_out
       INTEGER, INTENT(IN), OPTIONAL                      :: i_rep_low, i_rep_high
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'section_vals_copy', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iend, irep, isec, istart, ival
       TYPE(cp_sll_val_type), POINTER                     :: v1, v2
       TYPE(val_type), POINTER                            :: el
@@ -1822,7 +1718,7 @@ CONTAINS
 
       CPASSERT(ASSOCIATED(section_vals_in))
       CPASSERT(ASSOCIATED(section_vals_out))
-      !  IF(section_vals_in%section%id_nr/=section_vals_out%section%id_nr)&
+      !  IF(.NOT. ASSOCIATED(section_vals_in%section, section_vals_out%section))&
       !     CPABORT("")
 
       istart = 1

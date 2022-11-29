@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -85,8 +87,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
          OPTIONAL                                        :: pab
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT), OPTIONAL :: force_a
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ay, az, bx, by, bz, cda, cdax, cday, cdaz, coa, coamx, coamy, coamz, coapx, &
          coapy, coapz, cob, cobm2x, cobm2y, cobm2z, cobmx, cobmy, cobmz, da, da_max, dax, day, &
@@ -687,8 +687,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT), &
          OPTIONAL                                        :: dab, ddab
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_ab', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, ia, &
                                                             ib, ipgf, jpgf, la, lb, ldrr, lma, &
                                                             lmb, ma, mb, na, nb, ofa, ofb
@@ -752,7 +750,7 @@ CONTAINS
                IF (PRESENT(ddab)) ddab(ma + 1:ma + na, mb + 1:mb + nb, 1:6) = 0.0_dp
                mb = mb + nb
                CYCLE
-            ENDIF
+            END IF
 
             ! Calculate some prefactors
             a = zeta(ipgf)
@@ -920,12 +918,12 @@ CONTAINS
                                        + 2.0_dp*b*REAL(az, dp)*ambp - REAL(az, dp)*REAL(bz, dp)*ambm
                   END IF
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
-            ENDDO
-            ENDDO
-            ENDDO !lb
+               END DO
+               END DO
+               END DO !la
+            END DO
+            END DO
+            END DO !lb
 
             mb = mb + nb
          END DO
@@ -981,8 +979,6 @@ CONTAINS
          OPTIONAL                                        :: saba
       REAL(KIND=dp), DIMENSION(:, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: daba
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_aab', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ax1, ax2, ay, ay1, ay2, az, az1, az2, bx, by, bz, coa1, coa2, cob, i1pgf, &
          i2pgf, ia1, ia2, ib, jpgf, la1, la2, lb, ldrr, lma, lmb, ma1, ma2, mb, na1, na2, nb, &
@@ -1057,7 +1053,7 @@ CONTAINS
                   IF (PRESENT(daba)) daba(ma1 + 1:ma1 + na1, mb + 1:mb + nb, ma2 + 1:ma2 + na2, 1:3) = 0.0_dp
                   mb = mb + nb
                   CYCLE
-               ENDIF
+               END IF
 
                ! Calculate some prefactors
                a = zeta1(i1pgf) + zeta2(i2pgf)
@@ -1136,15 +1132,15 @@ CONTAINS
                            daba(ia1, ib, ia2, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                         END IF
                         !
-                     ENDDO
-                     ENDDO
-                     ENDDO !la1
-                  ENDDO
-                  ENDDO
-                  ENDDO !la2
-               ENDDO
-               ENDDO
-               ENDDO !lb
+                     END DO
+                     END DO
+                     END DO !la1
+                  END DO
+                  END DO
+                  END DO !la2
+               END DO
+               END DO
+               END DO !lb
 
                mb = mb + nb
             END DO
@@ -1196,8 +1192,6 @@ CONTAINS
          OPTIONAL                                        :: sabb
       REAL(KIND=dp), DIMENSION(:, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: dabb
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_abb', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ay, az, bx, bx1, bx2, by, by1, by2, bz, bz1, bz2, coa, cob1, cob2, ia, ib1, &
          ib2, ipgf, j1pgf, j2pgf, la, lb1, lb2, ldrr, lma, lmb, ma, mb1, mb2, na, nb1, nb2, ofa, &
@@ -1259,7 +1253,7 @@ CONTAINS
                   IF (PRESENT(dabb)) dabb(ma + 1:ma + na, mb1 + 1:mb1 + nb1, mb2 + 1:mb2 + nb2, 1:3) = 0.0_dp
                   mb2 = mb2 + nb2
                   CYCLE
-               ENDIF
+               END IF
 
                ! Calculate some prefactors
                a = zeta(ipgf)
@@ -1317,15 +1311,15 @@ CONTAINS
                            dabb(ia, ib1, ib2, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                         END IF
                         !
-                     ENDDO
-                     ENDDO
-                     ENDDO !la
-                  ENDDO
-                  ENDDO
-                  ENDDO !lb1
-               ENDDO
-               ENDDO
-               ENDDO !lb2
+                     END DO
+                     END DO
+                     END DO !la
+                  END DO
+                  END DO
+                  END DO !lb1
+               END DO
+               END DO
+               END DO !lb2
 
                mb2 = mb2 + nb2
             END DO
@@ -1385,8 +1379,6 @@ CONTAINS
          INTENT(INOUT), OPTIONAL                         :: saaab
       REAL(KIND=dp), DIMENSION(:, :, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: daaab
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_aaab', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ax1, ax2, ax3, ay, ay1, ay2, ay3, az, az1, az2, az3, bx, by, bz, coa1, coa2, &
          coa3, cob, i1pgf, i2pgf, i3pgf, ia1, ia2, ia3, ib, jpgf, la1, la2, la3, lb, ldrr, lma, &
@@ -1454,7 +1446,7 @@ CONTAINS
                     IF (PRESENT(daaab)) daaab(ma1 + 1:ma1 + na1, ma2 + 1:ma2 + na2, ma3 + 1:ma3 + na3, mb + 1:mb + nb, 1:3) = 0.0_dp
                      mb = mb + nb
                      CYCLE
-                  ENDIF
+                  END IF
 
                   ! Calculate some prefactors
                   a = zeta1(i1pgf) + zeta2(i2pgf) + zeta3(i3pgf)
@@ -1519,18 +1511,18 @@ CONTAINS
                                  daaab(ia1, ia2, ia3, ib, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                               END IF
                               !
-                           ENDDO
-                           ENDDO
-                           ENDDO !la1
-                        ENDDO
-                        ENDDO
-                        ENDDO !la2
-                     ENDDO
-                     ENDDO
-                     ENDDO !la3
-                  ENDDO
-                  ENDDO
-                  ENDDO !lb
+                           END DO
+                           END DO
+                           END DO !la1
+                        END DO
+                        END DO
+                        END DO !la2
+                     END DO
+                     END DO
+                     END DO !la3
+                  END DO
+                  END DO
+                  END DO !lb
 
                   mb = mb + nb
                END DO
@@ -1591,8 +1583,6 @@ CONTAINS
          INTENT(INOUT), OPTIONAL                         :: saabb
       REAL(KIND=dp), DIMENSION(:, :, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: daabb
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_aabb', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ax1, ax2, ay, ay1, ay2, az, az1, az2, bx, bx1, bx2, by, by1, by2, bz, bz1, &
          bz2, coa1, coa2, cob1, cob2, i1pgf, i2pgf, ia1, ia2, ib1, ib2, j1pgf, j2pgf, la1, la2, &
@@ -1661,7 +1651,7 @@ CONTAINS
                  IF (PRESENT(daabb)) daabb(ma1 + 1:ma1 + na1, ma2 + 1:ma2 + na2, mb1 + 1:mb1 + nb1, mb2 + 1:mb2 + nb2, 1:3) = 0.0_dp
                      mb2 = mb2 + nb2
                      CYCLE
-                  ENDIF
+                  END IF
 
                   ! Calculate some prefactors
                   a = zeta1(i1pgf) + zeta2(i2pgf)
@@ -1729,18 +1719,18 @@ CONTAINS
                                  daabb(ia1, ia2, ib1, ib2, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                               END IF
                               !
-                           ENDDO
-                           ENDDO
-                           ENDDO !la1
-                        ENDDO
-                        ENDDO
-                        ENDDO !la2
-                     ENDDO
-                     ENDDO
-                     ENDDO !lb1
-                  ENDDO
-                  ENDDO
-                  ENDDO !lb2
+                           END DO
+                           END DO
+                           END DO !la1
+                        END DO
+                        END DO
+                        END DO !la2
+                     END DO
+                     END DO
+                     END DO !lb1
+                  END DO
+                  END DO
+                  END DO !lb2
 
                   mb2 = mb2 + nb2
                END DO
@@ -1801,8 +1791,6 @@ CONTAINS
          INTENT(INOUT), OPTIONAL                         :: sabbb
       REAL(KIND=dp), DIMENSION(:, :, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: dabbb
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_abbb', routineP = moduleN//':'//routineN
 
       INTEGER :: ax, ay, az, bx, bx1, bx2, bx3, by, by1, by2, by3, bz, bz1, bz2, bz3, coa, cob1, &
          cob2, cob3, ia, ib1, ib2, ib3, ipgf, j1pgf, j2pgf, j3pgf, la, lb1, lb2, lb3, ldrr, lma, &
@@ -1870,7 +1858,7 @@ CONTAINS
                     IF (PRESENT(dabbb)) dabbb(ma + 1:ma + na, mb1 + 1:mb1 + nb1, mb2 + 1:mb2 + nb2, mb3 + 1:mb3 + nb3, 1:3) = 0.0_dp
                      mb3 = mb3 + nb3
                      CYCLE
-                  ENDIF
+                  END IF
 
                   ! Calculate some prefactors
                   a = zeta(ipgf)
@@ -1935,18 +1923,18 @@ CONTAINS
                                  dabbb(ia, ib1, ib2, ib3, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                               END IF
                               !
-                           ENDDO
-                           ENDDO
-                           ENDDO !la
-                        ENDDO
-                        ENDDO
-                        ENDDO !lb1
-                     ENDDO
-                     ENDDO
-                     ENDDO !lb2
-                  ENDDO
-                  ENDDO
-                  ENDDO !lb3
+                           END DO
+                           END DO
+                           END DO !la
+                        END DO
+                        END DO
+                        END DO !lb1
+                     END DO
+                     END DO
+                     END DO !lb2
+                  END DO
+                  END DO
+                  END DO !lb3
 
                   mb3 = mb3 + nb3
                END DO
@@ -1981,7 +1969,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rab
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: sab
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_ab_s', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: huge4 = HUGE(1._dp)/4._dp
 
       INTEGER                                            :: nca, ncb, nsa, nsb
@@ -2028,8 +2015,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: lb
       REAL(KIND=dp), INTENT(IN)                          :: zetb, alat
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: sab
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_ab_sp', routineP = moduleN//':'//routineN
 
       COMPLEX(KIND=dp)                                   :: zfg
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :)     :: fun, gun

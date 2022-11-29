@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,8 +52,6 @@ CONTAINS
    SUBROUTINE atprop_create(atprop_env)
       TYPE(atprop_type), POINTER                         :: atprop_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_create', routineP = moduleN//':'//routineN
-
       CALL atprop_release(atprop_env)
       ALLOCATE (atprop_env)
       NULLIFY (atprop_env%atener, atprop_env%atstress)
@@ -70,8 +70,6 @@ CONTAINS
    SUBROUTINE atprop_init(atprop_env, natom)
       TYPE(atprop_type), POINTER                         :: atprop_env
       INTEGER, INTENT(IN)                                :: natom
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_init', routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(atprop_env))
 
@@ -107,9 +105,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: atarray
       INTEGER, INTENT(IN)                                :: natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_array_init', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(atarray)) THEN
          CPASSERT(SIZE(atarray) == natom)
       ELSE
@@ -126,9 +121,6 @@ CONTAINS
    SUBROUTINE atprop_array_release(atarray)
       REAL(KIND=dp), DIMENSION(:), POINTER               :: atarray
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_array_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(atarray)) THEN
          DEALLOCATE (atarray)
       END IF
@@ -142,9 +134,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE atprop_array_add(array_a, array_b)
       REAL(KIND=dp), DIMENSION(:), POINTER               :: array_a, array_b
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_array_add', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(array_b)) THEN
          CPASSERT(ASSOCIATED(array_a))
@@ -160,8 +149,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE atprop_release(atprop_env)
       TYPE(atprop_type), POINTER                         :: atprop_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atprop_release', routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(atprop_env)) THEN
          ! energy

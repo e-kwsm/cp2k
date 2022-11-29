@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,6 +20,9 @@ MODULE xc_pade
    USE bibliography,                    ONLY: Goedecker1996,&
                                               cite_reference
    USE kinds,                           ONLY: dp
+   USE xc_derivative_desc,              ONLY: deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -103,8 +108,6 @@ CONTAINS
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pade_info', routineP = moduleN//':'//routineN
-
       IF (PRESENT(reference)) THEN
          reference = "S. Goedecker, M. Teter and J. Hutter," &
                      //" Phys. Rev. B 54, 1703 (1996)"
@@ -135,17 +138,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pade_lda_pw_eval(deriv_set, rho_set, order)
 
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
       INTEGER, INTENT(IN), OPTIONAL                      :: order
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pade_lda_pw_eval', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n
       LOGICAL                                            :: calc(0:4)
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: rs
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: e_0, e_r, e_rr, e_rrr
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: e_0, e_r, e_rr, e_rrr
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       calc = .FALSE.
@@ -157,32 +158,32 @@ CONTAINS
 
       CALL calc_rs_pw(rho_set%rho, rs, n)
       IF (calc(0) .AND. calc(1)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_r)
          CALL pade_lda_01(n, rho_set%rho, rs, e_0, e_r)
       ELSE IF (calc(0)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
          CALL pade_lda_0(n, rho_set%rho, rs, e_0)
       ELSE IF (calc(1)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_r)
          CALL pade_lda_1(n, rho_set%rho, rs, e_r)
       END IF
       IF (calc(2)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rr)
          CALL pade_lda_2(n, rho_set%rho, rs, e_rr)
       END IF
       IF (calc(3)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rrr)
          CALL pade_lda_3(n, rho_set%rho, rs, e_rrr)
@@ -200,17 +201,18 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pade_lsd_pw_eval(deriv_set, rho_set, order)
 
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
       INTEGER, INTENT(IN), OPTIONAL                      :: order
 
       INTEGER                                            :: i, j, k
       LOGICAL                                            :: calc(0:4)
       REAL(KIND=dp)                                      :: rhoa, rhob, rs
-      REAL(KIND=dp), DIMENSION(4)                        :: fx
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: e_0, e_ra, e_rara, e_rarara, e_rararb, &
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: e_0, e_ra, e_rara, e_rarara, e_rararb, &
                                                             e_rarb, e_rarbrb, e_rb, e_rbrb, &
                                                             e_rbrbrb
+      REAL(KIND=dp), DIMENSION(4)                        :: fx
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       calc = .FALSE.
@@ -218,40 +220,40 @@ CONTAINS
       IF (order < 0) calc(-order) = .TRUE.
 
       IF (calc(0)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (calc(1)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ra)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rb)
       END IF
       IF (calc(2)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rara)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rarb)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rbrb)
       END IF
       IF (calc(3)) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rarara)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rararb)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rarbrb)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rbrbrb)
       END IF
@@ -725,8 +727,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: rhoa, rhob, rs
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: fx
       REAL(KIND=dp), INTENT(INOUT)                       :: potaaa, potaab, potabb, potbbb
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pade_lsd_3', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp) :: d2p, d2q, d2xp, d2xq, d3p, d3q, dpv, dq, dr, drr, drrr, dx, dxp, dxq, dxr, &
          dxrr, dxx, dxxr, dxxx, fa0, fa1, fa2, fa3, fb1, fb2, fb3, fb4, or, p, q, rhoab, xp, xq, &

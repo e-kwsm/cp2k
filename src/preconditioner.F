@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,6 @@ MODULE preconditioner
                                               qs_environment_type
    USE qs_mo_methods,                   ONLY: calculate_subspace_eigenvalues
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
 #include "./base/base_uses.f90"
 
@@ -98,13 +99,12 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: precon_type, solver_type
       TYPE(dbcsr_type), POINTER                          :: matrix_h
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s, matrix_t
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       REAL(KIND=dp)                                      :: energy_gap
       LOGICAL, INTENT(IN), OPTIONAL                      :: convert_precond_to_dbcsr
       INTEGER, INTENT(IN), OPTIONAL                      :: chol_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'make_preconditioner'
 
       INTEGER                                            :: handle, k, my_solver_type
       LOGICAL                                            :: my_convert_precond_to_dbcsr, &
@@ -140,7 +140,7 @@ CONTAINS
          ! both of them need the coefficients as fm's, more matrix mess
          IF (use_mo_coeff_b) THEN
             CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff)
-         ENDIF
+         END IF
       CASE (ot_precond_full_single)
          needs_homo = .TRUE.
          ! XXXX to be removed if homo estimate only is implemented
@@ -169,13 +169,13 @@ CONTAINS
          ELSE
             CALL calculate_subspace_eigenvalues(mo_coeff, matrix_h, &
                                                 eigenvalues_ot, do_rotation=.FALSE.)
-         ENDIF
+         END IF
          IF (k > 0) energy_homo = eigenvalues_ot(k)
       ELSE
          IF (needs_homo) THEN
             CPABORT("Not yet implemented")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! After all bits and pieces of checking and initialization, here comes the
       ! part where the preconditioner matrix gets created and solved.
@@ -204,11 +204,11 @@ CONTAINS
       ELSE
          CALL transfer_dbcsr_to_fm(preconditioner_env%dbcsr_matrix, preconditioner_env%fm, &
                                    preconditioner_env%para_env, preconditioner_env%ctxt)
-      ENDIF
+      END IF
 
       IF (needs_full_spectrum) THEN
          DEALLOCATE (eigenvalues_ot)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -228,9 +228,6 @@ CONTAINS
       TYPE(preconditioner_p_type), DIMENSION(:), POINTER :: preconditioner
       INTEGER, INTENT(IN)                                :: prec_type, nspins
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restart_preconditioner', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ispin
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -244,7 +241,7 @@ CONTAINS
             DO ispin = 1, SIZE(preconditioner)
                CALL destroy_preconditioner(preconditioner(ispin)%preconditioner)
                DEALLOCATE (preconditioner(ispin)%preconditioner)
-            ENDDO
+            END DO
             DEALLOCATE (preconditioner)
          CASE (ot_precond_none, ot_precond_full_kinetic, ot_precond_s_inverse, ot_precond_full_single_inverse) ! these are 'independent'
             ! do nothing
@@ -266,7 +263,7 @@ CONTAINS
             CALL init_preconditioner(preconditioner(ispin)%preconditioner, &
                                      para_env=para_env, &
                                      blacs_env=blacs_env)
-         ENDDO
+         END DO
       END IF
 
    END SUBROUTINE restart_preconditioner
@@ -292,7 +289,7 @@ CONTAINS
                                      convert_to_dbcsr, chol_type)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
       TYPE(preconditioner_p_type), DIMENSION(:), POINTER :: ot_preconditioner
       INTEGER, INTENT(IN)                                :: prec_type, solver_type
@@ -301,8 +298,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: has_unit_metric, convert_to_dbcsr
       INTEGER, INTENT(IN), OPTIONAL                      :: chol_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'prepare_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'prepare_preconditioner'
 
       CHARACTER(LEN=default_string_length)               :: msg
       INTEGER                                            :: handle, icall, ispin, n_loops
@@ -340,7 +336,7 @@ CONTAINS
          matrix_t => kinetic(1)%matrix
       END IF
 
-      !determins how often make preconditioner is called, spin dependent methods have to be called twice
+      !determines how often make preconditioner is called, spin dependent methods have to be called twice
       n_loops = 1
       IF (prec_type == ot_precond_full_single_inverse) n_loops = nspins
       ! check whether we need the ev and rotate the MOs
@@ -351,8 +347,8 @@ CONTAINS
 
          do_co_rotate = ASSOCIATED(qs_env%mo_derivs)
          DO ispin = 1, nspins
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff_b=mo_coeff_b, mo_coeff=mo_coeff)
-            use_mo_coeff_b = mos(ispin)%mo_set%use_mo_coeff_b
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff_b=mo_coeff_b, mo_coeff=mo_coeff)
+            use_mo_coeff_b = mos(ispin)%use_mo_coeff_b
             IF (use_mo_coeff_b .AND. do_co_rotate) THEN
                CALL calculate_subspace_eigenvalues(mo_coeff_b, matrix_ks(ispin)%matrix, &
                                                    do_rotation=.TRUE., &
@@ -386,7 +382,7 @@ CONTAINS
                                         prec_type, &
                                         solver_type, &
                                         matrix_h=matrix_ks(icall)%matrix, &
-                                        mo_set=mos(icall)%mo_set, &
+                                        mo_set=mos(icall), &
                                         energy_gap=energy_gap, &
                                         convert_precond_to_dbcsr=my_convert_to_dbcsr)
             ELSE
@@ -396,7 +392,7 @@ CONTAINS
                                         matrix_h=matrix_ks(icall)%matrix, &
                                         matrix_s=matrix_s(1)%matrix, &
                                         matrix_t=matrix_t, &
-                                        mo_set=mos(icall)%mo_set, &
+                                        mo_set=mos(icall), &
                                         energy_gap=energy_gap, &
                                         convert_precond_to_dbcsr=my_convert_to_dbcsr, chol_type=chol_type)
             END IF

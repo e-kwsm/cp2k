@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -97,8 +99,6 @@ CONTAINS
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
       INTEGER, DIMENSION(:, :), OPTIONAL, POINTER        :: blacs2mpi, mpi2blacs
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_blacs_info', routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(blacs_env)) THEN
          CPABORT("No BLACS environment")
       END IF
@@ -134,9 +134,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL            :: blacs_repeatable, row_major
       INTEGER, DIMENSION(:), INTENT(IN), &
          OPTIONAL                               :: grid_2d
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_blacs_env_create', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: ipcol, iprow, stat
 #if defined(__parallel)
@@ -179,7 +176,7 @@ CONTAINS
       IF (PRESENT(grid_2d)) THEN
          nprow = grid_2d(1)
          npcol = grid_2d(2)
-      ENDIF
+      END IF
 
       IF (nprow*npcol .NE. npe) THEN
          ! hard code for the time being the grid layout
@@ -198,8 +195,8 @@ CONTAINS
                   nprow = ipe
                   npcol = jpe
                   gcd_max = gcd(ipe, jpe)
-               ENDIF
-            ENDDO
+               END IF
+            END DO
          CASE (BLACS_GRID_ROW)
             nprow = 1
             npcol = npe
@@ -207,7 +204,7 @@ CONTAINS
             nprow = npe
             npcol = 1
          END SELECT
-      ENDIF
+      END IF
 
       ! blacs_env%group will be set to the blacs context for this blacs env, this is not the same as the MPI context
       blacs_env%group = para_env%group
@@ -217,7 +214,7 @@ CONTAINS
          CALL cp_blacs_gridinit(blacs_env%group, "Row-major", nprow, npcol)
       ELSE
          CALL cp_blacs_gridinit(blacs_env%group, "Col-major", nprow, npcol)
-      ENDIF
+      END IF
 
       my_blacs_repeatable = .FALSE.
       IF (PRESENT(blacs_repeatable)) my_blacs_repeatable = blacs_repeatable
@@ -262,9 +259,6 @@ CONTAINS
    SUBROUTINE cp_blacs_env_retain(blacs_env)
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_blacs_env_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(blacs_env))
       CPASSERT(blacs_env%ref_count > 0)
       blacs_env%ref_count = blacs_env%ref_count + 1
@@ -272,16 +266,13 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief releases the given blacs_env
-!> \param blacs_env the blacs env to relase
+!> \param blacs_env the blacs env to release
 !> \par History
 !>      08.2002 created [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE cp_blacs_env_release(blacs_env)
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_blacs_env_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(blacs_env)) THEN
          CPASSERT(blacs_env%ref_count > 0)
@@ -309,9 +300,6 @@ CONTAINS
    SUBROUTINE cp_blacs_env_write(blacs_env, unit_nr)
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       INTEGER, INTENT(in)                                :: unit_nr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_blacs_env_write', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iostat
 

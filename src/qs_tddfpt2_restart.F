@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_tddfpt2_restart
@@ -14,6 +16,8 @@ MODULE qs_tddfpt2_restart
    USE cp_fm_types,                     ONLY: cp_fm_get_info,&
                                               cp_fm_p_type,&
                                               cp_fm_read_unformatted,&
+                                              cp_fm_write_formatted,&
+                                              cp_fm_write_info,&
                                               cp_fm_write_unformatted
    USE cp_log_handling,                 ONLY: cp_logger_type
    USE cp_output_handling,              ONLY: cp_p_file,&
@@ -28,6 +32,8 @@ MODULE qs_tddfpt2_restart
    USE kinds,                           ONLY: default_path_length,&
                                               dp
    USE message_passing,                 ONLY: mp_bcast
+   USE qs_environment_types,            ONLY: get_qs_env,&
+                                              qs_environment_type
    USE qs_tddfpt2_types,                ONLY: tddfpt_ground_state_mos
    USE string_utilities,                ONLY: integer_to_string
 #include "./base/base_uses.f90"
@@ -43,7 +49,7 @@ MODULE qs_tddfpt2_restart
    INTEGER, PARAMETER, PRIVATE          :: nderivs = 3
    INTEGER, PARAMETER, PRIVATE          :: maxspins = 2
 
-   PUBLIC :: tddfpt_write_restart, tddfpt_read_restart
+   PUBLIC :: tddfpt_write_restart, tddfpt_read_restart, tddfpt_write_newtonx_output
 
 ! **************************************************************************************************
 
@@ -68,8 +74,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER                   :: tddfpt_print_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_write_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_write_restart'
 
       INTEGER                                            :: handle, ispin, istate, nao, nspins, &
                                                             nstates, ounit
@@ -147,7 +152,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION tddfpt_read_restart(evects, evals, gs_mos, logger, tddfpt_section, tddfpt_print_section, &
                                 fm_pool_ao_mo_occ, blacs_env_global) RESULT(nstates_read)
-      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(in)    :: evects
+      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(inout) :: evects
       REAL(kind=dp), DIMENSION(:), INTENT(out)           :: evals
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          INTENT(in)                                      :: gs_mos
@@ -157,8 +162,7 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env_global
       INTEGER                                            :: nstates_read
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_read_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_read_restart'
 
       CHARACTER(len=20)                                  :: read_str, ref_str
       CHARACTER(LEN=default_path_length)                 :: filename
@@ -172,6 +176,8 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: print_key
 
       CALL timeset(routineN, handle)
+
+      CPASSERT(ASSOCIATED(tddfpt_section))
 
       ! generate restart file name
       CALL section_vals_val_get(tddfpt_section, "WFN_RESTART_FILE_NAME", n_rep_val=n_rep_val)
@@ -270,6 +276,7 @@ CONTAINS
       DO istate = 1, nstates_read
          DO ispin = 1, nspins
             IF (istate <= nstates) THEN
+               ALLOCATE (evects(ispin, istate)%matrix)
                CALL fm_pool_create_fm(fm_pool_ao_mo_occ(ispin)%pool, evects(ispin, istate)%matrix)
 
                CALL cp_fm_read_unformatted(evects(ispin, istate)%matrix, iunit)
@@ -285,5 +292,124 @@ CONTAINS
       CALL timestop(handle)
 
    END FUNCTION tddfpt_read_restart
+! **************************************************************************************************
+!> \brief Write Ritz vectors to a binary restart file.
+!> \param evects               vectors to store
+!> \param evals                TDDFPT eigenvalues
+!> \param gs_mos               structure that holds ground state occupied and virtual
+!>                             molecular orbitals
+!> \param logger               a logger object
+!> \param tddfpt_print_section TDDFPT%PRINT input section
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_write_newtonx_output(evects, evals, gs_mos, logger, tddfpt_print_section, qs_env)
+
+      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(in)    :: evects
+      REAL(kind=dp), DIMENSION(:), INTENT(in)            :: evals
+      TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
+         INTENT(in)                                      :: gs_mos
+      TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(section_vals_type), POINTER                   :: tddfpt_print_section
+      TYPE(qs_environment_type), INTENT(in), POINTER     :: qs_env
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_write_newtonx_output'
+
+      INTEGER                                            :: handle, iocc, ispin, istate, ivirt, nao, &
+                                                            nspins, nstates, ounit
+      INTEGER, DIMENSION(maxspins)                       :: nmo_occ, nmo_virt
+      LOGICAL                                            :: print_virtuals
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+
+      IF (BTEST(cp_print_key_should_output(logger%iter_info, tddfpt_print_section, "NAMD_PRINT"), cp_p_file)) THEN
+         CALL timeset(routineN, handle)
+         NULLIFY (para_env)
+         CALL get_qs_env(qs_env, para_env=para_env)
+
+         nspins = SIZE(evects, 1)
+         nstates = SIZE(evects, 2)
+
+         IF (debug_this_module) THEN
+            CPASSERT(SIZE(evals) == nstates)
+            CPASSERT(nspins > 0)
+            CPASSERT(nstates > 0)
+         END IF
+
+         CALL cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
+
+         ounit = cp_print_key_unit_nr(logger, tddfpt_print_section, "NAMD_PRINT", &
+                                      extension=".inp", file_form="FORMATTED", file_action="WRITE", file_status="REPLACE")
+
+         ! print eigenvectors
+         DO istate = 1, nstates
+            DO ispin = 1, nspins
+               ! TDDFPT wave function is actually stored as a linear combination of virtual MOs
+               ! that replaces the corresponding deoccupied MO. Unfortunately, the phase
+               ! of the occupied MOs varies depending on the eigensolver used as well as
+               ! how eigenvectors are distributed across computational cores. The phase is important
+               ! because TDDFPT wave functions are used to compute a response electron density
+               ! \rho^{-} = 1/2 * [C_{0} * evect^T + evect * C_{0}^{-}], where C_{0} is the expansion
+               ! coefficients of the reference ground-state wave function. To make the restart file
+               ! transferable, TDDFPT wave functions are stored in assumption that all ground state
+               ! MOs have a positive phase.
+               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+
+               IF (ounit > 0) THEN
+                  WRITE (ounit, "(/,A)") "ES EIGENVECTORS SIZE"
+                  CALL cp_fm_write_info(evects(ispin, istate)%matrix, ounit)
+               END IF
+               CALL cp_fm_write_formatted(evects(ispin, istate)%matrix, ounit, "ES EIGENVECTORS")
+
+               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+            END DO
+         END DO
+
+         ! print molecular orbitals
+
+         CALL section_vals_val_get(tddfpt_print_section, "NAMD_PRINT%PRINT_VIRTUALS", l_val=print_virtuals)
+         DO ispin = 1, nspins
+            IF (ounit > 0) THEN
+               WRITE (ounit, "(/,A)") "OCCUPIED MOS SIZE"
+               CALL cp_fm_write_info(gs_mos(ispin)%mos_occ, ounit)
+            END IF
+            CALL cp_fm_write_formatted(gs_mos(ispin)%mos_occ, ounit, "OCCUPIED MO COEFFICIENTS")
+         END DO
+
+         IF (ounit > 0) THEN
+            WRITE (ounit, "(A)") "OCCUPIED MO EIGENVALUES"
+            DO ispin = 1, nspins
+               nmo_occ(ispin) = SIZE(gs_mos(ispin)%evals_occ)
+               DO iocc = 1, nmo_occ(ispin)
+                  WRITE (ounit, "(F20.14)") gs_mos(ispin)%evals_occ(iocc)
+               END DO
+            END DO
+         END IF
+!
+         IF (print_virtuals) THEN
+            DO ispin = 1, nspins
+               IF (ounit > 0) THEN
+                  WRITE (ounit, "(/,A)") "VIRTUAL MOS SIZE"
+                  CALL cp_fm_write_info(gs_mos(ispin)%mos_virt, ounit)
+               END IF
+               CALL cp_fm_write_formatted(gs_mos(ispin)%mos_virt, ounit, "VIRTUAL MO COEFFICIENTS")
+            END DO
+
+            IF (ounit > 0) THEN
+               WRITE (ounit, "(A)") "VIRTUAL MO EIGENVALUES"
+               DO ispin = 1, nspins
+                  nmo_virt(ispin) = SIZE(gs_mos(ispin)%evals_virt)
+                  DO ivirt = 1, nmo_virt(ispin)
+                     WRITE (ounit, "(F20.14)") gs_mos(ispin)%evals_virt(ivirt)
+                  END DO
+               END DO
+            END IF
+         END IF
+
+         CALL cp_print_key_finished_output(ounit, logger, tddfpt_print_section, "NAMD_PRINT")
+
+         CALL timestop(handle)
+      END IF
+
+   END SUBROUTINE tddfpt_write_newtonx_output
+! **************************************************************************************************
 
 END MODULE qs_tddfpt2_restart

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,6 +44,8 @@ MODULE fft_tools
    USE message_passing,                 ONLY: &
         mp_alltoall, mp_cart_coords, mp_cart_rank, mp_cart_sub, mp_comm_compare, mp_comm_free, &
         mp_comm_null, mp_environ, mp_irecv, mp_isend, mp_rank_compare, mp_sum, mp_sync, mp_waitall
+   USE offload_api,                     ONLY: offload_free_pinned_mem,&
+                                              offload_malloc_pinned_mem
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_get_num_threads
 
@@ -145,7 +149,7 @@ MODULE fft_tools
    LOGICAL, SAVE :: use_fftsg_sizes = .TRUE.
    INTEGER, SAVE :: fft_plan_style = 1
 
-   ! these are only needed for pw_methods_cuda (-D__PW_CUDA)
+   ! these are only needed for pw_gpu (-D__OFFLOAD)
    PUBLIC :: get_fft_scratch, release_fft_scratch
    PUBLIC :: cube_transpose_1, cube_transpose_2
    PUBLIC :: yz_to_x, x_to_yz, xz_to_yz, yz_to_xz
@@ -155,26 +159,6 @@ MODULE fft_tools
    INTERFACE fft3d
       MODULE PROCEDURE fft3d_s, fft3d_ps, fft3d_pb
    END INTERFACE
-
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
-   INTERFACE
-      INTEGER(KIND=C_INT) FUNCTION cudaFreeHost(buffer) BIND(C, name="cudaFreeHost")
-         IMPORT
-         IMPLICIT NONE
-         TYPE(C_PTR), VALUE :: buffer
-      END FUNCTION cudaFreeHost
-   END INTERFACE
-
-   INTERFACE
-      INTEGER(KIND=C_INT) FUNCTION cudaHostAlloc(buffer, length, flag) BIND(C, name="cudaHostAlloc")
-         IMPORT
-         IMPLICIT NONE
-         TYPE(C_PTR)                   :: buffer
-         INTEGER(KIND=C_SIZE_T), VALUE :: length
-         INTEGER(KIND=C_INT), VALUE    :: flag
-      END FUNCTION cudaHostAlloc
-   END INTERFACE
-#endif
 
 ! **************************************************************************************************
 
@@ -198,8 +182,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: pool_limit
       CHARACTER(LEN=*), INTENT(IN)                       :: wisdom_file
       INTEGER, INTENT(IN)                                :: plan_style
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_fft', routineP = moduleN//':'//routineN
 
       use_fftsg_sizes = fftsg_sizes
       alltoall_sgl = alltoall
@@ -228,8 +210,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       CHARACTER(LEN=*), INTENT(IN)                       :: wisdom_file
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'finalize_fft', routineP = moduleN//':'//routineN
-
 ! release the FFT scratch pool
 
       CALL release_fft_scratch_pool()
@@ -255,8 +235,6 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: radix_out
       INTEGER, INTENT(IN)                                :: operation
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fft_radix_operations', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: fft_type_sg = 1
 
       INTEGER                                            :: i, iloc, ldata
@@ -271,7 +249,7 @@ CONTAINS
          CALL fft_get_lengths(fft_type_sg, DATA, ldata)
       ELSE
          CALL fft_get_lengths(fft_type, DATA, ldata)
-      ENDIF
+      END IF
 
       iloc = 0
       DO i = 1, ldata
@@ -350,7 +328,7 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: scale
       INTEGER, INTENT(out)                               :: stat
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fft_fw1d', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fft_fw1d'
 
       INTEGER                                            :: handle
       TYPE(fft_plan_type)                                :: fft_plan
@@ -395,7 +373,7 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: status
       LOGICAL, INTENT(IN), OPTIONAL                      :: debug
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fft3d_s', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fft3d_s'
 
       COMPLEX(KIND=dp), DIMENSION(1, 1, 1), TARGET       :: zdum
       COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER      :: zoptr
@@ -428,7 +406,7 @@ CONTAINS
 
       IF (test) THEN
          in_sum = SUM(ABS(zin))
-      ENDIF
+      END IF
 
       ld(1) = SIZE(zin, 1)
       ld(2) = SIZE(zin, 2)
@@ -447,13 +425,13 @@ CONTAINS
             CALL fft_3d(fft_scratch%fft_plan(1), norm, zin, zoptr, stat)
          ELSE
             CALL fft_3d(fft_scratch%fft_plan(2), norm, zin, zoptr, stat)
-         ENDIF
+         END IF
       ELSE
          IF (fsign == FWFFT) THEN
             CALL fft_3d(fft_scratch%fft_plan(3), norm, zin, zout, stat)
          ELSE
             CALL fft_3d(fft_scratch%fft_plan(4), norm, zin, zout, stat)
-         ENDIF
+         END IF
       END IF
 
       CALL release_fft_scratch(fft_scratch)
@@ -525,7 +503,7 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: status
       LOGICAL, INTENT(IN), OPTIONAL                      :: debug
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fft3d_ps', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fft3d_ps'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: pbuf, qbuf, rbuf, sbuf
       COMPLEX(KIND=dp), DIMENSION(:, :, :), POINTER      :: tbuf
@@ -812,7 +790,7 @@ CONTAINS
 
             CPABORT("Illegal fsign parameter.")
 
-         ENDIF
+         END IF
 
          CALL release_fft_scratch(fft_scratch)
 
@@ -930,11 +908,11 @@ CONTAINS
             END IF
          ELSE
             CPABORT("Illegal fsign parameter.")
-         ENDIF
+         END IF
 
          CALL release_fft_scratch(fft_scratch)
 
-      ENDIF
+      END IF
 
       DEALLOCATE (p2p)
 
@@ -970,7 +948,7 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: status
       LOGICAL, INTENT(IN), OPTIONAL                      :: debug
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fft3d_pb', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fft3d_pb'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: abuf, bbuf
       INTEGER                                            :: handle, lg(2), lz(3), mcx2, mcy3, mcz1, &
@@ -1352,7 +1330,7 @@ CONTAINS
 
          ELSE
             CPABORT("Illegal fsign parameter.")
-         ENDIF
+         END IF
 
          CALL release_fft_scratch(fft_scratch)
 
@@ -1397,7 +1375,7 @@ CONTAINS
          INTENT(INOUT)                                   :: tb
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'x_to_yz', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'x_to_yz'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rr
       COMPLEX(KIND=sp), DIMENSION(:, :), POINTER         :: ss, tt
@@ -1505,7 +1483,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT)   :: sb
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'yz_to_x', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'yz_to_x'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rr
       COMPLEX(KIND=sp), DIMENSION(:, :), POINTER         :: ss, tt
@@ -1617,7 +1595,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT)   :: tb
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'yz_to_xz', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'yz_to_xz'
 
       COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: xzbuf, yzbuf
       COMPLEX(KIND=sp), DIMENSION(:), POINTER            :: xzbuf_sgl, yzbuf_sgl
@@ -1825,7 +1803,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT)   :: tb
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xz_to_yz', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'xz_to_yz'
 
       COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: xzbuf, yzbuf
       COMPLEX(KIND=sp), DIMENSION(:), POINTER            :: xzbuf_sgl, yzbuf_sgl
@@ -2011,8 +1989,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_1', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_1'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ipl, ir, is, ixy, iz, mip, &
@@ -2099,8 +2076,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_2'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ipl, ir, ixy, iz, mip, mz, &
@@ -2185,8 +2161,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_3', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_3'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ipl, ir, is, ixz, iy, lb, &
@@ -2286,8 +2261,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_4', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_4'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ipl, ir, iy, izx, lb, mip, &
@@ -2385,8 +2359,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_5', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_5'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ir, is, ixz, iy, lb, mip, &
@@ -2479,8 +2452,7 @@ CONTAINS
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(OUT)     :: sout
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cube_transpose_6', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cube_transpose_6'
 
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: rbuf
       INTEGER                                            :: handle, ip, ir, iy, izx, lb, mip, my, &
@@ -2556,9 +2528,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_fft_scratch_pool()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_fft_scratch_pool', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       CALL release_fft_scratch_pool()
@@ -2622,10 +2591,7 @@ CONTAINS
    SUBROUTINE deallocate_fft_scratch_type(fft_scratch)
       TYPE(fft_scratch_type), INTENT(INOUT)    :: fft_scratch
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_fft_scratch_type', &
-                                     routineP = moduleN//':'//routineN
-
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       INTEGER                   :: ierr
       COMPLEX(KIND=dp), POINTER :: dummy_ptr_z
 #endif
@@ -2641,33 +2607,33 @@ CONTAINS
          DEALLOCATE (fft_scratch%p1buf)
       END IF
       IF (ASSOCIATED(fft_scratch%p2buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p2buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%p2buf)
 #endif
       END IF
       IF (ASSOCIATED(fft_scratch%p3buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p3buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%p3buf)
 #endif
       END IF
       IF (ASSOCIATED(fft_scratch%p4buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p4buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%p4buf)
 #endif
       END IF
       IF (ASSOCIATED(fft_scratch%p5buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p5buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%p5buf)
 #endif
@@ -2676,17 +2642,17 @@ CONTAINS
          DEALLOCATE (fft_scratch%p6buf)
       END IF
       IF (ASSOCIATED(fft_scratch%p7buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%p7buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%p7buf)
 #endif
       END IF
       IF (ASSOCIATED(fft_scratch%r1buf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%r1buf(1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%r1buf)
 #endif
@@ -2695,9 +2661,9 @@ CONTAINS
          DEALLOCATE (fft_scratch%r2buf)
       END IF
       IF (ASSOCIATED(fft_scratch%tbuf)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          dummy_ptr_z => fft_scratch%tbuf(1, 1, 1)
-         ierr = cudaFreeHost(c_loc(dummy_ptr_z))
+         ierr = offload_free_pinned_mem(c_loc(dummy_ptr_z))
 #else
          DEALLOCATE (fft_scratch%tbuf)
 #endif
@@ -2804,9 +2770,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_fft_scratch_pool()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_fft_scratch_pool', &
-         routineP = moduleN//':'//routineN
-
       TYPE(fft_scratch_pool_type), POINTER               :: fft_scratch, fft_scratch_current
 
       IF (init_fft_pool == 0) NULLIFY (fft_scratch_first)
@@ -2836,9 +2799,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE resize_fft_scratch_pool()
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'resize_fft_scratch_pool', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: last_tick, nscratch
       TYPE(fft_scratch_pool_type), POINTER               :: fft_scratch_current, fft_scratch_old
 
@@ -2857,13 +2817,13 @@ CONTAINS
                IF (fft_scratch_current%fft_scratch%last_tick < last_tick) THEN
                   last_tick = fft_scratch_current%fft_scratch%last_tick
                   fft_scratch_old => fft_scratch_current
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             fft_scratch_current => fft_scratch_current%fft_scratch_next
          ELSE
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! we should delete a scratch
       IF (nscratch > fft_pool_scratch_limit) THEN
@@ -2884,16 +2844,16 @@ CONTAINS
 
                   ELSE
                      fft_scratch_current => fft_scratch_current%fft_scratch_next
-                  ENDIF
+                  END IF
                ELSE
                   EXIT
-               ENDIF
-            ENDDO
+               END IF
+            END DO
 
          ELSE
             CPWARN("The number of the scratches exceeded the limit, but none could be deallocated")
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
    END SUBROUTINE resize_fft_scratch_pool
 
@@ -2911,8 +2871,7 @@ CONTAINS
       TYPE(fft_scratch_sizes), INTENT(IN), &
          OPTIONAL                               :: fft_sizes
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_fft_scratch', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_fft_scratch'
 
       INTEGER :: coord(2), DIM(2), handle, i, ix, iz, lg, lmax, m1, m2, &
                  mcx2, mcy3, mcz1, mcz2, mg, mmax, mx1, mx2, my1, my3, mz1, mz2, mz3, &
@@ -2923,7 +2882,7 @@ CONTAINS
       TYPE(fft_scratch_pool_type), POINTER     :: fft_scratch_current, &
                                                   fft_scratch_last, &
                                                   fft_scratch_new
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       INTEGER                   :: ierr
       INTEGER(KIND=C_SIZE_T)    :: length
       TYPE(C_PTR)               :: cptr_r1buf, cptr_tbuf, &
@@ -2967,7 +2926,7 @@ CONTAINS
                   fft_scratch_last => fft_scratch_current
                   fft_scratch_current => fft_scratch_current%fft_scratch_next
                   CYCLE
-               ENDIF
+               END IF
             END IF
             ! Success
             fft_scratch => fft_scratch_current%fft_scratch
@@ -3136,13 +3095,13 @@ CONTAINS
                np = fft_sizes%numtask
                nmray = fft_sizes%nmray
                nyzray = fft_sizes%nyzray
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
                length = INT(2*dp_size*MAX(mmax, 1)*MAX(lmax, 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_r1buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_r1buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_r1buf, fft_scratch_new%fft_scratch%r1buf, (/MAX(mmax, 1), MAX(lmax, 1)/))
                length = INT(2*dp_size*MAX(ny, 1)*MAX(nz, 1)*MAX(nx, 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_tbuf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_tbuf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_tbuf, fft_scratch_new%fft_scratch%tbuf, (/MAX(ny, 1), MAX(nz, 1), MAX(nx, 1)/))
 #else
@@ -3190,25 +3149,25 @@ CONTAINS
                nbz = fft_sizes%nbz
                ALLOCATE (fft_scratch_new%fft_scratch%p1buf(mx1*my1, n(3)))
                ALLOCATE (fft_scratch_new%fft_scratch%p6buf(lg, mg))
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
                length = INT(2*dp_size*MAX(n(3), 1)*MAX(mx1*my1, 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_p2buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_p2buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_p2buf, fft_scratch_new%fft_scratch%p2buf, (/MAX(n(3), 1), MAX(mx1*my1, 1)/))
                length = INT(2*dp_size*MAX(mx2*mz2, 1)*MAX(n(2), 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_p3buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_p3buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_p3buf, fft_scratch_new%fft_scratch%p3buf, (/MAX(mx2*mz2, 1), MAX(n(2), 1)/))
                length = INT(2*dp_size*MAX(n(2), 1)*MAX(mx2*mz2, 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_p4buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_p4buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_p4buf, fft_scratch_new%fft_scratch%p4buf, (/MAX(n(2), 1), MAX(mx2*mz2, 1)/))
                length = INT(2*dp_size*MAX(nyzray, 1)*MAX(n(1), 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_p5buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_p5buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_p5buf, fft_scratch_new%fft_scratch%p5buf, (/MAX(nyzray, 1), MAX(n(1), 1)/))
                length = INT(2*dp_size*MAX(mg, 1)*MAX(lg, 1), KIND=C_SIZE_T)
-               ierr = cudaHostAlloc(cptr_p7buf, length, cudaHostAllocDefault)
+               ierr = offload_malloc_pinned_mem(cptr_p7buf, length)
                CPASSERT(ierr == 0)
                CALL c_f_pointer(cptr_p7buf, fft_scratch_new%fft_scratch%p7buf, (/MAX(mg, 1), MAX(lg, 1)/))
 #else
@@ -3327,9 +3286,6 @@ CONTAINS
    SUBROUTINE release_fft_scratch(fft_scratch)
 
       TYPE(fft_scratch_type), POINTER                    :: fft_scratch
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_fft_scratch', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: scratch_id
       TYPE(fft_scratch_pool_type), POINTER               :: fft_scratch_current
@@ -3464,4 +3420,3 @@ CONTAINS
    END SUBROUTINE is_equal
 
 END MODULE fft_tools
-

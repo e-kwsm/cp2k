@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -28,7 +30,6 @@ MODULE shell_opt
                                               gopt_f_release,&
                                               gopt_f_type
    USE gopt_param_types,                ONLY: gopt_param_read,&
-                                              gopt_param_release,&
                                               gopt_param_type
    USE input_constants,                 ONLY: default_shellcore_method_id
    USE input_section_types,             ONLY: section_vals_get,&
@@ -68,8 +69,7 @@ CONTAINS
       TYPE(tmp_variables_type), OPTIONAL, POINTER        :: tmp
       LOGICAL, INTENT(IN), OPTIONAL                      :: check
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'optimize_shell_core', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'optimize_shell_core'
 
       INTEGER                                            :: handle, i, iat, nshell
       LOGICAL                                            :: do_update, explicit, my_check, optimize
@@ -126,6 +126,7 @@ CONTAINS
       END DO
       dvec_sc_0 = dvec_sc
 
+      ALLOCATE (gopt_param)
       CALL gopt_param_read(gopt_param, geo_section, type_id=default_shellcore_method_id)
       CALL gopt_f_create(gopt_env, gopt_param, force_env=force_env, globenv=globenv, &
                          geo_opt_section=geo_section)
@@ -144,7 +145,7 @@ CONTAINS
       CALL cp_rm_iter_level(logger%iter_info, "SHELL_OPT")
 
       CALL gopt_f_release(gopt_env)
-      CALL gopt_param_release(gopt_param)
+      DEALLOCATE (gopt_param)
       DEALLOCATE (dvec_sc)
       DEALLOCATE (dvec_sc_0)
 
@@ -189,9 +190,6 @@ CONTAINS
                                                             core_particle_set
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(INOUT)                             :: optimize
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_shell_core_distance', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, iparticle, iparticle_local, &
                                                             itest, nkind, nparticle_local, &

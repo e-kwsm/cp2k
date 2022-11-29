@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -41,7 +43,7 @@ CONTAINS
 
       IF (pao%precondition) THEN
          CALL dbcsr_copy(pao%matrix_D_preconed, pao%matrix_D)
-      ENDIF
+      END IF
 
       IF (pao%optimizer == pao_opt_bfgs) &
          CALL pao_opt_init_bfgs(pao)
@@ -126,7 +128,7 @@ CONTAINS
          CALL dbcsr_copy(pao%matrix_G_prev, pao%matrix_G) ! store gradient for next iteration
          pao%norm_G = dbcsr_frobenius_norm(pao%matrix_G)
          IF (pao%iw > 0) WRITE (pao%iw, *) "PAO| norm of gradient:", pao%norm_G
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -190,20 +192,20 @@ CONTAINS
 
          IF (trace_G_prev /= 0.0_dp) THEN
             beta = (trace_G_new - trace_G_mix)/trace_G_prev !Polak-Ribiere
-         ENDIF
+         END IF
 
          IF (beta < 0.0_dp) THEN
             IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|CG| resetting because beta < 0"
             beta = 0.0_dp
-         ENDIF
+         END IF
 
          change = trace_D_Gnew**2/trace_D*trace_G_new
          IF (change > pao%cg_reset_limit) THEN
             IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|CG| resetting because change > CG_RESET_LIMIT"
             beta = 0.0_dp
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
       IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|CG| beta: ", beta
 
@@ -257,7 +259,7 @@ CONTAINS
             CALL dbcsr_dot(matrix_Y, matrix_Y, trace_yy)
             CALL dbcsr_scale(pao%matrix_BFGS, trace_sy/trace_yy)
             IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|BFGS| Initializing with:", trace_sy/trace_yy
-         ENDIF
+         END IF
 
          ! Hy = MATMUL(H, y)
          CALL dbcsr_create(matrix_Hy, template=matrix_G, matrix_type="N")
@@ -274,7 +276,7 @@ CONTAINS
             IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|BFGS| Dampening theta:", theta
          ELSE
             theta = 1.0
-         ENDIF
+         END IF
 
          ! r = theta*s + (1-theta)*Hy
          CALL dbcsr_copy(matrix_r, matrix_s)
@@ -320,7 +322,7 @@ CONTAINS
          CALL dbcsr_release(matrix_ryH)
          CALL dbcsr_release(matrix_ryHyr)
          CALL dbcsr_release(matrix_rr)
-      ENDIF
+      END IF
 
       ! approximate condition of Hessian
       !TODO: good setting for arnoldi?
@@ -331,7 +333,7 @@ CONTAINS
             eval_min, eval_max, eval_max/eval_min
       ELSE
          IF (pao%iw_opt > 0) WRITE (pao%iw_opt, *) "PAO|BFGS| arnoldi of inv. Hessian did not converged."
-      ENDIF
+      END IF
 
       ! calculate new direction
       ! d = MATMUL(H, -g)

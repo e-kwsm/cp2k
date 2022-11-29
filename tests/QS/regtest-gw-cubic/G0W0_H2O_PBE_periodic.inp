@@ -42,11 +42,6 @@
         &END
       &END XC_FUNCTIONAL
       &WF_CORRELATION
-        &RI
-          &RI_METRIC
-            POTENTIAL_TYPE IDENTITY
-          &END
-        &END
         &LOW_SCALING
           MEMORY_CUT 1
         &END
@@ -64,11 +59,12 @@
             CORR_MOS_VIRT         4
             ANALYTIC_CONTINUATION TWO_POLE
             CROSSING_SEARCH       Z_SHOT
-            PERIODIC
-            &PERIODIC
+            RI_SIGMA_X            FALSE
+            PERIODIC_CORRECTION
+            &PERIODIC_CORRECTION
               # That value should be chosen much larger !
               NUM_OMEGA_POINTS   5
-            &END
+            &END PERIODIC_CORRECTION
           &END GW
         &END RI_RPA
         MEMORY  200.

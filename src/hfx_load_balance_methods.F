@@ -1,40 +1,42 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Rountines for optimizing load balance between processes in HFX calculations
+!> \brief Routines for optimizing load balance between processes in HFX calculations
 !> \par History
 !>      04.2008 created [Manuel Guidon]
 !> \author Manuel Guidon
 ! **************************************************************************************************
 MODULE hfx_load_balance_methods
-   USE cell_types,                      ONLY: cell_type
-   USE cp_files,                        ONLY: close_file,&
-                                              open_file
-   USE cp_para_types,                   ONLY: cp_para_env_type
-   USE hfx_pair_list_methods,           ONLY: build_atomic_pair_list,&
-                                              build_pair_list
-   USE hfx_types,                       ONLY: &
-        hfx_basis_type, hfx_block_range_type, hfx_distribution, hfx_load_balance_type, hfx_p_kind, &
-        hfx_screen_coeff_type, hfx_set_distr_energy, hfx_set_distr_forces, hfx_type, &
-        pair_list_type, pair_set_list_type
-   USE input_constants,                 ONLY: hfx_do_eval_energy,&
-                                              hfx_do_eval_forces
-   USE kinds,                           ONLY: dp,&
-                                              int_8
-   USE message_passing,                 ONLY: mp_allgather,&
-                                              mp_gatherv,&
-                                              mp_isendrecv,&
-                                              mp_max,&
-                                              mp_sum,&
-                                              mp_sync,&
-                                              mp_waitall
-   USE parallel_rng_types,              ONLY: UNIFORM,&
-                                              rng_stream_type
-   USE particle_types,                  ONLY: particle_type
-   USE util,                            ONLY: sort
+   USE cell_types, ONLY: cell_type
+   USE cp_files, ONLY: close_file, &
+                       open_file
+   USE cp_para_types, ONLY: cp_para_env_type
+   USE hfx_pair_list_methods, ONLY: build_atomic_pair_list, &
+                                    build_pair_list
+   USE hfx_types, ONLY: &
+      hfx_basis_type, hfx_block_range_type, hfx_distribution, hfx_load_balance_type, hfx_p_kind, &
+      hfx_screen_coeff_type, hfx_set_distr_energy, hfx_set_distr_forces, hfx_type, &
+      pair_list_type, pair_set_list_type
+   USE input_constants, ONLY: hfx_do_eval_energy, &
+                              hfx_do_eval_forces
+   USE kinds, ONLY: dp, &
+                    int_8
+   USE message_passing, ONLY: mp_allgather, &
+                              mp_gatherv, &
+                              mp_isendrecv, &
+                              mp_max, &
+                              mp_sum, &
+                              mp_sync, &
+                              mp_waitall
+   USE parallel_rng_types, ONLY: UNIFORM, &
+                                 rng_stream_type
+   USE particle_types, ONLY: particle_type
+   USE util, ONLY: sort
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -88,7 +90,7 @@ CONTAINS
 !> \param coeffs_kind screening functions
 !> \param is_assoc_atomic_block_global KS-matrix sparsity
 !> \param do_periodic flag for periodicity
-!> \param load_balance_parameter Paramters for Monte-Carlo routines
+!> \param load_balance_parameter Parameters for Monte-Carlo routines
 !> \param kind_of helper array for mapping
 !> \param basis_parameter Basis set parameters
 !> \param pmax_set Initial screening matrix
@@ -155,19 +157,18 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: pmax_block
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_load_balance', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_load_balance'
 
       CHARACTER(LEN=512)                                 :: error_msg
       INTEGER :: block_size, current_block_id, data_from, dest, handle, handle_inner, &
-         handle_range, i, iatom_block, iatom_end, iatom_start, ibin, icpu, j, jatom_block, &
-         jatom_end, jatom_start, katom_block, katom_end, katom_start, latom_block, latom_end, &
-         latom_start, mepos, my_process_id, n_processes, natom, nbins, nblocks, ncpu, &
-         new_iatom_end, new_iatom_start, new_jatom_end, new_jatom_start, non_empty_blocks, &
-         objective_block_size, objective_nblocks, req(2), source, total_blocks
+                 handle_range, i, iatom_block, iatom_end, iatom_start, ibin, icpu, j, jatom_block, &
+                 jatom_end, jatom_start, katom_block, katom_end, katom_start, latom_block, latom_end, &
+                 latom_start, mepos, my_process_id, n_processes, natom, nbins, nblocks, ncpu, &
+                 new_iatom_end, new_iatom_start, new_jatom_end, new_jatom_start, non_empty_blocks, &
+                 objective_block_size, objective_nblocks, req(2), source, total_blocks
       INTEGER(int_8) :: atom_block, cost_per_bin, cost_per_core, current_cost, &
-         distribution_counter_end, distribution_counter_start, global_quartet_counter, &
-         local_quartet_counter, self_cost_per_block, tmp_block, total_block_self_cost
+                        distribution_counter_end, distribution_counter_start, global_quartet_counter, &
+                        local_quartet_counter, self_cost_per_block, tmp_block, total_block_self_cost
       INTEGER(int_8), ALLOCATABLE, DIMENSION(:)          :: buffer_in, buffer_out
       INTEGER(int_8), DIMENSION(:), POINTER              :: local_cost_matrix, recbuffer, &
                                                             sendbuffer, swapbuffer
@@ -630,7 +631,7 @@ CONTAINS
                current_cost = 0
                last_bin_needs_to_be_filled = .FALSE.
             END IF
-         ENDDO
+         END DO
 
 !$OMP BARRIER
 !$OMP MASTER
@@ -707,16 +708,16 @@ CONTAINS
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_isendrecv(sendbuffer, dest, recbuffer, source, &
                                  para_env%group, req(1), req(2), 13)
-            ENDIF
+            END IF
             data_from = MODULO(mepos - icpu, ncpu)
             cost_matrix(data_from*nbins*n_threads + 1:data_from*nbins*n_threads + nbins*n_threads) = sendbuffer
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_waitall(req)
-            ENDIF
+            END IF
             swapbuffer => sendbuffer
             sendbuffer => recbuffer
             recbuffer => swapbuffer
-         ENDDO
+         END DO
          DEALLOCATE (recbuffer, sendbuffer)
 !$OMP END MASTER
 !$OMP BARRIER
@@ -775,7 +776,7 @@ CONTAINS
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_isendrecv(sendbuffer, dest, recbuffer, source, &
                                  para_env%group, req(1), req(2), 13)
-            ENDIF
+            END IF
             data_from = MODULO(mepos - icpu, ncpu)
             DO j = 1, n_threads
                DO i = 1, nbins
@@ -787,11 +788,11 @@ CONTAINS
 
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_waitall(req)
-            ENDIF
+            END IF
             swapbuffer => sendbuffer
             sendbuffer => recbuffer
             recbuffer => swapbuffer
-         ENDDO
+         END DO
          DEALLOCATE (recbuffer, sendbuffer)
 
          ! sync before/after ring of isendrecv
@@ -939,12 +940,11 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: use_virial
       LOGICAL, DIMENSION(:, :), INTENT(IN), POINTER      :: atomic_pair_list
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_recursive_load_balance', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_recursive_load_balance'
 
       INTEGER :: handle, i, iatom_block, iatom_end, iatom_start, j, jatom_block, jatom_end, &
-         jatom_start, katom_block, katom_end, katom_start, latom_block, latom_end, latom_start, &
-         nP, nQ, numBins, p, q, sizeP, sizeQ, unit_nr
+                 jatom_start, katom_block, katom_end, katom_start, latom_block, latom_end, latom_start, &
+                 nP, nQ, numBins, p, q, sizeP, sizeQ, unit_nr
       INTEGER(int_8)                                     :: local_cost, pidx, qidx, sumP, sumQ
       INTEGER(int_8), ALLOCATABLE, DIMENSION(:)          :: local_cost_vector
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: blocksize, p_atom_blocks, permute, &
@@ -1251,11 +1251,11 @@ CONTAINS
       LOGICAL, DIMENSION(:, :), POINTER                  :: atomic_pair_list
 
       INTEGER :: col, endoffset, i, iatom_block, iatom_end, iatom_start, idx, inv_perm, &
-         jatom_block, jatom_end, jatom_start, katom_block, katom_end, katom_start, latom_block, &
-         latom_end, latom_start, nbins, nProc, row, startoffset
+                 jatom_block, jatom_end, jatom_start, katom_block, katom_end, katom_start, latom_block, &
+                 latom_end, latom_start, nbins, nProc, row, startoffset
       INTEGER(int_8)                                     :: atom_block, tmp_block
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: ithblocksize, localblocksize
-      INTEGER, DIMENSION(blockend-blockstart+1)          :: bin_perm, tmp_perm
+      INTEGER, DIMENSION(blockend - blockstart + 1)          :: bin_perm, tmp_perm
       REAL(dp)                                           :: partialcost
       REAL(dp), DIMENSION(nblocks*nblocks)               :: cost_vector
 
@@ -1491,11 +1491,10 @@ CONTAINS
       TYPE(hfx_load_balance_type)                        :: load_balance_parameter
       INTEGER, INTENT(IN)                                :: i_thread, n_threads, eval_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_update_load_balance', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_update_load_balance'
 
       INTEGER :: data_from, dest, end_idx, handle, i, ibin, icpu, iprocess, j, mepos, my_bin_size, &
-         my_global_start_idx, my_process_id, n_processes, nbins, ncpu, req(2), source, start_idx
+                 my_global_start_idx, my_process_id, n_processes, nbins, ncpu, req(2), source, start_idx
       INTEGER(int_8), DIMENSION(:), POINTER              :: local_cost_matrix, recbuffer, &
                                                             sendbuffer, swapbuffer
       INTEGER(int_8), DIMENSION(:), POINTER, SAVE        :: cost_matrix
@@ -1617,7 +1616,7 @@ CONTAINS
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_isendrecv(sendbuffer, dest, recbuffer, source, &
                                  para_env%group, req(1), req(2), 13)
-            ENDIF
+            END IF
             data_from = MODULO(mepos - icpu, ncpu)
             start_idx = SUM(bins_per_rank(1:data_from + 1)) - bins_per_rank(data_from + 1) + 1
             end_idx = start_idx + bins_per_rank(data_from + 1) - 1
@@ -1625,11 +1624,11 @@ CONTAINS
 
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_waitall(req)
-            ENDIF
+            END IF
             swapbuffer => sendbuffer
             sendbuffer => recbuffer
             recbuffer => swapbuffer
-         ENDDO
+         END DO
          DEALLOCATE (recbuffer, sendbuffer)
          ! sync before/after ring of isendrecv
          CALL mp_sync(para_env%group)
@@ -1675,7 +1674,7 @@ CONTAINS
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_isendrecv(sendbuffer, dest, recbuffer, source, &
                                  para_env%group, req(1), req(2), 13)
-            ENDIF
+            END IF
             data_from = MODULO(mepos - icpu, ncpu)
             DO j = 1, n_threads
                DO i = 1, max_bin_size
@@ -1687,11 +1686,11 @@ CONTAINS
 
             IF (icpu .NE. ncpu - 1) THEN
                CALL mp_waitall(req)
-            ENDIF
+            END IF
             swapbuffer => sendbuffer
             sendbuffer => recbuffer
             recbuffer => swapbuffer
-         ENDDO
+         END DO
          ! sync before/after ring of isendrecv
          DEALLOCATE (recbuffer, sendbuffer)
          CALL mp_sync(para_env%group)
@@ -1791,10 +1790,10 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
       REAL(KIND=dp) FUNCTION estimate_basic(p) RESULT(res)
-      REAL(KIND=dp)                                      :: p(12)
+         REAL(KIND=dp)                                      :: p(12)
 
-      REAL(KIND=dp)                                      :: p1, p10, p11, p12, p2, p3, p4, p5, p6, &
-                                                            p7, p8, p9
+         REAL(KIND=dp)                                      :: p1, p10, p11, p12, p2, p3, p4, p5, p6, &
+                                                               p7, p8, p9
 
          p1 = p(1); p2 = p(2); p3 = p(3); p4 = p(4)
          p5 = p(5); p6 = p(6); p7 = p(7); p8 = p(8)
@@ -1815,8 +1814,8 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
       REAL(KIND=dp) FUNCTION poly2(x, a0, a1, a2)
-      INTEGER                                            :: x
-      REAL(KIND=dp)                                      :: a0, a1, a2
+         INTEGER                                            :: x
+         REAL(KIND=dp)                                      :: a0, a1, a2
 
          poly2 = a0 + a1*x + a2*x*x
       END FUNCTION poly2
@@ -1839,9 +1838,6 @@ CONTAINS
       INTEGER(int_8), DIMENSION(:), POINTER              :: bin_costs
       INTEGER, DIMENSION(:), POINTER                     :: distribution_vector
       LOGICAL, INTENT(IN)                                :: do_randomize
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'optimize_distribution', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, itmp, j, nstep
       INTEGER(int_8), DIMENSION(:), POINTER              :: my_cost_cpu, tmp_cost, tmp_cpu_cost
@@ -1875,14 +1871,14 @@ CONTAINS
          tmp_cpu_cost = my_cost_cpu
          CALL sort(tmp_cpu_cost, INT(number_of_processes), tmp_cpu_index)
          IF (do_randomize) THEN
-            CALL reshuffle(MIN(i, nstep), tmp_cpu_index(1:MIN(i, nstep)), rng_stream)
+            CALL rng_stream%shuffle(tmp_cpu_index(1:MIN(i, nstep)))
          END IF
          DO j = 1, MIN(i, nstep)
             itmp = tmp_cpu_index(j)
             distribution_vector(tmp_index(i - j + 1)) = itmp
             my_cost_cpu(itmp) = my_cost_cpu(itmp) + bin_costs(tmp_index(i - j + 1))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DEALLOCATE (tmp_cost, tmp_index, tmp_cpu_cost)
       DEALLOCATE (tmp_cpu_index, my_cost_cpu)
@@ -1991,8 +1987,8 @@ CONTAINS
       INTEGER(int_8)                                     :: estimate_block_cost
 
       INTEGER :: i_list_ij, i_list_kl, i_set_list_ij, i_set_list_ij_start, i_set_list_ij_stop, &
-         i_set_list_kl, i_set_list_kl_start, i_set_list_kl_stop, iatom, ikind, iset, jatom, jkind, &
-         jset, katom, kind_kind_idx, kkind, kset, latom, lkind, lset, swap_id
+                 i_set_list_kl, i_set_list_kl_start, i_set_list_kl_stop, iatom, ikind, iset, jatom, jkind, &
+                 jset, katom, kind_kind_idx, kkind, kset, latom, lkind, lset, swap_id
       INTEGER, DIMENSION(:), POINTER                     :: npgfa, npgfb, npgfc, npgfd, nsgfa, &
                                                             nsgfb, nsgfc, nsgfd
       REAL(dp)                                           :: actual_pmax_atom, cost_tmp, max_val1, &
@@ -2210,10 +2206,10 @@ CONTAINS
                                            p1_forces, p2_forces, p3_forces)
                      estimate_block_cost = estimate_block_cost + INT(cost_tmp, KIND=int_8)
                   END SELECT
-               ENDDO ! i_set_list_kl
-            ENDDO ! i_set_list_ij
-         ENDDO ! i_list_kl
-      ENDDO ! i_list_ij
+               END DO ! i_set_list_kl
+            END DO ! i_set_list_ij
+         END DO ! i_list_kl
+      END DO ! i_list_ij
 
    END FUNCTION estimate_block_cost
 
@@ -2338,9 +2334,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(hfx_type), POINTER                            :: x_data
       INTEGER, INTENT(IN)                                :: iw, n_threads, i_thread, eval_type
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'collect_load_balance_info', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k, my_rank, nbins, nranks, &
                                                             total_bins
@@ -2519,33 +2512,6 @@ CONTAINS
 
    END SUBROUTINE collect_load_balance_info
 
-! **************************************************************************************************
-!> \brief ...
-!> \param size ...
-!> \param array ...
-!> \param rng_stream ...
-! **************************************************************************************************
-   SUBROUTINE reshuffle(size, array, rng_stream)
-      INTEGER                                            :: size
-      INTEGER, DIMENSION(size)                           :: array
-      TYPE(rng_stream_type)                              :: rng_stream
-
-      INTEGER                                            :: i, idx1, idx2, tmp
-      REAL(dp)                                           :: x
-
-      DO i = 1, size*10
-         x = rng_stream%next()
-         idx1 = INT(x*(size + 1 - 1)) + 1
-         x = rng_stream%next()
-         idx2 = INT(x*(size + 1 - 1)) + 1
-
-         tmp = array(idx1)
-         array(idx1) = array(idx2)
-         array(idx2) = tmp
-      END DO
-
-   END SUBROUTINE
-
-#include "hfx_get_pmax_val.f90"
+   #:include 'hfx_get_pmax_val.fypp'
 
 END MODULE hfx_load_balance_methods

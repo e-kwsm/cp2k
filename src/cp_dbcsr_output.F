@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,16 +79,13 @@ CONTAINS
    SUBROUTINE write_fm_with_basis_info(blacs_matrix, before, after, qs_env, para_env, &
                                        first_row, last_row, first_col, last_col, output_unit, omit_headers)
 
-      TYPE(cp_fm_type), POINTER                          :: blacs_matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: blacs_matrix
       INTEGER, INTENT(IN)                                :: before, after
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN), OPTIONAL                      :: first_row, last_row, first_col, last_col
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(IN), OPTIONAL                      :: omit_headers
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_fm_with_basis_info', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=60)                                  :: matrix_name
       INTEGER                                            :: col1, col2, group, ncol_global, &
@@ -96,7 +95,7 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
       group = para_env%group
-      IF (.NOT. ASSOCIATED(blacs_matrix)) RETURN
+      IF (.NOT. ASSOCIATED(blacs_matrix%matrix_struct)) RETURN
       CALL cp_fm_get_info(blacs_matrix, name=matrix_name, nrow_global=nrow_global, &
                           ncol_global=ncol_global)
 
@@ -174,9 +173,6 @@ CONTAINS
       REAL(dp), INTENT(IN), OPTIONAL                     :: scale
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(IN), OPTIONAL                      :: omit_headers
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_write_sparse_matrix', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: matrix_name
       INTEGER                                            :: col1, col2, dim_col, dim_row, group, &
@@ -270,8 +266,7 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: sparse_matrix
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_repl_dbcsr_to_repl_fm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'copy_repl_dbcsr_to_repl_fm'
 
       INTEGER                                            :: blk, col, handle, i, j, nblkcols_total, &
                                                             nblkrows_total, nc, nr, row
@@ -296,12 +291,12 @@ CONTAINS
       r_offset(1) = 1
       DO row = 2, nblkrows_total
          r_offset(row) = r_offset(row - 1) + row_blk_size(row - 1)
-      ENDDO
+      END DO
       nr = SUM(row_blk_size)
       c_offset(1) = 1
       DO col = 2, nblkcols_total
          c_offset(col) = c_offset(col - 1) + col_blk_size(col - 1)
-      ENDDO
+      END DO
       nc = SUM(col_blk_size)
       !<
 
@@ -315,9 +310,9 @@ CONTAINS
          DO j = 1, SIZE(DATA, 2)
          DO i = 1, SIZE(DATA, 1)
             fm(r_offset(row) + i - 1, c_offset(col) + j - 1) = DATA(i, j)
-         ENDDO
-         ENDDO
-      ENDDO
+         END DO
+         END DO
+      END DO
       CALL dbcsr_iterator_stop(iter)
 
       DEALLOCATE (r_offset, c_offset)
@@ -353,9 +348,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: first_row, last_row, first_col, &
                                                             last_col, output_unit
       LOGICAL, INTENT(IN)                                :: omit_headers
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_matrix_sym', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=25)                                  :: fmtstr1
@@ -399,7 +391,7 @@ CONTAINS
             fmtstr2 = "(T2,   (1X,F  .  ))"
          ELSE
             fmtstr2 = "(T2,2I5,2X,A2,1X,A8,   (1X,F  .  ))"
-         ENDIF
+         END IF
 
          ! *** Write headline ***
          WRITE (UNIT=output_unit, FMT="(/,/,T2,A)") TRIM(matrix_name)
@@ -433,7 +425,7 @@ CONTAINS
             to = MIN((from + ncol - 1), last_col)
             IF (.NOT. omit_headers) THEN
                WRITE (UNIT=output_unit, FMT=fmtstr1) (jcol, jcol=from, to)
-            ENDIF
+            END IF
             irow = 1
             DO iatom = 1, natom
                NULLIFY (orb_basis_set)
@@ -523,9 +515,6 @@ CONTAINS
                                                             last_col, output_unit
       LOGICAL, INTENT(IN)                                :: omit_headers
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_matrix_gen', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=25)                                  :: fmtstr1
       CHARACTER(LEN=35)                                  :: fmtstr2
       INTEGER                                            :: from, group, icol, irow, jcol, left, &
@@ -568,7 +557,7 @@ CONTAINS
             WRITE (UNIT=fmtstr2(22:23), FMT="(I2)") ncol
             WRITE (UNIT=fmtstr2(29:30), FMT="(I2)") width - 1
             WRITE (UNIT=fmtstr2(32:33), FMT="(I2)") ndigits
-         ENDIF
+         END IF
 
          ! *** Write the matrix in the selected format ***
          DO icol = first_col, last_col, ncol
@@ -610,8 +599,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: output_unit
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_write_matrix_dist', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_write_matrix_dist'
       LOGICAL, PARAMETER                                 :: full_output = .FALSE.
 
       CHARACTER                                          :: matrix_type
@@ -668,7 +656,7 @@ CONTAINS
          tmp = (/nblock_max, nelement_max/)
          CALL mp_max(tmp, group)
          nblock_max = tmp(1); nelement_max = tmp(2)
-      ENDIF
+      END IF
 
       IF (matrix_type == dbcsr_type_symmetric .OR. &
           matrix_type == dbcsr_type_antisymmetric) THEN
@@ -701,7 +689,7 @@ CONTAINS
                (nelement_sum + npe - 1)/npe
             WRITE (UNIT=output_unit, FMT="(T15,A,T68,I13)") "Maximum number of matrix elements per CPU:", &
                nelement_max
-         ENDIF
+         END IF
       END IF
 
       ! *** Release work storage ***

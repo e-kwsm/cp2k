@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -56,8 +58,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: energy
       LOGICAL                                            :: check_conv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dm_ls_curvy_optimization', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dm_ls_curvy_optimization'
 
       INTEGER                                            :: handle, i, lsstep
 
@@ -66,7 +67,7 @@ CONTAINS
       CALL cite_reference(Shao2003)
 
 ! Upon first call initialize all matrices needed curing optimization
-! In addtion transform P into orthonormal basis. Will be scaled by 0.5 in closed shell case
+! In addition transform P into orthonormal basis. Will be scaled by 0.5 in closed shell case
 ! Only to be done once as it will be stored and reused afterwards
 ! TRS4 might yield a non-idempotent P therefore McWeeny purification is applied on initial P
 
@@ -150,8 +151,7 @@ CONTAINS
       TYPE(ls_scf_curvy_type)                            :: curvy_data
       TYPE(ls_scf_env_type)                              :: ls_scf_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'optimization_step', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'optimization_step'
 
       INTEGER                                            :: handle, ispin
       REAL(KIND=dp)                                      :: filter, step_size(2)
@@ -218,8 +218,6 @@ CONTAINS
    SUBROUTINE line_search_2d(energies, step_size)
       REAL(KIND=dp)                                      :: energies(6), step_size(2)
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'line_search_2d', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: info, unit_nr
       REAL(KIND=dp)                                      :: e_pred, param(6), s1, s1sq, s2, s2sq, &
                                                             sys_lin_eq(6, 6), tmp_e, v1, v2
@@ -234,7 +232,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
       s1 = 0.5_dp*step_size(1); s2 = step_size(1); s1sq = s1**2; s2sq = s2**2
       sys_lin_eq = 0.0_dp; sys_lin_eq(:, 6) = 1.0_dp
       sys_lin_eq(2, 1) = s1sq; sys_lin_eq(2, 2) = s1sq; sys_lin_eq(2, 3) = s1sq; sys_lin_eq(2, 4) = s1; sys_lin_eq(2, 5) = s1
@@ -274,9 +272,6 @@ CONTAINS
    SUBROUTINE line_search_3pnt(energies, step_size)
       REAL(KIND=dp)                                      :: energies(3), step_size(2)
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'line_search_3pnt', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: unit_nr
       REAL(KIND=dp)                                      :: a, b, c, e_pred, min_val, step1, tmp, &
                                                             tmp_e
@@ -291,7 +286,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
       step1 = 0.5_dp*step_size(1)
       c = energies(1)
       a = (energies(3) + c - 2.0_dp*energies(2))/(2.0_dp*step1**2)
@@ -310,7 +305,7 @@ CONTAINS
       IF (unit_nr .GT. 0) THEN
          WRITE (unit_nr, "(t3,a,f16.8,a,F20.9)") "Line Search: Step Size", step_size(1), " Predicted energy", e_pred
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
    END SUBROUTINE line_search_3pnt
 
 ! **************************************************************************************************
@@ -338,8 +333,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: curvy_shift(2), cg_numer(2), &
                                                             cg_denom(2), min_shift
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_direction_newton', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_direction_newton'
 
       INTEGER                                            :: handle, i, ispin, ncyc, nspin, unit_nr
       LOGICAL                                            :: at_limit
@@ -355,7 +349,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
       CALL timeset(routineN, handle)
       nspin = SIZE(matrix_p)
 
@@ -386,7 +380,7 @@ CONTAINS
 ! Precompute -FP-[FP]T which will be used throughout the CG iterations
          CALL dbcsr_add(matrix_b, matrix_PKs, -1.0_dp, -1.0_dp)
 
-! Setup some values to check convergence and safty checks for eigenvalue shifting
+! Setup some values to check convergence and safety checks for eigenvalue shifting
          CALL dbcsr_norm(matrix_res, which_norm=2, norm_scalar=old_conv)
          old_conv = dbcsr_frobenius_norm(matrix_res)
          shift = MIN(10.0_dp, MAX(min_shift, 0.05_dp*old_conv))
@@ -423,7 +417,7 @@ CONTAINS
             IF (unit_nr .GT. 0) THEN
                WRITE (unit_nr, "(T3,A,F12.6)") "Convergence of Newton iteration ", maxel
                CALL m_flush(unit_nr)
-            ENDIF
+            END IF
             at_limit = at_limit .OR. (old_conv/maxel .LT. 1.01_dp)
             old_conv = maxel
             IF (i == ncyc .AND. maxel/conv_val .GT. 5.0_dp) THEN
@@ -482,9 +476,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: eps_filter
       LOGICAL                                            :: at_limit
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_cg_matrices', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, info
       REAL(KIND=dp)                                      :: alpha, beta, devi(3), fac, fac1, &
                                                             lin_eq(3, 3), new_norm, norm_cA, &
@@ -496,7 +487,7 @@ CONTAINS
       lin_eq = 0.0_dp
       fac = norm_rr/norm_cA
       fac1 = fac
-! Use a 3point line serach and a fit to a quadratic function to determine optimal step size
+! Use a 3point line search and a fit to a quadratic function to determine optimal step size
       DO i = 1, 3
          CALL dbcsr_copy(tmp, res)
          CALL dbcsr_add(tmp, Ax, 1.0_dp, -fac)
@@ -530,7 +521,7 @@ CONTAINS
    END SUBROUTINE compute_cg_matrices
 
 ! **************************************************************************************************
-!> \brief Only for 2D line serach. Use saved P-components to construct new
+!> \brief Only for 2D line search. Use saved P-components to construct new
 !>        test density matrix. Takes care as well, whether step_size
 !>        increased or decreased during 2nd step and combines matrices accordingly
 !> \param matrix_p ...
@@ -590,8 +581,7 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: a, b, res
       REAL(KIND=dp)                                      :: eps_filter, prefac
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'commutator_symm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'commutator_symm'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_type)                                   :: work
@@ -633,7 +623,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: threshold, step_size(2)
       INTEGER                                            :: BCH_saved(2), n_bch_hist
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_p_exp', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'update_p_exp'
 
       INTEGER                                            :: handle, i, ispin, nsave, nspin, unit_nr
       LOGICAL                                            :: save_BCH
@@ -648,7 +638,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL dbcsr_create(matrix, template=matrix_p_in(1), matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_create(matrix_tmp, template=matrix_p_in(1), matrix_type=dbcsr_type_no_symmetry)
@@ -719,7 +709,7 @@ CONTAINS
    END SUBROUTINE update_p_exp
 
 ! **************************************************************************************************
-!> \brief performs a tranformation of a matrix back to/into orthonormal basis
+!> \brief performs a transformation of a matrix back to/into orthonormal basis
 !>        in case of P a scaling of 0.5 has to be applied for closed shell case
 !> \param matrix       matrix to be transformed
 !> \param matrix_trafo transformation matrix
@@ -734,8 +724,7 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: matrix_trafo
       REAL(KIND=dp)                                      :: eps_filter
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'transform_matrix_orth', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'transform_matrix_orth'
 
       INTEGER                                            :: handle, ispin
       TYPE(dbcsr_type)                                   :: matrix_tmp, matrix_work
@@ -769,9 +758,6 @@ CONTAINS
    SUBROUTINE deallocate_curvy_data(curvy_data)
       TYPE(ls_scf_curvy_type)                            :: curvy_data
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_curvy_data', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
 
       CALL release_dbcsr_array(curvy_data%matrix_dp)
@@ -802,9 +788,6 @@ CONTAINS
    SUBROUTINE release_dbcsr_array(matrix)
       TYPE(dbcsr_type), ALLOCATABLE, DIMENSION(:)        :: matrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_dbcsr_array', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ALLOCATED(matrix)) THEN
@@ -825,8 +808,6 @@ CONTAINS
       TYPE(ls_scf_curvy_type)                            :: curvy_data
       TYPE(dbcsr_type)                                   :: matrix_s
       INTEGER                                            :: nspins
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_curvy', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ispin, j
 

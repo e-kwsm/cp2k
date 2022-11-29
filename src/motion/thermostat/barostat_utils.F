@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -20,7 +22,8 @@ MODULE barostat_utils
                                               nph_uniaxial_damped_ensemble,&
                                               nph_uniaxial_ensemble,&
                                               npt_f_ensemble,&
-                                              npt_i_ensemble
+                                              npt_i_ensemble,&
+                                              npt_ia_ensemble
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE machine,                         ONLY: m_flush
@@ -57,13 +60,11 @@ CONTAINS
       TYPE(npt_info_type), DIMENSION(:, :), INTENT(IN)   :: npt
       REAL(KIND=dp), INTENT(OUT)                         :: baro_kin, baro_pot
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_baro_energies', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
       REAL(dp)                                           :: iv0, v0, v_shock
 
-      IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npe_i_ensemble) THEN
+      IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npe_i_ensemble &
+          .OR. simpar%ensemble == npt_ia_ensemble) THEN
          baro_pot = simpar%p_ext*cell%deth
          baro_kin = 0.5_dp*npt(1, 1)%v**2*npt(1, 1)%mass
       ELSE IF (simpar%ensemble == npt_f_ensemble .OR. simpar%ensemble == npe_f_ensemble) THEN
@@ -105,9 +106,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       INTEGER, INTENT(IN)                                :: itimes
       REAL(KIND=dp), INTENT(IN)                          :: time
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_barostat_status', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: baro, nfree
       LOGICAL                                            :: new_file

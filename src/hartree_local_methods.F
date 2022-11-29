@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 MODULE hartree_local_methods
@@ -70,8 +72,7 @@ CONTAINS
       TYPE(hartree_local_type), POINTER                  :: hartree_local
       INTEGER, INTENT(IN)                                :: natom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_coulomb_local', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_coulomb_local'
 
       INTEGER                                            :: handle
       TYPE(ecoul_1center_type), DIMENSION(:), POINTER    :: ecoul_1c
@@ -109,8 +110,7 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: rrad_z
       TYPE(grid_atom_type), POINTER                      :: grid_atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_Vh_1center', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_Vh_1center'
 
       INTEGER                                            :: handle, ir, iso, ispin, l_ang, &
                                                             max_s_harm, nchannels, nr, nspins
@@ -217,8 +217,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(IN)                                :: tddft
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'Vh_1c_gg_integrals', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'Vh_1c_gg_integrals'
 
       INTEGER :: bo(2), handle, iat, iatom, ikind, ipgf1, is1, iset1, iso, l_ang, llmax, lmax0, &
          lmax_0, m1, max_iso, max_iso_not0, max_s_harm, maxl, maxso, mepos, n1, nat, natom, &
@@ -462,9 +461,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nchan_0, nspins, max_iso_not0
       REAL(dp), INTENT(IN)                               :: bfactor
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'Vh_1c_atom_potential', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ir, iso, ispin, nr
       TYPE(rho_atom_coeff), DIMENSION(:), POINTER        :: vr_h, vr_s
 
@@ -534,9 +530,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nchan_0, nspins, max_iso_not0
       LOGICAL, INTENT(IN)                                :: atenergy
       REAL(dp), DIMENSION(:), POINTER                    :: ate1c
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'Vh_1c_atom_energy', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iso, ispin, nr
       REAL(dp)                                           :: ecoul_1_0, ecoul_1_h, ecoul_1_s, &
@@ -628,9 +621,6 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: gsph
       REAL(dp), DIMENSION(:, 0:)                         :: g0_h_w
       REAL(dp), DIMENSION(:, :, :), POINTER              :: my_CG, Qlm_gg
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'Vh_1c_atom_integrals', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: icg, ipgf1, ipgf2, ir, is1, is2, iset1, &
                                                             iset2, iso, iso1, iso2, ispin, l_ang, &

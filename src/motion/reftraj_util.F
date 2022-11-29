@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -35,7 +37,8 @@ MODULE reftraj_util
                                               section_vals_val_get
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
-                                              dp
+                                              dp,&
+                                              max_line_length
    USE machine,                         ONLY: m_flush
    USE md_environment_types,            ONLY: get_md_env,&
                                               md_environment_type
@@ -54,6 +57,7 @@ MODULE reftraj_util
    USE reftraj_types,                   ONLY: reftraj_msd_type,&
                                               reftraj_type
    USE simpar_types,                    ONLY: simpar_type
+   USE string_utilities,                ONLY: uppercase
    USE util,                            ONLY: get_limit
 #include "../base/base_uses.f90"
 
@@ -81,9 +85,6 @@ CONTAINS
       TYPE(reftraj_type), POINTER                        :: reftraj
       TYPE(section_vals_type), POINTER                   :: reftraj_section
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_reftraj', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: natom, nline_to_skip, nskip
       LOGICAL                                            :: my_end
@@ -158,12 +159,10 @@ CONTAINS
       TYPE(reftraj_type), POINTER                        :: reftraj
       TYPE(md_environment_type), POINTER                 :: md_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_msd_reftraj', &
-         routineP = moduleN//':'//routineN
-
-      CHARACTER(LEN=10)                                  :: AA
+      CHARACTER(LEN=2)                                   :: element_symbol, element_symbol_ref0
       CHARACTER(LEN=default_path_length)                 :: filename
-      CHARACTER(LEN=default_string_length)               :: name, title
+      CHARACTER(LEN=default_string_length)               :: title
+      CHARACTER(LEN=max_line_length)                     :: errmsg
       INTEGER                                            :: first_atom, iatom, ikind, imol, &
                                                             last_atom, natom_read, nkind, nmol, &
                                                             nmolecule, nmolkind, npart
@@ -210,15 +209,25 @@ CONTAINS
       IF (para_env%mepos == para_env%source) THEN
          REWIND (msd%ref0_unit)
          READ (msd%ref0_unit, *, ERR=999, END=998) natom_read
-         CPASSERT(natom_read == reftraj%natom)
+         IF (natom_read /= reftraj%natom) THEN
+            errmsg = "The MSD reference configuration has a different number of atoms: "// &
+                     TRIM(ADJUSTL(cp_to_string(natom_read)))//" != "// &
+                     TRIM(ADJUSTL(cp_to_string(reftraj%natom)))
+            CPABORT(errmsg)
+         END IF
          READ (msd%ref0_unit, '(A)', ERR=999, END=998) title
          msd%total_mass = 0.0_dp
          msd%ref0_com = 0.0_dp
          DO iatom = 1, natom_read
-            READ (msd%ref0_unit, *, ERR=999, END=998) AA, x, y, z
-            name = TRIM(particle_set(iatom)%atomic_kind%element_symbol)
-            CPASSERT((TRIM(AA) == name))
-
+            READ (msd%ref0_unit, *, ERR=999, END=998) element_symbol_ref0, x, y, z
+            CALL uppercase(element_symbol_ref0)
+            element_symbol = TRIM(particle_set(iatom)%atomic_kind%element_symbol)
+            CALL uppercase(element_symbol)
+            IF (element_symbol /= element_symbol_ref0) THEN
+               errmsg = "The MSD reference configuration shows a mismatch: Check atom "// &
+                        TRIM(ADJUSTL(cp_to_string(iatom)))
+               CPABORT(errmsg)
+            END IF
             x = cp_unit_to_cp2k(x, "angstrom")
             y = cp_unit_to_cp2k(y, "angstrom")
             z = cp_unit_to_cp2k(z, "angstrom")
@@ -288,12 +297,12 @@ CONTAINS
                   com(2) = com(2) + msd%ref0_pos(2, iatom)*mass
                   com(3) = com(3) + msd%ref0_pos(3, iatom)*mass
                   mass_mol = mass_mol + mass
-               ENDDO  ! iatom
+               END DO  ! iatom
                msd%ref0_com_molecule(1, molecule_kind%molecule_list(imol)) = com(1)/mass_mol
                msd%ref0_com_molecule(2, molecule_kind%molecule_list(imol)) = com(2)/mass_mol
                msd%ref0_com_molecule(3, molecule_kind%molecule_list(imol)) = com(3)/mass_mol
             END DO  ! imol
-         ENDDO ! ikind
+         END DO ! ikind
       END IF
 
       IF (msd%msd_region) THEN
@@ -322,9 +331,6 @@ CONTAINS
       TYPE(reftraj_type), POINTER                        :: reftraj
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_msd_reftraj', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: atom, bo(2), first_atom, iatom, ikind, imol, imol_global, last_atom, mepos, &
          natom_kind, nmol_per_kind, nmolecule, nmolkind, num_pe
@@ -418,7 +424,7 @@ CONTAINS
                reftraj%msd%val_msd_kind(1:4, ikind)/REAL(natom_kind, KIND=dp)
 
          END DO  ! ikind
-      ENDIF
+      END IF
       CALL mp_sum(reftraj%msd%val_msd_kind, para_env%group)
       CALL mp_sum(reftraj%msd%num_disp_atom, para_env%group)
       CALL mp_sum(reftraj%msd%disp_atom_dr, para_env%group)
@@ -450,7 +456,7 @@ CONTAINS
                   com(2) = com(2) + particle_set(iatom)%r(2)*mass
                   com(3) = com(3) + particle_set(iatom)%r(3)*mass
                   mass_mol = mass_mol + mass
-               ENDDO  ! iatom
+               END DO  ! iatom
                com(1) = com(1)/mass_mol
                com(2) = com(2)/mass_mol
                com(3) = com(3)/mass_mol
@@ -465,7 +471,7 @@ CONTAINS
                msd_mkind(2) = msd_mkind(2) + diff2_com(2)
                msd_mkind(3) = msd_mkind(3) + diff2_com(3)
                msd_mkind(4) = msd_mkind(4) + diff2_com(4)
-            ENDDO ! imol
+            END DO ! imol
 
             reftraj%msd%val_msd_molecule(1, ikind) = msd_mkind(1)/REAL(nmolecule, KIND=dp)
             reftraj%msd%val_msd_molecule(2, ikind) = msd_mkind(2)/REAL(nmolecule, KIND=dp)
@@ -487,9 +493,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE write_output_reftraj(md_env)
       TYPE(md_environment_type), POINTER                 :: md_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_output_reftraj', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: my_act, my_mittle, my_pos
       INTEGER                                            :: iat, ikind, nkind, out_msd
@@ -577,11 +580,11 @@ CONTAINS
                         reftraj%msd%disp_atom_dr(3, iat)*angstrom
                   END IF
                END DO
-            ENDIF
+            END IF
             CALL cp_print_key_finished_output(out_msd, logger, reftraj_section, &
                                               "PRINT%DISPLACED_ATOM")
          END IF
-      ENDIF ! msd
+      END IF ! msd
       reftraj%init = .FALSE.
 
    END SUBROUTINE write_output_reftraj

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 !!****** cp2k/ai_overlap3 [1.0] *
 !!
@@ -90,6 +92,7 @@ CONTAINS
 !> \param sabc integrals [a|b|c]
 !> \param sdabc derivative [da/dAi|b|c]
 !> \param sabdc derivative [a|b|dc/dCi]
+!> \param int_abc_ext the extremal value of sabc, i.e., MAXVAL(ABS(sabc))
 !> \par History
 !>      05.2014 created (Dorothea Golze)
 !> \author Dorothea Golze
@@ -99,7 +102,8 @@ CONTAINS
    SUBROUTINE overlap3(la_max_set, npgfa, zeta, rpgfa, la_min_set, &
                        lb_max_set, npgfb, zetb, rpgfb, lb_min_set, &
                        lc_max_set, npgfc, zetc, rpgfc, lc_min_set, &
-                       rab, dab, rac, dac, rbc, dbc, sabc, sdabc, sabdc)
+                       rab, dab, rac, dac, rbc, dbc, sabc, &
+                       sdabc, sabdc, int_abc_ext)
 
       INTEGER, INTENT(IN)                                :: la_max_set, npgfa
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: zeta, rpgfa
@@ -117,8 +121,9 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT)   :: sabc
       REAL(KIND=dp), DIMENSION(:, :, :, :), &
          INTENT(INOUT), OPTIONAL                         :: sdabc, sabdc
+      REAL(dp), INTENT(OUT), OPTIONAL                    :: int_abc_ext
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap3', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'overlap3'
 
       INTEGER :: ax, ay, az, bx, by, bz, coa, coax, coay, coaz, coc, cocx, cocy, cocz, cx, cy, cz, &
          handle, i, ipgf, j, jpgf, k, kpgf, l, la, la_max, la_min, la_start, lai, lb, lb_max, &
@@ -154,11 +159,14 @@ CONTAINS
       IF (PRESENT(sdabc)) THEN
          ALLOCATE (sda(ncoset(la_max), ncoset(lb_max), ncoset(lc_max), 3))
          sda = 0._dp
-      ENDIF
+      END IF
       IF (PRESENT(sabdc)) THEN
          ALLOCATE (sdc(ncoset(la_max), ncoset(lb_max), ncoset(lc_max), 3))
          sdc = 0._dp
-      ENDIF
+      END IF
+      IF (PRESENT(int_abc_ext)) THEN
+         int_abc_ext = 0.0_dp
+      END IF
 
 !   *** Loop over all pairs of primitive Gaussian-type functions ***
 
@@ -982,13 +990,24 @@ CONTAINS
 
 !         *** Store integrals
 
-               DO k = ncoset(lc_min_set - 1) + 1, ncoset(lc_max_set)
-                  DO j = ncoset(lb_min_set - 1) + 1, ncoset(lb_max_set)
-                     DO i = ncoset(la_min_set - 1) + 1, ncoset(la_max_set)
-                        sabc(na + i, nb + j, nc + k) = s(i, j, k)
+               IF (PRESENT(int_abc_ext)) THEN
+                  DO k = ncoset(lc_min_set - 1) + 1, ncoset(lc_max_set)
+                     DO j = ncoset(lb_min_set - 1) + 1, ncoset(lb_max_set)
+                        DO i = ncoset(la_min_set - 1) + 1, ncoset(la_max_set)
+                           sabc(na + i, nb + j, nc + k) = s(i, j, k)
+                           int_abc_ext = MAX(int_abc_ext, ABS(s(i, j, k)))
+                        END DO
                      END DO
                   END DO
-               END DO
+               ELSE
+                  DO k = ncoset(lc_min_set - 1) + 1, ncoset(lc_max_set)
+                     DO j = ncoset(lb_min_set - 1) + 1, ncoset(lb_max_set)
+                        DO i = ncoset(la_min_set - 1) + 1, ncoset(la_max_set)
+                           sabc(na + i, nb + j, nc + k) = s(i, j, k)
+                        END DO
+                     END DO
+                  END DO
+               END IF
 
 !         *** Calculate the requested derivatives with respect to  ***
 !         *** the nuclear coordinates of the atomic center a and c ***
@@ -997,7 +1016,7 @@ CONTAINS
                   CALL derivatives_overlap3(la_max_set, la_min_set, lb_max_set, lb_min_set, &
                                             lc_max_set, lc_min_set, zeta(ipgf), zetc(kpgf), &
                                             s, sda, sdc)
-               ENDIF
+               END IF
 
 !         *** Store the first derivatives of the primitive overlap integrals ***
 
@@ -1009,7 +1028,7 @@ CONTAINS
                               sdabc(nda + i, nb + j, nc + l, k) = sda(i, j, l, k)
                            END DO
                         END DO
-                     ENDDO
+                     END DO
                   END DO
                END IF
 
@@ -1021,7 +1040,7 @@ CONTAINS
                               sabdc(na + i, nb + j, ndc + l, k) = sdc(i, j, l, k)
                            END DO
                         END DO
-                     ENDDO
+                     END DO
                   END DO
                END IF
 
@@ -1039,10 +1058,10 @@ CONTAINS
       DEALLOCATE (s)
       IF (PRESENT(sdabc)) THEN
          DEALLOCATE (sda)
-      ENDIF
+      END IF
       IF (PRESENT(sabdc)) THEN
          DEALLOCATE (sdc)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -1072,8 +1091,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: s
       REAL(KIND=dp), DIMENSION(:, :, :, :), POINTER      :: sda, sdc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'derivatives_overlap3', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'derivatives_overlap3'
 
       INTEGER :: ax, ay, az, bx, by, bz, coa, coamx, coamy, coamz, coapx, coapy, coapz, cob, coc, &
          cocmx, cocmy, cocmz, cocpx, cocpy, cocpz, cx, cy, cz, devx, devy, devz, handle, la, lb, lc
@@ -1085,7 +1103,7 @@ CONTAINS
       fexpa = 2.0_dp*zeta
       fexpc = 2.0_dp*zetc
 
-!   derviative with respec to x,y,z
+!   derivative with respec to x,y,z
 
       devx = 1
       devy = 2
@@ -1134,7 +1152,7 @@ CONTAINS
                                                                fay*s(coamy, cob, coc)
                                     sda(coa, cob, coc, devz) = fexpa*s(coapz, cob, coc) - &
                                                                faz*s(coamz, cob, coc)
-                                 ENDIF
+                                 END IF
                                  IF (ASSOCIATED(sdc)) THEN
                                     sdc(coa, cob, coc, devx) = fexpc*s(coa, cob, cocpx) - &
                                                                fcx*s(coa, cob, cocmx)
@@ -1142,10 +1160,10 @@ CONTAINS
                                                                fcy*s(coa, cob, cocmy)
                                     sdc(coa, cob, coc, devz) = fexpc*s(coa, cob, cocpz) - &
                                                                fcz*s(coa, cob, cocmz)
-                                 ENDIF
-                              ENDDO
-                           ENDDO
-                        ENDDO
+                                 END IF
+                              END DO
+                           END DO
+                        END DO
                      END DO
                   END DO
                END DO

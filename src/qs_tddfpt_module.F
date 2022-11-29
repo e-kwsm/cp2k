@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,13 +68,12 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_calculation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_calculation'
 
       INTEGER                                            :: handle, iw
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(section_vals_type), POINTER                   :: dft_section, input
       TYPE(tddfpt_env_type)                              :: t_env
 
@@ -90,8 +91,6 @@ CONTAINS
       IF (section_get_ival(dft_section, "TDDFPT%OE_CORR") /= oe_none) THEN
          CALL orbital_eigenvalue_correction(qs_env)
       END IF
-
-      NULLIFY (p_env)
 
       iw = cp_print_key_unit_nr(logger, dft_section, "PRINT%PROGRAM_BANNER", &
                                 extension=".Log")
@@ -124,9 +123,6 @@ CONTAINS
    SUBROUTINE orbital_eigenvalue_correction(qs_env)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'orbital_eigenvalue_correction', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: oe_corr, output_unit
       TYPE(cp_logger_type), POINTER                      :: logger

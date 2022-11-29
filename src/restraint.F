@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,8 +68,7 @@ CONTAINS
 
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'restraint_control'
 
       INTEGER                                            :: handle, i, ifixd, ii, ikind, imol, &
                                                             iparticle, n3x3con_restraint, &
@@ -173,17 +174,17 @@ CONTAINS
             IF (n3x3con_restraint /= 0) THEN
                n_restraint = n_restraint + n3x3con_restraint
                CALL restraint_3x3_int(molecule, particle_set, energy_3x3, force)
-            ENDIF
+            END IF
             ! 4x6
             IF (n4x6con_restraint /= 0) THEN
                n_restraint = n_restraint + n4x6con_restraint
                CALL restraint_4x6_int(molecule, particle_set, energy_4x6, force)
-            ENDIF
+            END IF
             ! collective variables
             IF (ncolv%nrestraint /= 0) THEN
                n_restraint = n_restraint + ncolv%nrestraint
                CALL restraint_colv_int(molecule, particle_set, cell, energy_colv, force)
-            ENDIF
+            END IF
          END DO
       END DO MOL
       CALL mp_sum(n_restraint, force_env%para_env%group)
@@ -195,7 +196,7 @@ CONTAINS
          CALL update_particle_set(particle_set, force_env%para_env%group, for=force, add=.TRUE.)
          force = 0.0_dp
          n_restraint = 0
-      ENDIF
+      END IF
       ! Intermolecular Restraints
       IF (ASSOCIATED(gci)) THEN
          IF (gci%nrestraint > 0) THEN
@@ -203,17 +204,17 @@ CONTAINS
             IF (gci%ng3x3_restraint /= 0) THEN
                n_restraint = n_restraint + gci%ng3x3_restraint
                CALL restraint_3x3_ext(gci, particle_set, energy_3x3, force)
-            ENDIF
+            END IF
             ! 4x6
             IF (gci%ng4x6_restraint /= 0) THEN
                n_restraint = n_restraint + gci%ng4x6_restraint
                CALL restraint_4x6_ext(gci, particle_set, energy_4x6, force)
-            ENDIF
+            END IF
             ! collective variables
             IF (gci%ncolv%nrestraint /= 0) THEN
                n_restraint = n_restraint + gci%ncolv%nrestraint
                CALL restraint_colv_ext(gci, particle_set, cell, energy_colv, force)
-            ENDIF
+            END IF
             DO iparticle = 1, SIZE(particle_set)
                particle_set(iparticle)%f = particle_set(iparticle)%f + force(:, iparticle)
             END DO
@@ -247,9 +248,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_3x3_int', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: first_atom, ng3x3
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(g3x3_constraint_type), POINTER                :: g3x3_list(:)
@@ -278,9 +276,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_4x6_int', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, ng4x6
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
@@ -313,9 +308,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_colv_int', &
-         routineP = moduleN//':'//routineN
-
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(local_colvar_constraint_type), POINTER        :: lcolv(:)
@@ -346,9 +338,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_3x3_ext', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: first_atom, ng3x3
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(g3x3_constraint_type), POINTER                :: g3x3_list(:)
@@ -376,9 +365,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_4x6_ext', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, ng4x6
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
@@ -409,9 +395,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_colv_ext', &
-         routineP = moduleN//':'//routineN
 
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
@@ -446,9 +429,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_3x3_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iconst, index_a, index_b, index_c
       REAL(KIND=dp)                                      :: k, rab, rac, rbc, tab, tac, tbc
@@ -509,9 +489,6 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_4x6_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iconst, index_a, index_b, index_c, &
                                                             index_d
@@ -588,9 +565,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp), INTENT(INOUT)                       :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'restraint_colv_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatm, iconst, ind
       REAL(KIND=dp)                                      :: k, tab, targ

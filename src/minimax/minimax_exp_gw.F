@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -37,8 +39,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: E_range
       REAL(KIND=dp), DIMENSION(2*k), INTENT(OUT)         :: aw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_exp_minimax_coeff_gw', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_exp_minimax_coeff_gw'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: E_ratio

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,6 +29,12 @@ MODULE xc_b97
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi
+   USE xc_derivative_desc,              ONLY: deriv_norm_drho,&
+                                              deriv_norm_drhoa,&
+                                              deriv_norm_drhob,&
+                                              deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -73,8 +81,6 @@ CONTAINS
       LOGICAL                                            :: lda
       REAL(dp), INTENT(in)                               :: sx, sc
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_ref', routineP = moduleN//':'//routineN
 
       CHARACTER(20)                                      :: pol
 
@@ -144,7 +150,7 @@ CONTAINS
                shortform = "wB97X-V, HFX+B97+VV10 functional (NOT TESTED)"//pol
             END IF
          ELSE
-            CPABORT("")
+            CPABORT("Unsupported scaling factors")
          END IF
       CASE (xc_b97_3c)
          CALL cite_reference(Becke1997)
@@ -160,16 +166,16 @@ CONTAINS
                shortform = "B97-3c composite method"//pol
             END IF
          ELSE
-            CPABORT("")
+            CPABORT("Unsupported scaling factors")
          END IF
       CASE default
-         CPABORT("")
+         CPABORT("Unsupported parametrization")
       END SELECT
    END SUBROUTINE b97_ref
 
 ! **************************************************************************************************
 !> \brief return various information on the functional
-!> \param b97_params section selecting the varius parameters for the functional
+!> \param b97_params section selecting the various parameters for the functional
 !> \param reference string with the reference of the actual functional
 !> \param shortform string with the shortform of the functional name
 !> \param needs the components needed by this functional are set to
@@ -182,8 +188,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lda_info', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: param
       REAL(kind=dp)                                      :: sc, sx
@@ -203,7 +207,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief return various information on the functional
-!> \param b97_params section selecting the varius parameters for the functional
+!> \param b97_params section selecting the various parameters for the functional
 !> \param reference string with the reference of the actual functional
 !> \param shortform string with the shortform of the functional name
 !> \param needs the components needed by this functional are set to
@@ -216,8 +220,6 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
       TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lsd_info', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: param
       REAL(kind=dp)                                      :: sc, sx
@@ -240,37 +242,31 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param grad_deriv degree of the derivative that should be evalated,
+!> \param grad_deriv degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param b97_params ...
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE b97_lda_eval(rho_set, deriv_set, grad_deriv, b97_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: grad_deriv
       TYPE(section_vals_type), POINTER                   :: b97_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lda_eval', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'b97_lda_eval'
 
       INTEGER                                            :: handle, npoints, param
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_norm_drho, epsilon_rho, scale_c, &
                                                             scale_x
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER :: dummy, e_0, e_ndrho, e_ndrho_ndrho, &
-         e_ndrho_ndrho_ndrho, e_ndrho_ndrho_rho, e_ndrho_rho, e_ndrho_rho_rho, e_rho, e_rho_rho, &
-         e_rho_rho_rho, norm_drho, rho
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER :: dummy, e_0, e_ndrho, &
+         e_ndrho_ndrho, e_ndrho_ndrho_ndrho, e_ndrho_ndrho_rho, e_ndrho_rho, e_ndrho_rho_rho, &
+         e_rho, e_rho_rho, e_rho_rho_rho, norm_drho, rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           norm_drho=norm_drho, local_bounds=bo, rho_cutoff=epsilon_rho, &
                           drho_cutoff=epsilon_norm_drho)
@@ -290,41 +286,41 @@ CONTAINS
       e_ndrho_ndrho_ndrho => dummy
 
       IF (grad_deriv >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (grad_deriv >= 1 .OR. grad_deriv == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
       END IF
       IF (grad_deriv >= 2 .OR. grad_deriv == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_rho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho)
       END IF
       IF (grad_deriv >= 3 .OR. grad_deriv == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_rho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(rho)(rho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_rho, deriv_rho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_rho_rho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(norm_drho)(rho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_norm_drho, deriv_rho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho_rho)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drho)(norm_drho)(norm_drho)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drho, deriv_norm_drho, deriv_norm_drho], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho_ndrho_ndrho)
       END IF
       IF (grad_deriv > 3 .OR. grad_deriv < -3) THEN
@@ -365,28 +361,24 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE b97_lsd_eval(rho_set, deriv_set, grad_deriv, b97_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: grad_deriv
       TYPE(section_vals_type), POINTER                   :: b97_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lsd_eval', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'b97_lsd_eval'
 
       INTEGER                                            :: handle, npoints, param
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho, scale_c, scale_x
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER :: dummy, e_0, e_ndra, e_ndra_ndra, e_ndra_ndrb, &
-         e_ndra_ra, e_ndra_rb, e_ndrb, e_ndrb_ndrb, e_ndrb_ra, e_ndrb_rb, e_ra, e_ra_ra, e_ra_rb, &
-         e_rb, e_rb_rb, norm_drhoa, norm_drhob, rhoa, rhob
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER :: dummy, e_0, e_ndra, e_ndra_ndra, &
+         e_ndra_ndrb, e_ndra_ra, e_ndra_rb, e_ndrb, e_ndrb_ndrb, e_ndrb_ra, e_ndrb_rb, e_ra, &
+         e_ra_ra, e_ra_rb, e_rb, e_rb_rb, norm_drhoa, norm_drhob, rhoa, rhob
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
-      NULLIFY (deriv, bo)
+      NULLIFY (deriv)
 
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, &
                           rhoa=rhoa, rhob=rhob, norm_drhoa=norm_drhoa, &
                           norm_drhob=norm_drhob, &
@@ -415,54 +407,54 @@ CONTAINS
       e_rb_rb => dummy
 
       IF (grad_deriv >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (grad_deriv >= 1 .OR. grad_deriv == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ra)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rb)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndra)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrb)
       END IF
       IF (grad_deriv >= 2 .OR. grad_deriv == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ra_ra)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ra_rb)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rb_rb)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndra_ra)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndra_rb)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrb_rb)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhob)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhob, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrb_ra)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drhoa)(norm_drhoa)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drhoa, deriv_norm_drhoa], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndra_ndra)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drhoa)(norm_drhob)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drhoa, deriv_norm_drhob], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndra_ndrb)
          deriv => xc_dset_get_derivative(deriv_set, &
-                                         "(norm_drhob)(norm_drhob)", allocate_deriv=.TRUE.)
+                                         [deriv_norm_drhob, deriv_norm_drhob], allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrb_ndrb)
       END IF
       IF (grad_deriv >= 3 .OR. grad_deriv == -3) THEN
@@ -510,8 +502,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: param
       REAL(dp), DIMENSION(10)                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_coeffs', routineP = moduleN//':'//routineN
-
       SELECT CASE (param)
       CASE (xc_b97_orig)
          res = params_b97_orig
@@ -522,7 +512,7 @@ CONTAINS
       CASE (xc_b97_3c)
          res = params_b97_3c
       CASE default
-         CPABORT("")
+         CPABORT("Unsupported parametrization")
          res = 0.0_dp
       END SELECT
    END FUNCTION b97_coeffs
@@ -571,8 +561,6 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho
       INTEGER, INTENT(in)                                :: param
       REAL(kind=dp), INTENT(in)                          :: scale_c_in, scale_x_in
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lsd_calc', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii
       REAL(kind=dp) :: A_1, A_2, A_3, alpha_1_1, alpha_1_2, alpha_1_3, alpha_c, alpha_c1rhoa, &
@@ -1588,8 +1576,6 @@ CONTAINS
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho
       INTEGER, INTENT(in)                                :: param
       REAL(kind=dp), INTENT(in)                          :: scale_c_in, scale_x_in
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'b97_lda_calc', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii
       REAL(kind=dp) :: A_1, A_2, A_3, alpha_1_1, alpha_1_2, alpha_1_3, alpha_c, alpha_c1rhoa, &

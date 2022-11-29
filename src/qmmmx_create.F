@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,15 +50,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qmmmx_env_create(qmmmx_env, root_section, para_env, globenv, &
                                force_env_section, subsys_section, use_motion_section)
-      TYPE(qmmmx_env_type), POINTER                      :: qmmmx_env
+      TYPE(qmmmx_env_type), INTENT(OUT)                  :: qmmmx_env
       TYPE(section_vals_type), POINTER                   :: root_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
       LOGICAL, INTENT(IN)                                :: use_motion_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmmx_env_create', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(qmmm_env_type), POINTER                       :: dummy_qmmm_env
@@ -67,6 +66,7 @@ CONTAINS
 
       qmmm_section => section_vals_get_subs_vals(force_env_section, "QMMM")
 
+      ALLOCATE (dummy_qmmm_env)
       CALL qmmm_env_create(dummy_qmmm_env, root_section, para_env, globenv, &
                            force_env_section, qmmm_section, subsys_section, use_motion_section, &
                            ignore_outside_box=.TRUE.)
@@ -77,11 +77,12 @@ CONTAINS
       ! using CUR_INDICES and CUR_LABELS, create appropriate QM_KIND sections for two QM/MM calculations
       CALL setup_force_mixing_qmmm_sections(subsys, qmmm_section, qmmm_core_section, qmmm_extended_section)
 
-      ALLOCATE (qmmmx_env)
+      ALLOCATE (qmmmx_env%core)
       CALL qmmm_env_create(qmmmx_env%core, root_section, para_env, globenv, &
                            force_env_section, qmmm_core_section, subsys_section, use_motion_section, &
                            ignore_outside_box=.TRUE.)
 
+      ALLOCATE (qmmmx_env%ext)
       CALL qmmm_env_create(qmmmx_env%ext, root_section, para_env, globenv, &
                            force_env_section, qmmm_extended_section, subsys_section, use_motion_section, &
                            ignore_outside_box=.TRUE.)
@@ -89,6 +90,7 @@ CONTAINS
       CALL section_vals_release(qmmm_core_section)
       CALL section_vals_release(qmmm_extended_section)
       CALL qmmm_env_release(dummy_qmmm_env)
+      DEALLOCATE (dummy_qmmm_env)
 
    END SUBROUTINE qmmmx_env_create
 

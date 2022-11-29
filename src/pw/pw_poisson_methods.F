@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -58,7 +60,6 @@ MODULE pw_poisson_methods
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
 #include "../base/base_uses.f90"
 
@@ -87,9 +88,6 @@ CONTAINS
    SUBROUTINE pw_poisson_cleanup(poisson_env)
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_cleanup', &
-         routineP = moduleN//':'//routineN
-
       TYPE(pw_pool_type), POINTER                        :: pw_pool
 
       CPASSERT(ASSOCIATED(poisson_env))
@@ -99,7 +97,10 @@ CONTAINS
       IF (ASSOCIATED(poisson_env%pw_pools)) THEN
          pw_pool => poisson_env%pw_pools(poisson_env%pw_level)%pool
       END IF
-      CALL pw_green_release(poisson_env%green_fft, pw_pool=pw_pool)
+      IF (ASSOCIATED(poisson_env%green_fft)) THEN
+         CALL pw_green_release(poisson_env%green_fft, pw_pool=pw_pool)
+         DEALLOCATE (poisson_env%green_fft)
+      END IF
       poisson_env%rebuild = .TRUE.
 
    END SUBROUTINE pw_poisson_cleanup
@@ -111,9 +112,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_poisson_check(poisson_env)
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_check', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: rebuild
       TYPE(greens_fn_type), POINTER                      :: green
@@ -177,10 +175,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_poisson_rebuild(poisson_env, density)
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
-      TYPE(pw_type), OPTIONAL, POINTER                   :: density
+      TYPE(pw_type), INTENT(IN), OPTIONAL                :: density
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_rebuild', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_rebuild'
 
       INTEGER                                            :: handle
 
@@ -194,6 +191,7 @@ CONTAINS
          CALL pw_poisson_cleanup(poisson_env)
          SELECT CASE (poisson_env%parameters%solver)
          CASE (pw_poisson_periodic, pw_poisson_analytic, pw_poisson_mt, pw_poisson_multipole)
+            ALLOCATE (poisson_env%green_fft)
             CALL pw_green_create(poisson_env%green_fft, cell_hmat=poisson_env%cell_hmat, &
                                  pw_pool=poisson_env%pw_pools(poisson_env%pw_level)%pool, &
                                  poisson_params=poisson_env%parameters, &
@@ -204,6 +202,7 @@ CONTAINS
             CALL ps_wavelet_create(poisson_env%parameters, poisson_env%wavelet, &
                                    density%pw_grid)
          CASE (pw_poisson_implicit)
+            ALLOCATE (poisson_env%green_fft)
             CALL pw_green_create(poisson_env%green_fft, cell_hmat=poisson_env%cell_hmat, &
                                  pw_pool=poisson_env%pw_pools(poisson_env%pw_level)%pool, &
                                  poisson_params=poisson_env%parameters, &
@@ -235,34 +234,35 @@ CONTAINS
 !> \param dvhartree ...
 !> \param h_stress ...
 !> \param rho_core ...
+!> \param greenfn ...
+!> \param aux_density Hartree energy and stress tensor between 2 different densities
 !> \par History
 !>      JGH (13-Mar-2001) : completely revised
 !> \author apsi
 ! **************************************************************************************************
    SUBROUTINE pw_poisson_solve(poisson_env, density, ehartree, vhartree, &
-                               dvhartree, h_stress, rho_core)
+                               dvhartree, h_stress, rho_core, greenfn, aux_density)
 
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
-      TYPE(pw_type), POINTER                             :: density
+      TYPE(pw_type), INTENT(IN)                          :: density
       REAL(kind=dp), INTENT(out), OPTIONAL               :: ehartree
-      TYPE(pw_type), OPTIONAL, POINTER                   :: vhartree
-      TYPE(pw_p_type), DIMENSION(3), OPTIONAL            :: dvhartree
+      TYPE(pw_type), INTENT(INOUT), OPTIONAL             :: vhartree
+      TYPE(pw_type), DIMENSION(3), OPTIONAL              :: dvhartree
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(OUT), &
          OPTIONAL                                        :: h_stress
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: rho_core
+      TYPE(pw_type), INTENT(IN), OPTIONAL                :: rho_core, greenfn, aux_density
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_solve', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_poisson_solve'
 
       INTEGER                                            :: alpha, beta, handle, i
       INTEGER, DIMENSION(3)                              :: n
       LOGICAL                                            :: has_dielectric
       REAL(KIND=dp)                                      :: ffa
       TYPE(pw_grid_type), POINTER                        :: pw_grid
-      TYPE(pw_p_type)                                    :: dvg(3)
       TYPE(pw_poisson_parameter_type), POINTER           :: poisson_params
       TYPE(pw_pool_type), POINTER                        :: pw_pool
-      TYPE(pw_type), POINTER                             :: rhog, rhor, tmpg, vhartree_rs
+      TYPE(pw_type)                                      :: dvg(3), dvg_aux(3), influence_fn, rhog, &
+                                                            rhog_aux, rhor, tmpg, vhartree_rs
 
       CALL timeset(routineN, handle)
 
@@ -277,13 +277,14 @@ CONTAINS
       pw_pool => poisson_env%pw_pools(poisson_env%pw_level)%pool
       pw_grid => pw_pool%pw_grid
       IF (PRESENT(vhartree)) THEN
-         CPASSERT(ASSOCIATED(vhartree))
          IF (.NOT. pw_grid_compare(pw_pool%pw_grid, vhartree%pw_grid)) &
             CPABORT("vhartree has a different grid than the poisson solver")
       END IF
       ! density in G space
-      NULLIFY (rhog)
       CALL pw_pool_create_pw(pw_pool, rhog, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      IF (PRESENT(aux_density)) THEN
+         CALL pw_pool_create_pw(pw_pool, rhog_aux, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      END IF
 
       SELECT CASE (poisson_env%used_grid)
       CASE (use_gs_grid)
@@ -292,16 +293,31 @@ CONTAINS
          CASE (PERIODIC3D, ANALYTIC2D, ANALYTIC1D, ANALYTIC0D, MT2D, MT1D, MT0D, MULTIPOLE0D)
 
             CALL pw_transfer(density, rhog)
+            IF (PRESENT(aux_density)) THEN
+               CALL pw_transfer(aux_density, rhog_aux)
+            END IF
             IF (PRESENT(ehartree) .AND. (.NOT. PRESENT(vhartree))) THEN
                CALL pw_pool_create_pw(pw_pool, tmpg, use_data=COMPLEXDATA1D, &
                                       in_space=RECIPROCALSPACE)
                CALL pw_copy(rhog, tmpg)
             END IF
-            rhog%cc(:) = rhog%cc(:)*poisson_env%green_fft%influence_fn%cc(:)
+            IF (PRESENT(greenfn)) THEN
+               influence_fn = greenfn
+            ELSE
+               influence_fn = poisson_env%green_fft%influence_fn
+            END IF
+            rhog%cc(:) = rhog%cc(:)*influence_fn%cc(:)
+            IF (PRESENT(aux_density)) THEN
+               rhog_aux%cc(:) = rhog_aux%cc(:)*influence_fn%cc(:)
+            END IF
             IF (PRESENT(vhartree)) THEN
                CALL pw_transfer(rhog, vhartree)
                IF (PRESENT(ehartree)) THEN
-                  ehartree = 0.5_dp*pw_integral_ab(density, vhartree)
+                  IF (PRESENT(aux_density)) THEN
+                     ehartree = 0.5_dp*pw_integral_ab(aux_density, vhartree)
+                  ELSE
+                     ehartree = 0.5_dp*pw_integral_ab(density, vhartree)
+                  END IF
                END IF
             ELSE IF (PRESENT(ehartree)) THEN
                ehartree = 0.5_dp*pw_integral_ab(rhog, tmpg)
@@ -316,7 +332,7 @@ CONTAINS
                   CALL dielectric_compute(poisson_env%implicit_env%dielectric, &
                                           poisson_env%diel_rs_grid, &
                                           poisson_env%pw_pools(poisson_env%pw_level)%pool, &
-                                          density, rho_core=rho_core%pw)
+                                          density, rho_core=rho_core)
                CASE (NEUMANN_BC, MIXED_BC)
                   CALL dielectric_compute(poisson_env%implicit_env%dielectric, &
                                           poisson_env%diel_rs_grid, &
@@ -328,7 +344,7 @@ CONTAINS
                                           poisson_env%implicit_env%dct_env%srcs_expand, &
                                           poisson_env%implicit_env%dct_env%flipg_stat, &
                                           poisson_env%implicit_env%dct_env%bounds_shftd, &
-                                          density, rho_core=rho_core%pw)
+                                          density, rho_core=rho_core)
                END SELECT
             END IF
 
@@ -391,18 +407,23 @@ CONTAINS
       ! do we need to calculate the derivative of the potential?
       IF (PRESENT(h_stress) .OR. PRESENT(dvhartree)) THEN
          DO i = 1, 3
-            NULLIFY (dvg(i)%pw)
-            CALL pw_pool_create_pw(pw_pool, dvg(i)%pw, use_data=COMPLEXDATA1D, &
+            CALL pw_pool_create_pw(pw_pool, dvg(i), use_data=COMPLEXDATA1D, &
                                    in_space=RECIPROCALSPACE)
             n = 0
             n(i) = 1
-            CALL pw_copy(rhog, dvg(i)%pw)
-            CALL pw_derive(dvg(i)%pw, n)
+            CALL pw_copy(rhog, dvg(i))
+            CALL pw_derive(dvg(i), n)
+            IF (PRESENT(aux_density)) THEN
+               CALL pw_pool_create_pw(pw_pool, dvg_aux(i), use_data=COMPLEXDATA1D, &
+                                      in_space=RECIPROCALSPACE)
+               CALL pw_copy(rhog_aux, dvg_aux(i))
+               CALL pw_derive(dvg_aux(i), n)
+            END IF
          END DO
          ! save the derivatives
          IF (PRESENT(dvhartree)) THEN
             DO i = 1, 3
-               CALL pw_transfer(dvg(i)%pw, dvhartree(i)%pw)
+               CALL pw_transfer(dvg(i), dvhartree(i))
             END DO
          END IF
          ! Calculate the contribution to the stress tensor this is only the contribution from
@@ -412,11 +433,19 @@ CONTAINS
             h_stress = 0.0_dp
             DO alpha = 1, 3
                h_stress(alpha, alpha) = ehartree
-               DO beta = alpha, 3
-                  h_stress(alpha, beta) = h_stress(alpha, beta) &
-                                          + ffa*pw_integral_ab(dvg(alpha)%pw, dvg(beta)%pw)
-                  h_stress(beta, alpha) = h_stress(alpha, beta)
-               END DO
+               IF (PRESENT(aux_density)) THEN
+                  DO beta = alpha, 3
+                     h_stress(alpha, beta) = h_stress(alpha, beta) &
+                                             + ffa*pw_integral_ab(dvg_aux(alpha), dvg(beta))
+                     h_stress(beta, alpha) = h_stress(alpha, beta)
+                  END DO
+               ELSE
+                  DO beta = alpha, 3
+                     h_stress(alpha, beta) = h_stress(alpha, beta) &
+                                             + ffa*pw_integral_ab(dvg(alpha), dvg(beta))
+                     h_stress(beta, alpha) = h_stress(alpha, beta)
+                  END DO
+               END IF
             END DO
 
             ! Handle the periodicity cases for the Stress Tensor
@@ -478,11 +507,17 @@ CONTAINS
          END IF
 
          DO i = 1, 3
-            CALL pw_pool_give_back_pw(pw_pool, dvg(i)%pw)
+            CALL pw_pool_give_back_pw(pw_pool, dvg(i))
+            IF (PRESENT(aux_density)) THEN
+               CALL pw_pool_give_back_pw(pw_pool, dvg_aux(i))
+            END IF
          END DO
 
       END IF
       CALL pw_pool_give_back_pw(pw_pool, rhog)
+      IF (PRESENT(aux_density)) THEN
+         CALL pw_pool_give_back_pw(pw_pool, rhog_aux)
+      END IF
 
       CALL timestop(handle)
 
@@ -522,7 +557,7 @@ CONTAINS
       TYPE(pw_grid_type), OPTIONAL, POINTER              :: mt_super_ref_pw_grid, dct_pw_grid
       LOGICAL, INTENT(in), OPTIONAL                      :: force_rebuild
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_set', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_poisson_set'
 
       INTEGER                                            :: handle, i
       LOGICAL                                            :: same
@@ -547,8 +582,8 @@ CONTAINS
             same = SIZE(poisson_env%pw_pools) == SIZE(pw_pools)
             IF (same) THEN
                DO i = 1, SIZE(pw_pools)
-                  IF (poisson_env%pw_pools(i)%pool%id_nr /= &
-                      pw_pools(i)%pool%id_nr) same = .FALSE.
+                  IF (.NOT. ASSOCIATED(poisson_env%pw_pools(i)%pool, &
+                                       pw_pools(i)%pool)) same = .FALSE.
                END DO
             END IF
          END IF

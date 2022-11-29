@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,7 +16,6 @@
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
 MODULE qs_rho_types
-   USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE kinds,                           ONLY: dp
    USE kpoint_transitional,             ONLY: get_1d_pointer,&
@@ -23,8 +24,8 @@ MODULE qs_rho_types
                                               kpoint_transitional_type,&
                                               set_1d_pointer,&
                                               set_2d_pointer
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -34,8 +35,8 @@ MODULE qs_rho_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_rho_types'
 
    PUBLIC :: qs_rho_p_type, qs_rho_type
-   PUBLIC :: qs_rho_retain, qs_rho_release, &
-             qs_rho_get, qs_rho_set, qs_rho_clear, qs_rho_create
+   PUBLIC :: qs_rho_release, &
+             qs_rho_get, qs_rho_set, qs_rho_clear, qs_rho_create, qs_rho_unset_rho_ao
 
 ! **************************************************************************************************
 !> \brief keeps the density in various representations, keeping track of
@@ -52,13 +53,7 @@ MODULE qs_rho_types
 !> \param tau_g grids with the kinetic energy density in g space
 !> \param rho_g_valid , rho_r_valid, tau_r_valid, tau_g_valid: if the
 !>        corresponding component is valid
-!> \param ref_count the reference count, when it becomes 0 the type
-!>        is deallocated.
-!> \param rebuild_each how often a rebuild should be done by default
 !> \param tot_rho_r the total charge in r space (valid only if rho_r is)
-!> \note
-!>      If pw_p_type would implement retain/release it would be nice to
-!>      store also the core charge and the qs_charges in this structure...
 !> \par History
 !>      08.2002 created [fawzi]
 !> \author Fawzi Mohamed
@@ -66,15 +61,14 @@ MODULE qs_rho_types
    TYPE qs_rho_type
       PRIVATE
       TYPE(kpoint_transitional_type)                 :: rho_ao
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER   :: rho_ao_im => Null()
-      TYPE(pw_p_type), DIMENSION(:), POINTER         :: rho_g => Null(), &
-                                                        rho_r => Null(), &
-                                                        drho_g => Null(), &
-                                                        drho_r => Null(), &
-                                                        tau_g => Null(), &
-                                                        tau_r => Null()
+      TYPE(kpoint_transitional_type)                 :: rho_ao_im
+      TYPE(pw_type), DIMENSION(:), POINTER         :: rho_r => Null(), &
+                                                      rho_g => Null(), &
+                                                      tau_r => Null(), &
+                                                      tau_g => Null()
+      TYPE(pw_type), DIMENSION(:, :), POINTER :: drho_r => NULL(), drho_g => NULL()
       ! Final rho_iter of last SCCS cycle (r-space)
-      TYPE(pw_p_type), POINTER                       :: rho_r_sccs => Null()
+      TYPE(pw_type), POINTER                       :: rho_r_sccs => Null()
       LOGICAL                                        :: rho_g_valid = .FALSE., &
                                                         rho_r_valid = .FALSE., &
                                                         drho_r_valid = .FALSE., &
@@ -82,9 +76,6 @@ MODULE qs_rho_types
                                                         tau_r_valid = .FALSE., &
                                                         tau_g_valid = .FALSE., &
                                                         soft_valid = .FALSE.
-      INTEGER                                        :: ref_count = -1, &
-                                                        id_nr = -1, &
-                                                        rebuild_each = -1
       REAL(KIND=dp), DIMENSION(:), POINTER           :: tot_rho_r => Null(), &
                                                         tot_rho_g => Null()
    END TYPE qs_rho_type
@@ -94,8 +85,6 @@ MODULE qs_rho_types
       TYPE(qs_rho_type), POINTER                     :: rho
    END TYPE qs_rho_p_type
 
-   INTEGER, PRIVATE, SAVE :: last_rho_id_nr = 0
-
 CONTAINS
 
 ! **************************************************************************************************
@@ -104,36 +93,9 @@ CONTAINS
 !> \author Ole Schuett
 ! **************************************************************************************************
    SUBROUTINE qs_rho_create(rho)
-      TYPE(qs_rho_type), POINTER                         :: rho
+      TYPE(qs_rho_type), INTENT(OUT)                     :: rho
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_rho_create', routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(rho)) CPABORT("rho already associated")
-
-      ALLOCATE (rho)
-      last_rho_id_nr = last_rho_id_nr + 1
-      rho%id_nr = last_rho_id_nr
-      rho%rebuild_each = 5
-      rho%ref_count = 1
    END SUBROUTINE qs_rho_create
-
-! **************************************************************************************************
-!> \brief retains a rho_struct by increasing the reference count by one
-!>      (to be called when you want to keep a shared copy)
-!> \param rho_struct the structure to retain
-!> \par History
-!>      08.2002 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE qs_rho_retain(rho_struct)
-      TYPE(qs_rho_type), POINTER                         :: rho_struct
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_rho_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(rho_struct))
-      CPASSERT(rho_struct%ref_count > 0)
-      rho_struct%ref_count = rho_struct%ref_count + 1
-   END SUBROUTINE qs_rho_retain
 
 ! **************************************************************************************************
 !> \brief releases a rho_struct by decreasing the reference count by one
@@ -145,80 +107,71 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE qs_rho_release(rho_struct)
-      TYPE(qs_rho_type), POINTER                         :: rho_struct
+      TYPE(qs_rho_type), INTENT(INOUT)                   :: rho_struct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_rho_release', routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(rho_struct)) THEN
-         CPASSERT(rho_struct%ref_count > 0)
-         rho_struct%ref_count = rho_struct%ref_count - 1
-         IF (rho_struct%ref_count < 1) THEN
-            CALL qs_rho_clear(rho_struct)
-            DEALLOCATE (rho_struct)
-         END IF
-      END IF
-
-      NULLIFY (rho_struct)
+      CALL qs_rho_clear(rho_struct)
 
    END SUBROUTINE qs_rho_release
 
 ! **************************************************************************************************
-!> \brief Deallocates all components, whithout deallocating rho_struct itself.
+!> \brief Deallocates all components, without deallocating rho_struct itself.
 !> \param rho_struct ...
 !> \author Ole Schuett
 ! **************************************************************************************************
    SUBROUTINE qs_rho_clear(rho_struct)
-      TYPE(qs_rho_type), POINTER                         :: rho_struct
+      TYPE(qs_rho_type), INTENT(INOUT)                   :: rho_struct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_rho_clear', routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: i
+      INTEGER                                            :: i, j
 
       IF (ASSOCIATED(rho_struct%rho_r)) THEN
          DO i = 1, SIZE(rho_struct%rho_r)
-            CALL pw_release(rho_struct%rho_r(i)%pw)
+            CALL pw_release(rho_struct%rho_r(i))
          END DO
          DEALLOCATE (rho_struct%rho_r)
       END IF
       IF (ASSOCIATED(rho_struct%drho_r)) THEN
-         DO i = 1, SIZE(rho_struct%drho_r)
-            CALL pw_release(rho_struct%drho_r(i)%pw)
+         DO j = 1, SIZE(rho_struct%drho_r, 2)
+            DO i = 1, SIZE(rho_struct%drho_r, 1)
+               CALL pw_release(rho_struct%drho_r(i, j))
+            END DO
          END DO
          DEALLOCATE (rho_struct%drho_r)
       END IF
       IF (ASSOCIATED(rho_struct%drho_g)) THEN
-         DO i = 1, SIZE(rho_struct%drho_g)
-            CALL pw_release(rho_struct%drho_g(i)%pw)
+         DO i = 1, SIZE(rho_struct%drho_g, 2)
+            DO j = 1, SIZE(rho_struct%drho_g, 1)
+               CALL pw_release(rho_struct%drho_g(i, j))
+            END DO
          END DO
          DEALLOCATE (rho_struct%drho_g)
       END IF
       IF (ASSOCIATED(rho_struct%tau_r)) THEN
          DO i = 1, SIZE(rho_struct%tau_r)
-            CALL pw_release(rho_struct%tau_r(i)%pw)
+            CALL pw_release(rho_struct%tau_r(i))
          END DO
          DEALLOCATE (rho_struct%tau_r)
       END IF
       IF (ASSOCIATED(rho_struct%rho_g)) THEN
          DO i = 1, SIZE(rho_struct%rho_g)
-            CALL pw_release(rho_struct%rho_g(i)%pw)
+            CALL pw_release(rho_struct%rho_g(i))
          END DO
          DEALLOCATE (rho_struct%rho_g)
       END IF
       IF (ASSOCIATED(rho_struct%tau_g)) THEN
          DO i = 1, SIZE(rho_struct%tau_g)
-            CALL pw_release(rho_struct%tau_g(i)%pw)
+            CALL pw_release(rho_struct%tau_g(i))
          END DO
          DEALLOCATE (rho_struct%tau_g)
       END IF
       IF (ASSOCIATED(rho_struct%rho_r_sccs)) THEN
-         CALL pw_release(rho_struct%rho_r_sccs%pw)
+         CALL pw_release(rho_struct%rho_r_sccs)
          DEALLOCATE (rho_struct%rho_r_sccs)
       END IF
 
       CALL kpoint_transitional_release(rho_struct%rho_ao)
 
-      IF (ASSOCIATED(rho_struct%rho_ao_im)) &
-         CALL dbcsr_deallocate_matrix_set(rho_struct%rho_ao_im)
+      CALL kpoint_transitional_release(rho_struct%rho_ao_im)
+
       IF (ASSOCIATED(rho_struct%tot_rho_r)) &
          DEALLOCATE (rho_struct%tot_rho_r)
       IF (ASSOCIATED(rho_struct%tot_rho_g)) &
@@ -227,12 +180,24 @@ CONTAINS
    END SUBROUTINE qs_rho_clear
 
 ! **************************************************************************************************
+!> \brief Unsets the rho_ao / rho_ao_kp field without calling kpoint_transitional_release().
+!> \param rho_struct ...
+!> \author Ole Schuett
+! **************************************************************************************************
+   SUBROUTINE qs_rho_unset_rho_ao(rho_struct)
+      TYPE(qs_rho_type), INTENT(INOUT)                   :: rho_struct
+
+      rho_struct%rho_ao = kpoint_transitional_type()
+   END SUBROUTINE qs_rho_unset_rho_ao
+
+! **************************************************************************************************
 !> \brief returns info about the density described by this object.
 !>      If some representation is not available an error is issued
 !> \param rho_struct ...
 !> \param rho_ao ...
 !> \param rho_ao_im ...
 !> \param rho_ao_kp ...
+!> \param rho_ao_im_kp ...
 !> \param rho_r ...
 !> \param drho_r ...
 !> \param rho_g ...
@@ -245,7 +210,6 @@ CONTAINS
 !> \param drho_g_valid ...
 !> \param tau_r_valid ...
 !> \param tau_g_valid ...
-!> \param rebuild_each ...
 !> \param tot_rho_r ...
 !> \param tot_rho_g ...
 !> \param rho_r_sccs ...
@@ -254,33 +218,32 @@ CONTAINS
 !>      08.2002 created [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE qs_rho_get(rho_struct, rho_ao, rho_ao_im, rho_ao_kp, rho_r, drho_r, &
+   SUBROUTINE qs_rho_get(rho_struct, rho_ao, rho_ao_im, rho_ao_kp, rho_ao_im_kp, rho_r, drho_r, &
                          rho_g, drho_g, tau_r, tau_g, rho_r_valid, drho_r_valid, rho_g_valid, &
-                         drho_g_valid, tau_r_valid, tau_g_valid, rebuild_each, tot_rho_r, tot_rho_g, &
+                         drho_g_valid, tau_r_valid, tau_g_valid, tot_rho_r, tot_rho_g, &
                          rho_r_sccs, soft_valid)
-      TYPE(qs_rho_type), POINTER                         :: rho_struct
+      TYPE(qs_rho_type), INTENT(IN)                      :: rho_struct
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rho_ao, rho_ao_im
       TYPE(dbcsr_p_type), DIMENSION(:, :), OPTIONAL, &
-         POINTER                                         :: rho_ao_kp
-      TYPE(pw_p_type), DIMENSION(:), OPTIONAL, POINTER   :: rho_r, drho_r, rho_g, drho_g, tau_r, &
-                                                            tau_g
+         POINTER                                         :: rho_ao_kp, rho_ao_im_kp
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: rho_r
+      TYPE(pw_type), DIMENSION(:, :), OPTIONAL, POINTER  :: drho_r
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: rho_g
+      TYPE(pw_type), DIMENSION(:, :), OPTIONAL, POINTER  :: drho_g
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: tau_r, tau_g
       LOGICAL, INTENT(out), OPTIONAL                     :: rho_r_valid, drho_r_valid, rho_g_valid, &
                                                             drho_g_valid, tau_r_valid, tau_g_valid
-      INTEGER, INTENT(out), OPTIONAL                     :: rebuild_each
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: tot_rho_r, tot_rho_g
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: rho_r_sccs
+      TYPE(pw_type), OPTIONAL, POINTER                   :: rho_r_sccs
       LOGICAL, INTENT(out), OPTIONAL                     :: soft_valid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_rho_get', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(rho_struct))
-      CPASSERT(rho_struct%ref_count > 0)
 
       IF (PRESENT(rho_ao)) rho_ao => get_1d_pointer(rho_struct%rho_ao)
       IF (PRESENT(rho_ao_kp)) rho_ao_kp => get_2d_pointer(rho_struct%rho_ao)
 
-      IF (PRESENT(rho_ao_im)) rho_ao_im => rho_struct%rho_ao_im
+      IF (PRESENT(rho_ao_im)) rho_ao_im => get_1d_pointer(rho_struct%rho_ao_im)
+      IF (PRESENT(rho_ao_im_kp)) rho_ao_im_kp => get_2d_pointer(rho_struct%rho_ao_im)
+
       IF (PRESENT(rho_r)) rho_r => rho_struct%rho_r
       IF (PRESENT(drho_r)) drho_r => rho_struct%drho_r
       IF (PRESENT(rho_g)) rho_g => rho_struct%rho_g
@@ -294,7 +257,6 @@ CONTAINS
       IF (PRESENT(tau_r_valid)) tau_r_valid = rho_struct%tau_r_valid
       IF (PRESENT(tau_g_valid)) tau_g_valid = rho_struct%tau_g_valid
       IF (PRESENT(soft_valid)) soft_valid = rho_struct%soft_valid
-      IF (PRESENT(rebuild_each)) rebuild_each = rho_struct%rebuild_each
       IF (PRESENT(tot_rho_r)) tot_rho_r => rho_struct%tot_rho_r
       IF (PRESENT(tot_rho_g)) tot_rho_g => rho_struct%tot_rho_g
       IF (PRESENT(rho_r_sccs)) rho_r_sccs => rho_struct%rho_r_sccs
@@ -307,6 +269,7 @@ CONTAINS
 !> \param rho_ao ...
 !> \param rho_ao_im ...
 !> \param rho_ao_kp ...
+!> \param rho_ao_im_kp ...
 !> \param rho_r ...
 !> \param drho_r ...
 !> \param rho_g ...
@@ -319,40 +282,38 @@ CONTAINS
 !> \param drho_g_valid ...
 !> \param tau_r_valid ...
 !> \param tau_g_valid ...
-!> \param rebuild_each ...
 !> \param tot_rho_r ...
 !> \param tot_rho_g ...
 !> \param rho_r_sccs ...
 !> \param soft_valid ...
 !> \author Ole Schuett
 ! **************************************************************************************************
-   SUBROUTINE qs_rho_set(rho_struct, rho_ao, rho_ao_im, rho_ao_kp, rho_r, drho_r, &
+   SUBROUTINE qs_rho_set(rho_struct, rho_ao, rho_ao_im, rho_ao_kp, rho_ao_im_kp, rho_r, drho_r, &
                          rho_g, drho_g, tau_r, tau_g, rho_r_valid, drho_r_valid, rho_g_valid, &
-                         drho_g_valid, tau_r_valid, tau_g_valid, rebuild_each, tot_rho_r, tot_rho_g, &
+                         drho_g_valid, tau_r_valid, tau_g_valid, tot_rho_r, tot_rho_g, &
                          rho_r_sccs, soft_valid)
-      TYPE(qs_rho_type), POINTER                         :: rho_struct
+      TYPE(qs_rho_type), INTENT(INOUT)                   :: rho_struct
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: rho_ao, rho_ao_im
       TYPE(dbcsr_p_type), DIMENSION(:, :), OPTIONAL, &
-         POINTER                                         :: rho_ao_kp
-      TYPE(pw_p_type), DIMENSION(:), OPTIONAL, POINTER   :: rho_r, drho_r, rho_g, drho_g, tau_r, &
-                                                            tau_g
+         POINTER                                         :: rho_ao_kp, rho_ao_im_kp
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: rho_r
+      TYPE(pw_type), DIMENSION(:, :), OPTIONAL, POINTER  :: drho_r
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: rho_g
+      TYPE(pw_type), DIMENSION(:, :), OPTIONAL, POINTER  :: drho_g
+      TYPE(pw_type), DIMENSION(:), OPTIONAL, POINTER     :: tau_r, tau_g
       LOGICAL, INTENT(in), OPTIONAL                      :: rho_r_valid, drho_r_valid, rho_g_valid, &
                                                             drho_g_valid, tau_r_valid, tau_g_valid
-      INTEGER, INTENT(in), OPTIONAL                      :: rebuild_each
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: tot_rho_r, tot_rho_g
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: rho_r_sccs
+      TYPE(pw_type), OPTIONAL, POINTER                   :: rho_r_sccs
       LOGICAL, INTENT(in), OPTIONAL                      :: soft_valid
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_rho_set', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(rho_struct))
-      CPASSERT(rho_struct%ref_count > 0)
 
       IF (PRESENT(rho_ao)) CALL set_1d_pointer(rho_struct%rho_ao, rho_ao)
       IF (PRESENT(rho_ao_kp)) CALL set_2d_pointer(rho_struct%rho_ao, rho_ao_kp)
 
-      IF (PRESENT(rho_ao_im)) rho_struct%rho_ao_im => rho_ao_im
+      IF (PRESENT(rho_ao_im)) CALL set_1d_pointer(rho_struct%rho_ao_im, rho_ao_im)
+      IF (PRESENT(rho_ao_im_kp)) CALL set_2d_pointer(rho_struct%rho_ao_im, rho_ao_im_kp)
+
       IF (PRESENT(rho_r)) rho_struct%rho_r => rho_r
       IF (PRESENT(rho_g)) rho_struct%rho_g => rho_g
       IF (PRESENT(drho_r)) rho_struct%drho_r => drho_r
@@ -366,7 +327,6 @@ CONTAINS
       IF (PRESENT(tau_r_valid)) rho_struct%tau_r_valid = tau_r_valid
       IF (PRESENT(tau_g_valid)) rho_struct%tau_g_valid = tau_g_valid
       IF (PRESENT(soft_valid)) rho_struct%soft_valid = soft_valid
-      IF (PRESENT(rebuild_each)) rho_struct%rebuild_each = rebuild_each
       IF (PRESENT(tot_rho_r)) rho_struct%tot_rho_r => tot_rho_r
       IF (PRESENT(tot_rho_g)) rho_struct%tot_rho_g => tot_rho_g
       IF (PRESENT(rho_r_sccs)) rho_struct%rho_r_sccs => rho_r_sccs

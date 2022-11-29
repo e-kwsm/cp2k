@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -73,15 +75,15 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_syevd', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_dbcsr_syevd'
 
       INTEGER                                            :: handle, nfullrows_total
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_eigenvectors, fm_matrix
+      TYPE(cp_fm_type)                                   :: fm_eigenvectors, fm_matrix
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_eigenvectors, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total)
 
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -132,11 +134,11 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_syevx', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'cp_dbcsr_syevx'
 
       INTEGER                                            :: handle, n, neig_local
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_eigenvectors, fm_matrix
+      TYPE(cp_fm_type)                                   :: fm_eigenvectors, fm_matrix
 
       CALL timeset(routineN, handle)
 
@@ -146,7 +148,7 @@ CONTAINS
       IF (PRESENT(neig)) neig_local = neig
       IF (neig_local == 0) RETURN
 
-      NULLIFY (fm_matrix, fm_eigenvectors, fm_struct)
+      NULLIFY (fm_struct)
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=n, &
                                ncol_global=n, para_env=para_env)
       CALL cp_fm_create(fm_matrix, fm_struct, name="fm_matrix")
@@ -160,7 +162,7 @@ CONTAINS
          CALL cp_fm_release(fm_eigenvectors)
       ELSE
          CALL cp_fm_syevx(fm_matrix, eigenvalues=eigenvalues, neig=neig, work_syevx=work_syevx)
-      ENDIF
+      END IF
 
       CALL cp_fm_struct_release(fm_struct)
       CALL cp_fm_release(fm_matrix)
@@ -185,15 +187,15 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_heevd', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_dbcsr_heevd'
 
       INTEGER                                            :: handle, nfullrows_total
-      TYPE(cp_cfm_type), POINTER                         :: fm_eigenvectors, fm_matrix
+      TYPE(cp_cfm_type)                                  :: fm_eigenvectors, fm_matrix
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_eigenvectors, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total)
 
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -237,16 +239,16 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(INOUT), OPTIONAL          :: eigenvectors
       REAL(KIND=dp), DIMENSION(2), INTENT(OUT), OPTIONAL :: eigenvalues
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_power', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_dbcsr_power'
 
       INTEGER                                            :: handle, nfullrows_total
       REAL(KIND=dp), DIMENSION(2)                        :: eigenvalues_prv
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_eigenvectors, fm_matrix
+      TYPE(cp_fm_type)                                   :: fm_eigenvectors, fm_matrix
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (fm_matrix, fm_eigenvectors, fm_struct)
+      NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix, nfullrows_total=nfullrows_total)
 
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &

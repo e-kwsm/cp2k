@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -33,7 +35,6 @@ MODULE topology_xtl
                                               section_vals_type
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE memory_utilities,                ONLY: reallocate
    USE string_table,                    ONLY: id2str,&
                                               s2s,&
@@ -74,8 +75,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_xtl', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'read_coordinate_xtl'
       INTEGER, PARAMETER                                 :: nblock = 1000
       REAL(KIND=dp), PARAMETER                           :: threshold = 1.0E-6_dp
 
@@ -91,9 +91,9 @@ CONTAINS
       TYPE(atom_info_type), POINTER                      :: atom_info
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser, logger)
+      NULLIFY (logger)
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, subsys_section, "PRINT%TOPOLOGY_INFO/XTL_INFO", &
                                 extension=".subsysLog")
@@ -261,8 +261,7 @@ CONTAINS
             READ (parser%input_line(icol:), *) ((rot_mat(ii, jj), jj=1, 3), ii=1, 3), transl_vec(1:3)
             Loop_over_unique_atoms: DO ii = 1, natom_orig
                ! Rotate and apply translation
-               CALL matvec_3x3(r1, rot_mat, atom_info%r(1:3, ii))
-               r1 = r1 + transl_vec
+               r1 = MATMUL(rot_mat, atom_info%r(1:3, ii)) + transl_vec
                ! Verify if this atom is really unique..
                check = .TRUE.
                DO jj = 1, natom

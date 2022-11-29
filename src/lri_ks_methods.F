@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,8 +69,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       INTEGER, DIMENSION(:, :, :), OPTIONAL, POINTER     :: cell_to_index
 
-      CHARACTER(*), PARAMETER :: routineN = 'calculate_lri_ks_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(*), PARAMETER :: routineN = 'calculate_lri_ks_matrix'
 
       INTEGER :: atom_a, atom_b, col, handle, i, iac, iatom, ic, ikind, ilist, jatom, jkind, &
          jneighbor, mepos, natom, nba, nbb, nfa, nfb, nkind, nlist, nm, nn, nthread, row
@@ -171,16 +172,16 @@ CONTAINS
                   DO i = 1, nfa
                      CALL lri_decomp_i(int3, lrii%cabai, i)
                      hs_work(1:nba, 1:nbb) = hs_work(1:nba, 1:nbb) + vi(i)*int3(1:nba, 1:nbb)
-                  ENDDO
+                  END DO
                ELSE
                   DO i = 1, nfa
                      CALL lri_decomp_i(int3, lrii%cabai, i)
                      hs_work(1:nba, 1:nbb) = hs_work(1:nba, 1:nbb) + vi(i)*int3(1:nba, 1:nbb)
-                  ENDDO
+                  END DO
                   DO i = 1, nfb
                      CALL lri_decomp_i(int3, lrii%cabbi, i)
                      hs_work(1:nba, 1:nbb) = hs_work(1:nba, 1:nbb) + vi(nfa + i)*int3(1:nba, 1:nbb)
-                  ENDDO
+                  END DO
                END IF
                DEALLOCATE (vi)
             END IF
@@ -207,14 +208,14 @@ CONTAINS
                      hf_work(1:nba, 1:nbb) = hf_work(1:nba, 1:nbb) + &
                                              via(i)*int3(1:nba, 1:nbb)*wab(1:nba, 1:nbb)
                   END IF
-               ENDDO
+               END DO
                DO i = 1, nfb
                   IF (lrii%abbscr(i) > threshold) THEN
                      CALL lri_decomp_i(int3, lrii%cabbi, i)
                      hf_work(1:nba, 1:nbb) = hf_work(1:nba, 1:nbb) + &
                                              vib(i)*int3(1:nba, 1:nbb)*wbb(1:nba, 1:nbb)
                   END IF
-               ENDDO
+               END DO
                !
                DEALLOCATE (via, vib, wab, wbb)
             END IF
@@ -242,7 +243,7 @@ CONTAINS
                   h_block(1:nbb, 1:nba) = h_block(1:nbb, 1:nba) + fw*TRANSPOSE(hs_work(1:nba, 1:nbb))
                ELSE
                   h_block(1:nba, 1:nbb) = h_block(1:nba, 1:nbb) + fw*hs_work(1:nba, 1:nbb)
-               ENDIF
+               END IF
             END IF
             IF (lrii%lriff) THEN
                fw = lrii%wff
@@ -250,7 +251,7 @@ CONTAINS
                   h_block(1:nbb, 1:nba) = h_block(1:nbb, 1:nba) + fw*TRANSPOSE(hf_work(1:nba, 1:nbb))
                ELSE
                   h_block(1:nba, 1:nbb) = h_block(1:nba, 1:nbb) + fw*hf_work(1:nba, 1:nbb)
-               ENDIF
+               END IF
             END IF
 !$OMP END CRITICAL(addhamiltonian)
 
@@ -291,8 +292,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(*), PARAMETER :: routineN = 'calculate_ri_ks_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(*), PARAMETER :: routineN = 'calculate_ri_ks_matrix'
 
       INTEGER                                            :: atom_a, handle, i1, i2, iatom, ikind, n, &
                                                             natom, nbas

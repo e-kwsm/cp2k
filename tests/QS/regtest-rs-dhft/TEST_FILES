@@ -1,3 +1,4 @@
-CH3-rsLDAlrMP2.inp                              11         1e-8         -6.235769997143416
-H2O-srLDAlrMP2.inp                              11         1e-8        -14.953293495365880
+CH3-rsLDAlrMP2.inp                              11         1e-8        -7.337744306690559
+H2O-rsLDAlrMP2.inp                              11         1e-8        -17.138844102419636
+H2O-B2P3LYP.inp                                 11         1e-8        -17.030982292980237
 #EOF

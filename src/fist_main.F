@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,7 +18,6 @@ MODULE fist_main
    USE cp_subsys_types,                 ONLY: cp_subsys_type
    USE fist_environment,                ONLY: fist_init
    USE fist_environment_types,          ONLY: fist_env_create,&
-                                              fist_env_release,&
                                               fist_env_set,&
                                               fist_environment_type
    USE force_env_methods,               ONLY: force_env_create
@@ -72,8 +73,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: use_motion_section
       TYPE(cp_subsys_type), OPTIONAL, POINTER            :: prev_subsys
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fist_create_force_env', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fist_create_force_env'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: myqmmm
@@ -85,6 +85,7 @@ CONTAINS
          myqmmm = qmmm
       END IF
 
+      ALLOCATE (fist_env)
       CALL fist_env_create(fist_env, para_env=para_env)
       IF (PRESENT(qmmm_env)) THEN
          CALL fist_env_set(fist_env, qmmm=myqmmm, qmmm_env=qmmm_env)
@@ -100,7 +101,6 @@ CONTAINS
                             para_env=para_env, globenv=globenv, &
                             force_env_section=force_env_section)
 
-      CALL fist_env_release(fist_env)
       CALL timestop(handle)
    END SUBROUTINE fist_create_force_env
 

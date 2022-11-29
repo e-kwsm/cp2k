@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,11 +49,10 @@ MODULE pme
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE realspace_grid_types,            ONLY: &
-        pw2rs, realspace_grid_desc_type, realspace_grid_p_type, realspace_grid_type, rs2pw, &
-        rs_grid_create, rs_grid_release, rs_grid_set_box, rs_grid_zero, rs_pw_transfer
+        pw2rs, realspace_grid_desc_type, realspace_grid_type, rs2pw, rs_grid_create, &
+        rs_grid_release, rs_grid_set_box, rs_grid_zero, rs_pw_transfer
    USE shell_potential_types,           ONLY: shell_kind_type
    USE structure_factor_types,          ONLY: structure_factor_type
    USE structure_factors,               ONLY: structure_factor_allocate,&
@@ -108,7 +109,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: charges
       TYPE(atprop_type), POINTER                         :: atprop
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pme_evaluate', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'pme_evaluate'
 
       INTEGER                                            :: group, handle, i, ig, ipart, j, nd(3), &
                                                             npart, nshell, p1, p2
@@ -119,18 +120,18 @@ CONTAINS
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
       TYPE(dg_type), POINTER                             :: dg
       TYPE(pw_grid_type), POINTER                        :: grid_b, grid_s
-      TYPE(pw_p_type)                                    :: rhos1, rhos2
-      TYPE(pw_p_type), DIMENSION(3)                      :: dphi_g
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: pw_big_pool, pw_small_pool
-      TYPE(pw_type), POINTER                             :: phi_g, phi_r, rhob_g, rhob_r
+      TYPE(pw_type)                                      :: phi_g, phi_r, rhob_g, rhob_r, rhos1, &
+                                                            rhos2
+      TYPE(pw_type), DIMENSION(3)                        :: dphi_g
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: drpot
+      TYPE(realspace_grid_type), DIMENSION(3)            :: drpot
       TYPE(realspace_grid_type), POINTER                 :: rden, rpot
       TYPE(structure_factor_type)                        :: exp_igr
 
       CALL timeset(routineN, handle)
-      NULLIFY (poisson_env, rden, drpot)
+      NULLIFY (poisson_env, rden)
       CALL cite_reference(Darden1993)
       CALL ewald_env_get(ewald_env, alpha=alpha, group=group)
       CALL ewald_pw_get(ewald_pw, pw_big_pool=pw_big_pool, &
@@ -159,21 +160,22 @@ CONTAINS
                                         allocate_centre=.TRUE.)
       END IF
 
-      CALL pw_pool_create_pw(pw_small_pool, rhos1%pw, &
+      CALL pw_pool_create_pw(pw_small_pool, rhos1, &
                              use_data=REALDATA3D)
-      CALL pw_pool_create_pw(pw_small_pool, rhos2%pw, &
+      CALL pw_pool_create_pw(pw_small_pool, rhos2, &
                              use_data=REALDATA3D)
 
+      ALLOCATE (rden)
       CALL rs_grid_create(rden, rs_desc)
       CALL rs_grid_set_box(grid_b, rs=rden)
       CALL rs_grid_zero(rden)
 
       IF (rden%desc%parallel .AND. rden%desc%distributed) THEN
-         CALL get_center(particle_set, box, exp_igr%centre, grid_b%npts, 1)
+         CALL get_center(particle_set, box, exp_igr%centre, exp_igr%delta, grid_b%npts, 1)
       END IF
       IF (PRESENT(shell_particle_set) .AND. rden%desc%parallel .AND. rden%desc%distributed) THEN
-         CALL get_center(shell_particle_set, box, exp_igr%shell_centre, grid_b%npts, 1)
-         CALL get_center(core_particle_set, box, exp_igr%core_centre, grid_b%npts, 1)
+         CALL get_center(shell_particle_set, box, exp_igr%shell_centre, exp_igr%shell_delta, grid_b%npts, 1)
+         CALL get_center(core_particle_set, box, exp_igr%core_centre, exp_igr%core_delta, grid_b%npts, 1)
       END IF
 
       !-------------- DENSITY CALCULATION ----------------
@@ -240,8 +242,7 @@ CONTAINS
 
       ! allocate intermediate arrays
       DO i = 1, 3
-         NULLIFY (dphi_g(i)%pw)
-         CALL pw_pool_create_pw(pw_big_pool, dphi_g(i)%pw, &
+         CALL pw_pool_create_pw(pw_big_pool, dphi_g(i), &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
       END DO
@@ -253,7 +254,8 @@ CONTAINS
 
       ! atomic energies
       IF (atprop%energy .OR. atprop%stress) THEN
-         dvols = rhos1%pw%pw_grid%dvol
+         dvols = rhos1%pw_grid%dvol
+         ALLOCATE (rpot)
          CALL rs_grid_create(rpot, rs_desc)
          CALL rs_pw_transfer(rpot, phi_r, pw2rs)
          ipart = 0
@@ -297,7 +299,7 @@ CONTAINS
             ffb = 1.0_dp/fourpi
             DO i = 1, 3
                DO ig = grid_b%first_gne0, grid_b%ngpts_cut_local
-                  phi_g%cc(ig) = ffb*dphi_g(i)%pw%cc(ig)*(ffa*grid_b%gsq(ig) + 1.0_dp)
+                  phi_g%cc(ig) = ffb*dphi_g(i)%cc(ig)*(ffa*grid_b%gsq(ig) + 1.0_dp)
                   phi_g%cc(ig) = phi_g%cc(ig)*poisson_env%green_fft%influence_fn%cc(ig)
                END DO
                IF (grid_b%have_g0) phi_g%cc(1) = 0.0_dp
@@ -333,6 +335,7 @@ CONTAINS
             CALL pw_pool_give_back_pw(pw_big_pool, rhob_g)
          END IF
          CALL rs_grid_release(rpot)
+         DEALLOCATE (rpot)
       END IF
 
       CALL pw_pool_give_back_pw(pw_big_pool, phi_r)
@@ -344,7 +347,7 @@ CONTAINS
       IF ((use_virial) .AND. (PRESENT(pv_g))) THEN
          DO i = 1, 3
             DO j = i, 3
-               f_stress(i, j) = pw_integral_a2b(dphi_g(i)%pw, dphi_g(j)%pw)
+               f_stress(i, j) = pw_integral_a2b(dphi_g(i), dphi_g(j))
                f_stress(j, i) = f_stress(i, j)
             END DO
          END DO
@@ -355,13 +358,12 @@ CONTAINS
 
       !--------END OF STRESS TENSOR CALCULATION -----------
 
-      ALLOCATE (drpot(1:3))
       DO i = 1, 3
-         CALL rs_grid_create(drpot(i)%rs_grid, rs_desc)
-         CALL rs_grid_set_box(grid_b, rs=drpot(i)%rs_grid)
-         CALL pw_transfer(dphi_g(i)%pw, rhob_r)
-         CALL pw_pool_give_back_pw(pw_big_pool, dphi_g(i)%pw)
-         CALL rs_pw_transfer(drpot(i)%rs_grid, rhob_r, pw2rs)
+         CALL rs_grid_create(drpot(i), rs_desc)
+         CALL rs_grid_set_box(grid_b, rs=drpot(i))
+         CALL pw_transfer(dphi_g(i), rhob_r)
+         CALL pw_pool_give_back_pw(pw_big_pool, dphi_g(i))
+         CALL rs_pw_transfer(drpot(i), rhob_r, pw2rs)
       END DO
 
       CALL pw_pool_give_back_pw(pw_big_pool, rhob_r)
@@ -371,7 +373,7 @@ CONTAINS
       ! initialize the forces
       IF (PRESENT(fg_coulomb)) THEN
          fg_coulomb = 0.0_dp
-         dvols = rhos1%pw%pw_grid%dvol
+         dvols = rhos1%pw_grid%dvol
 
          ipart = 0
          DO
@@ -425,10 +427,10 @@ CONTAINS
             END IF
 
          END DO
-      ENDIF
+      END IF
       IF (PRESENT(fgshell_coulomb)) THEN
          fgshell_coulomb = 0.0_dp
-         dvols = rhos1%pw%pw_grid%dvol
+         dvols = rhos1%pw_grid%dvol
 
          ipart = 0
          DO
@@ -459,15 +461,13 @@ CONTAINS
       !------------------CLEANING UP ----------------------
 
       CALL rs_grid_release(rden)
-      IF (ASSOCIATED(drpot)) THEN
-         DO i = 1, 3
-            CALL rs_grid_release(drpot(i)%rs_grid)
-         END DO
-         DEALLOCATE (drpot)
-      END IF
+      DEALLOCATE (rden)
+      DO i = 1, 3
+         CALL rs_grid_release(drpot(i))
+      END DO
 
-      CALL pw_pool_give_back_pw(pw_small_pool, rhos1%pw)
-      CALL pw_pool_give_back_pw(pw_small_pool, rhos2%pw)
+      CALL pw_pool_give_back_pw(pw_small_pool, rhos1)
+      CALL pw_pool_give_back_pw(pw_small_pool, rhos2)
       CALL structure_factor_deallocate(exp_igr)
 
       CALL timestop(handle)
@@ -506,13 +506,11 @@ CONTAINS
       TYPE(cell_type), INTENT(IN)                        :: box
       INTEGER, INTENT(IN)                                :: p1, p2
       TYPE(pw_grid_type), INTENT(IN)                     :: grid_b, grid_s
-      TYPE(pw_p_type)                                    :: rhos1, rhos2
+      TYPE(pw_type), INTENT(INOUT)                       :: rhos1, rhos2
       LOGICAL, OPTIONAL                                  :: is1_core, is2_core, is1_shell, is2_shell
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: core_particle_set
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: charges
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_patch', routineP = moduleN//':'//routineN
 
       COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: ex1, ex2, ey1, ey2, ez1, ez2
       INTEGER, DIMENSION(:), POINTER                     :: center1, center2
@@ -522,7 +520,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3)                        :: r1, r2
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
-      TYPE(pw_p_type), POINTER                           :: rho0
+      TYPE(pw_type), POINTER                             :: rho0
       TYPE(shell_kind_type), POINTER                     :: shell
 
       NULLIFY (shell)
@@ -651,12 +649,9 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(structure_factor_type)                        :: exp_igr
       INTEGER, INTENT(IN)                                :: p1, p2
-      TYPE(pw_p_type)                                    :: rhos1, rhos2
+      TYPE(pw_type), INTENT(INOUT)                       :: rhos1, rhos2
       LOGICAL, OPTIONAL                                  :: is1_core, is2_core, is1_shell, is2_shell
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: charges
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_patch_again', &
-         routineP = moduleN//':'//routineN
 
       COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: ex1, ex2, ey1, ey2, ez1, ez2
       LOGICAL                                            :: my_is1_core, my_is1_shell, my_is2_core, &
@@ -664,7 +659,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: q1, q2
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
-      TYPE(pw_p_type), POINTER                           :: rho0
+      TYPE(pw_type), POINTER                             :: rho0
       TYPE(shell_kind_type), POINTER                     :: shell
 
       NULLIFY (shell)

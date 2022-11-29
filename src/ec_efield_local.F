@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,10 +25,13 @@ MODULE ec_efield_local
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_add,&
                                               dbcsr_copy,&
+                                              dbcsr_dot,&
                                               dbcsr_get_block_p,&
                                               dbcsr_p_type,&
                                               dbcsr_set
    USE ec_env_types,                    ONLY: energy_correction_type
+   USE input_constants,                 ONLY: ec_functional_dc,&
+                                              ec_functional_harris
    USE kinds,                           ONLY: dp
    USE orbital_pointers,                ONLY: ncoset
    USE particle_types,                  ONLY: particle_type
@@ -46,6 +51,8 @@ MODULE ec_efield_local
    USE qs_period_efield_types,          ONLY: efield_berry_type,&
                                               init_efield_matrices,&
                                               set_efield_matrices
+   USE qs_rho_types,                    ONLY: qs_rho_get,&
+                                              qs_rho_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -76,8 +83,7 @@ CONTAINS
       TYPE(energy_correction_type), POINTER              :: ec_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_local_operator', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_local_operator'
 
       INTEGER                                            :: handle
       REAL(dp), DIMENSION(3)                             :: rpoint
@@ -110,8 +116,7 @@ CONTAINS
       TYPE(energy_correction_type), POINTER              :: ec_env
       REAL(dp), DIMENSION(3), INTENT(IN)                 :: rpoint
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_integrals', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_integrals'
 
       INTEGER                                            :: handle, i
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dipmat, matrix_s
@@ -151,8 +156,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rpoint
       LOGICAL                                            :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_mo_derivatives', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_efield_mo_derivatives'
 
       INTEGER :: atom_a, atom_b, handle, i, ia, iatom, icol, idir, ikind, irow, iset, ispin, &
          jatom, jkind, jset, ldab, natom, ncoa, ncob, nkind, nseta, nsetb, sgfa, sgfb
@@ -161,7 +165,7 @@ CONTAINS
                                                             npgfb, nsgfa, nsgfb
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       LOGICAL                                            :: found, trans
-      REAL(dp)                                           :: charge, dab, fdir
+      REAL(dp)                                           :: charge, dab, ener_field, fdir, tmp
       REAL(dp), DIMENSION(3)                             :: ci, fieldpol, ra, rab, rac, rbc, ria
       REAL(dp), DIMENSION(3, 3)                          :: forcea, forceb
       REAL(dp), DIMENSION(:, :), POINTER                 :: p_block_a, p_block_b, pblock, pmat, work
@@ -170,7 +174,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dipmat, matrix_ks
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dipmat, matrix_ks, matrix_p
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(efield_berry_type), POINTER                   :: efield
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
@@ -184,6 +188,9 @@ CONTAINS
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
+      TYPE(qs_rho_type), POINTER                         :: rho
+
+!
 
       CALL timeset(routineN, handle)
 
@@ -222,7 +229,6 @@ CONTAINS
 
       IF (ec_env%should_update) THEN
          ec_env%efield_nuclear = -SUM(ci(:)*fieldpol(:))
-
          ! Update KS matrix
          matrix_ks => ec_env%matrix_h(:, 1)
          dipmat => efield%dipmat
@@ -232,6 +238,27 @@ CONTAINS
                               alpha_scalar=1.0_dp, beta_scalar=fieldpol(idir))
             END DO
          END DO
+
+         ! Handling of electronic efield energy contribution
+         ! Harris functional: Part of band structure energy T[P_out*F_KS]
+         ! DC-DFT : needs to be added here
+         SELECT CASE (ec_env%energy_functional)
+         CASE (ec_functional_harris)
+         CASE (ec_functional_dc)
+            ! Energy
+            NULLIFY (rho, matrix_p)
+            CALL get_qs_env(qs_env=qs_env, rho=rho)
+            CALL qs_rho_get(rho, rho_ao=matrix_p)
+            DO ispin = 1, SIZE(matrix_p)
+               DO idir = 1, 3
+                  CALL dbcsr_dot(matrix_p(ispin)%matrix, dipmat(idir)%matrix, tmp)
+                  ener_field = ener_field + fieldpol(idir)*tmp
+               END DO
+            END DO
+            ec_env%efield_elec = ener_field
+         CASE DEFAULT
+            CPABORT("unknown energy correction")
+         END SELECT
       END IF
 
       ! forces from the efield contribution
@@ -305,11 +332,11 @@ CONTAINS
             ! density matrix
             NULLIFY (p_block_a)
             CALL dbcsr_get_block_p(ec_env%matrix_p(1, 1)%matrix, irow, icol, p_block_a, found)
-!deb        IF (.NOT. found) CYCLE
+            IF (.NOT. found) CYCLE
             IF (SIZE(ec_env%matrix_p, 1) > 1) THEN
                NULLIFY (p_block_b)
                CALL dbcsr_get_block_p(ec_env%matrix_p(2, 1)%matrix, irow, icol, p_block_b, found)
-!deb           CPASSERT(found)
+               CPASSERT(found)
             END IF
             forcea = 0.0_dp
             forceb = 0.0_dp

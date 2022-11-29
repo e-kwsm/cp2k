@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,17 +79,14 @@ CONTAINS
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_do_run', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: k, num_steps, step, tot_steps
       LOGICAL                                            :: should_stop
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type)                                :: pint_env
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
 
-      NULLIFY (pint_env)
       num_steps = 0
 
       IF (ASSOCIATED(helium_env)) THEN
@@ -181,9 +180,7 @@ CONTAINS
    SUBROUTINE helium_sample(helium_env, pint_env)
 
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_sample', routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       CHARACTER(len=default_string_length)               :: msg_str
       INTEGER                                            :: i, irot, iweight, k, nslices, nsteps, &
@@ -224,7 +221,7 @@ CONTAINS
             DO irot = 1, helium_env(k)%helium%iter_rot
 
                ! rotate helium beads in imaginary time at random, store current
-               ! 'rotation state' in helium%relrot wich is within (0, helium%beads-1)
+               ! 'rotation state' in helium%relrot which is within (0, helium%beads-1)
                ! (this is needed to sample different fragments of the permutation
                ! paths in try_permutations)
                rnd = helium_env(k)%helium%rng_stream_uniform%next()
@@ -262,7 +259,7 @@ CONTAINS
 
             ! restore the original alignment of beads in imaginary time
             ! (this is useful to make a single bead's position easy to follow
-            ! in the trajectory, otherwise it's index would change every step)
+            ! in the trajectory, otherwise its index would change every step)
             CALL helium_rotate(helium_env(k)%helium, -helium_env(k)%helium%relrot)
 
             inv_xn = 1.0_dp/REAL(helium_env(k)%helium%iter_rot, dp)
@@ -410,9 +407,9 @@ CONTAINS
    SUBROUTINE helium_step(helium_env, pint_env)
 
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_step', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'helium_step'
 
       CHARACTER(len=default_string_length)               :: msgstr, stmp, time_unit
       INTEGER                                            :: handle, k
@@ -569,10 +566,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_try_permutations(helium, pint_env)
       TYPE(helium_solvent_type), POINTER                 :: helium
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_try_permutations', &
-         routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       CHARACTER(len=default_string_length)               :: err_str, stmp
       INTEGER                                            :: cyclen, ni
@@ -738,12 +732,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_slice_metro_cyclic(helium, pint_env, cyclen) RESULT(res)
       TYPE(helium_solvent_type), POINTER                 :: helium
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       INTEGER, INTENT(IN)                                :: cyclen
       LOGICAL                                            :: res
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_slice_metro_cyclic', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: err_str, stmp
       INTEGER                                            :: c, ia, ib, ic, ifix, j, k, l, level, &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -26,8 +28,6 @@ MODULE cell_types
    PRIVATE
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cell_types'
-
-   INTEGER, SAVE, PRIVATE :: last_cell_id = 0
 
    ! Impose cell symmetry
    INTEGER, PARAMETER, PUBLIC               :: cell_sym_none = 0, &
@@ -56,7 +56,7 @@ MODULE cell_types
 !> \version 1.0
 ! **************************************************************************************************
    TYPE cell_type
-      INTEGER                           :: id_nr, ref_count, symmetry_id
+      INTEGER                           :: ref_count, symmetry_id
       LOGICAL                           :: orthorhombic ! actually means a diagonal hmat
       REAL(KIND=dp)                     :: deth
       INTEGER, DIMENSION(3)             :: perd
@@ -95,12 +95,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cell_clone(cell_in, cell_out)
 
-      TYPE(cell_type), POINTER                           :: cell_in, cell_out
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cell_clone', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(cell_in))
-      CPASSERT(ASSOCIATED(cell_out))
+      TYPE(cell_type), INTENT(IN)                        :: cell_in
+      TYPE(cell_type), INTENT(OUT)                       :: cell_out
 
       cell_out%deth = cell_in%deth
       cell_out%perd = cell_in%perd
@@ -109,8 +105,6 @@ CONTAINS
       cell_out%orthorhombic = cell_in%orthorhombic
       cell_out%symmetry_id = cell_in%symmetry_id
       cell_out%ref_count = 1
-      last_cell_id = last_cell_id + 1
-      cell_out%id_nr = last_cell_id
 
    END SUBROUTINE cell_clone
 
@@ -121,12 +115,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cell_copy(cell_in, cell_out)
 
-      TYPE(cell_type), POINTER                           :: cell_in, cell_out
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cell_copy', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(cell_in))
-      CPASSERT(ASSOCIATED(cell_out))
+      TYPE(cell_type), INTENT(IN)                        :: cell_in
+      TYPE(cell_type), INTENT(INOUT)                     :: cell_out
 
       cell_out%deth = cell_in%deth
       cell_out%perd = cell_in%perd
@@ -155,9 +145,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(OUT)        :: h
       REAL(KIND=dp), INTENT(OUT)                         :: vol
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'parse_cell_line', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
 
       READ (input_line, *) cell_itimes, cell_time, &
@@ -182,23 +169,22 @@ CONTAINS
 !> \param periodic ...
 !> \param h ...
 !> \param h_inv ...
-!> \param id_nr ...
 !> \param symmetry_id ...
 !> \date    16.01.2002
 !> \author  Matthias Krack
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE get_cell(cell, alpha, beta, gamma, deth, orthorhombic, abc, periodic, &
-                       h, h_inv, id_nr, symmetry_id)
+                       h, h_inv, symmetry_id)
 
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: alpha, beta, gamma, deth
       LOGICAL, INTENT(OUT), OPTIONAL                     :: orthorhombic
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT), OPTIONAL :: abc
       INTEGER, DIMENSION(3), INTENT(OUT), OPTIONAL       :: periodic
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(OUT), &
          OPTIONAL                                        :: h, h_inv
-      INTEGER, INTENT(out), OPTIONAL                     :: id_nr, symmetry_id
+      INTEGER, INTENT(OUT), OPTIONAL                     :: symmetry_id
 
       IF (PRESENT(deth)) deth = cell%deth ! the volume
       IF (PRESENT(orthorhombic)) orthorhombic = cell%orthorhombic
@@ -226,7 +212,6 @@ CONTAINS
       IF (PRESENT(beta)) beta = angle(cell%hmat(:, 1), cell%hmat(:, 3))*degree
       ! gamma = <(a,b)
       IF (PRESENT(gamma)) gamma = angle(cell%hmat(:, 1), cell%hmat(:, 2))*degree
-      IF (PRESENT(id_nr)) id_nr = cell%id_nr
       IF (PRESENT(symmetry_id)) symmetry_id = cell%symmetry_id
 
    END SUBROUTINE get_cell
@@ -244,13 +229,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_cell_param(cell, cell_length, cell_angle, units_angle, periodic)
 
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: cell_length
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT), OPTIONAL :: cell_angle
       INTEGER, INTENT(IN), OPTIONAL                      :: units_angle
       INTEGER, DIMENSION(3), INTENT(OUT), OPTIONAL       :: periodic
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_cell_param', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: alpha, beta, gamma
 
@@ -283,12 +266,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_cell_param(cell, cell_length, cell_angle, periodic, do_init_cell)
 
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(INOUT)                     :: cell
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: cell_length, cell_angle
       INTEGER, DIMENSION(3), INTENT(IN), OPTIONAL        :: periodic
       LOGICAL, INTENT(IN)                                :: do_init_cell
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_cell_param', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: cos_alpha, cos_beta, cos_gamma, eps, &
                                                             sin_gamma
@@ -334,12 +315,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_cell(cell, hmat, periodic)
 
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(INOUT)                     :: cell
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN), &
          OPTIONAL                                        :: hmat
       INTEGER, DIMENSION(3), INTENT(IN), OPTIONAL        :: periodic
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_cell', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: eps_hmat = 1.0E-14_dp
 
       INTEGER                                            :: dim
@@ -486,7 +466,7 @@ CONTAINS
    FUNCTION plane_distance(h, k, l, cell) RESULT(distance)
 
       INTEGER, INTENT(IN)                                :: h, k, l
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       REAL(KIND=dp)                                      :: distance
 
       REAL(KIND=dp)                                      :: a, alpha, b, beta, c, cosa, cosb, cosg, &
@@ -550,7 +530,7 @@ CONTAINS
    FUNCTION pbc1(r, cell) RESULT(r_pbc)
 
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       REAL(KIND=dp), DIMENSION(3)                        :: r_pbc
 
       REAL(KIND=dp), DIMENSION(3)                        :: s
@@ -587,7 +567,7 @@ CONTAINS
    FUNCTION pbc2(r, cell, nl) RESULT(r_pbc)
 
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       INTEGER, DIMENSION(3), INTENT(IN)                  :: nl
       REAL(KIND=dp), DIMENSION(3)                        :: r_pbc
 
@@ -628,7 +608,7 @@ CONTAINS
    FUNCTION pbc3(ra, rb, cell) RESULT(rab_pbc)
 
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: ra, rb
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       REAL(KIND=dp), DIMENSION(3)                        :: rab_pbc
 
       INTEGER                                            :: icell, jcell, kcell
@@ -673,7 +653,7 @@ CONTAINS
    FUNCTION pbc4(r, cell, positive_range) RESULT(r_pbc)
 
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
       LOGICAL                                            :: positive_range
       REAL(KIND=dp), DIMENSION(3)                        :: r_pbc
 
@@ -715,7 +695,7 @@ CONTAINS
 
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: s
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
 
       IF (cell%orthorhombic) THEN
          s(1) = cell%h_inv(1, 1)*r(1)
@@ -743,7 +723,7 @@ CONTAINS
 
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: r
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: s
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN)                        :: cell
 
       IF (cell%orthorhombic) THEN
          r(1) = cell%hmat(1, 1)*s(1)
@@ -773,12 +753,8 @@ CONTAINS
          OPTIONAL                                        :: hmat
       INTEGER, DIMENSION(3), INTENT(IN), OPTIONAL        :: periodic
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cell_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(cell))
       ALLOCATE (cell)
-      last_cell_id = last_cell_id + 1
-      cell%id_nr = last_cell_id
       cell%ref_count = 1
       IF (PRESENT(periodic)) THEN
          cell%perd = periodic
@@ -802,8 +778,6 @@ CONTAINS
 
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cell_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(cell))
       CPASSERT(cell%ref_count > 0)
       cell%ref_count = cell%ref_count + 1
@@ -820,8 +794,6 @@ CONTAINS
    SUBROUTINE cell_release(cell)
 
       TYPE(cell_type), POINTER                           :: cell
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cell_release', routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(cell)) THEN
          CPASSERT(cell%ref_count > 0)

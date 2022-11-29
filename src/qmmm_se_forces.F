@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -83,8 +85,7 @@ CONTAINS
       LOGICAL, INTENT(in), OPTIONAL                      :: calc_force
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: Forces, Forces_added_charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_se_qmmm_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_se_qmmm_matrix'
 
       INTEGER                                            :: handle, i, iatom, ikind, iqm, ispin, &
                                                             itype, natom, natorb_a, nkind, &
@@ -275,8 +276,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: delta, qmmm_spherical_cutoff(2)
       TYPE(particle_type), DIMENSION(:), POINTER         :: particles_qm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_se_qmmm_matrix_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'deriv_se_qmmm_matrix_low'
 
       INTEGER                                            :: handle, i1, i1L, i2, Imm, Imp, IndMM, &
                                                             Ipot, j1, j1L

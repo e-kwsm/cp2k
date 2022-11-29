@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -111,9 +113,9 @@ CONTAINS
          mm = 0.0_dp
          DO j = 1, k
             mm = mm + aw(j + k)*EXP(-aw(j)*x)
-         ENDDO
+         END DO
          numerr = MAX(numerr, ABS(mm - 1.0_dp/x))
-      ENDDO
+      END DO
 
    END FUNCTION get_minimax_numerical_error
 
@@ -133,8 +135,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(2*k), INTENT(OUT)         :: aw
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: mm_error
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_minimax_coeff_k15', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_minimax_coeff_k15'
 
       INTEGER                                            :: handle, icoef, kkk
       REAL(KIND=dp)                                      :: L_b, R_max, R_min, R_transf, U_b

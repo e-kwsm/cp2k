@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -50,9 +52,6 @@ CONTAINS
    SUBROUTINE semi_empirical_expns3_create(expns3)
       TYPE(semi_empirical_expns3_type), POINTER          :: expns3
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'semi_empirical_expns3_create', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(expns3))
       ALLOCATE (expns3)
       expns3%core_core = 0.0_dp
@@ -68,9 +67,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE semi_empirical_expns3_release(expns3)
       TYPE(semi_empirical_expns3_type), POINTER          :: expns3
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'semi_empirical_expns3_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(expns3)) THEN
          DEALLOCATE (expns3)

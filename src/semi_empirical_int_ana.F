@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -15,46 +17,46 @@
 ! **************************************************************************************************
 MODULE semi_empirical_int_ana
 
-   USE input_constants,                 ONLY: do_method_am1,&
-                                              do_method_pchg,&
-                                              do_method_pdg,&
-                                              do_method_pm3,&
-                                              do_method_pm6,&
-                                              do_method_pm6fm,&
-                                              do_method_undef,&
-                                              do_se_IS_kdso_d
-   USE kinds,                           ONLY: dp
-   USE multipole_types,                 ONLY: do_multipole_none
-   USE physcon,                         ONLY: angstrom,&
-                                              evolt
-   USE semi_empirical_int_arrays,       ONLY: &
-        fac_x_to_z, ijkl_ind, ijkl_sym, inddd, inddp, indexa, indexb, indpp, int2c_type, l_index, &
-        map_x_to_z, rij_threshold
-   USE semi_empirical_int_num,          ONLY: nucint_d_num,&
-                                              nucint_sp_num,&
-                                              terep_d_num,&
-                                              terep_sp_num
-   USE semi_empirical_int_utils,        ONLY: d_ijkl_d,&
-                                              d_ijkl_sp,&
-                                              rot_2el_2c_first,&
-                                              rotmat,&
-                                              store_2el_2c_diag
-   USE semi_empirical_types,            ONLY: rotmat_create,&
-                                              rotmat_release,&
-                                              rotmat_type,&
-                                              se_int_control_type,&
-                                              se_int_screen_type,&
-                                              se_taper_type,&
-                                              semi_empirical_type,&
-                                              setup_se_int_control_type
-   USE taper_types,                     ONLY: dtaper_eval,&
-                                              taper_eval
+   USE input_constants, ONLY: do_method_am1, &
+                              do_method_pchg, &
+                              do_method_pdg, &
+                              do_method_pm3, &
+                              do_method_pm6, &
+                              do_method_pm6fm, &
+                              do_method_undef, &
+                              do_se_IS_kdso_d
+   USE kinds, ONLY: dp
+   USE multipole_types, ONLY: do_multipole_none
+   USE physcon, ONLY: angstrom, &
+                      evolt
+   USE semi_empirical_int_arrays, ONLY: &
+      fac_x_to_z, ijkl_ind, ijkl_sym, inddd, inddp, indexa, indexb, indpp, int2c_type, l_index, &
+      map_x_to_z, rij_threshold
+   USE semi_empirical_int_num, ONLY: nucint_d_num, &
+                                     nucint_sp_num, &
+                                     terep_d_num, &
+                                     terep_sp_num
+   USE semi_empirical_int_utils, ONLY: d_ijkl_d, &
+                                       d_ijkl_sp, &
+                                       rot_2el_2c_first, &
+                                       rotmat, &
+                                       store_2el_2c_diag
+   USE semi_empirical_types, ONLY: rotmat_create, &
+                                   rotmat_release, &
+                                   rotmat_type, &
+                                   se_int_control_type, &
+                                   se_int_screen_type, &
+                                   se_taper_type, &
+                                   semi_empirical_type, &
+                                   setup_se_int_control_type
+   USE taper_types, ONLY: dtaper_eval, &
+                          taper_eval
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
-#include "semi_empirical_int_debug.h"
-#include "semi_empirical_int_args.h"
+
+   #:include 'semi_empirical_int_debug.fypp'
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'semi_empirical_int_ana'
    LOGICAL, PARAMETER, PRIVATE          :: debug_this_module = .FALSE.
@@ -93,8 +95,6 @@ CONTAINS
       REAL(dp), DIMENSION(3, 45), INTENT(OUT), OPTIONAL  :: de1b, de2a
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotnuc_ana', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idd, idp, ind1, ind2, ipp, j, &
                                                             last_orbital(2), m, n
@@ -353,13 +353,11 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore_ana', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ig, nt
       LOGICAL                                            :: l_denuc, l_enuc
       REAL(dp) :: aab, alpi, alpj, apdg, ax, dai, daj, dax, dbi, dbj, denuc_loc, dqcorr, drija, &
-         dscale, dssss, dssss_sr, dtmp, dzz, enuc_loc, pai, paj, pbi, pbj, qcorr, rij, rija, &
-         scale, ssss, ssss_sr, tmp, xab, xtmp, zaf, zbf, zz
+                  dscale, dssss, dssss_sr, dtmp, dzz, enuc_loc, pai, paj, pbi, pbj, qcorr, rij, rija, &
+                  scale, ssss, ssss_sr, tmp, xab, xtmp, zaf, zbf, zz
       REAL(dp), DIMENSION(3)                             :: drij
       REAL(dp), DIMENSION(4)                             :: fni1, fni2, fni3, fnj1, fnj2, fnj3
       TYPE(se_int_control_type)                          :: se_int_control_off
@@ -419,7 +417,7 @@ CONTAINS
                      dscale = dscale + angstrom*EXP(-alpj*rij) - (angstrom*rij - 1._dp)*alpj*EXP(-alpj*rij)
                   END IF
                END IF
-            ENDIF
+            END IF
             IF (l_denuc) THEN
                dscale = SIGN(1.0_dp, scale*tmp)*(dscale*tmp + scale*dtmp)
                dzz = -zz/rij**2
@@ -513,8 +511,8 @@ CONTAINS
                            dax = fni2(ig)*2.0_dp*(rij - fni3(ig))
                            dscale = dscale + dzz*fni1(ig)*EXP(-ax) - dax*zz*fni1(ig)*EXP(-ax)
                         END IF
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   IF (ABS(fnj1(ig)) > 0._dp) THEN
                      ax = fnj2(ig)*(rij - fnj3(ig))**2
                      IF (ax <= 25._dp) THEN
@@ -523,10 +521,10 @@ CONTAINS
                            dax = fnj2(ig)*2.0_dp*(rij - fnj3(ig))
                            dscale = dscale + dzz*fnj1(ig)*EXP(-ax) - dax*zz*fnj1(ig)*EXP(-ax)
                         END IF
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                END DO
-            ENDIF
+            END IF
             IF (itype == do_method_pdg) THEN
                ! PDDG function
                zaf = sepi%zeff/nt
@@ -611,10 +609,10 @@ CONTAINS
                         ! Hard core repulsion
                         (-12.0_dp*xtmp/rija*drija)
             END IF
-         ENDIF
+         END IF
 
          ! Only at the very end let's sum-up the several contributions energy/derivatives
-         ! This assignment should be method indipendent
+         ! This assignment should be method independent
          IF (l_enuc) THEN
             enuc = enuc_loc + scale + qcorr
          END IF
@@ -628,7 +626,7 @@ CONTAINS
          IF (debug_this_module) THEN
             CALL check_dcorecore_ana(sepi, sepj, rijv, itype, se_int_control, se_taper, enuc, denuc)
          END IF
-      ENDIF
+      END IF
    END SUBROUTINE corecore_ana
 
 ! **************************************************************************************************
@@ -663,9 +661,6 @@ CONTAINS
       REAL(dp), DIMENSION(3), INTENT(OUT), OPTIONAL      :: denuc
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'corecore_el_ana', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: l_denuc, l_enuc
       REAL(dp)                                           :: drij(3), dssss, dssss_sr, rij, ssss, &
@@ -719,9 +714,6 @@ CONTAINS
    SUBROUTINE invert_integral(sepi, sepj, int1el, int2el)
       TYPE(semi_empirical_type), POINTER                 :: sepi, sepj
       REAL(dp), DIMENSION(:), INTENT(INOUT), OPTIONAL    :: int1el, int2el
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'invert_integral', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: fdim, gind, gknd, i, imap, ind, j, jmap, &
                                                             jnd, k, kmap, knd, l, lmap, lnd, ndim, &
@@ -833,9 +825,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: dint1el, dint2el
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'invert_derivative', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, m
       REAL(KIND=dp)                                      :: tmp
 
@@ -869,8 +858,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the ssss integral and analytical derivatives (main driver)
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param ssss ...
 !> \param dssss derivative of (ssss) integral
@@ -899,9 +888,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       LOGICAL, INTENT(IN)                                :: lgrad
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dssss_nucint_ana', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: dft, ft
       TYPE(se_int_screen_type)                           :: se_int_screen
@@ -948,8 +934,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the nuclear attraction integrals and analytical integrals (main driver)
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param core ...
 !> \param dcore derivative of 4 X 2 array of electron-core attraction integrals
@@ -983,9 +969,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       LOGICAL, INTENT(IN)                                :: lgrad
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcore_nucint_ana', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: dft, ft
@@ -1055,8 +1038,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the nuclear attraction integrals and derivatives for sp basis
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param dssss derivative of (ssss) integral
 !>                          derivatives are intended w.r.t. rij
@@ -1094,8 +1077,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dnucint_sp_ana', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ij, kl
       LOGICAL                                            :: l_core, l_ssss, si, sj
 
@@ -1109,38 +1090,38 @@ CONTAINS
       ij = indexa(1, 1)
       IF (l_ssss) THEN
          ! Store the value for the derivative of <S  S  | S  S  > (Used for computing the core-core interactions)
-         dssss = d_ijkl_sp(sepi, sepj, ij, ij, 0, 0, 0, 0, -1, rij, CPPint_args)
+         dssss = d_ijkl_sp(sepi, sepj, ij, ij, 0, 0, 0, 0, -1, rij, se_int_control, se_int_screen, itype)
       END IF
 
       IF (l_core) THEN
          !     <S  S  | S  S  >
          kl = indexa(1, 1)
-         dcore(1, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 0, 0, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+         dcore(1, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 0, 0, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          IF (si) THEN
             !  <S  P  | S  S  >
             kl = indexa(2, 1)
-            dcore(2, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 0, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(2, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 0, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <P  P  | S  S  >
             kl = indexa(2, 2)
-            dcore(3, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(3, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <P+ P+ | S  S  >
             kl = indexa(3, 3)
-            dcore(4, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(4, 1) = d_ijkl_sp(sepi, sepj, kl, ij, 1, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          END IF
 
          !     <S  S  | S  S  >
          kl = indexa(1, 1)
-         dcore(1, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 0, 1, rij, CPPint_args)*sepi%zeff
+         dcore(1, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 0, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          IF (sj) THEN
             !  <S  S  | S  P  >
             kl = indexa(2, 1)
-            dcore(2, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 1, 1, rij, CPPint_args)*sepi%zeff
+            dcore(2, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 0, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S  S  | P  P  >
             kl = indexa(2, 2)
-            dcore(3, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, CPPint_args)*sepi%zeff
+            dcore(3, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S  S  | P+ P+ >
             kl = indexa(3, 3)
-            dcore(4, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, CPPint_args)*sepi%zeff
+            dcore(4, 2) = d_ijkl_sp(sepi, sepj, ij, kl, 0, 0, 1, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          END IF
       END IF
    END SUBROUTINE dnucint_sp_ana
@@ -1148,8 +1129,8 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Calculates the analytical derivative of the nuclear attraction
 !>        integrals involving d orbitals
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param dcore 4 X 2 array of electron-core attraction integrals
 !>         The storage of the nuclear attraction integrals  core(kl/ij) iS
@@ -1175,8 +1156,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dnucint_d_ana', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ij, kl
 
 ! Check if d-orbitals are present
@@ -1186,42 +1165,42 @@ CONTAINS
          IF (sepj%dorb) THEN
             !  <S S | D S>
             kl = indexa(5, 1)
-            dcore(5, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 0, 1, rij, CPPint_args)*sepi%zeff
+            dcore(5, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 0, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D P >
             kl = indexa(5, 2)
-            dcore(6, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, CPPint_args)*sepi%zeff
+            dcore(6, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D D >
             kl = indexa(5, 5)
-            dcore(7, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            dcore(7, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D+P+>
             kl = indexa(6, 3)
-            dcore(8, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, CPPint_args)*sepi%zeff
+            dcore(8, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 1, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D+D+>
             kl = indexa(6, 6)
-            dcore(9, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            dcore(9, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
             !  <S S | D#D#>
             kl = indexa(8, 8)
-            dcore(10, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, CPPint_args)*sepi%zeff
+            dcore(10, 2) = d_ijkl_d(sepi, sepj, ij, kl, 0, 0, 2, 2, 1, rij, se_int_control, se_int_screen, itype)*sepi%zeff
          END IF
          IF (sepi%dorb) THEN
             !  <D S | S S>
             kl = indexa(5, 1)
-            dcore(5, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 0, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(5, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 0, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D P | S S >
             kl = indexa(5, 2)
-            dcore(6, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(6, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D D | S S >
             kl = indexa(5, 5)
-            dcore(7, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(7, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D+P+| S S >
             kl = indexa(6, 3)
-            dcore(8, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(8, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 1, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D+D+| S S >
             kl = indexa(6, 6)
-            dcore(9, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(9, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
             !  <D#D#| S S >
             kl = indexa(8, 8)
-            dcore(10, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, CPPint_args)*sepj%zeff
+            dcore(10, 1) = d_ijkl_d(sepi, sepj, kl, ij, 2, 2, 0, 0, 2, rij, se_int_control, se_int_screen, itype)*sepj%zeff
          END IF
       END IF
    END SUBROUTINE dnucint_d_ana
@@ -1254,8 +1233,6 @@ CONTAINS
          OPTIONAL                                        :: dw
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_taper_type), POINTER                       :: se_taper
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotint_ana', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, i1, ii, ij, ij1, iminus, istep, &
                                                             iw_loc, j, j1, jj, k, kk, kl, l, &
@@ -1556,14 +1533,14 @@ CONTAINS
             END IF
          END IF
          CALL rotmat_release(ij_matrix)
-      ENDIF
+      END IF
    END SUBROUTINE rotint_ana
 
 ! **************************************************************************************************
 !> \brief Calculates the derivative and the value of two-electron repulsion
 !>      integrals and the nuclear attraction integrals w.r.t. |r|
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param rep rray of two-electron repulsion integrals
 !> \param rep_d array of two-electron repulsion integrals derivatives
@@ -1583,8 +1560,6 @@ CONTAINS
       TYPE(se_taper_type), POINTER                       :: se_taper
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       LOGICAL, INTENT(IN)                                :: lgrad
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dterep_ana', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ij, j, k, kl, l, lasti, lastj, li, &
                                                             lj, lk, ll, numb
@@ -1659,8 +1634,8 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief Calculates the derivative and the value of two-electron repulsion
 !>      integrals and the nuclear attraction integrals w.r.t. |r| - sp shells only
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param drep array of derivatives of two-electron repulsion integrals
 !> \param rep array of two-electron repulsion integrals
@@ -1690,8 +1665,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
       REAL(dp), INTENT(IN)                               :: ft, dft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dterep_sp_ana', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ij, j, k, kl, l, lasti, lastj, li, &
                                                             lj, lk, ll, nold, numb
@@ -1731,8 +1704,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Calculates the derivatives of the two-electron repulsion integrals - d shell only
-!> \param sepi paramters of atom i
-!> \param sepj paramters of atom j
+!> \param sepi parameters of atom i
+!> \param sepj parameters of atom j
 !> \param rij interatomic distance
 !> \param drep ...
 !> \param rep array of two-electron repulsion integrals
@@ -1754,8 +1727,6 @@ CONTAINS
       TYPE(se_int_control_type), INTENT(IN)              :: se_int_control
       TYPE(se_int_screen_type), INTENT(IN)               :: se_int_screen
       REAL(dp), INTENT(IN)                               :: ft, dft
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dterep_d_ana', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ij, j, k, kl, l, lasti, lastj, li, &
                                                             lj, lk, ll, nold, numb

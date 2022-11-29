@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -28,11 +30,13 @@ MODULE dm_ls_scf_methods
    USE input_constants,                 ONLY: &
         ls_cluster_atomic, ls_s_preconditioner_atomic, ls_s_preconditioner_molecular, &
         ls_s_preconditioner_none, ls_s_sqrt_ns, ls_s_sqrt_proot, ls_scf_sign_ns, &
-        ls_scf_sign_proot, ls_scf_sign_submatrix, ls_scf_submatrix_sign_ns
+        ls_scf_sign_proot, ls_scf_sign_submatrix, ls_scf_submatrix_sign_direct_muadj, &
+        ls_scf_submatrix_sign_direct_muadj_lowmem, ls_scf_submatrix_sign_ns
    USE iterate_matrix,                  ONLY: invert_Hotelling,&
                                               matrix_sign_Newton_Schulz,&
                                               matrix_sign_proot,&
                                               matrix_sign_submatrix,&
+                                              matrix_sign_submatrix_mu_adjust,&
                                               matrix_sqrt_Newton_Schulz,&
                                               matrix_sqrt_proot
    USE kinds,                           ONLY: dp,&
@@ -51,7 +55,7 @@ MODULE dm_ls_scf_methods
 
    PUBLIC :: ls_scf_init_matrix_S
    PUBLIC :: density_matrix_sign, density_matrix_sign_fixed_mu
-   PUBLIC :: apply_matrix_preconditioner
+   PUBLIC :: apply_matrix_preconditioner, compute_matrix_preconditioner
    PUBLIC :: density_matrix_trs4, density_matrix_tc2, compute_homo_lumo
 
 CONTAINS
@@ -69,8 +73,7 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: matrix_s
       TYPE(ls_scf_env_type)                              :: ls_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_init_matrix_S', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_init_matrix_S'
 
       INTEGER                                            :: handle, unit_nr
       REAL(KIND=dp)                                      :: frob_matrix, frob_matrix_base
@@ -85,7 +88,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! make our own copy of S
       IF (ls_scf_env%has_unit_metric) THEN
@@ -93,7 +96,7 @@ CONTAINS
          CALL dbcsr_add_on_diag(ls_scf_env%matrix_s, 1.0_dp)
       ELSE
          CALL matrix_qs_to_ls(ls_scf_env%matrix_s, matrix_s, ls_scf_env%ls_mstruct, covariant=.TRUE.)
-      ENDIF
+      END IF
 
       CALL dbcsr_filter(ls_scf_env%matrix_s, ls_scf_env%eps_filter)
 
@@ -108,13 +111,13 @@ CONTAINS
                                             ls_scf_env%matrix_bs_sqrt, ls_scf_env%matrix_bs_sqrt_inv, &
                                             ls_scf_env%eps_filter, ls_scf_env%s_sqrt_order, &
                                             ls_scf_env%eps_lanczos, ls_scf_env%max_iter_lanczos)
-      ENDIF
+      END IF
 
       ! precondition S
       IF (ls_scf_env%has_s_preconditioner) THEN
          CALL apply_matrix_preconditioner(ls_scf_env%matrix_s, "forward", &
                                           ls_scf_env%matrix_bs_sqrt, ls_scf_env%matrix_bs_sqrt_inv)
-      ENDIF
+      END IF
 
       ! compute sqrt(S) and inv(sqrt(S))
       IF (ls_scf_env%use_s_sqrt) THEN
@@ -137,7 +140,7 @@ CONTAINS
                                            ls_scf_env%s_sqrt_order, &
                                            ls_scf_env%eps_lanczos, ls_scf_env%max_iter_lanczos)
          CASE DEFAULT
-            CPABORT("Unkown sqrt method.")
+            CPABORT("Unknown sqrt method.")
          END SELECT
 
          IF (ls_scf_env%check_s_inv) THEN
@@ -157,12 +160,12 @@ CONTAINS
             frob_matrix = dbcsr_frobenius_norm(matrix_tmp2)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, *) "Error for (inv(sqrt(S))*S*inv(sqrt(S))-I)", frob_matrix/frob_matrix_base
-            ENDIF
+            END IF
 
             CALL dbcsr_release(matrix_tmp1)
             CALL dbcsr_release(matrix_tmp2)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! compute the inverse of S
       IF (ls_scf_env%needs_s_inv) THEN
@@ -173,7 +176,7 @@ CONTAINS
          ELSE
             CALL dbcsr_multiply("N", "N", 1.0_dp, ls_scf_env%matrix_s_sqrt_inv, ls_scf_env%matrix_s_sqrt_inv, &
                                 0.0_dp, ls_scf_env%matrix_s_inv, filter_eps=ls_scf_env%eps_filter)
-         ENDIF
+         END IF
          IF (ls_scf_env%check_s_inv) THEN
             CALL dbcsr_create(matrix_tmp1, template=ls_scf_env%matrix_s, &
                               matrix_type=dbcsr_type_no_symmetry)
@@ -184,10 +187,10 @@ CONTAINS
             frob_matrix = dbcsr_frobenius_norm(matrix_tmp1)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, *) "Error for (inv(S)*S-I)", frob_matrix/frob_matrix_base
-            ENDIF
+            END IF
             CALL dbcsr_release(matrix_tmp1)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE ls_scf_init_matrix_s
@@ -220,8 +223,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: eps_lanczos
       INTEGER                                            :: max_iter_lanczos
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_matrix_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_matrix_preconditioner'
 
       INTEGER                                            :: datatype, handle, iblock_col, iblock_row
       LOGICAL                                            :: block_needed
@@ -246,7 +248,7 @@ CONTAINS
                CALL dbcsr_iterator_next_block(iter, iblock_row, iblock_col, block_sp)
             ELSE
                CALL dbcsr_iterator_next_block(iter, iblock_row, iblock_col, block_dp)
-            ENDIF
+            END IF
 
             ! do we need the block ?
             ! this depends on the preconditioner, but also the matrix clustering method employed
@@ -261,8 +263,8 @@ CONTAINS
                IF (preconditioner_type == ls_s_preconditioner_molecular .AND. &
                    ls_mstruct%cluster_type == ls_cluster_atomic) THEN
                   IF (ls_mstruct%atom_to_molecule(iblock_row) == ls_mstruct%atom_to_molecule(iblock_col)) block_needed = .TRUE.
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
             ! add it
             IF (block_needed) THEN
@@ -270,10 +272,10 @@ CONTAINS
                   CALL dbcsr_put_block(matrix=matrix_bs, row=iblock_row, col=iblock_col, block=block_sp)
                ELSE
                   CALL dbcsr_put_block(matrix=matrix_bs, row=iblock_row, col=iblock_col, block=block_dp)
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
-         ENDDO
+         END DO
          CALL dbcsr_iterator_stop(iter)
       END SELECT
 
@@ -326,8 +328,7 @@ CONTAINS
       CHARACTER(LEN=*)                                   :: direction
       TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_bs_sqrt, matrix_bs_sqrt_inv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'apply_matrix_preconditioner', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'apply_matrix_preconditioner'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_type)                                   :: matrix_tmp
@@ -374,6 +375,7 @@ CONTAINS
 !> \param matrix_s_sqrt_inv ...
 !> \par History
 !>       2010.10 created [Joost VandeVondele]
+!>       2020.07 support for methods with internal mu adjustment [Michael Lass]
 !> \author Joost VandeVondele
 ! **************************************************************************************************
    SUBROUTINE density_matrix_sign(matrix_p, mu, fixed_mu, sign_method, sign_order, matrix_ks, &
@@ -391,14 +393,13 @@ CONTAINS
       INTEGER, OPTIONAL                                  :: submatrix_sign_method
       TYPE(dbcsr_type), INTENT(IN), OPTIONAL             :: matrix_s_sqrt_inv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_sign', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_sign'
       REAL(KIND=dp), PARAMETER                           :: initial_increment = 0.01_dp
 
       INTEGER                                            :: handle, iter, unit_nr, &
                                                             used_submatrix_sign_method
       LOGICAL                                            :: do_sign_symmetric, has_mu_high, &
-                                                            has_mu_low
+                                                            has_mu_low, internal_mu_adjust
       REAL(KIND=dp)                                      :: increment, mu_high, mu_low, trace
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -409,7 +410,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       do_sign_symmetric = .FALSE.
       IF (PRESENT(sign_symmetric)) do_sign_symmetric = sign_symmetric
@@ -417,41 +418,53 @@ CONTAINS
       used_submatrix_sign_method = ls_scf_submatrix_sign_ns
       IF (PRESENT(submatrix_sign_method)) used_submatrix_sign_method = submatrix_sign_method
 
-      increment = initial_increment
+      internal_mu_adjust = ((sign_method .EQ. ls_scf_sign_submatrix) .AND. &
+                            (used_submatrix_sign_method .EQ. ls_scf_submatrix_sign_direct_muadj .OR. &
+                             used_submatrix_sign_method .EQ. ls_scf_submatrix_sign_direct_muadj_lowmem))
 
-      has_mu_low = .FALSE.
-      has_mu_high = .FALSE.
+      IF (internal_mu_adjust) THEN
+         CALL density_matrix_sign_internal_mu(matrix_p, trace, mu, sign_method, &
+                                              matrix_ks, matrix_s, threshold, &
+                                              used_submatrix_sign_method, &
+                                              nelectron, matrix_s_sqrt_inv)
+      ELSE
+         increment = initial_increment
 
-      ! bisect if both bounds are known, otherwise find the bounds with a linear search
-      DO iter = 1, 30
-         IF (has_mu_low .AND. has_mu_high) THEN
-            mu = (mu_low + mu_high)/2
-            IF (ABS(mu_high - mu_low) < threshold) EXIT
-         ENDIF
+         has_mu_low = .FALSE.
+         has_mu_high = .FALSE.
 
-         CALL density_matrix_sign_fixed_mu(matrix_p, trace, mu, sign_method, sign_order, &
-                                           matrix_ks, matrix_s, matrix_s_inv, threshold, &
-                                           do_sign_symmetric, used_submatrix_sign_method, &
-                                           matrix_s_sqrt_inv)
-         IF (unit_nr > 0) WRITE (unit_nr, '(T2,A,I2,1X,F13.9,1X,F15.9)') &
-            "Density matrix:  iter, mu, trace error: ", iter, mu, trace - nelectron
+         ! bisect if both bounds are known, otherwise find the bounds with a linear search
+         DO iter = 1, 30
+            IF (has_mu_low .AND. has_mu_high) THEN
+               mu = (mu_low + mu_high)/2
+               IF (ABS(mu_high - mu_low) < threshold) EXIT
+            END IF
 
-         ! OK, we can skip early if we are as close as possible to the exact result
-         ! smaller differences should be considered 'noise'
-         IF (ABS(trace - nelectron) < 0.5_dp .OR. fixed_mu) EXIT
+            CALL density_matrix_sign_fixed_mu(matrix_p, trace, mu, sign_method, sign_order, &
+                                              matrix_ks, matrix_s, matrix_s_inv, threshold, &
+                                              do_sign_symmetric, used_submatrix_sign_method, &
+                                              matrix_s_sqrt_inv)
+            IF (unit_nr > 0) WRITE (unit_nr, '(T2,A,I2,1X,F13.9,1X,F15.9)') &
+               "Density matrix:  iter, mu, trace error: ", iter, mu, trace - nelectron
 
-         IF (trace < nelectron) THEN
-            mu_low = mu
-            mu = mu + increment
-            has_mu_low = .TRUE.
-            increment = increment*2
-         ELSE
-            mu_high = mu
-            mu = mu - increment
-            has_mu_high = .TRUE.
-            increment = increment*2
-         ENDIF
-      ENDDO
+            ! OK, we can skip early if we are as close as possible to the exact result
+            ! smaller differences should be considered 'noise'
+            IF (ABS(trace - nelectron) < 0.5_dp .OR. fixed_mu) EXIT
+
+            IF (trace < nelectron) THEN
+               mu_low = mu
+               mu = mu + increment
+               has_mu_low = .TRUE.
+               increment = increment*2
+            ELSE
+               mu_high = mu
+               mu = mu - increment
+               has_mu_high = .TRUE.
+               increment = increment*2
+            END IF
+         END DO
+
+      END IF
 
       CALL timestop(handle)
 
@@ -489,8 +502,7 @@ CONTAINS
       INTEGER                                            :: submatrix_sign_method
       TYPE(dbcsr_type), INTENT(IN), OPTIONAL             :: matrix_s_sqrt_inv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_sign_fixed_mu', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_sign_fixed_mu'
 
       INTEGER                                            :: handle, unit_nr
       REAL(KIND=dp)                                      :: frob_matrix
@@ -505,7 +517,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       CALL dbcsr_create(matrix_sign, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
 
@@ -554,7 +566,7 @@ CONTAINS
             CPABORT("Unkown sign method.")
          END SELECT
          CALL dbcsr_release(matrix_sinv_ks)
-      ENDIF
+      END IF
 
       ! now construct the density matrix PS=0.5*(I-sign(inv(S)H-I*mu))
       CALL dbcsr_create(matrix_p_ud, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
@@ -572,25 +584,128 @@ CONTAINS
                           0.0_dp, matrix_tmp, filter_eps=threshold)
       CALL dbcsr_add(matrix_tmp, matrix_p_ud, 1.0_dp, -1.0_dp)
       frob_matrix = dbcsr_frobenius_norm(matrix_tmp)
-      CALL dbcsr_release(matrix_tmp)
       IF (unit_nr > 0) WRITE (unit_nr, '(T2,A,F20.12)') "Deviation from idempotency: ", frob_matrix
 
       IF (sign_symmetric) THEN
          CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_p_ud, &
-                             0.0_dp, matrix_p, filter_eps=threshold)
-         CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_p, matrix_s_sqrt_inv, &
+                             0.0_dp, matrix_tmp, filter_eps=threshold)
+         CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_tmp, matrix_s_sqrt_inv, &
                              0.0_dp, matrix_p, filter_eps=threshold)
       ELSE
 
          ! get P=PS*inv(S)
          CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_p_ud, matrix_s_inv, &
                              0.0_dp, matrix_p, filter_eps=threshold)
-      ENDIF
+      END IF
       CALL dbcsr_release(matrix_p_ud)
+      CALL dbcsr_release(matrix_tmp)
 
       CALL timestop(handle)
 
    END SUBROUTINE density_matrix_sign_fixed_mu
+
+! **************************************************************************************************
+!> \brief compute the corresponding density matrix and its trace, using methods with internal mu adjustment
+!> \param matrix_p ...
+!> \param trace ...
+!> \param mu ...
+!> \param sign_method ...
+!> \param matrix_ks ...
+!> \param matrix_s ...
+!> \param threshold ...
+!> \param submatrix_sign_method ...
+!> \param nelectron ...
+!> \param matrix_s_sqrt_inv ...
+!> \par History
+!>       2020.07 created, based on density_matrix_sign_fixed_mu [Michael Lass]
+!> \author Michael Lass
+! **************************************************************************************************
+   SUBROUTINE density_matrix_sign_internal_mu(matrix_p, trace, mu, sign_method, matrix_ks, &
+                                              matrix_s, threshold, submatrix_sign_method, &
+                                              nelectron, matrix_s_sqrt_inv)
+
+      TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_p
+      REAL(KIND=dp), INTENT(OUT)                         :: trace
+      REAL(KIND=dp), INTENT(INOUT)                       :: mu
+      INTEGER                                            :: sign_method
+      TYPE(dbcsr_type), INTENT(INOUT)                    :: matrix_ks, matrix_s
+      REAL(KIND=dp), INTENT(IN)                          :: threshold
+      INTEGER                                            :: submatrix_sign_method
+      INTEGER, INTENT(IN)                                :: nelectron
+      TYPE(dbcsr_type), INTENT(IN)                       :: matrix_s_sqrt_inv
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_sign_internal_mu'
+
+      INTEGER                                            :: handle, unit_nr
+      REAL(KIND=dp)                                      :: frob_matrix
+      TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(dbcsr_type)                                   :: matrix_p_ud, matrix_sign, &
+                                                            matrix_ssqrtinv_ks_ssqrtinv, &
+                                                            matrix_ssqrtinv_ks_ssqrtinv2, &
+                                                            matrix_tmp
+
+      CALL timeset(routineN, handle)
+
+      logger => cp_get_default_logger()
+      IF (logger%para_env%ionode) THEN
+         unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
+      ELSE
+         unit_nr = -1
+      END IF
+
+      CALL dbcsr_create(matrix_sign, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
+
+      CALL dbcsr_create(matrix_ssqrtinv_ks_ssqrtinv, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_create(matrix_ssqrtinv_ks_ssqrtinv2, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_ks, &
+                          0.0_dp, matrix_ssqrtinv_ks_ssqrtinv2, filter_eps=threshold)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_ssqrtinv_ks_ssqrtinv2, matrix_s_sqrt_inv, &
+                          0.0_dp, matrix_ssqrtinv_ks_ssqrtinv, filter_eps=threshold)
+      CALL dbcsr_add_on_diag(matrix_ssqrtinv_ks_ssqrtinv, -mu)
+
+      SELECT CASE (sign_method)
+      CASE (ls_scf_sign_submatrix)
+         SELECT CASE (submatrix_sign_method)
+         CASE (ls_scf_submatrix_sign_direct_muadj, ls_scf_submatrix_sign_direct_muadj_lowmem)
+            CALL matrix_sign_submatrix_mu_adjust(matrix_sign, matrix_ssqrtinv_ks_ssqrtinv, mu, nelectron, threshold, &
+                                                 submatrix_sign_method)
+         CASE DEFAULT
+            CPABORT("density_matrix_sign_internal_mu called with invalid submatrix sign method")
+         END SELECT
+      CASE DEFAULT
+         CPABORT("density_matrix_sign_internal_mu called with invalid sign method.")
+      END SELECT
+      CALL dbcsr_release(matrix_ssqrtinv_ks_ssqrtinv)
+      CALL dbcsr_release(matrix_ssqrtinv_ks_ssqrtinv2)
+
+      ! now construct the density matrix PS=0.5*(I-sign(inv(S)H-I*mu))
+      CALL dbcsr_create(matrix_p_ud, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_copy(matrix_p_ud, matrix_sign)
+      CALL dbcsr_scale(matrix_p_ud, -0.5_dp)
+      CALL dbcsr_add_on_diag(matrix_p_ud, 0.5_dp)
+      CALL dbcsr_release(matrix_sign)
+
+      ! we now have PS, lets get its trace
+      CALL dbcsr_trace(matrix_p_ud, trace)
+
+      ! we can also check it is idempotent PS*PS=PS
+      CALL dbcsr_create(matrix_tmp, template=matrix_s, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_p_ud, matrix_p_ud, &
+                          0.0_dp, matrix_tmp, filter_eps=threshold)
+      CALL dbcsr_add(matrix_tmp, matrix_p_ud, 1.0_dp, -1.0_dp)
+      frob_matrix = dbcsr_frobenius_norm(matrix_tmp)
+      IF (unit_nr > 0) WRITE (unit_nr, '(T2,A,F20.12)') "Deviation from idempotency: ", frob_matrix
+
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_p_ud, &
+                          0.0_dp, matrix_tmp, filter_eps=threshold)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_tmp, matrix_s_sqrt_inv, &
+                          0.0_dp, matrix_p, filter_eps=threshold)
+      CALL dbcsr_release(matrix_p_ud)
+      CALL dbcsr_release(matrix_tmp)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE density_matrix_sign_internal_mu
 
 ! **************************************************************************************************
 !> \brief compute the density matrix using a trace-resetting algorithm
@@ -627,8 +742,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: eps_lanczos
       LOGICAL, INTENT(OUT), OPTIONAL                     :: converged
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_trs4', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_trs4'
       INTEGER, PARAMETER                                 :: max_iter = 100
       REAL(KIND=dp), PARAMETER                           :: gamma_max = 6.0_dp, gamma_min = 0.0_dp
 
@@ -648,7 +762,7 @@ CONTAINS
       IF (nelectron == 0) THEN
          CALL dbcsr_set(matrix_p, 0.0_dp)
          RETURN
-      ENDIF
+      END IF
 
       CALL timeset(routineN, handle)
 
@@ -657,7 +771,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       do_dyn_threshold = .FALSE.
       IF (PRESENT(dynamic_threshold)) do_dyn_threshold = dynamic_threshold
@@ -692,11 +806,11 @@ CONTAINS
             WRITE (unit_nr, '(T6,A,1X,F12.5)') "HOMO upper bound:       ", e_homo + maxdev
             WRITE (unit_nr, '(T6,A,1X,F12.5)') "LUMO lower bound:       ", e_lumo - maxdev
             WRITE (unit_nr, '(T6,A,1X,L12)') "Predicts a gap ?        ", ((e_lumo - maxdev) - (e_homo + maxdev)) > 0
-         ENDIF
+         END IF
          ! save the old mixed matrix
          CALL dbcsr_copy(matrix_ks_deviation, matrix_x_nosym)
 
-      ENDIF
+      END IF
 
       ! get largest/smallest eigenvalues for scaling
       CALL arnoldi_extremal(matrix_x_nosym, max_eig, min_eig, max_iter=max_iter_lanczos, threshold=eps_lanczos, &
@@ -712,14 +826,14 @@ CONTAINS
       ELSE
          CALL dbcsr_add_on_diag(matrix_x, -eps_max)
          CALL dbcsr_scale(matrix_x, -1.0_dp/(eps_max - eps_min))
-      ENDIF
+      END IF
 
       current_threshold = threshold
       IF (do_dyn_threshold) THEN
          ! scale bounds for HOMO/LUMO
          scaled_homo_bound = (eps_max - (e_homo + maxdev))/(eps_max - eps_min)
          scaled_lumo_bound = (eps_max - (e_lumo - maxdev))/(eps_max - eps_min)
-      ENDIF
+      END IF
 
       CALL dbcsr_create(matrix_xsq, template=matrix_ks, matrix_type="S")
 
@@ -771,13 +885,13 @@ CONTAINS
          ELSE
             ! make sure, we don't divide by zero, as soon as gam is outside the interval gam_min,gam_max, it doesn't matter
             gam = delta_n/MAX(trace_gx, ABS(delta_n)/100)
-         ENDIF
+         END IF
          gamma_values(i) = gam
 
          IF (unit_nr > 0 .AND. .FALSE.) THEN
             WRITE (unit_nr, *) "trace_fx", trace_fx, "trace_gx", trace_gx, "gam", gam, &
                "frob_id", frob_id, "conv", ABS(frob_id/frob_x)
-         ENDIF
+         END IF
 
          IF (do_dyn_threshold) THEN
             ! quantities used for dynamic thresholding, when the estimated gap is larger than zero
@@ -796,8 +910,8 @@ CONTAINS
                current_threshold = est_threshold
             ELSE
                current_threshold = threshold
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          IF (gam > gamma_max) THEN
             ! Xn+1 = 2X-X*X
@@ -815,7 +929,7 @@ CONTAINS
                                 0.0_dp, matrix_x, &
                                 flop=flop2, filter_eps=current_threshold)
             branch = 3
-         ENDIF
+         END IF
 
          occ_matrix = dbcsr_get_occupation(matrix_x)
          t2 = m_walltime()
@@ -825,7 +939,7 @@ CONTAINS
                i, occ_matrix, ABS(trace_gx), t2 - t1, &
                (flop1 + flop2)/(1.0E6_dp*MAX(t2 - t1, 0.001_dp)), current_threshold
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
          IF (abnormal_value(trace_gx)) &
             CPABORT("trace_gx is an abnormal value (NaN/Inf).")
@@ -836,7 +950,7 @@ CONTAINS
          IF ((frob_id*frob_id) < (threshold*frob_x*frob_x) .AND. branch == 3 .AND. (ABS(delta_n) < 0.5_dp)) THEN
             IF (PRESENT(converged)) converged = .TRUE.
             EXIT
-         ENDIF
+         END IF
 
       END DO
 
@@ -868,13 +982,13 @@ CONTAINS
             mu_fa = mu_fc
          ELSE
             mu_b = mu_c
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       mu = (eps_min - eps_max)*mu_c + eps_max
       DEALLOCATE (gamma_values)
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(T6,A,1X,F12.5)') 'Chemical potential (mu): ', mu
-      ENDIF
+      END IF
       e_mu = mu
 
       IF (do_dyn_threshold) THEN
@@ -883,7 +997,7 @@ CONTAINS
                                 threshold, max_iter_lanczos, eps_lanczos, homo, lumo, unit_nr)
          e_homo = homo
          e_lumo = lumo
-      ENDIF
+      END IF
 
       CALL dbcsr_release(matrix_x)
       CALL dbcsr_release(matrix_x_nosym)
@@ -921,8 +1035,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: eps_lanczos
       INTEGER, INTENT(IN)                                :: max_iter_lanczos
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_tc2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_tc2'
       INTEGER, PARAMETER                                 :: max_iter = 100
 
       INTEGER                                            :: handle, i, j, k, unit_nr
@@ -942,24 +1055,25 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       do_non_monotonic = .FALSE.
       IF (PRESENT(non_monotonic)) do_non_monotonic = non_monotonic
 
       ! init X = (eps_n*I - H)/(eps_n - eps_0)  ... H* = S^-1/2*H*S^-1/2
       CALL dbcsr_create(matrix_x, template=matrix_ks, matrix_type=dbcsr_type_no_symmetry)
+      CALL dbcsr_create(matrix_xsq, template=matrix_ks, matrix_type=dbcsr_type_no_symmetry)
 
       CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_ks, &
-                          0.0_dp, matrix_x, filter_eps=threshold)
-      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_x, matrix_s_sqrt_inv, &
+                          0.0_dp, matrix_xsq, filter_eps=threshold)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_xsq, matrix_s_sqrt_inv, &
                           0.0_dp, matrix_x, filter_eps=threshold)
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(T6,A,1X,F12.5)') "HOMO upper bound:       ", e_homo
          WRITE (unit_nr, '(T6,A,1X,F12.5)') "LUMO lower bound:       ", e_lumo
          WRITE (unit_nr, '(T6,A,1X,L12)') "Predicts a gap ?        ", ((e_lumo) - (e_homo)) > 0
-      ENDIF
+      END IF
 
       ! get largest/smallest eigenvalues for scaling
       CALL arnoldi_extremal(matrix_x, max_eig, min_eig, max_iter=max_iter_lanczos, threshold=eps_lanczos, &
@@ -975,7 +1089,6 @@ CONTAINS
       CALL dbcsr_add_on_diag(matrix_x, eps_max)
       CALL dbcsr_scale(matrix_x, 1/(eps_max - eps_min))
 
-      CALL dbcsr_create(matrix_xsq, template=matrix_ks, matrix_type=dbcsr_type_no_symmetry)
       CALL dbcsr_copy(matrix_xsq, matrix_x)
 
       CALL dbcsr_create(matrix_tmp, template=matrix_ks, matrix_type=dbcsr_type_no_symmetry)
@@ -995,17 +1108,17 @@ CONTAINS
       IF ((beta - betaB) < 0.005_dp) THEN
          beta = beta - 0.002_dp
          betaB = betaB + 0.002_dp
-      ENDIF
+      END IF
 ! Check if input specifies to use monotonic bounds.
       IF (.NOT. do_non_monotonic) THEN
          beta = 0.0_dp
          betaB = 1.0_dp
-      ENDIF
-! inital SCF cycle has no reliable estimate of homo/lumo, force monotinic bounds.
+      END IF
+! initial SCF cycle has no reliable estimate of homo/lumo, force monotinic bounds.
       IF (e_homo == 0.0_dp) THEN
          beta = 0.0_dp
          BetaB = 1.0_dp
-      ENDIF
+      END IF
 
       ! init to take true branch first
       trace_fx = nelectron
@@ -1055,7 +1168,7 @@ CONTAINS
             betaB = alpha(i)*betaB
             betaB = 2.0_dp*betaB - betaB*betaB
 
-         ENDIF
+         END IF
          occ_matrix = dbcsr_get_occupation(matrix_x)
          t2 = m_walltime()
          IF (unit_nr > 0) THEN
@@ -1064,7 +1177,7 @@ CONTAINS
                i, occ_matrix, t2 - t1, &
                (flop1 + flop2)/(1.0E6_dp*(t2 - t1)), threshold
             CALL m_flush(unit_nr)
-         ENDIF
+         END IF
 
 ! calculate control terms
          CALL dbcsr_trace(matrix_xsq, trace_fx)
@@ -1085,14 +1198,14 @@ CONTAINS
       occ_matrix = dbcsr_get_occupation(matrix_x)
       IF (unit_nr > 0) WRITE (unit_nr, '(T6,A,I3,1X,1F10.8,1X,1F10.8)') 'Final TC2 iteration  ', i, occ_matrix, ABS(nu(i))
 
-      CALL dbcsr_release(matrix_xsq)
-      CALL dbcsr_release(matrix_tmp)
-
       ! output to matrix_p, P = inv(S)^0.5 X inv(S)^0.5
       CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_x, matrix_s_sqrt_inv, &
+                          0.0_dp, matrix_tmp, filter_eps=threshold)
+      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_tmp, &
                           0.0_dp, matrix_p, filter_eps=threshold)
-      CALL dbcsr_multiply("N", "N", 1.0_dp, matrix_s_sqrt_inv, matrix_p, &
-                          0.0_dp, matrix_p, filter_eps=threshold)
+
+      CALL dbcsr_release(matrix_xsq)
+      CALL dbcsr_release(matrix_tmp)
 
       ! ALGO 3 from. SIAM DOI. 10.1137/130911585
       X(1) = 1.0_dp
@@ -1121,24 +1234,24 @@ CONTAINS
                DO k = 1, 4
                   Y(k) = SQRT(Y(k))
                   Y(k) = (Y(k) - 1.0_dp + alpha(j))/alpha(j)
-               ENDDO ! end K
+               END DO ! end K
             ELSE
                DO k = 1, 4
                   Y(k) = 1.0_dp - SQRT(1.0_dp - Y(k))
                   Y(k) = Y(k)/alpha(j)
-               ENDDO ! end K
-            ENDIF ! end poly
-         ENDDO ! end j
+               END DO ! end K
+            END IF ! end poly
+         END DO ! end j
          X(1) = MIN(X(1), Y(1))
          X(2) = MIN(X(2), Y(2))
          X(3) = MAX(X(3), Y(3))
          X(4) = MAX(X(4), Y(4))
          i = i - 1
-      ENDDO ! end i
+      END DO ! end i
 !   lambda 1,2,3,4 are:: out lumo, in lumo, in homo, out homo
       DO k = 1, 4
          lambda(k) = eps_max - (eps_max - eps_min)*X(k)
-      ENDDO ! end k
+      END DO ! end k
 ! END  ALGO 3 from. SIAM DOI. 10.1137/130911585
       e_homo = lambda(4)
       e_lumo = lambda(1)
@@ -1183,9 +1296,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: homo, lumo
       INTEGER                                            :: unit_nr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_homo_lumo', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: converged
       REAL(KIND=dp)                                      :: max_eig, min_eig, shift1, shift2
       TYPE(dbcsr_type)                                   :: tmp1, tmp2, tmp3
@@ -1211,7 +1321,7 @@ CONTAINS
       homo = max_eig - shift1
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(T6,A,1X,L12)') "Lanczos converged:      ", converged
-      ENDIF
+      END IF
 
       ! -(1-P)*(K-shift*1) = (1-P)*(shift*1 - K), where shift is the largest ev of K
       CALL dbcsr_copy(tmp3, matrix_p)
@@ -1228,7 +1338,7 @@ CONTAINS
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(T6,A,1X,L12)') "Lanczos converged:      ", converged
          WRITE (unit_nr, '(T6,A,1X,3F12.5)') 'HOMO/LUMO/gap', homo, lumo, lumo - homo
-      ENDIF
+      END IF
       CALL dbcsr_release(tmp1)
       CALL dbcsr_release(tmp2)
       CALL dbcsr_release(tmp3)
@@ -1260,8 +1370,8 @@ CONTAINS
             xr = xr**2
          ELSE
             xr = (xr*xr)*(4*xr - 3*xr*xr) + gamma_values(k)*xr*xr*((1 - xr)**2)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
    END FUNCTION evaluate_trs4_polynomial
 
 ! **************************************************************************************************
@@ -1290,8 +1400,8 @@ CONTAINS
          ELSE
             h = 2*h - h**2
             l = 2*l - l**2
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       steps = i - 1
    END FUNCTION estimate_steps
 

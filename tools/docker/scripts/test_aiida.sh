@@ -6,21 +6,52 @@
 source /opt/cp2k-toolchain/install/setup
 
 echo -e "\n========== Compiling CP2K =========="
-cd /workspace/cp2k
+cd /opt/cp2k
 echo -n "Compiling cp2k... "
-if make -j VERSION=pdbg &> /dev/null ; then
-   echo "done."
+if make -j VERSION=sdbg &> make.out; then
+  echo "done."
 else
-   echo -e "failed.\n\n"
-   echo "Summary: Compilation failed."
-   echo "Status: FAILED"
-   exit
+  echo -e "failed.\n\n"
+  tail -n 100 make.out
+  echo -e "\nSummary: Compilation failed."
+  echo -e "Status: FAILED\n"
+  exit 0
 fi
 
+echo -e "\n========== Installing Dependencies =========="
+apt-get update -qq
+export DEBIAN_FRONTEND=noninteractive
+export DEBCONF_NONINTERACTIVE_SEEN=true
+apt-get install -qq --no-install-recommends \
+  python3-setuptools \
+  python3-wheel \
+  python3-pip \
+  python3-dev \
+  python3-reentry \
+  postgresql \
+  libpq-dev \
+  rabbitmq-server \
+  sudo \
+  ssh
+rm -rf /var/lib/apt/lists/*
+
+# Some buggy Python packages open utf8 files in text mode.
+# As a workaround we set locale.getpreferredencoding() to utf8.
+export LANG="en_US.UTF-8" LANGUAGE="en_US:en" LC_ALL="en_US.UTF-8"
+locale-gen ${LANG}
+
+# create ubuntu user with sudo powers
+adduser --disabled-password --gecos "" ubuntu
+echo "ubuntu ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# link mpi executables into path
+MPI_INSTALL_DIR=$(dirname "$(command -v mpirun)")
+for i in "${MPI_INSTALL_DIR}"/*; do ln -sf "$i" /usr/bin/; done
+
 echo -e "\n========== Installing AiiDA-CP2K plugin =========="
+git clone --quiet https://github.com/aiidateam/aiida-cp2k.git /opt/aiida-cp2k/
 cd /opt/aiida-cp2k/
-git pull
-pip3 install ./[test]
+pip3 install './[dev]'
 
 echo -e "\n========== Configuring AiiDA =========="
 AS_UBUNTU_USER="sudo -u ubuntu -H"
@@ -33,80 +64,32 @@ service rabbitmq-server start
 
 # start and configure PostgreSQL
 service postgresql start
-sudo -u postgres psql -d template1 -c "CREATE USER aiida WITH PASSWORD 'aiida_db_passwd';"
-sudo -u postgres psql -d template1 -c "CREATE DATABASE aiidadb OWNER aiida;"
-sudo -u postgres psql -d template1 -c "GRANT ALL PRIVILEGES ON DATABASE aiidadb to aiida;"
-
-# setup aiida user
-$AS_UBUNTU_USER verdi setup                       \
-      --non-interactive                           \
-      --email aiida@localhost                     \
-      --first-name Some                           \
-      --last-name Body                            \
-      --institution XYZ                           \
-      --db-backend django                         \
-      --db-username aiida                         \
-      --db-password aiida_db_passwd               \
-      --db-name aiidadb                           \
-      --db-host localhost                         \
-      --db-port 5432                              \
-      --repository /home/ubuntu/aiida_repository  \
-      --profile default
-
-# start aiida daemon
-$AS_UBUNTU_USER verdi profile setdefault default
-$AS_UBUNTU_USER verdi daemon start
-
-# setup local computer
-$AS_UBUNTU_USER mkdir -p /home/ubuntu/aiida_run
-
-$AS_UBUNTU_USER verdi computer setup    \
-      --non-interactive                 \
-      --label localhost                 \
-      --hostname localhost              \
-      --transport local                 \
-      --scheduler direct                \
-      --work-dir /home/ubuntu/aiida_run
-
-$AS_UBUNTU_USER verdi computer configure local localhost --non-interactive --safe-interval 0.0
-$AS_UBUNTU_USER verdi computer test localhost
 
 # setup code
 cat > /usr/bin/cp2k << EndOfMessage
 #!/bin/bash -e
 source /opt/cp2k-toolchain/install/setup
-/workspace/cp2k/exe/local/cp2k.pdbg "\$@"
+/opt/cp2k/exe/local/cp2k.sdbg "\$@"
 EndOfMessage
 chmod +x /usr/bin/cp2k
 
-$AS_UBUNTU_USER verdi code setup        \
-      --non-interactive                 \
-      --label cp2k                      \
-      --computer localhost              \
-      --remote-abs-path /usr/bin/cp2k   \
-      --input-plugin cp2k
-
 echo -e "\n========== Running AiiDA-CP2K Tests =========="
-cd  /opt/aiida-cp2k/
-
 set +e # disable error trapping for remainder of script
 (
-set -e # abort on error
-ulimit -t 1800  # abort after 30 minutes
-$AS_UBUNTU_USER py.test
+  set -e         # abort on error
+  ulimit -t 1800 # abort after 30 minutes
+  $AS_UBUNTU_USER py.test
 )
 
 EXIT_CODE=$?
 
-echo ""
-
 AIIDA_COMMIT=$(git rev-parse --short HEAD)
-if (( EXIT_CODE )); then
-    echo "Summary: Something is wrong with aiida-cp2k commit ${AIIDA_COMMIT}."
-    echo "Status: FAILED"
+if ((EXIT_CODE)); then
+  echo -e "\nSummary: Something is wrong with aiida-cp2k commit ${AIIDA_COMMIT}."
+  echo -e "Status: FAILED\n"
 else
-    echo "Summary: aiida-cp2k commit ${AIIDA_COMMIT} works fine."
-    echo "Status: OK"
+  echo -e "\nSummary: aiida-cp2k commit ${AIIDA_COMMIT} works fine."
+  echo -e "Status: OK\n"
 fi
 
 #EOF

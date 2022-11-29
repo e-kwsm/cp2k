@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -73,8 +75,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: subsys_section
       LOGICAL, INTENT(OUT)                               :: binary_file_read
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_coordinates', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_coordinates'
 
       CHARACTER(LEN=default_path_length)                 :: binary_restart_file_name
       CHARACTER(LEN=default_string_length)               :: string
@@ -300,8 +301,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section, subsys_section
       LOGICAL, INTENT(OUT)                               :: binary_file_read
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_cs_coordinates', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_cs_coordinates'
 
       CHARACTER(LEN=default_path_length)                 :: binary_restart_file_name, message
       CHARACTER(LEN=default_string_length)               :: section_label, section_name
@@ -499,8 +499,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: subsys_section
       LOGICAL, INTENT(OUT)                               :: binary_file_read
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_velocities', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_velocities'
 
       CHARACTER(LEN=default_path_length)                 :: binary_restart_file_name, message
       CHARACTER(LEN=default_string_length)               :: section_label, section_name
@@ -683,8 +682,7 @@ CONTAINS
       LOGICAL, INTENT(OUT)                               :: restart
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_thermostats_nose', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_binary_thermostats_nose'
 
       CHARACTER(LEN=default_string_length)               :: section_label, section_name
       INTEGER                                            :: handle, i, idx, input_unit, istat, j, &
@@ -873,7 +871,7 @@ CONTAINS
          INQUIRE (UNIT=unit_number, EXIST=file_exists)
       ELSE
          file_exists = .FALSE.
-      ENDIF
+      END IF
       IF (file_exists) THEN
          INQUIRE (UNIT=unit_number, NAME=file_name)
          WRITE (UNIT=message, FMT="(A)") &

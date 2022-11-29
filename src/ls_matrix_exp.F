@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,8 +69,7 @@ CONTAINS
       TYPE(dbcsr_type), INTENT(INOUT)                    :: C_re, C_im
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: filter_eps
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_complex_dbcsr_gemm_3', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_complex_dbcsr_gemm_3'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       CHARACTER(LEN=1)                                   :: transa2, transb2
@@ -165,8 +166,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: nsquare, ntaylor
       REAL(KIND=dp), INTENT(in)                          :: filter_eps
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'taylor_only_imaginary_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'taylor_only_imaginary_dbcsr'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, nloop
@@ -260,8 +260,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: nsquare, ntaylor
       REAL(KIND=dp), INTENT(in)                          :: filter_eps
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'taylor_full_complex_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'taylor_full_complex_dbcsr'
       COMPLEX(KIND=dp), PARAMETER                        :: one = (1.0_dp, 0.0_dp), &
                                                             zero = (0.0_dp, 0.0_dp)
 
@@ -350,8 +349,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: propagator, density_re, density_im
       REAL(KIND=dp), INTENT(in)                          :: filter_eps, filter_eps_small, eps_exp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'bch_expansion_imaginary_propagator', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'bch_expansion_imaginary_propagator'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, unit_nr
@@ -405,8 +403,8 @@ CONTAINS
             IF (unit_nr > 0) WRITE (UNIT=unit_nr, FMT="((T3,A,I2,A))") &
                "BCH converged after ", i, " steps"
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       CALL dbcsr_filter(density_re, filter_eps)
       CALL dbcsr_filter(density_im, filter_eps)
@@ -442,8 +440,7 @@ CONTAINS
                                                             density_re, density_im
       REAL(KIND=dp), INTENT(in)                          :: filter_eps, filter_eps_small, eps_exp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'bch_expansion_complex_propagator', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'bch_expansion_complex_propagator'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, unit_nr
@@ -496,8 +493,8 @@ CONTAINS
             IF (unit_nr > 0) WRITE (UNIT=unit_nr, FMT="((T3,A,I2,A))") &
                "BCH converged after ", i, " steps"
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       CALL dbcsr_filter(density_re, filter_eps)
       CALL dbcsr_filter(density_im, filter_eps)

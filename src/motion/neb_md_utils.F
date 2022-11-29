@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -68,9 +70,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: i_rep, iw
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(neb_type), POINTER                            :: neb_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'neb_initialize_velocity', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, ivar, natom, nparticle, nvar
       REAL(KIND=dp)                                      :: akin, mass, mass_tot, sc, temp, &
@@ -172,8 +171,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: tc_section, vc_section
       INTEGER, INTENT(IN)                                :: output_unit, istep
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'control_vels_a', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, temp_tol_steps
       LOGICAL                                            :: explicit
       REAL(KIND=dp)                                      :: ext_temp, f_annealing, scale, temp_tol, &
@@ -231,8 +228,6 @@ CONTAINS
       TYPE(neb_var_type), POINTER                        :: vels, forces
       TYPE(section_vals_type), POINTER                   :: vc_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'control_vels_b', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       LOGICAL                                            :: explicit, lval
       REAL(KIND=dp)                                      :: factor, norm
@@ -280,9 +275,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: temperatures
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT), OPTIONAL :: ekin
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: factor
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_temperatures', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_rep, iatom, ivar, n_rep, natom, nvar
       REAL(KIND=dp)                                      :: akin, mass, myfactor, temploc

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -72,9 +74,6 @@ CONTAINS
    SUBROUTINE apply_qmmmx_translate(qmmmx_env)
       TYPE(qmmmx_env_type), POINTER                      :: qmmmx_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_qmmmx_translate', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       TYPE(cell_type), POINTER                           :: cell_core, cell_extended
       TYPE(cp_subsys_type), POINTER                      :: subsys_core, subsys_extended
@@ -117,9 +116,6 @@ CONTAINS
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: qmmm_section
       LOGICAL, OPTIONAL                                  :: labels_changed
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'update_force_mixing_labels', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length), POINTER      :: adaptive_exclude_molecules(:)
       INTEGER :: i_rep_section, i_rep_val, ip, max_n_qm, n_new, n_rep_exclude, n_rep_section, &
@@ -164,7 +160,7 @@ CONTAINS
       CALL section_vals_val_get(force_mixing_section, "ADAPTIVE_EXCLUDE_MOLECULES", n_rep_val=n_rep_exclude)
       IF (n_rep_exclude > 0) THEN
          CALL section_vals_val_get(force_mixing_section, "ADAPTIVE_EXCLUDE_MOLECULES", c_vals=adaptive_exclude_molecules)
-      ENDIF
+      END IF
       ![NB] need to read real list from input
       ! should be 2xN_bb integer arrays, with (1,:) indices of inside atoms, and (2,:) indices of outside atoms
       ! maybe also breakable_bond_types, with _atomic numbers_ of inside/outside atoms?
@@ -213,7 +209,7 @@ CONTAINS
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB core_list new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB core_list new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
 
       ! create labels for non adaptive QM and buffer regions from *_NON_ADAPTIVE&QM_KIND sections
       non_adaptive_section => section_vals_get_subs_vals(qmmm_section, "FORCE_MIXING%QM_NON_ADAPTIVE", &
@@ -232,11 +228,11 @@ CONTAINS
                END DO ! ip
             END DO ! i_rep_val
          END DO ! i_rep_section
-      ENDIF
+      END IF
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB core_list + non adaptive QM new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB core_list + non adaptive QM new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
       non_adaptive_section => section_vals_get_subs_vals(qmmm_section, "FORCE_MIXING%BUFFER_NON_ADAPTIVE", &
                                                          can_return_null=.TRUE.)
       IF (ASSOCIATED(non_adaptive_section)) THEN
@@ -253,12 +249,12 @@ CONTAINS
                END DO ! ip
             END DO ! i_rep_val
          END DO ! i_rep_section
-      ENDIF
+      END IF
 
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB core_list + non adaptive QM+buffer new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB core_list + non adaptive QM+buffer new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
 
       ! allocate and initialize full atom set labels for hysteretic loops
       ALLOCATE (nearest_dist(natoms))
@@ -284,7 +280,7 @@ CONTAINS
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB core new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB core new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
 
       ![NB] need more sophisticated QM extended, buffer rules
 
@@ -295,7 +291,7 @@ CONTAINS
          QM_extended_seed_min_label_val = force_mixing_label_QM_core_list
       ELSE ! QM region seed is all of core, not just core list + unbreakable bonds
          QM_extended_seed_min_label_val = force_mixing_label_QM_core
-      ENDIF
+      END IF
       CALL add_layer_hysteretically(nlist, particle_set, cell, nearest_dist, &
                                     orig_full_labels, new_full_labels, n_new, new_indices, new_labels, &
                                     QM_extended_seed_min_label_val, force_mixing_label_QM_core_list, &
@@ -305,7 +301,7 @@ CONTAINS
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB extended new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB extended new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
 
       ! add buffer using hysteretic selection (>= QM extended, r_buf) + unbreakable bonds
       CALL add_layer_hysteretically( &
@@ -319,7 +315,7 @@ CONTAINS
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "BOB buffer new_indices ", new_indices(1:n_new)
          WRITE (output_unit, *) "BOB buffer new_labels ", new_labels(1:n_new)
-      ENDIF
+      END IF
 
       DEALLOCATE (nearest_dist)
 
@@ -353,7 +349,7 @@ CONTAINS
                                      new_labels == force_mixing_label_QM_dynamics_list), &
             " N_QM buffered ", COUNT(new_labels == force_mixing_label_buffer .OR. &
                                      new_labels == force_mixing_label_buffer_list)
-      ENDIF
+      END IF
 
    END SUBROUTINE update_force_mixing_labels
 
@@ -372,8 +368,6 @@ CONTAINS
       INTEGER, POINTER                                   :: new_indices(:), new_labels(:)
       INTEGER                                            :: new_full_labels(:), max_n_qm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_new_label', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, old_index
 
       IF (new_full_labels(ip) > force_mixing_label_none) THEN ! already marked, just change mark
@@ -382,7 +376,7 @@ CONTAINS
             IF (new_indices(i) == ip) THEN
                old_index = i
                EXIT
-            ENDIF
+            END IF
          END DO
          IF (old_index <= 0) &
             CALL cp_abort(__LOCATION__, &
@@ -399,7 +393,7 @@ CONTAINS
          IF (n_new > SIZE(new_labels)) CALL reallocate(new_labels, 1, n_new + 9)
          new_indices(n_new) = ip
          new_labels(n_new) = label
-      ENDIF
+      END IF
       new_full_labels(ip) = label
    END SUBROUTINE add_new_label
 
@@ -443,9 +437,6 @@ CONTAINS
          POINTER                                         :: molecule_set
       INTEGER, OPTIONAL, POINTER                         :: broken_bonds(:)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'add_layer_hysteretically', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_ind, im, im_exclude, ip, ipair, &
                                                             ipairkind, j_ind, output_unit
       LOGICAL :: adaptive_exclude, i_in_new_seed, i_outside_new_seed, j_in_new_seed, &
@@ -475,11 +466,11 @@ CONTAINS
                r_ij_mag = SQRT(SUM(r_ij**2))
                IF (i_in_new_seed .AND. j_outside_new_seed .AND. (r_ij_mag < nearest_dist(j_ind))) THEN
                   nearest_dist(j_ind) = r_ij_mag
-               ENDIF
+               END IF
                IF (j_in_new_seed .AND. i_outside_new_seed .AND. (r_ij_mag < nearest_dist(i_ind))) THEN
                   nearest_dist(i_ind) = r_ij_mag
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
          END DO
       END DO
@@ -496,7 +487,7 @@ CONTAINS
                   adaptive_exclude = .TRUE.
             END DO
             IF (adaptive_exclude) CYCLE
-         ENDIF
+         END IF
          molec_in_inner = ANY(nearest_dist(molecule_set(im)%first_atom:molecule_set(im)%last_atom) <= r_inout(1))
          molec_in_outer = ANY(nearest_dist(molecule_set(im)%first_atom:molecule_set(im)%last_atom) <= r_inout(2))
          IF (molec_in_inner) THEN
@@ -512,8 +503,8 @@ CONTAINS
                   IF (new_full_labels(ip) < set_label_val) &
                      CALL add_new_label(ip, set_label_val, n_new, new_indices, new_labels, new_full_labels, max_n_qm)
                END DO
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END DO
       IF (PRESENT(broken_bonds)) CALL reallocate(broken_bonds, 1, 0)
 
@@ -533,9 +524,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(dp)                                           :: r_max
       TYPE(fist_neighbor_type), POINTER                  :: nlist
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_neighbor_list', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: kind_name
       CHARACTER(LEN=default_string_length), POINTER      :: kind_name_a(:)
@@ -600,9 +588,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: qmmm_section, qmmm_core_section, &
                                                             qmmm_extended_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_force_mixing_qmmm_sections', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_string_length), POINTER      :: elem_mapping(:, :), elem_mapping_entry(:)
       INTEGER :: delta_charge, i_rep_section_core, i_rep_section_extended, i_rep_val_core, &
          i_rep_val_extended, ielem, ip, n_elements, output_unit
@@ -636,7 +621,7 @@ CONTAINS
          CALL section_vals_duplicate(link_section, dup_link_section)
          CALL section_vals_set_subs_vals(qmmm_extended_section, "LINK", dup_link_section)
          CALL section_vals_release(dup_link_section)
-      ENDIF
+      END IF
 
       IF (debug_this_module .AND. output_unit > 0) THEN
          link_section => section_vals_get_subs_vals(qmmm_core_section, "LINK", can_return_null=.TRUE.)
@@ -645,7 +630,7 @@ CONTAINS
          link_section => section_vals_get_subs_vals(qmmm_extended_section, "LINK", can_return_null=.TRUE.)
          WRITE (output_unit, *) "extended section has LINKs ", ASSOCIATED(link_section)
          CALL section_vals_write(link_section, unit_nr=6)
-      ENDIF
+      END IF
 
       force_mixing_section => section_vals_get_subs_vals(qmmm_section, "FORCE_MIXING")
 
@@ -665,7 +650,7 @@ CONTAINS
       IF (debug_this_module .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "cur_indices ", cur_indices
          WRITE (output_unit, *) "cur_labels ", cur_labels
-      ENDIF
+      END IF
 
       ! loop through elements and atoms, and set up new QM_KIND sections
       particles => subsys%particles%els
@@ -678,14 +663,14 @@ CONTAINS
                IF (TRIM(particles(cur_indices(ip))%atomic_kind%element_symbol) == TRIM(elem_mapping(1, ielem))) THEN
                   mapped = .TRUE.
                   EXIT
-               ENDIF
+               END IF
             END DO
             IF (.NOT. mapped) &
                CALL cp_abort(__LOCATION__, &
                              "Force-mixing failed to find QM_KIND mapping for atom of type "// &
                              TRIM(particles(cur_indices(ip))%atomic_kind%element_symbol)// &
                              "! ")
-         ENDIF
+         END IF
       END DO
 
       ! pre-existing QM_KIND section specifies list of core atom
@@ -716,11 +701,11 @@ CONTAINS
                                             c_val=elem_mapping(2, ielem))
                   i_rep_val_extended = 0
                   new_element_extended = .FALSE.
-               ENDIF
+               END IF
                i_rep_val_extended = i_rep_val_extended + 1
                CALL section_vals_val_set(qm_kind_section, "MM_INDEX", i_rep_section=i_rep_section_extended, &
                                          i_rep_val=i_rep_val_extended, i_val=cur_indices(ip))
-            ENDIF ! is a non-termination QM atom
+            END IF ! is a non-termination QM atom
 
             ! core
             ! if current particle is a core QM atom, and not in core list (those the user
@@ -734,11 +719,11 @@ CONTAINS
                                             c_val=elem_mapping(2, ielem))
                   i_rep_val_core = 0
                   new_element_core = .FALSE.
-               ENDIF
+               END IF
                i_rep_val_core = i_rep_val_core + 1
                CALL section_vals_val_set(qm_kind_section, "MM_INDEX", i_rep_section=i_rep_section_core, &
                                          i_rep_val=i_rep_val_core, i_val=cur_indices(ip))
-            ENDIF ! is a non-termination QM atom
+            END IF ! is a non-termination QM atom
 
          END DO ! atom index ip
       END DO ! element index ielem
@@ -754,7 +739,7 @@ CONTAINS
          CALL section_vals_write(qmmm_core_section, unit_nr=6)
          WRITE (output_unit, *) "qmmm_extended_section"
          CALL section_vals_write(qmmm_extended_section, unit_nr=6)
-      ENDIF
+      END IF
 
    END SUBROUTINE setup_force_mixing_qmmm_sections
 
@@ -768,9 +753,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: force_mixing_section
       INTEGER, POINTER                                   :: indices(:), labels(:)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_force_mixing_indices', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_rep_val, n_indices, n_labels, n_reps
       INTEGER, POINTER                                   :: indices_entry(:), labels_entry(:)
       LOGICAL                                            :: explicit
@@ -783,7 +765,7 @@ CONTAINS
          ALLOCATE (indices(0))
          ALLOCATE (labels(0))
          RETURN
-      ENDIF
+      END IF
 
       ![NB] maybe switch to reallocatable array
       CALL section_vals_val_get(restart_section, "INDICES", n_rep_val=n_reps)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -36,6 +38,7 @@ CONTAINS
       NULLIFY (exp_igr%shell_ex, exp_igr%shell_ey, exp_igr%shell_ez)
       NULLIFY (exp_igr%core_ex, exp_igr%core_ey, exp_igr%core_ez)
       NULLIFY (exp_igr%centre, exp_igr%shell_centre, exp_igr%core_centre)
+      NULLIFY (exp_igr%delta, exp_igr%shell_delta, exp_igr%core_delta)
 
    END SUBROUTINE structure_factor_init
 
@@ -46,9 +49,6 @@ CONTAINS
    SUBROUTINE structure_factor_deallocate(exp_igr)
 
       TYPE(structure_factor_type), INTENT(INOUT)         :: exp_igr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'structure_factor_deallocate', &
-         routineP = moduleN//':'//routineN
 
       DEALLOCATE (exp_igr%ex)
       DEALLOCATE (exp_igr%ey)
@@ -64,18 +64,16 @@ CONTAINS
          DEALLOCATE (exp_igr%core_ez)
       END IF
       IF (ASSOCIATED(exp_igr%centre)) THEN
-         DEALLOCATE (exp_igr%centre)
+         DEALLOCATE (exp_igr%centre, exp_igr%delta)
       END IF
       IF (ASSOCIATED(exp_igr%shell_centre)) THEN
-         DEALLOCATE (exp_igr%shell_centre)
+         DEALLOCATE (exp_igr%shell_centre, exp_igr%shell_delta)
       END IF
       IF (ASSOCIATED(exp_igr%core_centre)) THEN
-         DEALLOCATE (exp_igr%core_centre)
+         DEALLOCATE (exp_igr%core_centre, exp_igr%core_delta)
       END IF
 
    END SUBROUTINE structure_factor_deallocate
-
-! **************************************************************************************************
 
 ! **************************************************************************************************
 !> \brief ...
@@ -98,13 +96,10 @@ CONTAINS
                                                             allocate_shell_centre
       INTEGER, INTENT(IN), OPTIONAL                      :: nshell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'structure_factor_allocate', &
-         routineP = moduleN//':'//routineN
-
       ALLOCATE (exp_igr%ex(bds(1, 1):bds(2, 1) + 1, nparts))
       ALLOCATE (exp_igr%ey(bds(1, 2):bds(2, 2) + 1, nparts))
       ALLOCATE (exp_igr%ez(bds(1, 3):bds(2, 3) + 1, nparts))
-      NULLIFY (exp_igr%centre)
+      NULLIFY (exp_igr%centre, exp_igr%delta)
 
       exp_igr%lb(1) = LBOUND(exp_igr%ex, 1)
       exp_igr%lb(2) = LBOUND(exp_igr%ey, 1)
@@ -112,7 +107,7 @@ CONTAINS
 
       IF (PRESENT(allocate_centre)) THEN
          IF (allocate_centre) THEN
-            ALLOCATE (exp_igr%centre(3, nparts))
+            ALLOCATE (exp_igr%centre(3, nparts), exp_igr%delta(3, nparts))
          END IF
       END IF
 
@@ -121,17 +116,17 @@ CONTAINS
             ALLOCATE (exp_igr%shell_ex(bds(1, 1):bds(2, 1) + 1, nshell))
             ALLOCATE (exp_igr%shell_ey(bds(1, 2):bds(2, 2) + 1, nshell))
             ALLOCATE (exp_igr%shell_ez(bds(1, 3):bds(2, 3) + 1, nshell))
-            NULLIFY (exp_igr%shell_centre)
+            NULLIFY (exp_igr%shell_centre, exp_igr%shell_delta)
 
             ALLOCATE (exp_igr%core_ex(bds(1, 1):bds(2, 1) + 1, nshell))
             ALLOCATE (exp_igr%core_ey(bds(1, 2):bds(2, 2) + 1, nshell))
             ALLOCATE (exp_igr%core_ez(bds(1, 3):bds(2, 3) + 1, nshell))
-            NULLIFY (exp_igr%core_centre)
+            NULLIFY (exp_igr%core_centre, exp_igr%core_delta)
 
             IF (PRESENT(allocate_shell_centre)) THEN
                IF (allocate_shell_centre) THEN
-                  ALLOCATE (exp_igr%shell_centre(3, nshell))
-                  ALLOCATE (exp_igr%core_centre(3, nshell))
+                  ALLOCATE (exp_igr%shell_centre(3, nshell), exp_igr%shell_delta(3, nshell))
+                  ALLOCATE (exp_igr%core_centre(3, nshell), exp_igr%core_delta(3, nshell))
                END IF
             END IF
          END IF
@@ -139,6 +134,7 @@ CONTAINS
          NULLIFY (exp_igr%shell_ex, exp_igr%shell_ey, exp_igr%shell_ez)
          NULLIFY (exp_igr%core_ex, exp_igr%core_ey, exp_igr%core_ez)
          NULLIFY (exp_igr%shell_centre, exp_igr%core_centre)
+         NULLIFY (exp_igr%shell_delta, exp_igr%core_delta)
       END IF
 
    END SUBROUTINE structure_factor_allocate

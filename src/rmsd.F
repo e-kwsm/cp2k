@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,8 +12,7 @@
 MODULE rmsd
 
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: diamat_all,&
-                                              matvec_3x3
+   USE mathlib,                         ONLY: diamat_all
    USE particle_types,                  ONLY: particle_type
 #include "./base/base_uses.f90"
 
@@ -58,8 +59,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT), OPTIONAL :: transl
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: rot, drmsd3
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rmsd3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ix, j, k, natom
       LOGICAL                                            :: my_rotate
@@ -187,7 +186,7 @@ CONTAINS
             my_val = 0.0_dp
          ELSE
             my_val = lambda(1)/REAL(natom, KIND=dp)
-         ENDIF
+         END IF
       END IF
       IF (ABS(lambda(1) - lambda(2)) < epsi) THEN
          IF (output_unit > 0) WRITE (output_unit, FMT='(T2,"RMSD3|",A)') &
@@ -278,8 +277,7 @@ CONTAINS
       ! Give back coordinates rotated in order to minimize the RMSD
       IF (my_rotate) THEN
          DO i = 1, natom
-            CALL matvec_3x3(r((i - 1)*3 + 1:(i - 1)*3 + 3), TRANSPOSE(my_rot), rp(:, i))
-            r((i - 1)*3 + 1:(i - 1)*3 + 3) = r((i - 1)*3 + 1:(i - 1)*3 + 3) + loc_tr
+            r((i - 1)*3 + 1:(i - 1)*3 + 3) = MATMUL(TRANSPOSE(my_rot), rp(:, i)) + loc_tr
          END DO
       END IF
       DEALLOCATE (w)

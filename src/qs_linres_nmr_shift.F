@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -56,7 +58,6 @@ MODULE qs_linres_nmr_shift
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type,&
                                               pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -106,7 +107,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN)                                :: iB
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'nmr_shift', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'nmr_shift'
 
       INTEGER                                            :: handle, idir, idir2, idir3, iiB, iiiB, &
                                                             ispin, natom, nspins
@@ -119,20 +120,19 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: pw_gspace_work, shift_pw_rspace
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: jrho1_g
-      TYPE(pw_p_type), DIMENSION(:, :), POINTER          :: shift_pw_gspace
-      TYPE(pw_p_type), POINTER                           :: jrho_gspace
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: pw_gspace_work, shift_pw_rspace
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:, :)        :: shift_pw_gspace
+      TYPE(pw_type), DIMENSION(:), POINTER               :: jrho1_g
       TYPE(realspace_grid_desc_type), POINTER            :: auxbas_rs_desc
       TYPE(section_vals_type), POINTER                   :: nmr_section
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (chemical_shift, chemical_shift_loc, chemical_shift_nics, chemical_shift_nics_loc, &
-               cell, dft_control, pw_env, auxbas_rs_desc, auxbas_pw_pool, jrho_gspace, &
-               pw_pools, particle_set, jrho1_g)
+      NULLIFY (chemical_shift, chemical_shift_loc, chemical_shift_nics, &
+               chemical_shift_nics_loc, cell, dft_control, pw_env, &
+               auxbas_rs_desc, auxbas_pw_pool, pw_pools, particle_set, jrho1_g)
 
       CALL get_qs_env(qs_env=qs_env, cell=cell, dft_control=dft_control, &
                       particle_set=particle_set)
@@ -160,67 +160,66 @@ CONTAINS
       ALLOCATE (shift_pw_gspace(3, nspins))
       DO ispin = 1, nspins
          DO idir = 1, 3
-            CALL pw_pool_create_pw(auxbas_pw_pool, shift_pw_gspace(idir, ispin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, shift_pw_gspace(idir, ispin), &
                                    use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-            CALL pw_zero(shift_pw_gspace(idir, ispin)%pw)
-         ENDDO
-      ENDDO
+            CALL pw_zero(shift_pw_gspace(idir, ispin))
+         END DO
+      END DO
       !
       !
       CALL set_vecp(iB, iiB, iiiB)
       !
-      CALL pw_pool_create_pw(auxbas_pw_pool, pw_gspace_work%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, pw_gspace_work, &
                              use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-      CALL pw_zero(pw_gspace_work%pw)
+      CALL pw_zero(pw_gspace_work)
       DO ispin = 1, nspins
          !
          DO idir = 1, 3
             CALL qs_rho_get(current_env%jrho1_set(idir)%rho, rho_g=jrho1_g)
-            jrho_gspace => jrho1_g(ispin)
             ! Field gradient
             ! loop over the Gvec  components: x,y,z
             DO idir2 = 1, 3
                IF (idir /= idir2) THEN
                   ! in reciprocal space multiply (G_idir2(i)/G(i)^2)J_(idir)(G(i))
-                  CALL mult_G_ov_G2_grid(cell, auxbas_pw_pool, jrho_gspace, &
+                  CALL mult_G_ov_G2_grid(auxbas_pw_pool, jrho1_g(ispin), &
                                          pw_gspace_work, idir2, 0.0_dp)
                   !
                   ! scale and add to the correct component of the shift column
                   CALL set_vecp_rev(idir, idir2, idir3)
                   scale_fac = fac_vecp(idir3, idir2, idir)
-                  CALL pw_axpy(pw_gspace_work%pw, shift_pw_gspace(idir3, ispin)%pw, scale_fac)
-               ENDIF
-            ENDDO
+                  CALL pw_axpy(pw_gspace_work, shift_pw_gspace(idir3, ispin), scale_fac)
+               END IF
+            END DO
             !
-         ENDDO ! idir
-      ENDDO ! ispin
+         END DO ! idir
+      END DO ! ispin
       !
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, pw_gspace_work%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, pw_gspace_work)
       !
       ! compute shildings
       IF (interpolate_shift) THEN
-         CALL pw_pool_create_pw(auxbas_pw_pool, shift_pw_rspace%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, shift_pw_rspace, &
                                 use_data=REALDATA3D, in_space=REALSPACE)
          DO ispin = 1, nspins
             DO idir = 1, 3
                ! Here first G->R and then interpolation to get the shifts.
                ! The interpolation doesnt work in parallel yet.
                ! The choice between both methods should be left to the user.
-               CALL pw_transfer(shift_pw_gspace(idir, ispin)%pw, shift_pw_rspace%pw)
+               CALL pw_transfer(shift_pw_gspace(idir, ispin), shift_pw_rspace)
                CALL interpolate_shift_pwgrid(nmr_env, pw_env, particle_set, cell, shift_pw_rspace, &
                                              iB, idir, nmr_section)
-            ENDDO
-         ENDDO
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, shift_pw_rspace%pw)
+            END DO
+         END DO
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, shift_pw_rspace)
       ELSE
          DO ispin = 1, nspins
             DO idir = 1, 3
                ! Here the shifts are computed from summation of the coeff on the G-grip .
                CALL gsum_shift_pwgrid(nmr_env, particle_set, cell, &
                                       shift_pw_gspace(idir, ispin), iB, idir)
-            ENDDO
-         ENDDO
-      ENDIF
+            END DO
+         END DO
+      END IF
       !
       IF (gapw) THEN
          DO idir = 1, 3
@@ -228,15 +227,15 @@ CONTAINS
             ! The resulting array is J on the local grid. One array per atom.
             ! Local contributions by numerical integration over the spherical grids
             CALL nmr_shift_gapw(nmr_env, current_env, qs_env, iB, idir)
-         ENDDO ! idir
-      ENDIF
+         END DO ! idir
+      END IF
       !
       ! Dellocate grids for the calculation of jrho and the shift
       DO ispin = 1, nspins
          DO idir = 1, 3
-            CALL pw_pool_give_back_pw(auxbas_pw_pool, shift_pw_gspace(idir, ispin)%pw)
-         ENDDO
-      ENDDO
+            CALL pw_pool_give_back_pw(auxbas_pw_pool, shift_pw_gspace(idir, ispin))
+         END DO
+      END DO
       DEALLOCATE (shift_pw_gspace)
       !
       ! Finalize
@@ -259,7 +258,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN)                                :: IB, idir
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nmr_shift_gapw', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'nmr_shift_gapw'
 
       INTEGER :: handle, ia, iat, iatom, idir2_1, idir3_1, ikind, ir, ira, ispin, j, jatom, mepos, &
          n_nics, na, natom, natom_local, natom_tot, nkind, nnics_local, nr, nra, nspins, num_pe, &
@@ -334,7 +333,7 @@ CONTAINS
          ALLOCATE (cs_nics_loc_tmp(3, n_nics), list_nics_j(n_nics), &
                    dist_nics_ij(3, n_nics))
          cs_nics_loc_tmp = 0.0_dp
-      ENDIF
+      END IF
       !
       ! Loop over atoms to collocate the current on each atomic grid, JA
       ! Per each JA, loop over the points where the shift needs to be computed
@@ -359,8 +358,8 @@ CONTAINS
             DO ir = 1, nr
                r_grid(:, ira) = grid_atom%rad(ir)*harmonics%a(:, ia)
                ira = ira + 1
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          !
          ! Quick cycle if needed
          IF (paw_atom) THEN
@@ -382,8 +381,8 @@ CONTAINS
                      natom_local = natom_local + 1
                      list_j(natom_local) = jatom
                      dist_ij(:, natom_local) = rij(:)
-                  ENDIF
-               ENDDO
+                  END IF
+               END DO
                !
                ! ... also for nics
                IF (do_nics) THEN
@@ -396,9 +395,9 @@ CONTAINS
                         nnics_local = nnics_local + 1
                         list_nics_j(nnics_local) = jatom
                         dist_nics_ij(:, nnics_local) = rij(:)
-                     ENDIF
-                  ENDDO
-               ENDIF
+                     END IF
+                  END DO
+               END IF
                !
                NULLIFY (jrho1_atom, jrho_h_grid, jrho_s_grid)
                jrho1_atom => jrho1_atom_set(iatom)
@@ -416,8 +415,8 @@ CONTAINS
                         j_grid(ira) = (jrho_h_grid(ir, ia) - jrho_s_grid(ir, ia))*grid_atom%weight(ia, ir)
                         itegrated_jrho = itegrated_jrho + j_grid(ira)
                         ira = ira + 1
-                     ENDDO
-                  ENDDO
+                     END DO
+                  END DO
                   !
                   DO j = 1, natom_local
                      jatom = list_j(j)
@@ -433,11 +432,11 @@ CONTAINS
                            dum = scale_fac_1*j_grid(ira)/(ddiff*ddiff*ddiff)
                            s_1 = s_1 + rdiff(idir2_1)*dum
                            s_2 = s_2 + rdiff(idir3_1)*dum
-                        ENDIF ! ddiff
-                     ENDDO ! ira
+                        END IF ! ddiff
+                     END DO ! ira
                      cs_loc_tmp(idir3_1, jatom) = cs_loc_tmp(idir3_1, jatom) + s_1
                      cs_loc_tmp(idir2_1, jatom) = cs_loc_tmp(idir2_1, jatom) - s_2
-                  ENDDO ! j
+                  END DO ! j
                   !
                   IF (do_nics) THEN
                      DO j = 1, nnics_local
@@ -454,24 +453,24 @@ CONTAINS
                               dum = scale_fac_1*j_grid(ira)/(ddiff*ddiff*ddiff)
                               s_1 = s_1 + rdiff(idir2_1)*dum
                               s_2 = s_2 + rdiff(idir3_1)*dum
-                           ENDIF ! ddiff
-                        ENDDO ! ira
+                           END IF ! ddiff
+                        END DO ! ira
                         cs_nics_loc_tmp(idir3_1, jatom) = cs_nics_loc_tmp(idir3_1, jatom) + s_1
                         cs_nics_loc_tmp(idir2_1, jatom) = cs_nics_loc_tmp(idir2_1, jatom) - s_2
-                     ENDDO ! j
-                  ENDIF ! do_nics
-               ENDDO ! ispin
-            ENDDO ! iat
-         ENDIF
+                     END DO ! j
+                  END IF ! do_nics
+               END DO ! ispin
+            END DO ! iat
+         END IF
          DEALLOCATE (r_grid, j_grid)
-      ENDDO ! ikind
+      END DO ! ikind
       !
       !
       CALL mp_sum(itegrated_jrho, para_env%group)
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(T2,A,E24.16)') 'Integrated local j_'&
               &//ACHAR(idir + 119)//ACHAR(iB + 119)//'(r)=', itegrated_jrho
-      ENDIF
+      END IF
       !
       CALL mp_sum(cs_loc_tmp, para_env%group)
       chemical_shift_loc(:, iB, :) = chemical_shift_loc(:, iB, :) &
@@ -485,7 +484,7 @@ CONTAINS
               & - nmr_env%shift_factor_gapw*cs_nics_loc_tmp(:, :)/2.0_dp
          !
          DEALLOCATE (cs_nics_loc_tmp, list_nics_j, dist_nics_ij)
-      ENDIF
+      END IF
       !
       CALL timestop(handle)
       !
@@ -511,12 +510,11 @@ CONTAINS
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(pw_p_type)                                    :: shift_pw_rspace
+      TYPE(pw_type), INTENT(IN)                          :: shift_pw_rspace
       INTEGER, INTENT(IN)                                :: i_B, idir
       TYPE(section_vals_type), POINTER                   :: nmr_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'interpolate_shift_pwgrid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'interpolate_shift_pwgrid'
 
       INTEGER                                            :: aint_precond, handle, iat, iatom, &
                                                             max_iter, n_nics, natom, precond_kind
@@ -526,20 +524,15 @@ CONTAINS
                                                             shift_val
       REAL(dp), DIMENSION(:, :), POINTER                 :: r_nics
       REAL(dp), DIMENSION(:, :, :), POINTER              :: chemical_shift, chemical_shift_nics
-      TYPE(pw_p_type)                                    :: shiftspl
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
-      TYPE(pw_spline_precond_type), POINTER              :: precond
+      TYPE(pw_spline_precond_type)                       :: precond
+      TYPE(pw_type)                                      :: shiftspl
       TYPE(section_vals_type), POINTER                   :: interp_section
-
-!
 
       CALL timeset(routineN, handle)
       !
-      NULLIFY (interp_section)
-      NULLIFY (auxbas_pw_pool, precond)
+      NULLIFY (interp_section, auxbas_pw_pool)
       NULLIFY (cs_atom_list, chemical_shift, chemical_shift_nics, r_nics)
-
-      CPASSERT(ASSOCIATED(shift_pw_rspace%pw))
 
       interp_section => section_vals_get_subs_vals(nmr_section, &
                                                    "INTERPOLATOR")
@@ -552,14 +545,14 @@ CONTAINS
 
       ! calculate spline coefficients
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, shiftspl%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, shiftspl, &
                              use_data=REALDATA3D, in_space=REALSPACE)
 
       CALL pw_spline_precond_create(precond, precond_kind=aint_precond, &
                                     pool=auxbas_pw_pool, pbc=.TRUE., transpose=.FALSE.)
-      CALL pw_spline_do_precond(precond, shift_pw_rspace%pw, shiftspl%pw)
+      CALL pw_spline_do_precond(precond, shift_pw_rspace, shiftspl)
       CALL pw_spline_precond_set_kind(precond, precond_kind)
-      success = find_coeffs(values=shift_pw_rspace%pw, coeffs=shiftspl%pw, &
+      success = find_coeffs(values=shift_pw_rspace, coeffs=shiftspl, &
                             linOp=spl3_pbc, preconditioner=precond, pool=auxbas_pw_pool, &
                             eps_r=eps_r, eps_x=eps_x, max_iter=max_iter)
       CPASSERT(success)
@@ -575,12 +568,12 @@ CONTAINS
          natom = SIZE(cs_atom_list, 1)
       ELSE
          natom = -1
-      ENDIF
+      END IF
 
       DO iat = 1, natom
          iatom = cs_atom_list(iat)
          R_iatom = pbc(particle_set(iatom)%r, cell)
-         shift_val = Eval_Interp_Spl3_pbc(R_iatom, shiftspl%pw)
+         shift_val = Eval_Interp_Spl3_pbc(R_iatom, shiftspl)
          chemical_shift(idir, i_B, iatom) = chemical_shift(idir, i_B, iatom) + &
                                             nmr_env%shift_factor*twopi**2*shift_val
       END DO
@@ -589,13 +582,13 @@ CONTAINS
          DO iatom = 1, n_nics
             ra(:) = r_nics(:, iatom)
             R_iatom = pbc(ra, cell)
-            shift_val = Eval_Interp_Spl3_pbc(R_iatom, shiftspl%pw)
+            shift_val = Eval_Interp_Spl3_pbc(R_iatom, shiftspl)
             chemical_shift_nics(idir, i_B, iatom) = chemical_shift_nics(idir, i_B, iatom) + &
                                                     nmr_env%shift_factor*twopi**2*shift_val
          END DO
       END IF
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, shiftspl%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, shiftspl)
 
       !
       CALL timestop(handle)
@@ -616,11 +609,10 @@ CONTAINS
       TYPE(nmr_env_type)                                 :: nmr_env
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(pw_p_type)                                    :: shift_pw_gspace
+      TYPE(pw_type), INTENT(IN)                          :: shift_pw_gspace
       INTEGER, INTENT(IN)                                :: i_B, idir
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'gsum_shift_pwgrid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'gsum_shift_pwgrid'
 
       COMPLEX(dp)                                        :: cplx
       INTEGER                                            :: handle, iat, iatom, n_nics, natom
@@ -630,13 +622,9 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: r_nics
       REAL(dp), DIMENSION(:, :, :), POINTER              :: chemical_shift, chemical_shift_nics
 
-!
-!
-
       CALL timeset(routineN, handle)
       !
       NULLIFY (cs_atom_list, chemical_shift, chemical_shift_nics, r_nics)
-      CPASSERT(ASSOCIATED(shift_pw_gspace%pw))
       !
       CALL get_nmr_env(nmr_env=nmr_env, cs_atom_list=cs_atom_list, &
                        chemical_shift=chemical_shift, &
@@ -647,26 +635,26 @@ CONTAINS
          natom = SIZE(cs_atom_list, 1)
       ELSE
          natom = -1
-      ENDIF
+      END IF
       !
       ! compute the chemical shift
       DO iat = 1, natom
          iatom = cs_atom_list(iat)
          R_iatom = pbc(particle_set(iatom)%r, cell)
-         CALL gsumr(R_iatom, shift_pw_gspace%pw, cplx)
+         CALL gsumr(R_iatom, shift_pw_gspace, cplx)
          chemical_shift(idir, i_B, iatom) = chemical_shift(idir, i_B, iatom) + &
                                             nmr_env%shift_factor*twopi**2*REAL(cplx, dp)
-      ENDDO
+      END DO
       !
       ! compute nics
       IF (do_nics) THEN
          DO iat = 1, n_nics
             ra = pbc(r_nics(:, iat), cell)
-            CALL gsumr(ra, shift_pw_gspace%pw, cplx)
+            CALL gsumr(ra, shift_pw_gspace, cplx)
             chemical_shift_nics(idir, i_B, iat) = chemical_shift_nics(idir, i_B, iat) + &
                                                   nmr_env%shift_factor*twopi**2*REAL(cplx, dp)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       CALL timestop(handle)
 
@@ -680,7 +668,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE gsumr(r, pw, cplx)
       REAL(dp), INTENT(IN)                               :: r(3)
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(pw_type), INTENT(IN)                          :: pw
       COMPLEX(dp)                                        :: cplx
 
       COMPLEX(dp)                                        :: rg
@@ -692,7 +680,7 @@ CONTAINS
       DO ig = grid%first_gne0, grid%ngpts_cut_local
          rg = (grid%g(1, ig)*r(1) + grid%g(2, ig)*r(2) + grid%g(3, ig)*r(3))*gaussi
          cplx = cplx + pw%cc(ig)*EXP(rg)
-      ENDDO
+      END DO
       IF (grid%have_g0) cplx = cplx + pw%cc(1)
       CALL mp_sum(cplx, grid%para%group)
    END SUBROUTINE gsumr
@@ -711,9 +699,6 @@ CONTAINS
       TYPE(nmr_env_type)                                 :: nmr_env
       TYPE(current_env_type)                             :: current_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nmr_shift_print', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: name, title
@@ -773,14 +758,14 @@ CONTAINS
       ALLOCATE (cs_tot(3, 3, nat_print))
       IF (do_nics) THEN
          ALLOCATE (cs_nics_tot(3, 3, n_nics))
-      ENDIF
+      END IF
       ! Finalize Chi calculation
       ! Symmetrize
       chi_sym_tot(:, :) = (chi_tensor_tmp(:, :) + TRANSPOSE(chi_tensor_tmp(:, :)))/2.0_dp
       IF (gapw) THEN
          chi_sym_tot(:, :) = chi_sym_tot(:, :) &
               & + (chi_tensor_loc_tmp(:, :) + TRANSPOSE(chi_tensor_loc_tmp(:, :)))/2.0_dp
-      ENDIF
+      END IF
       chi_tmp(:, :) = chi_sym_tot(:, :)
       CALL diamat_all(chi_tmp, eig)
       chi_iso = (eig(1) + eig(2) + eig(3))/3.0_dp
@@ -789,7 +774,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(T2,A,E14.6)') 'CheckSum Chi =', &
             SQRT(DDOT(9, chi_tensor_tmp(1, 1), 1, chi_tensor_tmp(1, 1), 1))
-      ENDIF
+      END IF
       !
       IF (BTEST(cp_print_key_should_output(logger%iter_info, nmr_section, &
                                            "PRINT%CHI_TENSOR"), cp_p_file)) THEN
@@ -821,7 +806,7 @@ CONTAINS
                WRITE (unit_atoms, '(3(A,f10.4))') '  ZX = ', chi_tensor_loc_tmp(3, 1),&
                     &                           '  ZY = ', chi_tensor_loc_tmp(3, 2),&
                     &                           '  ZZ = ', chi_tensor_loc_tmp(3, 3)
-            ENDIF
+            END IF
             WRITE (unit_atoms, '(T1,A)') " Total CHI in 10^-30 J/T^2 units"
             WRITE (unit_atoms, '(3(A,f10.4))') '  XX = ', chi_sym_tot(1, 1),&
                  &                          '  XY = ', chi_sym_tot(1, 2),&
@@ -850,11 +835,11 @@ CONTAINS
             WRITE (unit_atoms, '(T1,A,F10.4,10X,A,F10.4)') &
                '  ISO=', nmr_env%chi_SI2ppmcgs*chi_iso, &
                'ANISO=', nmr_env%chi_SI2ppmcgs*chi_aniso
-         ENDIF
+         END IF
 
          CALL cp_print_key_finished_output(unit_atoms, logger, nmr_section,&
               &                            "PRINT%CHI_TENSOR")
-      ENDIF ! print chi
+      END IF ! print chi
       !
       ! Add the chi part to the shifts
       cs_tot(:, :, :) = 0.0_dp
@@ -865,11 +850,11 @@ CONTAINS
          CALL get_atomic_kind(atom_kind, name=name, element_symbol=element_symbol)
          cs_tot(:, :, ir) = chi_tensor_tmp(:, :)*nmr_env%chi_SI2shiftppm + cs(:, :, iatom)
          IF (gapw) cs_tot(:, :, ir) = cs_tot(:, :, ir) + cs_loc(:, :, iatom)
-      ENDDO ! ir
+      END DO ! ir
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(T2,A,E14.6)') 'CheckSum Shifts =', &
             SQRT(DDOT(9*SIZE(cs_tot, 3), cs_tot(1, 1, 1), 1, cs_tot(1, 1, 1), 1))
-      ENDIF
+      END IF
       !
       ! print shifts
       IF (BTEST(cp_print_key_should_output(logger%iter_info, nmr_section, &
@@ -916,7 +901,7 @@ CONTAINS
                   WRITE (unit_atoms, '(3(A,f10.4))') '  ZX = ', cs_loc(3, 1, iatom),&
                        &                           '  ZY = ', cs_loc(3, 2, iatom),&
                        &                           '  ZZ = ', cs_loc(3, 3, iatom)
-               ENDIF
+               END IF
                WRITE (unit_atoms, '(T1,A)') " SIGMA TOTAL"
                WRITE (unit_atoms, '(3(A,f10.4))') '  XX = ', cs_tot(1, 1, ir),&
                     &                           '  XY = ', cs_tot(1, 2, ir),&
@@ -929,8 +914,8 @@ CONTAINS
                     &                           '  ZZ = ', cs_tot(3, 3, ir)
                WRITE (unit_atoms, '(T1,2(A,f12.4))') '  ISOTROPY = ', shift_iso,&
                     &                            '  ANISOTROPY = ', shift_aniso
-            ENDDO ! ir
-         ENDIF
+            END DO ! ir
+         END IF
          CALL cp_print_key_finished_output(unit_atoms, logger, nmr_section,&
               &                            "PRINT%SHIELDING_TENSOR")
 
@@ -941,11 +926,11 @@ CONTAINS
             DO ir = 1, n_nics
                cs_nics_tot(:, :, ir) = chi_tensor_tmp(:, :)*nmr_env%chi_SI2shiftppm + cs_nics(:, :, ir)
                IF (gapw) cs_nics_tot(:, :, ir) = cs_nics_tot(:, :, ir) + cs_nics_loc(:, :, ir)
-            ENDDO ! ir
+            END DO ! ir
             IF (output_unit > 0) THEN
                WRITE (output_unit, '(T2,A,E14.6)') 'CheckSum NICS =', &
                   SQRT(DDOT(9*SIZE(cs_nics_tot, 3), cs_nics_tot(1, 1, 1), 1, cs_nics_tot(1, 1, 1), 1))
-            ENDIF
+            END IF
             !
             unit_nics = cp_print_key_unit_nr(logger, nmr_section, "PRINT%SHIELDING_TENSOR", &
                                              extension=".data", middle_name="NICS", &
@@ -982,7 +967,7 @@ CONTAINS
                      WRITE (unit_nics, '(3(A,f10.4))') '  ZX = ', cs_nics_loc(3, 1, ir),&
                           &                          '  ZY = ', cs_nics_loc(3, 2, ir),&
                           &                          '  ZZ = ', cs_nics_loc(3, 3, ir)
-                  ENDIF
+                  END IF
                   WRITE (unit_nics, '(T1,A)') " SIGMA TOTAL"
                   WRITE (unit_nics, '(3(A,f10.4))') '  XX = ', cs_nics_tot(1, 1, ir),&
                        &                          '  XY = ', cs_nics_tot(1, 2, ir),&
@@ -995,18 +980,18 @@ CONTAINS
                        &                          '  ZZ = ', cs_nics_tot(3, 3, ir)
                   WRITE (unit_nics, '(T1,2(A,f12.4))') '  ISOTROPY = ', shift_iso,&
                        &                           '  ANISOTROPY = ', shift_aniso
-               ENDDO
-            ENDIF
+               END DO
+            END IF
             CALL cp_print_key_finished_output(unit_nics, logger, nmr_section,&
                  &                            "PRINT%SHIELDING_TENSOR")
-         ENDIF
-      ENDIF ! print shift
+         END IF
+      END IF ! print shift
       !
       ! clean up
       DEALLOCATE (cs_tot)
       IF (do_nics) THEN
          DEALLOCATE (cs_nics_tot)
-      ENDIF
+      END IF
       !
 !100 FORMAT(A,1X,I5)
 !101 FORMAT(T2,A)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,9 +41,6 @@ CONTAINS
    SUBROUTINE create_ilist_type(ilist)
       TYPE(ilist_type), POINTER                          :: ilist
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ilist_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(ilist))
       ALLOCATE (ilist)
       ilist%istart = HUGE(0)
@@ -60,9 +59,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_ilist_type(ilist)
       TYPE(ilist_type), POINTER                          :: ilist
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_ilist_type', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(ilist))
       DEALLOCATE (ilist)

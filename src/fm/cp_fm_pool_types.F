@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,20 +12,20 @@
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
 MODULE cp_fm_pool_types
-   USE cp_fm_struct,                    ONLY: cp_fm_struct_release,&
-                                              cp_fm_struct_retain,&
-                                              cp_fm_struct_type
-   USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_p_type,&
-                                              cp_fm_release,&
-                                              cp_fm_type
-   USE cp_linked_list_fm,               ONLY: cp_sll_fm_dealloc,&
-                                              cp_sll_fm_get_first_el,&
-                                              cp_sll_fm_insert_el,&
-                                              cp_sll_fm_next,&
-                                              cp_sll_fm_rm_first_el,&
-                                              cp_sll_fm_type
-   USE cp_log_handling,                 ONLY: cp_to_string
+   USE cp_fm_struct, ONLY: cp_fm_struct_release, &
+                           cp_fm_struct_retain, &
+                           cp_fm_struct_type
+   USE cp_fm_types, ONLY: cp_fm_create, &
+                          cp_fm_p_type, &
+                          cp_fm_release, &
+                          cp_fm_type
+   USE cp_linked_list_fm, ONLY: cp_sll_fm_dealloc, &
+                                cp_sll_fm_get_first_el, &
+                                cp_sll_fm_insert_el, &
+                                cp_sll_fm_next, &
+                                cp_sll_fm_rm_first_el, &
+                                cp_sll_fm_type
+   USE cp_log_handling, ONLY: cp_to_string
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -31,7 +33,6 @@ MODULE cp_fm_pool_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_fm_pool_types'
-   INTEGER, SAVE, PRIVATE :: last_fm_pool_id_nr = 0
 
    PUBLIC :: cp_fm_pool_type, cp_fm_pool_p_type
    PUBLIC :: fm_pool_create, fm_pool_retain, &
@@ -54,7 +55,7 @@ MODULE cp_fm_pool_types
 ! **************************************************************************************************
    TYPE cp_fm_pool_type
       PRIVATE
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       TYPE(cp_fm_struct_type), POINTER :: el_struct
 
       TYPE(cp_sll_fm_type), POINTER :: cache
@@ -71,6 +72,20 @@ MODULE cp_fm_pool_types
       TYPE(cp_fm_pool_type), POINTER :: pool
    END TYPE cp_fm_pool_p_type
 
+   INTERFACE fm_pools_create_fm_vect
+      MODULE PROCEDURE fm_pools_create_fm_m1_p_type_pointer
+      MODULE PROCEDURE fm_pools_create_fm_m1_p_type_alloc
+      MODULE PROCEDURE fm_pools_create_fm_m1_array_pointer
+      MODULE PROCEDURE fm_pools_create_fm_m1_array_alloc
+   END INTERFACE
+
+   INTERFACE fm_pools_give_back_fm_vect
+      MODULE PROCEDURE fm_pools_give_back_fm_m1_p_type_pointer
+      MODULE PROCEDURE fm_pools_give_back_fm_m1_p_type_alloc
+      MODULE PROCEDURE fm_pools_give_back_fm_m1_array_pointer
+      MODULE PROCEDURE fm_pools_give_back_fm_m1_array_alloc
+   END INTERFACE
+
 CONTAINS
 
 ! **************************************************************************************************
@@ -86,13 +101,9 @@ CONTAINS
       TYPE(cp_fm_pool_type), POINTER                     :: pool
       TYPE(cp_fm_struct_type), POINTER                   :: el_struct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_create', routineP = moduleN//':'//routineN
-
       ALLOCATE (pool)
       pool%el_struct => el_struct
       CALL cp_fm_struct_retain(pool%el_struct)
-      last_fm_pool_id_nr = last_fm_pool_id_nr + 1
-      pool%id_nr = last_fm_pool_id_nr
       pool%ref_count = 1
       NULLIFY (pool%cache)
 
@@ -108,8 +119,6 @@ CONTAINS
    SUBROUTINE fm_pool_retain(pool)
       TYPE(cp_fm_pool_type), POINTER                     :: pool
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(pool))
       CPASSERT(pool%ref_count > 0)
 
@@ -124,20 +133,17 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE fm_pool_flush_cache(pool)
-      TYPE(cp_fm_pool_type), POINTER                     :: pool
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_flush_cache', &
-         routineP = moduleN//':'//routineN
+      TYPE(cp_fm_pool_type), INTENT(IN)                  :: pool
 
       TYPE(cp_fm_type), POINTER                          :: el_att
       TYPE(cp_sll_fm_type), POINTER                      :: iterator
 
-      CPASSERT(ASSOCIATED(pool))
-      CPASSERT(pool%ref_count > 0)
       iterator => pool%cache
       DO
          IF (.NOT. cp_sll_fm_next(iterator, el_att=el_att)) EXIT
          CALL cp_fm_release(el_att)
+         DEALLOCATE (el_att)
+         NULLIFY (el_att)
       END DO
       CALL cp_sll_fm_dealloc(pool%cache)
    END SUBROUTINE fm_pool_flush_cache
@@ -151,9 +157,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fm_pool_release(pool)
       TYPE(cp_fm_pool_type), POINTER                     :: pool
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(pool)) THEN
          CPASSERT(pool%ref_count > 0)
@@ -182,35 +185,30 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fm_pool_create_fm(pool, element, &
                                 name)
-      TYPE(cp_fm_pool_type), POINTER                     :: pool
-      TYPE(cp_fm_type), POINTER                          :: element
+      TYPE(cp_fm_pool_type), INTENT(IN)                  :: pool
+      TYPE(cp_fm_type), INTENT(OUT)                      :: element
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_create_fm', &
-         routineP = moduleN//':'//routineN
+      TYPE(cp_fm_type), POINTER                          :: el
 
-      CPASSERT(ASSOCIATED(pool))
-      CPASSERT(pool%ref_count > 0)
+      NULLIFY (el)
       IF (ASSOCIATED(pool%cache)) THEN
-         element => cp_sll_fm_get_first_el(pool%cache)
+         el => cp_sll_fm_get_first_el(pool%cache)
          CALL cp_sll_fm_rm_first_el(pool%cache)
-
+      END IF
+      IF (ASSOCIATED(el)) THEN
+         element = el
+         DEALLOCATE (el)
       ELSE
-         NULLIFY (element)
          CALL cp_fm_create(element, matrix_struct=pool%el_struct)
       END IF
 
       IF (PRESENT(name)) THEN
          element%name = name
-         element%print_count = 0
       ELSE
-         element%name = "tmp-"//TRIM(ADJUSTL(cp_to_string(element%id_nr)))
-         element%print_count = 0
-         ! guarantee output unicity?
+         element%name = "tmp"
       END IF
 
-      CPASSERT(ASSOCIATED(element))
-      CPASSERT(element%ref_count == 1)
    END SUBROUTINE fm_pool_create_fm
 
 ! **************************************************************************************************
@@ -226,21 +224,20 @@ CONTAINS
 !>      Accept give_backs of non associated elements?
 ! **************************************************************************************************
    SUBROUTINE fm_pool_give_back_fm(pool, element)
-      TYPE(cp_fm_pool_type), POINTER                     :: pool
-      TYPE(cp_fm_type), POINTER                          :: element
+      TYPE(cp_fm_pool_type), INTENT(IN)                  :: pool
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: element
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_give_back_fm', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pool))
-      CPASSERT(pool%ref_count > 0)
-      CPASSERT(ASSOCIATED(element))
-      IF (pool%el_struct%id_nr /= element%matrix_struct%id_nr) &
-         CPABORT("pool cannot reuse matrixes with another structure")
-
-      CPASSERT(element%ref_count == 1)
-      CALL cp_sll_fm_insert_el(pool%cache, el=element)
-      NULLIFY (element)
+      IF (.NOT. ASSOCIATED(pool%el_struct, element%matrix_struct)) THEN
+         CALL cp_fm_release(element)
+      ELSE
+         BLOCK
+            TYPE(cp_fm_type), POINTER :: el
+            ALLOCATE (el)
+            el = element
+            CALL cp_sll_fm_insert_el(pool%cache, el=el)
+            NULLIFY (element%matrix_struct, element%local_data, element%local_data_sp)
+         END BLOCK
+      END IF
    END SUBROUTINE fm_pool_give_back_fm
 
 ! **************************************************************************************************
@@ -252,14 +249,9 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    FUNCTION fm_pool_get_el_struct(pool) RESULT(res)
-      TYPE(cp_fm_pool_type), POINTER                     :: pool
+      TYPE(cp_fm_pool_type), INTENT(IN)                  :: pool
       TYPE(cp_fm_struct_type), POINTER                   :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pool_get_el_struct', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pool))
-      CPASSERT(pool%ref_count > 0)
       res => pool%el_struct
    END FUNCTION fm_pool_get_el_struct
 
@@ -275,8 +267,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE fm_pools_copy(source_pools, target_pools)
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: source_pools, target_pools
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pools_copy', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -298,9 +288,6 @@ CONTAINS
    SUBROUTINE fm_pools_dealloc(pools)
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: pools
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pools_dealloc', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(pools)) THEN
@@ -311,6 +298,13 @@ CONTAINS
       END IF
    END SUBROUTINE fm_pools_dealloc
 
+   #:mute
+      #:set types = [("cp_fm_type", "array", ""), ("cp_fm_p_type", "p_type","%matrix")]
+      #:set attributes = [("ALLOCATABLE", "alloc", "ALLOCATED"), ("POINTER", "pointer", "ASSOCIATED")]
+   #:endmute
+
+   #:for typename, shortname, appendix in types
+      #:for attr, shortattr, create in attributes
 ! **************************************************************************************************
 !> \brief Returns a vector with an element from each pool
 !> \param pools the pools to create the elements from
@@ -320,35 +314,33 @@ CONTAINS
 !>      09.2002 created [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE fm_pools_create_fm_vect(pools, elements, &
-                                      name)
-      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: pools
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: elements
-      CHARACTER(len=*), INTENT(in), OPTIONAL             :: name
+         SUBROUTINE fm_pools_create_fm_m1_${shortname}$_${shortattr}$ (pools, elements, &
+                                                                       name)
+            TYPE(cp_fm_pool_p_type), DIMENSION(:), INTENT(IN)  :: pools
+            TYPE(${typename}$), DIMENSION(:), ${attr}$          :: elements
+            CHARACTER(len=*), INTENT(in), OPTIONAL             :: name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pools_create_fm_vect', &
-         routineP = moduleN//':'//routineN
+            INTEGER                                            :: i
+            TYPE(cp_fm_pool_type), POINTER                     :: pool
 
-      INTEGER                                            :: i
-      TYPE(cp_fm_pool_type), POINTER                     :: pool
+            NULLIFY (pool)
 
-      NULLIFY (pool)
+            ALLOCATE (elements(SIZE(pools)))
+            DO i = 1, SIZE(pools)
+               pool => pools(i)%pool
+               #:if typename=="cp_fm_p_type"
+                  ALLOCATE (elements(i)%matrix)
+               #:endif
+               IF (PRESENT(name)) THEN
+                  CALL fm_pool_create_fm(pool, elements(i) ${appendix}$, &
+                                         name=name//"-"//ADJUSTL(cp_to_string(i)))
+               ELSE
+                  CALL fm_pool_create_fm(pool, elements(i) ${appendix}$)
+               END IF
 
-      CPASSERT(ASSOCIATED(pools))
-      ALLOCATE (elements(SIZE(pools)))
-      DO i = 1, SIZE(pools)
-         NULLIFY (elements(i)%matrix)
-         pool => pools(i)%pool
-         IF (PRESENT(name)) THEN
-            CALL fm_pool_create_fm(pool, elements(i)%matrix, &
-                                   name=name//"-"//ADJUSTL(cp_to_string(i)))
-         ELSE
-            CALL fm_pool_create_fm(pool, elements(i)%matrix)
-         END IF
+            END DO
 
-      END DO
-
-   END SUBROUTINE fm_pools_create_fm_vect
+         END SUBROUTINE fm_pools_create_fm_m1_${shortname}$_${shortattr}$
 
 ! **************************************************************************************************
 !> \brief returns a vector to the pools. The vector is deallocated
@@ -361,23 +353,28 @@ CONTAINS
 !> \note
 !>      accept unassociated vect?
 ! **************************************************************************************************
-   SUBROUTINE fm_pools_give_back_fm_vect(pools, elements)
-      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: pools
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: elements
+         SUBROUTINE fm_pools_give_back_fm_m1_${shortname}$_${shortattr}$ (pools, elements)
+            TYPE(cp_fm_pool_p_type), DIMENSION(:), INTENT(IN)  :: pools
+            TYPE(${typename}$), DIMENSION(:), ${attr}$         :: elements
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fm_pools_give_back_fm_vect', &
-         routineP = moduleN//':'//routineN
+            INTEGER                                            :: i
 
-      INTEGER                                            :: i
-
-      CPASSERT(ASSOCIATED(pools))
-      CPASSERT(ASSOCIATED(elements))
-      CPASSERT(SIZE(pools) == SIZE(elements))
-      DO i = 1, SIZE(pools)
-         CALL fm_pool_give_back_fm(pools(i)%pool, &
-                                   elements(i)%matrix)
-      END DO
-      DEALLOCATE (elements)
-   END SUBROUTINE fm_pools_give_back_fm_vect
+            IF (${create}$ (elements)) THEN
+               CPASSERT(SIZE(pools) == SIZE(elements))
+               DO i = 1, SIZE(pools)
+                  CALL fm_pool_give_back_fm(pools(i)%pool, &
+                                            elements(i) ${appendix}$)
+                  #:if typename == "cp_fm_p_type"
+                     DEALLOCATE (elements(i)%matrix)
+                  #:endif
+               END DO
+               DEALLOCATE (elements)
+               #:if attr == "POINTER"
+                  NULLIFY (elements)
+               #:endif
+            END IF
+         END SUBROUTINE fm_pools_give_back_fm_m1_${shortname}$_${shortattr}$
+      #:endfor
+   #:endfor
 
 END MODULE cp_fm_pool_types

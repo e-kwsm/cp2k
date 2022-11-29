@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,7 @@ MODULE mixed_cdft_types
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)         :: energy
       ! Lagrangian multipliers of the CDFT constraints
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)      :: strength
-      ! Reliablity metric for CDFT electronic couplings
+      ! Reliability metric for CDFT electronic couplings
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)      :: metric
       ! The mixed CDFT Hamiltonian matrix
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)      :: H
@@ -171,7 +173,7 @@ MODULE mixed_cdft_types
 !> \param dlb                   flag to enable dynamic load balancing
 !> \param is_special            another flag controlling which scheme to use for constraint replication
 !> \param first_iteration       flag to mark the first iteration e.g. during MD to output information
-!> \param calculate_metric      flag which determines if the coupling reliablity metric should be computed
+!> \param calculate_metric      flag which determines if the coupling reliability metric should be computed
 !> \param wnf_ovelap_method     flag to enable the wavefunction overlap method for computing the coupling
 !> \param has_unit_metric       flag to determine if the basis set has unit metric
 !> \param use_lowdin            flag which determines if Lowdin orthogonalization is used to compute the coupling
@@ -287,9 +289,6 @@ CONTAINS
    SUBROUTINE mixed_cdft_type_create(cdft_control)
       TYPE(mixed_cdft_type), POINTER                     :: cdft_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_type_create', &
-         routineP = moduleN//':'//routineN
-
       NULLIFY (cdft_control%pw_env, cdft_control%blacs_env, cdft_control%qs_kind_set)
       NULLIFY (cdft_control%dlb_control, cdft_control%dest_list_bo, cdft_control%dest_list)
       NULLIFY (cdft_control%dest_bo_save, cdft_control%dest_list_save, cdft_control%source_list)
@@ -307,9 +306,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mixed_cdft_type_release(cdft_control)
       TYPE(mixed_cdft_type), POINTER                     :: cdft_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_type_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
 
@@ -355,8 +351,10 @@ CONTAINS
          END DO
          DEALLOCATE (cdft_control%sendbuff)
       END IF
-      IF (ASSOCIATED(cdft_control%cdft_control)) &
+      IF (ASSOCIATED(cdft_control%cdft_control)) THEN
          CALL cdft_control_release(cdft_control%cdft_control)
+         DEALLOCATE (cdft_control%cdft_control)
+      END IF
       IF (ASSOCIATED(cdft_control%blacs_env)) &
          CALL cp_blacs_env_release(cdft_control%blacs_env)
       IF (ASSOCIATED(cdft_control%qs_kind_set)) &
@@ -380,9 +378,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mixed_cdft_dlb_release(dlb_control)
       TYPE(mixed_cdft_dlb_type), POINTER                 :: dlb_control
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_dlb_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -435,9 +430,6 @@ CONTAINS
    SUBROUTINE mixed_cdft_buffers_release(buffer)
       TYPE(buffers)                                      :: buffer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_buffers_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(buffer%cavity)) &
          DEALLOCATE (buffer%cavity)
       IF (ASSOCIATED(buffer%weight)) &
@@ -454,9 +446,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mixed_cdft_p_buffers_release(p_buffer)
       TYPE(p_buffers)                                    :: p_buffer
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_p_buffers_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -475,7 +464,7 @@ CONTAINS
 !> \param lowdin       CDFT electronic couplings from Lowdin orthogonalization
 !> \param wfn          CDFT electronic couplings from wavefunction overlap method
 !> \param nonortho     CDFT electronic couplings (interaction energies) before orthogonalization
-!> \param metric       Reliablity metric for CDFT electronic couplings
+!> \param metric       Reliability metric for CDFT electronic couplings
 !> \param rotation     CDFT electronic couplings using the weight function matrix for orthogonalization
 !> \param H            The mixed CDFT Hamiltonian
 !> \param S            The overlap matrix between CDFT states
@@ -496,9 +485,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: H, S, Wad, Wda, W_diagonal
       REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: energy
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL           :: strength, S_minushalf
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_result_type_set', &
-         routineP = moduleN//':'//routineN
 
       IF (PRESENT(lowdin)) THEN
          IF (ALLOCATED(results%lowdin)) DEALLOCATE (results%lowdin)
@@ -576,9 +562,6 @@ CONTAINS
    SUBROUTINE mixed_cdft_result_type_release(results)
       TYPE(mixed_cdft_result_type)                       :: results
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_result_type_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ALLOCATED(results%lowdin)) DEALLOCATE (results%lowdin)
       IF (ALLOCATED(results%wfn)) DEALLOCATE (results%wfn)
       IF (ALLOCATED(results%metric)) DEALLOCATE (results%metric)
@@ -603,9 +586,6 @@ CONTAINS
    SUBROUTINE mixed_cdft_work_type_init(matrix)
       TYPE(mixed_cdft_work_type)                         :: matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_work_type_init', &
-         routineP = moduleN//':'//routineN
-
       NULLIFY (matrix%w_matrix)
       NULLIFY (matrix%mixed_matrix_s)
       NULLIFY (matrix%mixed_mo_coeff)
@@ -620,9 +600,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mixed_cdft_work_type_release(matrix)
       TYPE(mixed_cdft_work_type)                         :: matrix
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_cdft_work_type_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
 
@@ -641,6 +618,7 @@ CONTAINS
          DO i = 1, SIZE(matrix%mixed_mo_coeff, 2)
             DO j = 1, SIZE(matrix%mixed_mo_coeff, 1)
                CALL cp_fm_release(matrix%mixed_mo_coeff(j, i)%matrix)
+               DEALLOCATE (matrix%mixed_mo_coeff(j, i)%matrix)
             END DO
          END DO
          DEALLOCATE (matrix%mixed_mo_coeff)

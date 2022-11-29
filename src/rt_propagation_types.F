@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,7 +46,7 @@ MODULE rt_propagation_types
    USE qs_matrix_pools,                 ONLY: mpools_get,&
                                               qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -138,14 +140,12 @@ CONTAINS
    SUBROUTINE rt_prop_create(rtp, mos, mpools, dft_control, template, linear_scaling, mos_aux)
 
       TYPE(rt_prop_type), POINTER                        :: rtp
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(qs_matrix_pools_type), POINTER                :: mpools
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(dbcsr_type), POINTER                          :: template
-      LOGICAL                                            :: linear_scaling
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos_aux
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_prop_create', routineP = moduleN//':'//routineN
+      LOGICAL, INTENT(IN)                                :: linear_scaling
+      TYPE(mo_set_type), DIMENSION(:), OPTIONAL, POINTER :: mos_aux
 
       INTEGER                                            :: i, j, nao, nrow_block, nspin
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools
@@ -184,7 +184,7 @@ CONTAINS
 
          ao_mo_fmstruct => fm_pool_get_el_struct(ao_mo_fm_pools(1)%pool)
          CALL cp_fm_struct_get(ao_mo_fmstruct, nrow_block=nrow_block)
-         CALL get_mo_set(mos(1)%mo_set, nao=nao)
+         CALL get_mo_set(mos(1), nao=nao)
 
          CALL cp_fm_struct_create(fmstruct=rtp%ao_ao_fmstruct, &
                                   nrow_block=nrow_block, ncol_block=nrow_block, &
@@ -196,6 +196,11 @@ CONTAINS
          ALLOCATE (rtp%mos%next(2*nspin))
          NULLIFY (rtp%mos%admm)
          IF (dft_control%do_admm) THEN
+            IF (PRESENT(mos_aux)) THEN
+               CPASSERT(ASSOCIATED(mos_aux))
+            ELSE
+               CPABORT("The optional argument mos_aux is missing which is required with ADMM")
+            END IF
             ALLOCATE (rtp%mos%admm(2*nspin))
          END IF
          DO i = 1, nspin
@@ -203,19 +208,23 @@ CONTAINS
                NULLIFY (rtp%mos%old(2*(i - 1) + j)%matrix)
                NULLIFY (rtp%mos%new(2*(i - 1) + j)%matrix)
                NULLIFY (rtp%mos%next(2*(i - 1) + j)%matrix)
+               ALLOCATE (rtp%mos%old(2*(i - 1) + j)%matrix)
+               ALLOCATE (rtp%mos%new(2*(i - 1) + j)%matrix)
+               ALLOCATE (rtp%mos%next(2*(i - 1) + j)%matrix)
                CALL cp_fm_create(rtp%mos%old(2*(i - 1) + j)%matrix, &
-                                 matrix_struct=mos(i)%mo_set%mo_coeff%matrix_struct, &
+                                 matrix_struct=mos(i)%mo_coeff%matrix_struct, &
                                  name="mos_old"//TRIM(ADJUSTL(cp_to_string(2*(i - 1) + j))))
                CALL cp_fm_create(rtp%mos%new(2*(i - 1) + j)%matrix, &
-                                 matrix_struct=mos(i)%mo_set%mo_coeff%matrix_struct, &
+                                 matrix_struct=mos(i)%mo_coeff%matrix_struct, &
                                  name="mos_new"//TRIM(ADJUSTL(cp_to_string(2*(i - 1) + j))))
                CALL cp_fm_create(rtp%mos%next(2*(i - 1) + j)%matrix, &
-                                 matrix_struct=mos(i)%mo_set%mo_coeff%matrix_struct, &
+                                 matrix_struct=mos(i)%mo_coeff%matrix_struct, &
                                  name="mos_next"//TRIM(ADJUSTL(cp_to_string(2*(i - 1) + j))))
                IF (dft_control%do_admm) THEN
                   NULLIFY (rtp%mos%admm(2*(i - 1) + j)%matrix)
+                  ALLOCATE (rtp%mos%admm(2*(i - 1) + j)%matrix)
                   CALL cp_fm_create(rtp%mos%admm(2*(i - 1) + j)%matrix, &
-                                    matrix_struct=mos_aux(i)%mo_set%mo_coeff%matrix_struct, &
+                                    matrix_struct=mos_aux(i)%mo_coeff%matrix_struct, &
                                     name="mos_admm"//TRIM(ADJUSTL(cp_to_string(2*(i - 1) + j))))
                END IF
             END DO
@@ -340,8 +349,6 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: admm_mos
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_rtp', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(rtp))
       IF (PRESENT(exp_H_old)) exp_H_old => rtp%exp_H_old
       IF (PRESENT(exp_H_new)) exp_H_new => rtp%exp_H_new
@@ -380,9 +387,6 @@ CONTAINS
    SUBROUTINE rt_prop_release(rtp)
       TYPE(rt_prop_type), INTENT(inout)                  :: rtp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_prop_release', &
-         routineP = moduleN//':'//routineN
-
       CALL dbcsr_deallocate_matrix_set(rtp%exp_H_old)
       CALL dbcsr_deallocate_matrix_set(rtp%exp_H_new)
       CALL dbcsr_deallocate_matrix_set(rtp%H_last_iter)
@@ -395,7 +399,7 @@ CONTAINS
          IF (ASSOCIATED(rtp%rho%new)) &
             CALL dbcsr_deallocate_matrix_set(rtp%rho%new)
          DEALLOCATE (rtp%rho)
-      ENDIF
+      END IF
       IF (ASSOCIATED(rtp%mos)) THEN
          IF (ASSOCIATED(rtp%mos%old)) &
             CALL cp_fm_vect_dealloc(rtp%mos%old)
@@ -435,9 +439,6 @@ CONTAINS
       TYPE(rt_prop_type), INTENT(inout)                  :: rtp
       INTEGER, INTENT(in)                                :: aspc_order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rtp_history_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, nmat
       TYPE(rtp_history_type), POINTER                    :: history
 
@@ -464,6 +465,7 @@ CONTAINS
             DO i = 1, nmat
                DO j = 1, aspc_order
                   NULLIFY (history%mo_history(i, j)%matrix)
+                  ALLOCATE (history%mo_history(i, j)%matrix)
                   CALL cp_fm_create(history%mo_history(i, j)%matrix, &
                                     matrix_struct=rtp%mos%new(i)%matrix%matrix_struct, &
                                     name="mo_hist"//TRIM(ADJUSTL(cp_to_string(i))))
@@ -485,9 +487,6 @@ CONTAINS
    SUBROUTINE rtp_history_release(rtp)
       TYPE(rt_prop_type), INTENT(inout)                  :: rtp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rtp_history_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j
 
       IF (ASSOCIATED(rtp%history%rho_history)) THEN
@@ -498,6 +497,7 @@ CONTAINS
          DO i = 1, SIZE(rtp%history%mo_history, 1)
             DO j = 1, SIZE(rtp%history%mo_history, 2)
                CALL cp_fm_release(rtp%history%mo_history(i, j)%matrix)
+               DEALLOCATE (rtp%history%mo_history(i, j)%matrix)
             END DO
          END DO
          DEALLOCATE (rtp%history%mo_history)

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -46,14 +48,12 @@ MODULE cp_subsys_types
                                               global_constraint_type,&
                                               molecule_type
    USE multipole_types,                 ONLY: multipole_type,&
-                                              release_multipole_type,&
-                                              retain_multipole_type
+                                              release_multipole_type
    USE particle_list_types,             ONLY: particle_list_release,&
                                               particle_list_retain,&
                                               particle_list_type
    USE particle_types,                  ONLY: particle_type
-   USE virial_types,                    ONLY: virial_release,&
-                                              virial_type
+   USE virial_types,                    ONLY: virial_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -136,9 +136,6 @@ CONTAINS
    SUBROUTINE cp_subsys_retain(subsys)
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_subsys_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(subsys))
       CPASSERT(subsys%ref_count > 0)
       subsys%ref_count = subsys%ref_count + 1
@@ -154,9 +151,6 @@ CONTAINS
    SUBROUTINE cp_subsys_release(subsys)
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_subsys_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(subsys)) THEN
          CPASSERT(subsys%ref_count > 0)
          subsys%ref_count = subsys%ref_count - 1
@@ -170,11 +164,14 @@ CONTAINS
             CALL molecule_list_release(subsys%molecules)
             CALL distribution_1d_release(subsys%local_molecules)
             CALL cp_para_env_release(subsys%para_env)
-            CALL release_multipole_type(subsys%multipoles)
+            IF (ASSOCIATED(subsys%multipoles)) THEN
+               CALL release_multipole_type(subsys%multipoles)
+               DEALLOCATE (subsys%multipoles)
+            END IF
             CALL colvar_p_release(subsys%colvar_p)
             CALL deallocate_global_constraint(subsys%gci)
             CALL atprop_release(subsys%atprop)
-            CALL virial_release(subsys%virial)
+            IF (ASSOCIATED(subsys%virial)) DEALLOCATE (subsys%virial)
             CALL cp_result_release(subsys%results)
             CALL cell_release(subsys%cell)
             DEALLOCATE (subsys)
@@ -207,7 +204,7 @@ CONTAINS
    SUBROUTINE cp_subsys_set(subsys, atomic_kinds, particles, local_particles, &
                             molecules, molecule_kinds, local_molecules, para_env, &
                             colvar_p, shell_particles, core_particles, gci, multipoles, results, cell)
-      TYPE(cp_subsys_type), POINTER                      :: subsys
+      TYPE(cp_subsys_type), INTENT(INOUT)                :: subsys
       TYPE(atomic_kind_list_type), OPTIONAL, POINTER     :: atomic_kinds
       TYPE(particle_list_type), OPTIONAL, POINTER        :: particles
       TYPE(distribution_1d_type), OPTIONAL, POINTER      :: local_particles
@@ -223,13 +220,14 @@ CONTAINS
       TYPE(cp_result_type), OPTIONAL, POINTER            :: results
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_subsys_set', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(subsys))
       CPASSERT(subsys%ref_count > 0)
       IF (PRESENT(multipoles)) THEN
-         CALL retain_multipole_type(multipoles)
-         CALL release_multipole_type(subsys%multipoles)
+         IF (ASSOCIATED(subsys%multipoles)) THEN
+         IF (.NOT. ASSOCIATED(subsys%multipoles, multipoles)) THEN
+            CALL release_multipole_type(subsys%multipoles)
+            DEALLOCATE (subsys%multipoles)
+         END IF
+         END IF
          subsys%multipoles => multipoles
       END IF
       IF (PRESENT(atomic_kinds)) THEN
@@ -270,7 +268,7 @@ CONTAINS
       IF (PRESENT(colvar_p)) THEN
          CPASSERT(.NOT. ASSOCIATED(subsys%colvar_p))
          subsys%colvar_p => colvar_p
-      ENDIF
+      END IF
       IF (PRESENT(shell_particles)) THEN
          IF (ASSOCIATED(shell_particles)) THEN
             CALL particle_list_retain(shell_particles)
@@ -288,7 +286,7 @@ CONTAINS
       IF (PRESENT(gci)) THEN
          CPASSERT(.NOT. ASSOCIATED(subsys%gci))
          subsys%gci => gci
-      ENDIF
+      END IF
       IF (PRESENT(results)) THEN
          IF (ASSOCIATED(results)) THEN
             CALL cp_result_retain(results)
@@ -346,7 +344,7 @@ CONTAINS
                             shell_particles, core_particles, gci, multipoles, &
                             natom, nparticle, ncore, nshell, nkind, atprop, virial, &
                             results, cell)
-      TYPE(cp_subsys_type), POINTER                      :: subsys
+      TYPE(cp_subsys_type), INTENT(IN)                   :: subsys
       INTEGER, INTENT(out), OPTIONAL                     :: ref_count
       TYPE(atomic_kind_list_type), OPTIONAL, POINTER     :: atomic_kinds
       TYPE(atomic_kind_type), DIMENSION(:), OPTIONAL, &
@@ -374,15 +372,12 @@ CONTAINS
       TYPE(cp_result_type), OPTIONAL, POINTER            :: results
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_subsys_get', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: n_atom, n_core, n_shell
 
       n_atom = 0
       n_core = 0
       n_shell = 0
 
-      CPASSERT(ASSOCIATED(subsys))
       CPASSERT(subsys%ref_count > 0)
 
       IF (PRESENT(ref_count)) ref_count = subsys%ref_count
@@ -450,21 +445,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pack_subsys_particles(subsys, f, r, s, v, fscale, cell)
 
-      TYPE(cp_subsys_type), POINTER                      :: subsys
+      TYPE(cp_subsys_type), INTENT(IN)                   :: subsys
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT), OPTIONAL :: f, r, s, v
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: fscale
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pack_subsys_particles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iatom, j, k, natom, nparticle, nsize, &
                                                             shell_index
       REAL(KIND=dp), DIMENSION(3)                        :: rs
       TYPE(particle_list_type), POINTER                  :: core_particles, particles, &
                                                             shell_particles
-
-      CPASSERT(ASSOCIATED(subsys))
 
       IF (PRESENT(s)) THEN
          CPASSERT(PRESENT(cell))
@@ -605,13 +595,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE unpack_subsys_particles(subsys, f, r, s, v, fscale, cell)
 
-      TYPE(cp_subsys_type), POINTER                      :: subsys
+      TYPE(cp_subsys_type), INTENT(IN)                   :: subsys
       REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: f, r, s, v
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: fscale
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'unpack_subsys_particles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iatom, j, k, natom, nparticle, nsize, &
                                                             shell_index
@@ -619,8 +606,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3)                        :: rs
       TYPE(particle_list_type), POINTER                  :: core_particles, particles, &
                                                             shell_particles
-
-      CPASSERT(ASSOCIATED(subsys))
 
       NULLIFY (core_particles)
       NULLIFY (particles)

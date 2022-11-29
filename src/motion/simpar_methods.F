@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,6 +15,7 @@ MODULE simpar_methods
    USE bibliography,                    ONLY: Evans1983,&
                                               Kuhne2007,&
                                               Minary2003,&
+                                              Rengaraj2020,&
                                               Ricci2003,&
                                               cite_reference
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -24,7 +27,7 @@ MODULE simpar_methods
    USE input_constants,                 ONLY: &
         isokin_ensemble, langevin_ensemble, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        nvt_ensemble, reftraj_ensemble
+        npt_ia_ensemble, nvt_ensemble, reftraj_ensemble
    USE input_cp2k_md,                   ONLY: create_md_section
    USE input_enumeration_types,         ONLY: enum_i2c,&
                                               enumeration_type
@@ -61,9 +64,6 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(section_vals_type), POINTER                   :: motion_section, md_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_md_section', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER                                            :: iprint, iw
       REAL(kind=dp)                                      :: tmp_r1, tmp_r2, tmp_r3
@@ -84,6 +84,7 @@ CONTAINS
       IF (simpar%ensemble == langevin_ensemble) THEN
          CALL cite_reference(Ricci2003)
          IF (simpar%noisy_gamma > 0.0_dp) CALL cite_reference(Kuhne2007)
+         IF (simpar%shadow_gamma > 0.0_dp) CALL cite_reference(Rengaraj2020)
          ! Normalization factor using a normal Gaussian random number distribution
          simpar%var_w = 2.0_dp*simpar%temp_ext*simpar%dt*(simpar%gamma + simpar%noisy_gamma)
          IF (iw > 0) THEN
@@ -103,120 +104,135 @@ CONTAINS
       keyword => section_get_keyword(section, "ENSEMBLE")
       CALL keyword_get(keyword, enum=enum)
 
-      !..write some information to output
+      ! Write MD setup information to output
       IF (iw > 0) THEN
-         WRITE (iw, '( A )') ' MD| Molecular Dynamics Protocol '
-         WRITE (iw, '( A,T61,A20)') ' MD| Ensemble Type ', &
-            ADJUSTR(TRIM(enum_i2c(enum, simpar%ensemble)))
-         WRITE (iw, '( A,T71,I10 )') ' MD| Number of Time Steps ', &
-            simpar%nsteps
+         WRITE (iw, '(T2,A)') &
+            'MD_PAR| Molecular dynamics protocol (MD input parameters)'
+         WRITE (iw, '(T2,A,T61,A20)') &
+            'MD_PAR| Ensemble type', ADJUSTR(TRIM(enum_i2c(enum, simpar%ensemble)))
+         WRITE (iw, '(T2,A,T61,I20)') &
+            'MD_PAR| Number of time steps', simpar%nsteps
          IF (simpar%variable_dt) THEN
-            WRITE (iw, '( A )') ' MD| Variable Time Step is activated '
+            WRITE (iw, '(T2,A)') &
+               'MD_PAR| Variable time step is activated'
             tmp_r1 = cp_unit_from_cp2k(simpar%dt, "fs")
-            WRITE (iw, '( A,A2,A,T71,F10.2 )') ' MD| Max. Time Step [', 'fs', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Maximum time step [fs]', tmp_r1
             tmp_r1 = cp_unit_from_cp2k(simpar%dr_tol, "angstrom")
-            WRITE (iw, '( A, T71, F10.4 )') ' MD| Max. atomic displacement permitted [A] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Maximum atomic displacement permitted [A]', tmp_r1
          ELSE
             tmp_r1 = cp_unit_from_cp2k(simpar%dt, "fs")
-            WRITE (iw, '( A,A2,A,T71,F10.2 )') ' MD| Time Step [', 'fs', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Time step [fs]', tmp_r1
          END IF
          tmp_r1 = cp_unit_from_cp2k(simpar%temp_ext, "K")
-         WRITE (iw, '( A,T71,F10.2 )') ' MD| Temperature [K] ', tmp_r1
+         WRITE (iw, '(T2,A,T61,F20.6)') &
+            'MD_PAR| Temperature [K]', tmp_r1
          tmp_r1 = cp_unit_from_cp2k(simpar%temp_tol, "K")
-         WRITE (iw, '( A,T71,F10.2 )') ' MD| Temperature tolerance [K] ', tmp_r1
+         WRITE (iw, '(T2,A,T61,F20.6)') &
+            'MD_PAR| Temperature tolerance [K]', tmp_r1
 
-         IF (simpar%annealing) &
-            WRITE (iw, '( A,T71,F10.2 )') ' MD| Annealing ion factor      ', &
-            simpar%f_annealing
-         IF ((simpar%ensemble == npe_f_ensemble .OR. simpar%ensemble == npe_i_ensemble) &
-             .AND. simpar%annealing_cell) &
-            WRITE (iw, '( A,T71,F10.2 )') ' MD| Annealing cell factor      ', &
-            simpar%f_annealing_cell
+         IF (simpar%annealing) THEN
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Annealing ion factor', simpar%f_annealing
+         END IF
+         IF ((simpar%ensemble == npe_f_ensemble .OR. &
+              simpar%ensemble == npe_i_ensemble) .AND. &
+             simpar%annealing_cell) THEN
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Annealing cell factor', simpar%f_annealing_cell
+         END IF
          IF (simpar%ensemble == npt_i_ensemble .OR. &
+             simpar%ensemble == npt_ia_ensemble .OR. &
              simpar%ensemble == npt_f_ensemble .OR. &
              simpar%ensemble == npe_i_ensemble .OR. &
              simpar%ensemble == npe_f_ensemble) THEN
             tmp_r1 = cp_unit_from_cp2k(simpar%p_ext, "bar")
-            WRITE (iw, '( A,A3,A, T71, F10.2 )') &
-               ' MD| Pressure [', 'Bar', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Pressure [bar]', tmp_r1
             tmp_r1 = cp_unit_from_cp2k(simpar%tau_cell, "fs")
-            WRITE (iw, '( A,A4,A, T71, F10.2 )') &
-               ' MD| Barostat time constant [', 'fs', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Barostat time constant [fs]', tmp_r1
          END IF
          IF (simpar%ensemble == isokin_ensemble) THEN
             CALL cite_reference(Evans1983)
             CALL cite_reference(Minary2003)
-            WRITE (iw, '( A )') ' MD| Simulation in the isokinetic ensemble'
+            WRITE (iw, '(T2,A)') &
+               'MD_PAR| Simulation using the isokinetic ensemble'
          END IF
          IF (simpar%constraint) THEN
-            WRITE (iw, '( A )') ' MD| Constraints activated '
-            WRITE (iw, '( A,T71,G10.4 )') ' MD| Tolerance for shake ', &
-               simpar%shake_tol
+            WRITE (iw, '(T2,A)') &
+               'MD_PAR| Constraints activated'
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'MD_PAR| Tolerance for shake', simpar%shake_tol
          END IF
 
          print_key => section_vals_get_subs_vals(motion_section, "MD%PRINT%PROGRAM_RUN_INFO")
          CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
-         WRITE (iw, '( A,T63,i10,A )') ' MD| Print MD information every', iprint, ' step(s)'
-         WRITE (iw, '( A,T20,A,T71,A10 )') ' MD| File type', 'Print frequency[steps]', 'File names'
+         WRITE (iw, '(T2,A,T63,I10,A)') &
+            'MD_PAR| Print MD information every', iprint, ' step(s)'
+         WRITE (iw, '(T2,A,T22,A,T71,A10)') &
+            'MD_PAR| File type', 'Print frequency [steps]', 'File names'
 
          print_key => section_vals_get_subs_vals(motion_section, "PRINT%TRAJECTORY")
          CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
          filename = cp_print_key_generate_filename(logger, print_key, &
                                                    extension=".xyz", middle_name="pos", my_local=.FALSE.)
-         WRITE (iw, '( A,T20,i10,T31,A50 )') ' MD| Coordinates', iprint, &
-            ADJUSTR(TRIM(filename))
+         WRITE (iw, '(T2,A,T22,I10,T33,A48)') &
+            'MD_PAR| Coordinates', iprint, ADJUSTR(TRIM(filename))
 
-         IF (simpar%ensemble == nph_uniaxial_ensemble .OR. &
-             simpar%ensemble == nph_uniaxial_damped_ensemble .OR. &
-             simpar%ensemble == npt_i_ensemble .OR. &
-             simpar%ensemble == npt_f_ensemble .OR. &
-             simpar%ensemble == npe_i_ensemble .OR. &
-             simpar%ensemble == npe_f_ensemble) THEN
+         IF ((simpar%ensemble == nph_uniaxial_ensemble) .OR. &
+             (simpar%ensemble == nph_uniaxial_damped_ensemble) .OR. &
+             (simpar%ensemble == npt_i_ensemble) .OR. &
+             (simpar%ensemble == npt_ia_ensemble) .OR. &
+             (simpar%ensemble == npt_f_ensemble) .OR. &
+             (simpar%ensemble == npe_i_ensemble) .OR. &
+             (simpar%ensemble == npe_f_ensemble)) THEN
 
             print_key => section_vals_get_subs_vals(motion_section, "PRINT%CELL")
             CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
             filename = cp_print_key_generate_filename(logger, print_key, &
                                                       extension=".cell", my_local=.FALSE.)
-            WRITE (iw, '( A,T20,i10,T31,A50 )') ' MD| Simulation Cell', iprint, &
-               ADJUSTR(TRIM(filename))
+            WRITE (iw, '(T2,A,T22,I10,T33,A48)') &
+               'MD_PAR| Cell', iprint, ADJUSTR(TRIM(filename))
          END IF
 
          print_key => section_vals_get_subs_vals(motion_section, "PRINT%VELOCITIES")
          CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
          filename = cp_print_key_generate_filename(logger, print_key, &
                                                    extension=".xyz", middle_name="vel", my_local=.FALSE.)
-         WRITE (iw, '( A,T20,i10,T31,A50 )') ' MD| Velocities', iprint, &
-            ADJUSTR(TRIM(filename))
+         WRITE (iw, '(T2,A,T22,I10,T33,A48)') &
+            'MD_PAR| Velocities', iprint, ADJUSTR(TRIM(filename))
 
          print_key => section_vals_get_subs_vals(motion_section, "MD%PRINT%ENERGY")
          CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
          filename = cp_print_key_generate_filename(logger, print_key, &
                                                    extension=".ener", my_local=.FALSE.)
-         WRITE (iw, '( A,T20,i10,T31,A50 )') ' MD| Energies', iprint, &
-            ADJUSTR(TRIM(filename))
+         WRITE (iw, '(T2,A,T22,I10,T33,A48)') &
+            'MD_PAR| Energies', iprint, ADJUSTR(TRIM(filename))
 
          print_key => section_vals_get_subs_vals(motion_section, "PRINT%RESTART")
          CALL section_vals_val_get(print_key, "EACH%MD", i_val=iprint)
          filename = cp_print_key_generate_filename(logger, print_key, &
                                                    extension=".restart", my_local=.FALSE.)
-         WRITE (iw, '( A,T20,i10,T31,A50 )') ' MD| Dump', iprint, &
-            ADJUSTR(TRIM(filename))
+         WRITE (iw, '(T2,A,T22,I10,T33,A48)') &
+            'MD_PAR| Dump', iprint, ADJUSTR(TRIM(filename))
 
-         WRITE (iw, *)
-         IF (simpar%ensemble == nph_uniaxial_ensemble .OR. &
-             simpar%ensemble == nph_uniaxial_damped_ensemble) THEN
-            WRITE (iw, '( A )') ' SHOCK| Uniaxial Shock Parameters: '
+         IF ((simpar%ensemble == nph_uniaxial_ensemble) .OR. &
+             (simpar%ensemble == nph_uniaxial_damped_ensemble)) THEN
+            WRITE (iw, '(T2,A)') 'SHOCK| Uniaxial shock parameters: '
             tmp_r1 = cp_unit_from_cp2k(simpar%v_shock, "m*s^-1")
-            WRITE (iw, '( A,A4,A,T71,F10.4 )') &
-               ' SHOCK| Shock Velocity [', 'm/s', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'SHOCK| Shock velocity [m/s]', tmp_r1
             tmp_r1 = cp_unit_from_cp2k(simpar%gamma_nph, "fs^-1")
-            WRITE (iw, '( A,A4,A,T71,F10.4 )') &
-               ' SHOCK| Damping Coefficient [', '1/fs', '] ', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'SHOCK| Damping coefficient [1/fs]', tmp_r1
             tmp_r1 = cp_unit_from_cp2k(simpar%p0, "bar")
-            WRITE (iw, '( A,A3,A, T71, F10.2 )') &
-               ' SHOCK| Pressure [', 'Bar', '] ', tmp_r1
-            WRITE (iw, '( A,A4,A, T71, E10.4 )') &
-               ' SHOCK| Barostat Mass [', 'au', '] ', simpar%cmass
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'SHOCK| Pressure [bar]', tmp_r1
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'SHOCK| Barostat mass [a.u.]', simpar%cmass
          END IF
          ! Print warning for temp_tol
          IF (simpar%temp_tol > 0.0_dp) THEN
@@ -226,19 +242,20 @@ CONTAINS
          END IF
          ! Print warning for annealing
          IF (simpar%annealing) THEN
-            IF (simpar%ensemble == nvt_ensemble .OR. &
-                simpar%ensemble == npt_i_ensemble .OR. &
-                simpar%ensemble == npt_f_ensemble) THEN
+            IF ((simpar%ensemble == nvt_ensemble) .OR. &
+                (simpar%ensemble == npt_i_ensemble) .OR. &
+                (simpar%ensemble == npt_ia_ensemble) .OR. &
+                (simpar%ensemble == npt_f_ensemble)) THEN
                CALL cp_abort(__LOCATION__, &
                              "Annealing of the ions has been required "// &
-                             "even if the thermostat is active (nvt or npt_i or npt_f) "// &
+                             "even if the thermostat is active (nvt or npt_i or npt_ia or npt_f) "// &
                              "These two methods to control the temperature act one against the other.")
             END IF
          END IF
          ! Print warning for variable time step
          IF (simpar%variable_dt) THEN
-            IF (simpar%ensemble == langevin_ensemble .OR. &
-                simpar%ensemble == reftraj_ensemble .OR. &
+            IF ((simpar%ensemble == langevin_ensemble) .OR. &
+                (simpar%ensemble == reftraj_ensemble) .OR. &
                 simpar%do_respa) THEN
                CALL cp_warn( &
                   __LOCATION__, &
@@ -264,8 +281,6 @@ CONTAINS
    SUBROUTINE read_md_low(simpar, motion_section, md_section)
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(section_vals_type), POINTER                   :: motion_section, md_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_md_low', routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: explicit
       TYPE(section_vals_type), POINTER                   :: tmp_section
@@ -329,7 +344,7 @@ CONTAINS
 
       SELECT CASE (simpar%ensemble)
       CASE (nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, &
-            npt_f_ensemble, npt_i_ensemble, npe_f_ensemble, npe_i_ensemble)
+            npt_f_ensemble, npt_i_ensemble, npt_ia_ensemble, npe_f_ensemble, npe_i_ensemble)
          tmp_section => section_vals_get_subs_vals(md_section, "BAROSTAT")
          CALL section_vals_val_get(tmp_section, "PRESSURE", r_val=simpar%p_ext)
          CALL section_vals_val_get(tmp_section, "TIMECON", r_val=simpar%tau_cell)

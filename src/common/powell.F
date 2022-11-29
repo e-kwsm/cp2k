@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 !******************************************************************************
@@ -50,8 +52,7 @@ CONTAINS
       REAL(dp), DIMENSION(*)                             :: x
       TYPE(opt_state_type)                               :: optstate
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'powell_optimize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'powell_optimize'
 
       INTEGER                                            :: handle, npt
 
@@ -71,17 +72,17 @@ CONTAINS
       CASE (3)
          IF (optstate%unit > 0) THEN
             WRITE (optstate%unit, *) "POWELL| Exceeding maximum number of steps"
-         ENDIF
+         END IF
          optstate%state = -1
       CASE (4)
          IF (optstate%unit > 0) THEN
             WRITE (optstate%unit, *) "POWELL| Error in trust region"
-         ENDIF
+         END IF
          optstate%state = -1
       CASE (5)
          IF (optstate%unit > 0) THEN
             WRITE (optstate%unit, *) "POWELL| N out of range"
-         ENDIF
+         END IF
          optstate%state = -1
       CASE (6, 7)
          optstate%state = -1
@@ -1191,7 +1192,7 @@ CONTAINS
             wvec(ip, 5) = zero
          END DO
          !
-         !     Put the coefficents of THETA*Wcheck in PROD.
+         !     Put the coefficients of THETA*Wcheck in PROD.
          !
          DO jc = 1, 5
             nw = npt

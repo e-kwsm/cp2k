@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,8 +21,8 @@ MODULE molecule_list_types
    IMPLICIT NONE
    PRIVATE
 
-#:include "subsys_list.fypp"
+   #:include "subsys_list.fypp"
 
-$:subsys_list_macro(name='molecule')
+   $:subsys_list_macro(name='molecule')
 
 END MODULE molecule_list_types

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -12,9 +14,8 @@
 MODULE input_cp2k_xc
    USE bibliography,                    ONLY: &
         Becke1988, Becke1997, BeckeRoussel1989, Goedecker1996, Grimme2006, Grimme2010, Grimme2011, &
-        Heyd2004, Kruse2012, Lee1988, Lehtola2018, Marques2012, Ortiz1994, Paziani2006, &
-        Perdew1981, Perdew1996, Perdew2008, Proynov2007, Tao2003, Toulouse2004, Tran2013, &
-        Vosko1980, Wellendorff2012, Zhang1998
+        Heyd2004, Kruse2012, Lee1988, Ortiz1994, Perdew1981, Perdew1996, Perdew2008, Proynov2007, &
+        Tao2003, Tran2013, Vosko1980, Wellendorff2012, Zhang1998
    USE cp_output_handling,              ONLY: add_last_numeric,&
                                               cp_print_key_section_create,&
                                               high_print_level
@@ -43,12 +44,13 @@ MODULE input_cp2k_xc
    USE xc_input_constants,              ONLY: &
         c_pw92, c_pw92dmc, c_pw92vmc, c_pz, c_pzdmc, c_pzvmc, do_vwn3, do_vwn5, ke_lc, ke_llp, &
         ke_ol1, ke_ol2, ke_pbe, ke_pw86, ke_pw91, ke_t92, pz_orig, xalpha, xc_b97_3c, &
-        xc_b97_grimme, xc_b97_mardirossian, xc_b97_orig, xc_debug_new_routine, xc_deriv_collocate, &
-        xc_deriv_nn10_smooth, xc_deriv_nn50_smooth, xc_deriv_pw, xc_deriv_spline2, &
-        xc_deriv_spline2_smooth, xc_deriv_spline3, xc_deriv_spline3_smooth, xc_new_f_routine, &
-        xc_old_f_routine, xc_pbe_orig, xc_pbe_rev, xc_pbe_sol, xc_rho_nn10, xc_rho_nn50, &
+        xc_b97_grimme, xc_b97_mardirossian, xc_b97_orig, xc_debug_new_routine, &
+        xc_default_f_routine, xc_deriv_collocate, xc_deriv_nn10_smooth, xc_deriv_nn50_smooth, &
+        xc_deriv_pw, xc_deriv_spline2, xc_deriv_spline2_smooth, xc_deriv_spline3, &
+        xc_deriv_spline3_smooth, xc_pbe_orig, xc_pbe_rev, xc_pbe_sol, xc_rho_nn10, xc_rho_nn50, &
         xc_rho_no_smooth, xc_rho_spline2_smooth, xc_rho_spline3_smooth, xc_test_lsd_f_routine, &
         xgga_b88x, xgga_ev93, xgga_opt, xgga_pbex, xgga_pw86, xgga_pw91, xgga_revpbe
+   USE xc_libxc,                        ONLY: libxc_add_sections
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -57,7 +59,7 @@ MODULE input_cp2k_xc
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_cp2k_xc'
 
-   PUBLIC :: create_xc_section, create_libxc_section
+   PUBLIC :: create_xc_section, create_xc_fun_section
 
 CONTAINS
 
@@ -69,15 +71,13 @@ CONTAINS
    SUBROUTINE create_xc_fun_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xc_fun_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="xc_functional", &
-                          description="The xc functional to use", &
+                          description="The xc functional to use. For Functionals "// &
+                          "of the LibXC library use the appropriate section.", &
                           n_keywords=0, n_subsections=4, repeats=.FALSE., &
                           citations=(/Ortiz1994, Becke1988, Perdew1996, Zhang1998, Lee1988, &
                                       Heyd2004, Vosko1980, Goedecker1996, Perdew1981, &
@@ -93,10 +93,10 @@ CONTAINS
          enum_i_vals=(/xc_funct_b3lyp, xc_funct_pbe0, xc_funct_blyp, xc_funct_bp, xc_funct_pade, xc_funct_pade, xc_funct_pbe, &
                        xc_funct_tpss, xc_funct_hcth120, xc_funct_olyp, xc_funct_beefvdw, xc_funct_no_shortcut, xc_none/), &
          enum_desc=s2a("B3LYP", &
-                       "PBE0. See note in section XC/XC_FUNCTIONAL/PBE.", &
+                       "PBE0 (see note in section XC/XC_FUNCTIONAL/PBE)", &
                        "BLYP", "BP", "PADE", "Alias for PADE", &
-                       "PBE. See note in section XC/XC_FUNCTIONAL/PBE.", &
-                       "TPSS", "HCTH120", "OLYP", &
+                       "PBE (see note in section XC/XC_FUNCTIONAL/PBE)", &
+                       "TPSS (not available with LSD, use LIBXC version instead)", "HCTH120", "OLYP", &
                        "BEEFVDW", "NO_SHORTCUT", "NONE"), &
          default_i_val=xc_funct_no_shortcut, &
          lone_keyword_i_val=xc_funct_no_shortcut)
@@ -270,19 +270,7 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
-      CALL create_libxc_section(subsection, "LIBXC", &
-                                "Uses functionals from LIBXC, see also "// &
-                                "https://www.tddft.org/programs/libxc/functionals/", &
-                                "FUNCTIONAL GGA_X_PBE")
-      CALL section_add_subsection(section, subsection)
-      CALL section_release(subsection)
-
-      CALL create_libxc_section(subsection, "KE_LIBXC", &
-                                "To be used for KG runs. Uses kinetic energy functionals from LIBXC, "// &
-                                "https://www.tddft.org/programs/libxc/functionals/", &
-                                "FUNCTIONAL GGA_K_LLP")
-      CALL section_add_subsection(section, subsection)
-      CALL section_release(subsection)
+      CALL libxc_add_sections(section)
 
       CALL section_create(subsection, __LOCATION__, name="CS1", &
                           description="Uses the CS1 functional", &
@@ -498,11 +486,12 @@ CONTAINS
       CALL section_release(subsection)
 
       CALL section_create(subsection, __LOCATION__, name="TPSS", &
-                          description="Uses the TPSS functional", &
+                          description="Uses the TPSS functional. Note, that there is no LSD version available. "// &
+                          "In such cases, use the LIBXC version instead.", &
                           n_keywords=0, n_subsections=0, repeats=.FALSE., &
                           citations=(/Tao2003/))
       CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="activates the functional", &
+                          description="Activates the functional", &
                           lone_keyword_l_val=.TRUE., default_l_val=.FALSE.)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
@@ -727,95 +716,7 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
-      CALL section_create(subsection, __LOCATION__, name="SRLDA", &
-                          description="Uses the short-range LDA functional", &
-                          n_keywords=0, n_subsections=0, repeats=.FALSE., &
-                          citations=(/Paziani2006, Toulouse2004/))
-      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="activates the functional", &
-                          lone_keyword_l_val=.TRUE., default_l_val=.FALSE.)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="scale_x", &
-                          description="scales the exchange part of the functional", &
-                          default_r_val=1._dp)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="scale_c", &
-                          description="scales the correlation part of the functional", &
-                          default_r_val=1._dp)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="omega", &
-                          description="provide the range-separation parameter of the functional", &
-                          default_r_val=1._dp)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="PARAMETRIZATION", &
-                          description="Which one parametrizations of the underlying PW92 functional should be used", &
-                          usage="PARAMETRIZATION DMC", &
-                          enum_c_vals=(/ &
-                          "ORIGINAL", &
-                          "DMC     ", &
-                          "VMC     "/), &
-                          enum_i_vals=(/c_pw92, c_pw92dmc, c_pw92vmc/), &
-                          default_i_val=c_pw92)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL section_add_subsection(section, subsection)
-      CALL section_release(subsection)
-
    END SUBROUTINE create_xc_fun_section
-
-! **************************************************************************************************
-!> \brief ...
-!> \param section ...
-!> \param name ...
-!> \param description ...
-!> \param usage ...
-! **************************************************************************************************
-   SUBROUTINE create_libxc_section(section, name, description, usage)
-      TYPE(section_type), POINTER                        :: section
-      CHARACTER(len=*), INTENT(in)                       :: name, description, usage
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_libxc_section', &
-         routineP = moduleN//':'//routineN
-
-      TYPE(keyword_type), POINTER                        :: keyword
-
-      CPASSERT(.NOT. ASSOCIATED(section))
-      CPASSERT(name == "LIBXC" .OR. name == "KE_LIBXC")
-      NULLIFY (keyword)
-      CALL section_create(section, __LOCATION__, name, description, &
-                          n_keywords=3, n_subsections=0, repeats=.TRUE., &
-                          citations=(/Marques2012, Lehtola2018/))
-      CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
-                          description="activates functionals from libxc library", &
-                          lone_keyword_l_val=.TRUE., default_l_val=.FALSE.)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="FUNCTIONAL", &
-                          description="name of the functional, see also "// &
-                          "https://www.tddft.org/programs/libxc/functionals/ "// &
-                          "The precise list of available functionals depends on "// &
-                          "the version of the linked libxc.", &
-                          usage=usage, type_of_var=char_t)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="SCALE", &
-                          description="scaling factors for the functional", &
-                          usage="SCALE 0.8", type_of_var=real_t, &
-                          default_r_val=1.0_dp)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-      CALL keyword_create(keyword, __LOCATION__, name="PARAMETERS", &
-                          description="list of external parameters for the functional", &
-                          usage="PARAMETERS 0.3 [0.5 [1.4]]", type_of_var=real_t, &
-                          default_r_vals=(/HUGE(0.0_dp)/), n_var=-1)
-      CALL section_add_keyword(section, keyword)
-      CALL keyword_release(keyword)
-   END SUBROUTINE
 
 ! **************************************************************************************************
 !> \brief creates the structure of the section needed to select an xc potential
@@ -824,9 +725,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_xc_potential_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xc_potential_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -877,15 +775,100 @@ CONTAINS
    END SUBROUTINE create_xc_potential_section
 
 ! **************************************************************************************************
+!> \brief creates the structure of the section needed to select an xc kernel
+!> \param section the section that will be created
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE create_xc_kernel_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="XC_KERNEL", &
+                          description="The xc kernel to use (CAREFUL: xc kernel here refers "// &
+                          "to kernels that are not derived from an xc functional, but rather are "// &
+                          "modelled directly. This kernel will be used in a TDDFPT calculation. "// &
+                          "Cannot be combined with XC_FUNCTIONAL or XC_POTENTIAL.", &
+                          n_keywords=1, n_subsections=1, repeats=.FALSE.)
+
+      NULLIFY (subsection, keyword)
+      CALL section_create(subsection, __LOCATION__, name="UZH2022", &
+                          description="Uses the UZH2022 xc kernel", &
+                          n_keywords=3, n_subsections=0, repeats=.TRUE.)
+      CALL keyword_create(keyword, __LOCATION__, name="ALPHA", &
+                          description="Value of the alpha parameter (default = 1.19).", &
+                          usage="ALPHA 1.19", default_r_val=1.19_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="BETA", &
+                          description="Value of the beta parameter (default = 0.01).", &
+                          usage="BETA 0.01", default_r_val=0.01_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SCALE_X", &
+                          description="Scaling parameter for exchange kernel.", &
+                          usage="SCALE_X 0.2", default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="SCALE_C", &
+                          description="Scaling parameter for correlation kernel.", &
+                          usage="SCALE_C 0.2", default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_xc_kernel_section
+
+! **************************************************************************************************
+!> \brief creates the structure of the section needed to select an hfx kernel
+!> \param section the section that will be created
+!> \author JGH
+! **************************************************************************************************
+   SUBROUTINE create_hfx_kernel_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: subsection
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="HFX_KERNEL", &
+                          description="The hfx kernel to use. Cannot be combined with HF section.", &
+                          n_keywords=1, n_subsections=1, repeats=.FALSE.)
+
+      NULLIFY (subsection, keyword)
+      CALL section_create(subsection, __LOCATION__, name="HFXLR", &
+                          description="Uses the HFXLR (longrange) kernel", &
+                          n_keywords=3, n_subsections=0, repeats=.TRUE.)
+      CALL keyword_create(keyword, __LOCATION__, name="ALPHA", &
+                          description="Value of the alpha parameter (default = 1.19).", &
+                          usage="ALPHA 1.19", default_r_val=1.19_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="BETA", &
+                          description="Value of the beta parameter (default = 0.01).", &
+                          usage="BETA 0.01", default_r_val=0.01_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="SCALE", &
+                          description="Scaling parameter for HFX kernel.", &
+                          usage="SCALE 0.2", default_r_val=1.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+   END SUBROUTINE create_hfx_kernel_section
+! **************************************************************************************************
 !> \brief creates the structure of the section needed for vdW potentials
 !> \param section the section that will be created
 !> \author jgh
 ! **************************************************************************************************
    SUBROUTINE create_vdw_potential_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_vdw_potential_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -992,7 +975,8 @@ CONTAINS
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, name="LONG_RANGE_CORRECTION", &
-                          description="Calculate a long range correction to the DFT-D3 model", &
+                          description="Calculate a long range correction to the DFT-D3 model."// &
+                          " WARNING: Use with care! Only for isotropic dense systems.", &
                           usage="LONG_RANGE_CORRECTION", default_l_val=.FALSE., &
                           lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(subsection, keyword)
@@ -1035,6 +1019,14 @@ CONTAINS
                           description="Specifies the atomic kinds excluded in the DFT-D3 calculation.", &
                           usage="D3_EXCLUDE_KIND kind1 kind2 ... ", repeats=.FALSE., &
                           n_var=-1, type_of_var=integer_t)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      ! Ignore selected pair interactins
+      CALL keyword_create(keyword, __LOCATION__, name="D3_EXCLUDE_KIND_PAIR", &
+                          description="Specifies the atomic kinds for interactions excluded from the DFT-D3 calculation.", &
+                          usage="D3_EXCLUDE_KIND_PAIR kind1 kind2 ", repeats=.TRUE., &
+                          n_var=2, type_of_var=integer_t)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
 
@@ -1119,6 +1111,12 @@ CONTAINS
                           type_of_var=real_t, default_r_vals=(/6.3_dp, 0.0093_dp/), n_var=2)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="SCALE", &
+                          description="Scales the energy contribution of the rVV10 functional", &
+                          usage="SCALE 1.0", &
+                          type_of_var=real_t, default_r_val=1.0_dp)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
 
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -1132,9 +1130,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_gcp_potential_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_gcp_potential_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1185,9 +1180,6 @@ CONTAINS
    SUBROUTINE create_xc_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_xc_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -1227,13 +1219,11 @@ CONTAINS
       CALL keyword_create( &
          keyword, __LOCATION__, name="FUNCTIONAL_ROUTINE", &
          description="Select the code for xc calculation", &
-         usage="FUNCTIONAL_ROUTINE (NEW|OLD|TEST_LSD|DEBUG)", &
-         default_i_val=xc_new_f_routine, &
-         enum_c_vals=s2a("NEW", "OLD", "TEST_LSD", "DEBUG"), &
-         enum_i_vals=(/xc_new_f_routine, xc_old_f_routine, &
-                       xc_test_lsd_f_routine, xc_debug_new_routine/), &
-         enum_desc=s2a("Use new code for exchange-correlation functional calculation", &
-                       "Use old code for exchange-correlation functional calculation", &
+         usage="FUNCTIONAL_ROUTINE (DEFAULT|TEST_LSD|DEBUG)", &
+         default_i_val=xc_default_f_routine, &
+         enum_c_vals=s2a("DEFAULT", "TEST_LSD", "DEBUG"), &
+         enum_i_vals=(/xc_default_f_routine, xc_test_lsd_f_routine, xc_debug_new_routine/), &
+         enum_desc=s2a("Carry out exchange-correlation functional calculation", &
                        "Use test local-spin-density approximation code for exchange-correlation functional calculation", &
                        "Use debug new code for exchange-correlation functional calculation"))
       CALL section_add_keyword(section, keyword)
@@ -1285,6 +1275,20 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="STEP_SIZE", &
+                          description="Step size in terms of the first order potential for the numerical "// &
+                          "evaluation of XC derivatives", &
+                          usage="STEP_SIZE 1.0E-3", default_r_val=1e-3_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="NSTEPS", &
+                          description="Number of steps to consider in each direction for the numerical "// &
+                          "evaluation of XC derivatives. Must be a value from 1 to 4 (Default: 3).", &
+                          usage="NSTEPS 4", default_i_val=3)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -1308,6 +1312,14 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_xc_kernel_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
+      CALL create_hfx_kernel_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
       CALL create_vdw_potential_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -1326,14 +1338,11 @@ CONTAINS
    SUBROUTINE create_adiabatic_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_adiabatic_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
       CALL section_create(section, __LOCATION__, name="ADIABATIC_RESCALING", &
-                          description="Parameters for self interation corrected hybrid functionals", &
+                          description="Parameters for self interaction corrected hybrid functionals", &
                           n_keywords=0, n_subsections=0, repeats=.FALSE.)
       NULLIFY (keyword)
       CALL keyword_create( &

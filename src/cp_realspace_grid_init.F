@@ -1,11 +1,13 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \note
-!>      Routine to initalize a real space grid from a given input section
+!>      Routine to initialize a real space grid from a given input section
 !> \par History
 !>      01.2014 moved routine from realspace_grid_types into separate file.
 !> \author Ole Schuett
@@ -83,17 +85,17 @@ CONTAINS
          IF (input_settings%distribution_type == rsgrid_automatic) THEN
             IF (ilevel > max_distributed_level) THEN
                input_settings%distribution_type = rsgrid_replicated
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       ELSE
          input_settings%nsmax = -1
          input_settings%distribution_type = rsgrid_replicated
          input_settings%lock_distribution = .FALSE.
          input_settings%halo_reduction_factor = 1.0_dp
-      ENDIF
+      END IF
       IF (input_settings%lock_distribution) THEN
          IF (ALL(higher_grid_layout > 0)) input_settings%distribution_layout = higher_grid_layout
-      ENDIF
+      END IF
    END SUBROUTINE init_input_type
 
 END MODULE cp_realspace_grid_init

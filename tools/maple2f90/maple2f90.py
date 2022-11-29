@@ -1,5 +1,6 @@
-#!/bin/env python
-import re, sys
+#!/usr/bin/env python3
+import re
+import sys
 
 """Script to help the conversion of maple generated fortran code to f90"""
 

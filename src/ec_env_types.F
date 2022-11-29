@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,10 +16,12 @@ MODULE ec_env_types
    USE cp_fm_types,                     ONLY: cp_fm_p_type,&
                                               cp_fm_release
    USE dbcsr_api,                       ONLY: dbcsr_p_type
+   USE dm_ls_scf_types,                 ONLY: ls_scf_env_type,&
+                                              ls_scf_release
    USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
    USE qs_dispersion_types,             ONLY: qs_dispersion_release,&
                                               qs_dispersion_type
    USE qs_force_types,                  ONLY: deallocate_qs_force,&
@@ -51,17 +55,24 @@ MODULE ec_env_types
       INTEGER                                          :: energy_functional
       INTEGER                                          :: ks_solver
       INTEGER                                          :: factorization
+      INTEGER                                          :: ec_initial_guess
       REAL(KIND=dp)                                    :: eps_default
       LOGICAL                                          :: should_update
+      LOGICAL                                          :: use_ls_solver
       ! basis set
       CHARACTER(len=20)                                :: basis
       LOGICAL                                          :: mao
+      ! Skip EC calculation if ground-state didnt converge
+      LOGICAL                                          :: do_skip, skip_ec
       INTEGER                                          :: mao_max_iter
       REAL(KIND=dp)                                    :: mao_eps_grad
+      REAL(KIND=dp)                                    :: mao_eps1
+      INTEGER                                          :: mao_iolevel
       ! energy components
       REAL(KIND=dp)                                    :: etotal
-      REAL(KIND=dp)                                    :: eband, exc, ehartree, vhxc
-      REAL(KIND=dp)                                    :: edispersion, efield_nuclear
+      REAL(KIND=dp)                                    :: eband, ecore, exc, ehartree, vhxc
+      REAL(KIND=dp)                                    :: edispersion, efield_elec, &
+                                                          efield_nuclear, exc_aux_fit
       ! forces
       TYPE(qs_force_type), DIMENSION(:), POINTER       :: force => Null()
       ! full neighbor lists and corresponding task list
@@ -73,23 +84,28 @@ MODULE ec_env_types
       TYPE(qs_dispersion_type), POINTER                :: dispersion_env
       ! matrices in complete basis
       ! KS: Kohn-Sham; H: Core; S: overlap; T: kinetic energy;
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_ks
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_h
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_s
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_t
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_p
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_w
+      ! P: Harris density, W: Harris energy weighted density
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER     :: matrix_ks, &
+                                                          matrix_h, &
+                                                          matrix_s, &
+                                                          matrix_t, &
+                                                          matrix_p, &
+                                                          matrix_w
       ! reduce basis
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER        :: mao_coef
       ! CP equations
       TYPE(qs_p_env_type), POINTER                     :: p_env
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER        :: cpmos
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER        :: matrix_hz
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER        :: matrix_hz, matrix_z, matrix_wz, z_admm
+      ! Harris (rhoout), and response density (rhoz) on grid
+      TYPE(pw_type), DIMENSION(:), POINTER           :: rhoout_r, rhoz_r
       ! potentials from input density
-      TYPE(pw_p_type), POINTER                         :: vh_rspace
-      TYPE(pw_p_type), DIMENSION(:), POINTER           :: vxc_rspace, vtau_rspace
+      TYPE(pw_type)                                    :: vh_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER           :: vxc_rspace, vtau_rspace, vadmm_rspace
       ! efield
       TYPE(efield_berry_type), POINTER                 :: efield => NULL()
+      ! LS matrices and types
+      TYPE(ls_scf_env_type), POINTER                   :: ls_env
    END TYPE energy_correction_type
 
 CONTAINS
@@ -101,7 +117,7 @@ CONTAINS
    SUBROUTINE ec_env_release(ec_env)
       TYPE(energy_correction_type), POINTER              :: ec_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ec_env_release', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'ec_env_release'
 
       INTEGER                                            :: handle, iab
 
@@ -134,39 +150,56 @@ CONTAINS
          IF (ASSOCIATED(ec_env%cpmos)) THEN
             DO iab = 1, SIZE(ec_env%cpmos)
                CALL cp_fm_release(ec_env%cpmos(iab)%matrix)
+               DEALLOCATE (ec_env%cpmos(iab)%matrix)
             END DO
             DEALLOCATE (ec_env%cpmos)
             NULLIFY (ec_env%cpmos)
          END IF
 
+         IF (ASSOCIATED(ec_env%matrix_z)) CALL dbcsr_deallocate_matrix_set(ec_env%matrix_z)
          IF (ASSOCIATED(ec_env%matrix_hz)) CALL dbcsr_deallocate_matrix_set(ec_env%matrix_hz)
-         NULLIFY (ec_env%matrix_hz)
+         IF (ASSOCIATED(ec_env%matrix_wz)) CALL dbcsr_deallocate_matrix_set(ec_env%matrix_wz)
+         IF (ASSOCIATED(ec_env%z_admm)) CALL dbcsr_deallocate_matrix_set(ec_env%z_admm)
+         NULLIFY (ec_env%matrix_z, ec_env%matrix_hz, ec_env%matrix_wz)
+         NULLIFY (ec_env%z_admm)
 
          IF (ASSOCIATED(ec_env%p_env)) THEN
             CALL p_env_release(ec_env%p_env)
+            DEALLOCATE (ec_env%p_env)
          END IF
          ! potential
-         IF (ASSOCIATED(ec_env%vh_rspace)) THEN
-            CALL pw_release(ec_env%vh_rspace%pw)
-            DEALLOCATE (ec_env%vh_rspace)
+         IF (ASSOCIATED(ec_env%vh_rspace%pw_grid)) THEN
+            CALL pw_release(ec_env%vh_rspace)
          END IF
          IF (ASSOCIATED(ec_env%vxc_rspace)) THEN
             DO iab = 1, SIZE(ec_env%vxc_rspace)
-               CALL pw_release(ec_env%vxc_rspace(iab)%pw)
+               CALL pw_release(ec_env%vxc_rspace(iab))
             END DO
             DEALLOCATE (ec_env%vxc_rspace)
          END IF
          IF (ASSOCIATED(ec_env%vtau_rspace)) THEN
             DO iab = 1, SIZE(ec_env%vtau_rspace)
-               CALL pw_release(ec_env%vtau_rspace(iab)%pw)
+               CALL pw_release(ec_env%vtau_rspace(iab))
             END DO
             DEALLOCATE (ec_env%vtau_rspace)
          END IF
+         IF (ASSOCIATED(ec_env%vadmm_rspace)) THEN
+            DO iab = 1, SIZE(ec_env%vadmm_rspace)
+               CALL pw_release(ec_env%vadmm_rspace(iab))
+            END DO
+            DEALLOCATE (ec_env%vadmm_rspace)
+         END IF
          CALL efield_berry_release(ec_env%efield)
+
+         IF (ASSOCIATED(ec_env%ls_env)) THEN
+            CALL ls_scf_release(ec_env%ls_env)
+         END IF
 
          DEALLOCATE (ec_env)
 
       END IF
+
+      NULLIFY (ec_env)
 
       CALL timestop(handle)
 

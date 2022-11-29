@@ -4,9 +4,11 @@ Large scale benchmark for PAO ML (and/or LS DFT in general).
 
 ## How to Run the Benchmark
 
-Bunzip2 all files, have [`BASIS_MOLOPT`](../../data/BASIS_MOLOPT) and [`GTH_POTENTIALS`](../../data/GTH_POTENTIALS) available (from [cp2k/data](../../data/).
+Bunzip2 all files, have [`BASIS_MOLOPT`](../../data/BASIS_MOLOPT) and
+[`GTH_POTENTIALS`](../../data/GTH_POTENTIALS) available (from [cp2k/data](../../data/).
 
-For tuning purposes, the length of the full benchmark can be reduced in the following ways:
+For tuning purposes, the length of the full benchmark can be reduced in the
+following ways:
 
 - by reducing the number of MD steps (STEPS 20 -> STEPS 5)
 - by doing only an energy calculation (RUN_TYPE MD -> RUN_TYPE ENERGY)
@@ -14,13 +16,14 @@ For tuning purposes, the length of the full benchmark can be reduced in the foll
 
 ## Results Archive
 
-Reference energies and timings using CP2K svn:17405, Piz Daint, Cray XC30, 1024 nodes, SB + K20X, +- 8Gb mem used per node
+Reference energies and timings using CP2K svn:17405, Piz Daint, Cray XC30, 1024
+nodes, SB + K20X, +- 8Gb mem used per node
 
 ### Output File
 
 (last column timings per step)
 
-```
+```shell
 > grep SCF out | head -n 10
  ------------------------------ Linear scaling SCF -----------------------------
  SCF     1   -552962.443966503   -552962.443966503   28.188702
@@ -36,7 +39,7 @@ Reference energies and timings using CP2K svn:17405, Piz Daint, Cray XC30, 1024 
 
 ### MD Energy File
 
-```
+```shell
 > cat pao_ml_md-1.ener
 #     Step Nr.          Time[fs]        Kin.[a.u.]          Temp[K]            Pot.[a.u.]        Cons Qty[a.u.]        UsedTime[s]
          0            0.000000       110.495412573       300.000000000   -554937.745690580   -554827.250278007         0.000000000
@@ -64,7 +67,7 @@ Reference energies and timings using CP2K svn:17405, Piz Daint, Cray XC30, 1024 
 
 ### Timings
 
-```
+```cp2k-output
  SUBROUTINE                       CALLS  ASD         SELF TIME        TOTAL TIME
                                 MAXIMUM       AVERAGE  MAXIMUM  AVERAGE  MAXIMUM
  CP2K                                 1  1.0    0.182    0.228 8802.156 8802.158

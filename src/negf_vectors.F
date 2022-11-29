@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,8 +46,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(in)                  :: atomlist_screening, atomlist_bulk
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'contact_direction_vector', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'contact_direction_vector'
 
       INTEGER                                            :: handle, iatom, natoms_bulk, &
                                                             natoms_screening, nparticles

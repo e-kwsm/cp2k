@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -11,9 +13,7 @@
 ! **************************************************************************************************
 MODULE fp_methods
 
-   USE beta_gamma_psi,                  ONLY: erf1,&
-                                              gamln,&
-                                              psi
+   USE beta_gamma_psi,                  ONLY: psi
    USE cell_types,                      ONLY: cell_type,&
                                               pbc
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -55,7 +55,7 @@ CONTAINS
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fp_eval', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'fp_eval'
 
       CHARACTER(LEN=15)                                  :: tmpstr
       INTEGER                                            :: handle, i, icenter, iparticle, &
@@ -97,18 +97,18 @@ CONTAINS
             sf = strength*(r - fp_env%outer_radius)/r
             particles(iparticle)%f = particles(iparticle)%f - sf*rab
             particles(icenter)%f = particles(icenter)%f + sf*rab
-         ENDIF
+         END IF
          ! count the distribution
          IF (r > fp_env%inner_radius) THEN
             fp_env%i2 = fp_env%i2 + 1
          ELSE
             fp_env%i1 = fp_env%i1 + 1
-         ENDIF
+         END IF
          ! smooth count the distribution
          CALL smooth_count(r, fp_env%inner_radius, fp_env%smooth_width, c, dcdr)
          fp_env%ri1 = fp_env%ri1 + c
          fp_env%ri2 = fp_env%ri2 + (1.0_dp - c)
-      ENDDO
+      END DO
 
       ! outer particles
       DO i = 1, SIZE(fp_env%outer_atoms)
@@ -124,18 +124,18 @@ CONTAINS
             sf = strength*(r - fp_env%inner_radius)/r
             particles(iparticle)%f = particles(iparticle)%f - sf*rab
             particles(icenter)%f = particles(icenter)%f + sf*rab
-         ENDIF
+         END IF
          ! count the distribution
          IF (r > fp_env%outer_radius) THEN
             fp_env%o2 = fp_env%o2 + 1
          ELSE
             fp_env%o1 = fp_env%o1 + 1
-         ENDIF
+         END IF
          ! smooth count the distribution
          CALL smooth_count(r, fp_env%outer_radius, fp_env%smooth_width, c, dcdr)
          fp_env%ro1 = fp_env%ro1 + c
          fp_env%ro2 = fp_env%ro2 + (1.0_dp - c)
-      ENDDO
+      END DO
       fp_env%energy = fp_env%energy + fp_env%restraint_energy
 
       ! the combinatorial weight
@@ -150,8 +150,8 @@ CONTAINS
       fp_env%bias_energy = 0.0_dp
       IF (fp_env%bias) THEN
          kT = fp_env%temperature
-         fp_env%bias_energy = kT*(gamln(fp_env%ro1 + fp_env%ri2 + 1) - &
-                                  gamln(fp_env%ro1 + 1) - gamln(fp_env%ri2 + 1))
+         fp_env%bias_energy = kT*(LOG_GAMMA(fp_env%ro1 + fp_env%ri2 + 1) - &
+                                  LOG_GAMMA(fp_env%ro1 + 1) - LOG_GAMMA(fp_env%ri2 + 1))
 
          ! and add the corresponding forces
          ! inner particles
@@ -164,7 +164,7 @@ CONTAINS
             sf = kT*(psi(fp_env%ro1 + fp_env%ri2 + 1) - psi(fp_env%ri2 + 1))*(-dcdr)/r
             particles(iparticle)%f = particles(iparticle)%f - sf*rab
             particles(icenter)%f = particles(icenter)%f + sf*rab
-         ENDDO
+         END DO
          ! outer particles
          DO i = 1, SIZE(fp_env%outer_atoms)
             iparticle = fp_env%outer_atoms(i)
@@ -175,8 +175,8 @@ CONTAINS
             sf = kT*(psi(fp_env%ro1 + fp_env%ri2 + 1) - psi(fp_env%ro1 + 1))*(dcdr)/r
             particles(iparticle)%f = particles(iparticle)%f - sf*rab
             particles(icenter)%f = particles(icenter)%f + sf*rab
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       fp_env%energy = fp_env%energy + fp_env%bias_energy
       fp_env%bias_weight = EXP(fp_env%bias_energy/kT)
 
@@ -185,7 +185,7 @@ CONTAINS
          fp_env%weight = 0.0_dp
       ELSE
          fp_env%weight = fp_env%comb_weight*fp_env%bias_weight
-      ENDIF
+      END IF
 
       ! put weights and other info on file
       logger => cp_get_default_logger()
@@ -199,7 +199,7 @@ CONTAINS
             fp_env%energy, fp_env%restraint_energy, fp_env%bias_energy, &
             fp_env%i1, fp_env%i2, fp_env%o1, fp_env%o2, &
             fp_env%ri1, fp_env%ri2, fp_env%ro1, fp_env%ro2
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(output_unit, logger, fp_env%print_section, &
                                         "")
@@ -228,7 +228,7 @@ CONTAINS
 
       arg = (r1 - r)/width
 
-      c = (1.0_dp + erf1(arg))/2.0_dp
+      c = (1.0_dp + ERF(arg))/2.0_dp
       dcdr = (-oorootpi/width)*EXP(-arg**2)
 
    END SUBROUTINE

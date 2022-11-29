@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -80,7 +82,7 @@ MODULE qs_linres_current_utils
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: qs_kind_type
@@ -99,19 +101,17 @@ MODULE qs_linres_current_utils
    USE qs_loc_methods,                  ONLY: qs_print_cubes
    USE qs_loc_types,                    ONLY: get_qs_loc_env,&
                                               localized_wfn_control_type,&
-                                              qs_loc_env_new_type
+                                              qs_loc_env_type
    USE qs_matrix_pools,                 ONLY: qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_operators_ao,                 ONLY: build_lin_mom_matrix
    USE qs_p_env_types,                  ONLY: qs_p_env_type
    USE qs_rho_types,                    ONLY: qs_rho_clear,&
                                               qs_rho_create,&
-                                              qs_rho_retain,&
                                               qs_rho_set
-   USE realspace_grid_types,            ONLY: realspace_grid_desc_p_type,&
-                                              rs_grid_release
+   USE realspace_grid_types,            ONLY: rs_grid_release
    USE scf_control_types,               ONLY: scf_control_type
 #include "./base/base_uses.f90"
 
@@ -133,11 +133,10 @@ CONTAINS
    SUBROUTINE current_response(current_env, p_env, qs_env)
       !
       TYPE(current_env_type)                             :: current_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'current_response', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'current_response'
 
       CHARACTER(LEN=default_path_length)                 :: my_pos
       INTEGER :: first_center, handle, i, icenter, idir, ii, iii, ispin, ist_true, istate, j, &
@@ -190,7 +189,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (UNIT=output_unit, FMT="(T10,A,/)") &
             "*** Self consistent optimization of the response wavefunctions ***"
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env=qs_env, &
                       dft_control=dft_control, &
@@ -228,10 +227,11 @@ CONTAINS
             CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
                                      ncol_global=nstates(ispin), &
                                      context=mo_coeff%matrix_struct%context)
+            ALLOCATE (psi1(ispin)%matrix, h1_psi0(ispin)%matrix)
             CALL cp_fm_create(psi1(ispin)%matrix, tmp_fm_struct)
             CALL cp_fm_create(h1_psi0(ispin)%matrix, tmp_fm_struct)
             CALL cp_fm_struct_release(tmp_fm_struct)
-         ENDDO
+         END DO
          !
          ! prepare for allocation
          natom = SIZE(particle_set, 1)
@@ -264,12 +264,12 @@ CONTAINS
             CALL dbcsr_copy(op_p_ao(idir)%matrix, op_p_ao(1)%matrix, &
                             "current_env%op_p_ao"//"-"//TRIM(ADJUSTL(cp_to_string(idir))))
             CALL dbcsr_set(op_p_ao(idir)%matrix, 0.0_dp)
-         ENDDO
+         END DO
          !
          !CALL p_xyz_ao(op_p_ao,qs_env,minimum_image=.FALSE.)
          CALL build_lin_mom_matrix(qs_env, op_p_ao)
          !
-      ENDIF
+      END IF
       !
       ! set response to zero
       !
@@ -278,8 +278,8 @@ CONTAINS
             CALL cp_fm_set_all(psi1_p(ispin, idir)%matrix, 0.0_dp)
             CALL cp_fm_set_all(psi1_rxp(ispin, idir)%matrix, 0.0_dp)
             IF (current_env%full) CALL cp_fm_set_all(psi1_D(ispin, idir)%matrix, 0.0_dp)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       !
       !
       !
@@ -294,8 +294,8 @@ CONTAINS
             ! operator rxp
             psi1_ptr => psi1_rxp(:, idir)
             CALL linres_read_restart(qs_env, lr_section, psi1_ptr, idir, "nmr_rxp")
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       !
       !
       !
@@ -307,7 +307,7 @@ CONTAINS
          IF (should_stop) EXIT
          IF (output_unit > 0) THEN
             WRITE (output_unit, "(T10,A)") "Response to the perturbation operator P_"//ACHAR(idir + 119)
-         ENDIF
+         END IF
          !
          ! Initial guess for psi1
          psi1_ptr => psi1_p(:, idir)
@@ -334,19 +334,19 @@ CONTAINS
                CALL qs_print_cubes(qs_env, psi1_ptr(ispin)%matrix, ncubes, list_cubes, &
                                    centers_set(ispin)%array, print_key, 'psi1_p', &
                                    idir=idir, ispin=ispin, file_position=my_pos)
-            ENDDO ! ispin
-         ENDIF ! print response functions
+            END DO ! ispin
+         END IF ! print response functions
          !
          ! write restart file
          CALL linres_write_restart(qs_env, lr_section, psi1_ptr, idir, "nmr_p")
-      ENDDO ! idir
+      END DO ! idir
       !
       ! operator rxp
       DO idir = 1, 3
          IF (should_stop) EXIT
          IF (output_unit > 0) THEN
             WRITE (output_unit, "(T10,A)") "Response to the perturbation operator L_"//ACHAR(idir + 119)
-         ENDIF
+         END IF
          !
          ! Initial guess for psi1
          psi1_ptr => psi1_rxp(:, idir)
@@ -366,12 +366,12 @@ CONTAINS
                CALL qs_print_cubes(qs_env, psi1_ptr(ispin)%matrix, ncubes, list_cubes, &
                                    centers_set(ispin)%array, print_key, 'psi1_rxp', &
                                    idir=idir, ispin=ispin, file_position=my_pos)
-            ENDDO ! ispin
-         ENDIF ! print response functions
+            END DO ! ispin
+         END IF ! print response functions
          !
          ! write restart file
          CALL linres_write_restart(qs_env, lr_section, psi1_ptr, idir, "nmr_rxp")
-      ENDDO ! idir
+      END DO ! idir
       IF (.NOT. should_stop) current_env%all_pert_op_done = .TRUE.
       !
       ! operator D
@@ -381,7 +381,7 @@ CONTAINS
          !
          DO ispin = 1, nspins
             CALL cp_fm_set_all(psi1(ispin)%matrix, 0.0_dp)
-         ENDDO
+         END DO
          !
          ! The correction is state depedent a loop over the states is necessary
          max_nbr_center = MAXVAL(nbr_center(1:nspins))
@@ -399,12 +399,13 @@ CONTAINS
                                      ncol_global=nmo, para_env=para_env, &
                                      context=mo_coeff%matrix_struct%context)
 
+            ALLOCATE (fm_work_ii(ispin)%matrix, fm_work_iii(ispin)%matrix)
             CALL cp_fm_create(fm_work_ii(ispin)%matrix, tmp_fm_struct)
             CALL cp_fm_set_all(fm_work_ii(ispin)%matrix, 0.0_dp)
             CALL cp_fm_create(fm_work_iii(ispin)%matrix, tmp_fm_struct)
             CALL cp_fm_set_all(fm_work_iii(ispin)%matrix, 0.0_dp)
             CALL cp_fm_struct_release(tmp_fm_struct)
-         ENDDO ! ispin
+         END DO ! ispin
          !
          DO idir = 1, 3
             IF (should_stop) EXIT
@@ -421,7 +422,7 @@ CONTAINS
                   WRITE (output_unit, "(T10,A,I4,A)")&
                      & "Response to the perturbation operators (dk-dl)xp up to state ", &
                        first_center, " have been read from restart"
-               ENDIF
+               END IF
             END IF
             !
             ! here we run over the max number of states, then we need
@@ -434,7 +435,7 @@ CONTAINS
                      WRITE (output_unit, "(T10,A,I4,A)")&
                           & "Response to the perturbation operator (dk-dl)xp for -state- ", &
                             icenter, " in dir. "//ACHAR(idir + 119)
-                  ENDIF
+                  END IF
                   !
                   DO ispin = 1, nspins
                      nmo = nstates(ispin)
@@ -447,7 +448,7 @@ CONTAINS
                         CALL cp_fm_set_all(h1_psi0(ispin)%matrix, 0.0_dp)
                         CALL cp_fm_set_all(psi1(ispin)%matrix, 0.0_dp)
                         CYCLE
-                     ENDIF
+                     END IF
                      !
                      dkl_vec_ii(:) = 0.0_dp
                      dkl_vec_iii(:) = 0.0_dp
@@ -465,8 +466,8 @@ CONTAINS
                            jstate = center_list(ispin)%array(2, j)
                            dkl_vec_ii(jstate) = dkl(ii)
                            dkl_vec_iii(jstate) = dkl(iii)
-                        ENDDO
-                     ENDDO
+                        END DO
+                     END DO
                      !
                      ! First term
                      ! Rescale the ground state orbitals by (dk-dl)_ii
@@ -496,7 +497,7 @@ CONTAINS
                      ! h1_psi0_i = fm_work_iii - fm_work_ii
                      CALL cp_fm_scale_and_add(1.0_dp, h1_psi0(ispin)%matrix,&
                           &                  -1.0_dp, fm_work_ii(ispin)%matrix)
-                  ENDDO
+                  END DO
 
                   !
                   ! Optimize the response wavefunctions
@@ -505,7 +506,7 @@ CONTAINS
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, "(T10,A,/)")&
                           & "Store the psi1 vector for the calculation of the response current density "
-                  ENDIF
+                  END IF
                   !
                   DO ispin = 1, nspins
                      !
@@ -519,19 +520,19 @@ CONTAINS
                         !
                         ! the optimized wfns are copied in the fm
                         CALL cp_fm_to_fm(psi1(ispin)%matrix, psi1_D(ispin, idir)%matrix, 1, istate, istate)
-                     ENDDO
+                     END DO
                      current_env%full_done(idir*ispin, icenter) = .TRUE.
-                  ENDDO ! ispin
+                  END DO ! ispin
                   !
                ELSE
                   DO ispin = 1, nspins
                      current_env%full_done(idir*ispin, icenter) = .TRUE.
-                  ENDDO ! ispin
+                  END DO ! ispin
                END IF
                psi1_ptr => psi1_D(:, idir)
                CALL linres_write_restart(qs_env, lr_section, psi1_ptr, idir, "nmr_dxp-", ind=icenter)
 
-            ENDDO ! center
+            END DO ! center
             !
             ! print response functions
             IF (BTEST(cp_print_key_should_output(logger%iter_info, current_section,&
@@ -542,20 +543,21 @@ CONTAINS
                   CALL qs_print_cubes(qs_env, psi1_D(ispin, idir)%matrix, &
                                       ncubes, list_cubes, centers_set(ispin)%array, print_key, 'psi1_D', &
                                       idir=idir, ispin=ispin, file_position=my_pos)
-               ENDDO
-            ENDIF ! print response functions
+               END DO
+            END IF ! print response functions
             !
-         ENDDO ! idir
+         END DO ! idir
          IF (.NOT. should_stop) current_env%all_pert_op_done = .TRUE.
          !
          ! clean up
          DO ispin = 1, nspins
             CALL cp_fm_release(fm_work_ii(ispin)%matrix)
             CALL cp_fm_release(fm_work_iii(ispin)%matrix)
-         ENDDO
+            DEALLOCATE (fm_work_ii(ispin)%matrix, fm_work_iii(ispin)%matrix)
+         END DO
          DEALLOCATE (fm_work_ii, fm_work_iii, dkl_vec_ii, dkl_vec_iii, vecbuf_dklxp0)
 
-      ENDIF
+      END IF
       !
       ! clean up
       IF (current_env%full) THEN
@@ -563,9 +565,10 @@ CONTAINS
          DO ispin = 1, nspins
             CALL cp_fm_release(psi1(ispin)%matrix)
             CALL cp_fm_release(h1_psi0(ispin)%matrix)
-         ENDDO
+            DEALLOCATE (psi1(ispin)%matrix, h1_psi0(ispin)%matrix)
+         END DO
          DEALLOCATE (psi1, h1_psi0)
-      ENDIF
+      END IF
       !
       CALL cp_print_key_finished_output(output_unit, logger, lr_section,&
            &                            "PRINT%PROGRAM_RUN_INFO")
@@ -586,8 +589,7 @@ CONTAINS
       TYPE(current_env_type)                             :: current_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'current_env_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'current_env_init'
 
       INTEGER :: handle, homo, i, iao, iatom, ibox, icenter, icount, idir, ii, ini, ir, is, ispin, &
          istate, istate2, istate_next, ix, iy, iz, j, jstate, k, max_nbr_center, max_states, n, &
@@ -614,13 +616,13 @@ CONTAINS
       TYPE(jrho_atom_type), DIMENSION(:), POINTER        :: jrho1_atom_set
       TYPE(linres_control_type), POINTER                 :: linres_control
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g, rho_r
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, rho_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(qs_matrix_pools_type), POINTER                :: mpools
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(section_vals_type), POINTER                   :: current_section, lr_section
@@ -649,19 +651,19 @@ CONTAINS
       gapw = dft_control%qs_control%gapw
       nspins = dft_control%nspins
       natom = SIZE(particle_set, 1)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao)
+      CALL get_mo_set(mo_set=mos(1), nao=nao)
       !
       max_states = 0
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(ispin), nmo=nmo)
          max_states = MAX(max_states, nmo)
-      ENDDO
+      END DO
       !
       !
       !
       ! some checks
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo, homo=homo, &
+         CALL get_mo_set(mo_set=mos(ispin), nmo=nmo, homo=homo, &
                          uniform_occupation=uniform_occupation)
          !
          ! check that homo=nmo
@@ -675,7 +677,7 @@ CONTAINS
          !
          ! check that the occupation is uniform
          IF (.NOT. uniform_occupation) CPABORT("nmo != homo")
-      ENDDO
+      END DO
       !
       !
       logger => cp_get_default_logger()
@@ -686,9 +688,9 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (output_unit, "(/,T20,A,/)") "*** Start current Calculation ***"
          WRITE (output_unit, "(T10,A,/)") "Inizialization of the current environment"
-      ENDIF
+      END IF
 
-      IF (current_env%ref_count /= 0) CALL current_env_cleanup(current_env, qs_env)
+      CALL current_env_cleanup(current_env)
 
       CALL current_env_create(current_env)
       !
@@ -770,7 +772,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(A)') &
             ' To get CURRENT parameters within PBC you need localized zero order orbitals '
-      ENDIF
+      END IF
       qs_loc_env => linres_control%qs_loc_env
       CALL get_qs_loc_env(qs_loc_env, localized_wfn_control=localized_wfn_control)
       !
@@ -791,18 +793,18 @@ CONTAINS
                IF (r(1) .LT. 0.0_dp) THEN
                   localized_wfn_control%centers_set(ispin)%array(1, istate) = &
                      r(1) + cell%hmat(1, 1)
-               ENDIF
+               END IF
                IF (r(2) .LT. 0.0_dp) THEN
                   localized_wfn_control%centers_set(ispin)%array(2, istate) = &
                      r(2) + cell%hmat(2, 2)
-               ENDIF
+               END IF
                IF (r(3) .LT. 0.0_dp) THEN
                   localized_wfn_control%centers_set(ispin)%array(3, istate) = &
                      r(3) + cell%hmat(3, 3)
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDIF
+               END IF
+            END DO
+         END DO
+      END IF
       !
       !
       !
@@ -829,10 +831,10 @@ CONTAINS
             CALL reallocate(current_env%selected_states_on_atom_list, 1, n + SIZE(list))
             DO ini = 1, SIZE(list)
                current_env%selected_states_on_atom_list(ini + n) = list(ini)
-            ENDDO
+            END DO
             n = n + SIZE(list)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       !
       ! build the subset
       IF (current_env%do_selected_states) THEN
@@ -853,11 +855,11 @@ CONTAINS
                      nstate = nstate + 1
                      state_list(nstate, ispin) = istate
                      EXIT
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
             nstate_list(ispin) = nstate
-         ENDDO
+         END DO
       ELSE
          DO ispin = 1, nspins
             center_array => localized_wfn_control%centers_set(ispin)%array
@@ -865,10 +867,10 @@ CONTAINS
             DO istate = 1, SIZE(center_array, 2)
                nstate = nstate + 1
                state_list(nstate, ispin) = istate
-            ENDDO
+            END DO
             nstate_list(ispin) = nstate
-         ENDDO
-      ENDIF
+         END DO
+      END IF
       !
       !
       !
@@ -895,7 +897,7 @@ CONTAINS
                current_env%centers_set(ispin)%array(1:3, is) = center_array(1:3, istate)
                current_env%center_list(ispin)%array(1, is) = is
                current_env%center_list(ispin)%array(2, is) = istate
-            ENDDO
+            END DO
             current_env%center_list(ispin)%array(1, nstate + 1) = nstate + 1
             !
          CASE (current_orb_center_common)
@@ -908,7 +910,7 @@ CONTAINS
             DO is = 1, nstate
                istate = state_list(is, ispin)
                current_env%center_list(ispin)%array(2, is) = istate
-            ENDDO
+            END DO
             !
          CASE (current_orb_center_atom)
             !
@@ -926,9 +928,9 @@ CONTAINS
                   IF (dist .LT. mdist) THEN
                      buff(is) = iatom
                      mdist = dist
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
             !
             i = 0
             ii = 1
@@ -943,19 +945,19 @@ CONTAINS
                      i = i + 1
                      is0 = .FALSE.
                      current_env%center_list(ispin)%array(2, i) = istate
-                  ENDIF
-               ENDDO
+                  END IF
+               END DO
                IF (.NOT. is0) THEN
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, '(T2,A,I6,A,I6)') 'clustering ', j, ' center(s) on atom ', iatom
-                  ENDIF
+                  END IF
                   current_env%center_list(ispin)%array(1, ii + 1) = &
                      current_env%center_list(ispin)%array(1, ii) + j
                   current_env%centers_set(ispin)%array(:, ii) = &
                      pbc(particle_set(iatom)%r, cell)
                   ii = ii + 1
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             current_env%nbr_center(ispin) = ii - 1
             !
             DEALLOCATE (buff)
@@ -975,9 +977,9 @@ CONTAINS
                      rbuff(2, ibox) = cell%hmat(2, 2)*((REAL(iy, dp) - 0.5_dp)/REAL(nbox(2), dp) - 0.5_dp)
                      rbuff(3, ibox) = cell%hmat(3, 3)*((REAL(iz, dp) - 0.5_dp)/REAL(nbox(3), dp) - 0.5_dp)
                      ibox = ibox + 1
-                  ENDDO
-               ENDDO
-            ENDDO
+                  END DO
+               END DO
+            END DO
             !
             DO is = 1, nstate
                istate = state_list(is, ispin)
@@ -988,9 +990,9 @@ CONTAINS
                   IF (dist .LT. mdist) THEN
                      buff(is) = ibox
                      mdist = dist
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
             !
             i = 0
             ii = 1
@@ -1005,44 +1007,45 @@ CONTAINS
                      i = i + 1
                      is0 = .FALSE.
                      current_env%center_list(ispin)%array(2, i) = istate
-                  ENDIF
-               ENDDO
+                  END IF
+               END DO
                IF (.NOT. is0) THEN
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, '(T2,A,I6,A,I6)') 'clustering ', j, ' center(s) on box ', ibox
-                  ENDIF
+                  END IF
                   current_env%center_list(ispin)%array(1, ii + 1) = &
                      current_env%center_list(ispin)%array(1, ii) + j
                   current_env%centers_set(ispin)%array(:, ii) = rbuff(:, ibox)
                   ii = ii + 1
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             current_env%nbr_center(ispin) = ii - 1
             !
             DEALLOCATE (buff, rbuff)
          CASE DEFAULT
             CPABORT("Unknown orbital center, try again...")
          END SELECT
-      ENDDO
+      END DO
       !
       !
       !
       ! block the states for each center
       ALLOCATE (current_env%psi0_order(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          NULLIFY (tmp_fm_struct)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
                                   ncol_global=nstate_list(ispin), para_env=para_env, &
                                   context=mo_coeff%matrix_struct%context)
+         ALLOCATE (current_env%psi0_order(ispin)%matrix)
          CALL cp_fm_create(current_env%psi0_order(ispin)%matrix, tmp_fm_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
          CALL cp_fm_set_all(current_env%psi0_order(ispin)%matrix, 0.0_dp)
-      ENDDO
+      END DO
       !
       !
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          jstate = 0
          DO icenter = 1, current_env%nbr_center(ispin)
             DO i = current_env%center_list(ispin)%array(1, icenter), &
@@ -1059,10 +1062,10 @@ CONTAINS
                ELSE
                   ! for the moment we just copy them
                   CALL cp_fm_to_fm(mo_coeff, current_env%psi0_order(ispin)%matrix, 1, istate, istate)
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDDO
+               END IF
+            END DO
+         END DO
+      END DO
       !
       !
       !
@@ -1076,23 +1079,23 @@ CONTAINS
             WRITE (output_unit, *) 'orbital center shifted to match the '
             WRITE (output_unit, *) 'center of the box (L/2 L/2 L/2) (superdirty...)'
             WRITE (output_unit, *) 'WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING '
-         ENDIF
+         END IF
          DO ispin = 1, nspins
             DO istate = 1, current_env%nbr_center(ispin)
                IF (current_env%centers_set(ispin)%array(1, istate) .LE. 0.0_dp) THEN
                   current_env%centers_set(ispin)%array(1, istate) = &
                      current_env%centers_set(ispin)%array(1, istate) + cell%hmat(1, 1)
-               ENDIF
+               END IF
                IF (current_env%centers_set(ispin)%array(2, istate) .LE. 0.0_dp) THEN
                   current_env%centers_set(ispin)%array(2, istate) = &
                      current_env%centers_set(ispin)%array(2, istate) + cell%hmat(2, 2)
-               ENDIF
+               END IF
                IF (current_env%centers_set(ispin)%array(3, istate) .LE. 0.0_dp) THEN
                   current_env%centers_set(ispin)%array(3, istate) = &
                      current_env%centers_set(ispin)%array(3, istate) + cell%hmat(3, 3)
-               ENDIF
-            ENDDO
-         ENDDO
+               END IF
+            END DO
+         END DO
          ! printing
          DO ispin = 1, nspins
             IF (output_unit > 0) THEN
@@ -1101,10 +1104,10 @@ CONTAINS
                DO istate = 1, current_env%nbr_center(ispin)
                   WRITE (output_unit, '(T5,A,I6,3F12.6)') &
                      'state ', istate, current_env%centers_set(ispin)%array(1:3, istate)
-               ENDDO
-            ENDIF
-         ENDDO
-      ENDIF
+               END DO
+            END IF
+         END DO
+      END IF
       !
       !
       !
@@ -1123,7 +1126,7 @@ CONTAINS
             center(3) = current_env%centers_set(ispin)%array(3, 1)
             state_done(1, 1) = .TRUE.
             icount = 1
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo)
+            CALL get_mo_set(mo_set=mos(ispin), nmo=nmo)
             !
             DO idir = 1, 3
                ini = 1
@@ -1144,9 +1147,9 @@ CONTAINS
                         IF (dist .LT. mdist) THEN
                            mdist = dist
                            istate_next = istate2
-                        ENDIF
-                     ENDIF
-                  ENDDO ! istate2
+                        END IF
+                     END IF
+                  END DO ! istate2
                   !
                   icount = icount + 1
                   state_done(idir, istate_next) = .TRUE.
@@ -1154,18 +1157,18 @@ CONTAINS
                   center(1) = current_env%centers_set(ispin)%array(1, istate_next)
                   center(2) = current_env%centers_set(ispin)%array(2, istate_next)
                   center(3) = current_env%centers_set(ispin)%array(3, istate_next)
-               ENDDO ! istate
+               END DO ! istate
                icount = 0
-            ENDDO ! idir
-         ENDDO
+            END DO ! idir
+         END DO
          DEALLOCATE (state_done)
       ELSE
          DO ispin = 1, nspins
             DO icenter = 1, current_env%nbr_center(ispin)
                current_env%statetrueindex(:, icenter, ispin) = icenter
-            ENDDO
-         ENDDO
-      ENDIF
+            END DO
+         END DO
+      END IF
       !
       !
       IF (output_unit > 0) THEN
@@ -1176,25 +1179,25 @@ CONTAINS
          IF (current_env%gauge .EQ. current_gauge_atom) THEN
             WRITE (output_unit, "(T2,A,T68,E12.6)") "CURRENT| Radius for building the gauge", &
                current_env%gauge_atom_radius
-         ENDIF
+         END IF
          WRITE (output_unit, "(T2,A,T60,A)") "CURRENT| Orbital center used", &
             REPEAT(' ', 20 - LEN_TRIM(current_env%orb_center_name))//TRIM(current_env%orb_center_name)
          IF (current_env%orb_center .EQ. current_orb_center_common) THEN
             WRITE (output_unit, "(T2,A,T50,3F10.6)") "CURRENT| Common center", common_center(1:3)
          ELSEIF (current_env%orb_center .EQ. current_orb_center_box) THEN
             WRITE (output_unit, "(T2,A,T60,3I5)") "CURRENT| Nbr boxes in each direction", nbox(1:3)
-         ENDIF
+         END IF
          !
          DO ispin = 1, nspins
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmo)
+            CALL get_mo_set(mo_set=mos(ispin), nmo=nmo)
             WRITE (output_unit, '(T2,A,I6,A,I6,A,I2)') 'CURRENT| Compute', &
                nstate_list(ispin), ' selected response functions out of', &
                nmo, ' for spin ', ispin
             !
             WRITE (output_unit, '(T2,A,I6,A,I2)') 'CURRENT| There is a total of ', &
                current_env%nbr_center(ispin), ' (clustered) center(s) for spin ', ispin
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       IF (BTEST(cp_print_key_should_output(logger%iter_info, current_section,&
            &    "PRINT%RESPONSE_FUNCTION_CUBES"), cp_p_file)) THEN
@@ -1209,8 +1212,8 @@ CONTAINS
             ALLOCATE (current_env%list_cubes(ncubes))
             DO ir = 1, ncubes
                current_env%list_cubes(ir) = bounds(1) + (ir - 1)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
          IF (.NOT. ASSOCIATED(current_env%list_cubes)) THEN
             CALL section_vals_val_get(current_section, "PRINT%RESPONSE_FUNCTION_CUBES%CUBES_LIST", &
                                       n_rep_val=n_rep)
@@ -1223,26 +1226,26 @@ CONTAINS
                   CALL reallocate(current_env%list_cubes, 1, ncubes + SIZE(list))
                   DO ini = 1, SIZE(list)
                      current_env%list_cubes(ini + ncubes) = list(ini)
-                  ENDDO
+                  END DO
                   ncubes = ncubes + SIZE(list)
-               ENDIF
-            ENDDO ! ir
-         ENDIF
+               END IF
+            END DO ! ir
+         END IF
          IF (.NOT. ASSOCIATED(current_env%list_cubes)) THEN
             ALLOCATE (current_env%list_cubes(max_states))
             DO ir = 1, max_states
                current_env%list_cubes(ir) = ir
-            ENDDO
-         ENDIF
-      ENDIF
+            END DO
+         END IF
+      END IF
       IF (BTEST(cp_print_key_should_output(logger%iter_info, current_section,&
            &    "PRINT%CURRENT_CUBES"), cp_p_file)) THEN
-      ENDIF
+      END IF
 
       ! for the chemical shift we need 6 psi1, i.e. 6 optimization procedures
       ! They become 9 if full nmr is calculated, i.e. with the correction term too
       ! All of them are required at the end of the optimization procedure
-      ! if the current density and the induced fiels have to be calculated
+      ! if the current density and the induced field have to be calculated
       ! If instead only the shift is needed, only one psi1 should be enough, providing
       ! that after every optimization the corresponding shift contribution is calculated
       ! prepare the psi1
@@ -1256,7 +1259,7 @@ CONTAINS
                 current_env%psi1_p(nspins, 3), current_env%psi1_rxp(nspins, 3))
       IF (current_env%full) THEN
          ALLOCATE (current_env%psi1_D(nspins, 3))
-      ENDIF
+      END IF
       DO ispin = 1, nspins
          mo_coeff => current_env%psi0_order(ispin)%matrix
          NULLIFY (tmp_fm_struct)
@@ -1264,19 +1267,19 @@ CONTAINS
                                   ncol_global=current_env%nstates(ispin), &
                                   context=mo_coeff%matrix_struct%context)
          DO idir = 1, 3
-            NULLIFY (current_env%psi1_p(ispin, idir)%matrix, current_env%psi1_rxp(ispin, idir)%matrix)
-            NULLIFY (current_env%p_psi0(ispin, idir)%matrix, current_env%rxp_psi0(ispin, idir)%matrix)
+            ALLOCATE (current_env%psi1_p(ispin, idir)%matrix, current_env%psi1_rxp(ispin, idir)%matrix)
+            ALLOCATE (current_env%p_psi0(ispin, idir)%matrix, current_env%rxp_psi0(ispin, idir)%matrix)
             CALL cp_fm_create(current_env%psi1_p(ispin, idir)%matrix, tmp_fm_struct)
             CALL cp_fm_create(current_env%psi1_rxp(ispin, idir)%matrix, tmp_fm_struct)
             CALL cp_fm_create(current_env%p_psi0(ispin, idir)%matrix, tmp_fm_struct)
             CALL cp_fm_create(current_env%rxp_psi0(ispin, idir)%matrix, tmp_fm_struct)
             IF (current_env%full) THEN
-               NULLIFY (current_env%psi1_D(ispin, idir)%matrix)
+               ALLOCATE (current_env%psi1_D(ispin, idir)%matrix)
                CALL cp_fm_create(current_env%psi1_D(ispin, idir)%matrix, tmp_fm_struct)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          CALL cp_fm_struct_release(tmp_fm_struct)
-      ENDDO
+      END DO
       !
       ! If the current density on the grid needs to be stored
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
@@ -1285,25 +1288,25 @@ CONTAINS
          NULLIFY (rho_r, rho_g)
          ALLOCATE (rho_r(nspins), rho_g(nspins))
          DO ispin = 1, nspins
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(ispin)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(ispin), &
                                    use_data=REALDATA3D, in_space=REALSPACE)
-            CALL pw_zero(rho_r(ispin)%pw)
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(ispin)%pw, &
+            CALL pw_zero(rho_r(ispin))
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(ispin), &
                                    use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-            CALL pw_zero(rho_g(ispin)%pw)
-         ENDDO
+            CALL pw_zero(rho_g(ispin))
+         END DO
          NULLIFY (current_env%jrho1_set(idir)%rho)
+         ALLOCATE (current_env%jrho1_set(idir)%rho)
          CALL qs_rho_create(current_env%jrho1_set(idir)%rho)
          CALL qs_rho_set(current_env%jrho1_set(idir)%rho, &
                          rho_r=rho_r, rho_g=rho_g)
-         CALL qs_rho_retain(current_env%jrho1_set(idir)%rho)
-      ENDDO
+      END DO
       !
       ! Initialize local current density if GAPW calculation
       IF (gapw) THEN
          CALL init_jrho_atom_set(jrho1_atom_set, atomic_kind_set, nspins)
          CALL set_current_env(current_env=current_env, jrho1_atom_set=jrho1_atom_set)
-      ENDIF
+      END IF
       !
       ALLOCATE (current_env%basisfun_center(3, current_env%nao), &
                 first_sgf(natom), last_sgf(natom))
@@ -1329,8 +1332,7 @@ CONTAINS
       current_env%full_done = .FALSE.
       !
       ! allocate pointer for the gauge
-      ALLOCATE (current_env%rs_gauge(3))
-      NULLIFY (current_env%rs_gauge(1)%rs, current_env%rs_gauge(2)%rs, current_env%rs_gauge(3)%rs)
+      ALLOCATE (current_env%rs_gauge(3, pw_env%gridlevel_info%ngrid_levels))
 
       CALL cp_print_key_finished_output(output_unit, logger, lr_section, "PRINT%PROGRAM_RUN_INFO")
       CALL timestop(handle)
@@ -1340,148 +1342,137 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 !> \param current_env ...
-!> \param qs_env ...
 ! **************************************************************************************************
-   SUBROUTINE current_env_cleanup(current_env, qs_env)
+   SUBROUTINE current_env_cleanup(current_env)
 
       TYPE(current_env_type)                             :: current_env
-      TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'current_env_cleanup', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idir, ispin
-      TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
-         POINTER                                         :: rs_descs
 
-      NULLIFY (pw_env, rs_descs)
-
-      current_env%ref_count = current_env%ref_count - 1
-      IF (current_env%ref_count == 0) THEN
-         !
-         !psi0_order
-         IF (ASSOCIATED(current_env%psi0_order)) THEN
-            DO ispin = 1, SIZE(current_env%psi0_order, 1)
-               CALL cp_fm_release(current_env%psi0_order(ispin)%matrix)
-            ENDDO
-            DEALLOCATE (current_env%psi0_order)
-         ENDIF
-         !
-         !psi1_p
-         IF (ASSOCIATED(current_env%psi1_p)) THEN
-            DO idir = 1, SIZE(current_env%psi1_p, 2)
-               DO ispin = 1, SIZE(current_env%psi1_p, 1)
-                  CALL cp_fm_release(current_env%psi1_p(ispin, idir)%matrix)
-               ENDDO
-            ENDDO
-            DEALLOCATE (current_env%psi1_p)
-         ENDIF
-         !
-         !psi1_rxp
-         IF (ASSOCIATED(current_env%psi1_rxp)) THEN
-            DO idir = 1, SIZE(current_env%psi1_rxp, 2)
-               DO ispin = 1, SIZE(current_env%psi1_rxp, 1)
-                  CALL cp_fm_release(current_env%psi1_rxp(ispin, idir)%matrix)
-               ENDDO
-            ENDDO
-            DEALLOCATE (current_env%psi1_rxp)
-         ENDIF
-         !
-         !psi1_D
-         IF (ASSOCIATED(current_env%psi1_D)) THEN
-            DO idir = 1, SIZE(current_env%psi1_D, 2)
-               DO ispin = 1, SIZE(current_env%psi1_D, 1)
-                  CALL cp_fm_release(current_env%psi1_D(ispin, idir)%matrix)
-               ENDDO
-            ENDDO
-            DEALLOCATE (current_env%psi1_D)
-         END IF
-         !
-         !p_psi0
-         IF (ASSOCIATED(current_env%p_psi0)) THEN
-            DO idir = 1, SIZE(current_env%p_psi0, 2)
-               DO ispin = 1, SIZE(current_env%p_psi0, 1)
-                  CALL cp_fm_release(current_env%p_psi0(ispin, idir)%matrix)
-               ENDDO
-            ENDDO
-            DEALLOCATE (current_env%p_psi0)
-         ENDIF
-         !
-         !rxp_psi0
-         IF (ASSOCIATED(current_env%rxp_psi0)) THEN
-            DO idir = 1, SIZE(current_env%rxp_psi0, 2)
-               DO ispin = 1, SIZE(current_env%rxp_psi0, 1)
-                  CALL cp_fm_release(current_env%rxp_psi0(ispin, idir)%matrix)
-               ENDDO
-            ENDDO
-            DEALLOCATE (current_env%rxp_psi0)
-         ENDIF
-         !
-         !
+      IF (ASSOCIATED(current_env%psi0_order)) THEN
+         DO ispin = 1, SIZE(current_env%psi0_order, 1)
+            CALL cp_fm_release(current_env%psi0_order(ispin)%matrix)
+            DEALLOCATE (current_env%psi0_order(ispin)%matrix)
+         END DO
+         DEALLOCATE (current_env%psi0_order)
+      END IF
+      !
+      !psi1_p
+      IF (ASSOCIATED(current_env%psi1_p)) THEN
+         DO idir = 1, SIZE(current_env%psi1_p, 2)
+            DO ispin = 1, SIZE(current_env%psi1_p, 1)
+               CALL cp_fm_release(current_env%psi1_p(ispin, idir)%matrix)
+               DEALLOCATE (current_env%psi1_p(ispin, idir)%matrix)
+            END DO
+         END DO
+         DEALLOCATE (current_env%psi1_p)
+      END IF
+      !
+      !psi1_rxp
+      IF (ASSOCIATED(current_env%psi1_rxp)) THEN
+         DO idir = 1, SIZE(current_env%psi1_rxp, 2)
+            DO ispin = 1, SIZE(current_env%psi1_rxp, 1)
+               CALL cp_fm_release(current_env%psi1_rxp(ispin, idir)%matrix)
+               DEALLOCATE (current_env%psi1_rxp(ispin, idir)%matrix)
+            END DO
+         END DO
+         DEALLOCATE (current_env%psi1_rxp)
+      END IF
+      !
+      !psi1_D
+      IF (ASSOCIATED(current_env%psi1_D)) THEN
+         DO idir = 1, SIZE(current_env%psi1_D, 2)
+            DO ispin = 1, SIZE(current_env%psi1_D, 1)
+               CALL cp_fm_release(current_env%psi1_D(ispin, idir)%matrix)
+               DEALLOCATE (current_env%psi1_D(ispin, idir)%matrix)
+            END DO
+         END DO
+         DEALLOCATE (current_env%psi1_D)
+      END IF
+      !
+      !p_psi0
+      IF (ASSOCIATED(current_env%p_psi0)) THEN
+         DO idir = 1, SIZE(current_env%p_psi0, 2)
+            DO ispin = 1, SIZE(current_env%p_psi0, 1)
+               CALL cp_fm_release(current_env%p_psi0(ispin, idir)%matrix)
+               DEALLOCATE (current_env%p_psi0(ispin, idir)%matrix)
+            END DO
+         END DO
+         DEALLOCATE (current_env%p_psi0)
+      END IF
+      !
+      !rxp_psi0
+      IF (ASSOCIATED(current_env%rxp_psi0)) THEN
+         DO idir = 1, SIZE(current_env%rxp_psi0, 2)
+            DO ispin = 1, SIZE(current_env%rxp_psi0, 1)
+               CALL cp_fm_release(current_env%rxp_psi0(ispin, idir)%matrix)
+               DEALLOCATE (current_env%rxp_psi0(ispin, idir)%matrix)
+            END DO
+         END DO
+         DEALLOCATE (current_env%rxp_psi0)
+      END IF
+      !
+      IF (ASSOCIATED(current_env%centers_set)) THEN
          DO ispin = 1, SIZE(current_env%centers_set, 1)
             DEALLOCATE (current_env%centers_set(ispin)%array)
          END DO
          DEALLOCATE (current_env%centers_set)
+      END IF
 
+      IF (ASSOCIATED(current_env%center_list)) THEN
          DO ispin = 1, SIZE(current_env%center_list, 1)
             DEALLOCATE (current_env%center_list(ispin)%array)
          END DO
          DEALLOCATE (current_env%center_list)
+      END IF
 
-         IF (ASSOCIATED(current_env%list_cubes)) THEN
-            DEALLOCATE (current_env%list_cubes)
-         END IF
-         ! Current density on the grid
-         IF (ASSOCIATED(current_env%jrho1_set)) THEN
-            DO idir = 1, 3
-               CALL qs_rho_clear(current_env%jrho1_set(idir)%rho)
-               DEALLOCATE (current_env%jrho1_set(idir)%rho)
-            END DO
-            DEALLOCATE (current_env%jrho1_set)
-         END IF
-         !
-         ! Local current density, atom by atom (only gapw)
-         IF (ASSOCIATED(current_env%jrho1_atom_set)) THEN
-            CALL deallocate_jrho_atom_set(current_env%jrho1_atom_set)
-         END IF
-
-         !fullnmr_done
-         IF (ASSOCIATED(current_env%full_done)) THEN
-            DEALLOCATE (current_env%full_done)
-         END IF
-         IF (ASSOCIATED(current_env%basisfun_center)) THEN
-            DEALLOCATE (current_env%basisfun_center)
-         END IF
-         IF (ASSOCIATED(current_env%statetrueindex)) THEN
-            DEALLOCATE (current_env%statetrueindex)
-         END IF
-         IF (ASSOCIATED(current_env%selected_states_on_atom_list)) THEN
-            DEALLOCATE (current_env%selected_states_on_atom_list)
-         END IF
-         ! give back the gauge
-         CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
-         CALL pw_env_get(pw_env, rs_descs=rs_descs)
+      IF (ASSOCIATED(current_env%list_cubes)) THEN
+         DEALLOCATE (current_env%list_cubes)
+      END IF
+      ! Current density on the grid
+      IF (ASSOCIATED(current_env%jrho1_set)) THEN
          DO idir = 1, 3
-            IF (ASSOCIATED(current_env%rs_gauge(idir)%rs)) THEN
-               DO i = 1, SIZE(current_env%rs_gauge(idir)%rs)
-                  CALL rs_grid_release(current_env%rs_gauge(idir)%rs(i)%rs_grid)
-               END DO
-               DEALLOCATE (current_env%rs_gauge(idir)%rs)
-            ENDIF
-         ENDDO
-         !
-         DEALLOCATE (current_env%rs_gauge)
+            CALL qs_rho_clear(current_env%jrho1_set(idir)%rho)
+            DEALLOCATE (current_env%jrho1_set(idir)%rho)
+         END DO
+         DEALLOCATE (current_env%jrho1_set)
+      END IF
+      !
+      ! Local current density, atom by atom (only gapw)
+      IF (ASSOCIATED(current_env%jrho1_atom_set)) THEN
+         CALL deallocate_jrho_atom_set(current_env%jrho1_atom_set)
+      END IF
 
-         ! give back the buf
-         IF (ASSOCIATED(current_env%rs_buf)) THEN
-            DO i = 1, SIZE(current_env%rs_buf)
-               CALL rs_grid_release(current_env%rs_buf(i)%rs_grid)
+      !fullnmr_done
+      IF (ASSOCIATED(current_env%full_done)) THEN
+         DEALLOCATE (current_env%full_done)
+      END IF
+      IF (ASSOCIATED(current_env%basisfun_center)) THEN
+         DEALLOCATE (current_env%basisfun_center)
+      END IF
+      IF (ASSOCIATED(current_env%statetrueindex)) THEN
+         DEALLOCATE (current_env%statetrueindex)
+      END IF
+      IF (ASSOCIATED(current_env%selected_states_on_atom_list)) THEN
+         DEALLOCATE (current_env%selected_states_on_atom_list)
+      END IF
+      ! give back the gauge
+      IF (ASSOCIATED(current_env%rs_gauge)) THEN
+         DO idir = 1, 3
+            DO i = 1, SIZE(current_env%rs_gauge, 2)
+               CALL rs_grid_release(current_env%rs_gauge(idir, i))
             END DO
-            DEALLOCATE (current_env%rs_buf)
-         ENDIF
+         END DO
+         DEALLOCATE (current_env%rs_gauge)
+      END IF
 
-      END IF ! ref count
+      ! give back the buf
+      IF (ASSOCIATED(current_env%rs_buf)) THEN
+         DO i = 1, SIZE(current_env%rs_buf)
+            CALL rs_grid_release(current_env%rs_buf(i))
+         END DO
+         DEALLOCATE (current_env%rs_buf)
+      END IF
 
    END SUBROUTINE current_env_cleanup
 

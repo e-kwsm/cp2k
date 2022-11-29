@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,7 +15,7 @@
 !> \see functionals_utilities
 ! **************************************************************************************************
 MODULE xc_perdew_wang
-#:include "xc_perdew_wang.fypp"
+   #:include "xc_perdew_wang.fypp"
 
    USE kinds, ONLY: dp
    USE xc_derivative_set_types, ONLY: xc_derivative_set_type, &
@@ -30,12 +32,15 @@ MODULE xc_perdew_wang
    USE xc_rho_cflags_types, ONLY: xc_rho_cflags_type
    USE xc_rho_set_types, ONLY: xc_rho_set_get, &
                                xc_rho_set_type
+   USE xc_derivative_desc, ONLY: deriv_rho, &
+                                 deriv_rhoa, &
+                                 deriv_rhob
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
 
-@: global_var_pw92()
+   @: global_var_pw92()
    REAL(KIND=dp), PARAMETER :: &
       epsilon = 5.E-13_dp, &
       fpp = 0.584822362263464620726223866376013788782_dp ! d^2f(0)/dz^2
@@ -64,14 +69,11 @@ CONTAINS
       INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
       REAL(kind=dp), INTENT(in)                          :: scale
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perdew_wang_info', &
-                                     routineP = moduleN//':'//routineN
-
       CHARACTER(len=3)                                   :: p_string
 
       SELECT CASE (method)
       CASE DEFAULT
-         CPABORT("")
+         CPABORT("Unsupported parametrization")
       CASE (pw_orig)
          p_string = 'PWO'
       CASE (pw_dmc)
@@ -118,7 +120,7 @@ CONTAINS
 
    END SUBROUTINE perdew_wang_info
 
-@: init_pw92()
+   @: init_pw92()
 
 ! **************************************************************************************************
 !> \brief Calculate the correlation energy and its derivatives
@@ -138,27 +140,22 @@ CONTAINS
    SUBROUTINE perdew_wang_lda_eval(method, rho_set, deriv_set, order, scale)
 
       INTEGER, INTENT(in)                                :: method
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: order
       REAL(kind=dp), INTENT(in)                          :: scale
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perdew_wang_lda_eval', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'perdew_wang_lda_eval'
 
       INTEGER                                            :: npoints, timer_handle
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                  :: bo
       REAL(KIND=dp)                                      :: rho_cutoff
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_rho, e_rho_rho, &
-                                                            e_rho_rho_rho, rho
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_rho, e_rho_rho, &
+                                                                        e_rho_rho_rho, rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, timer_handle)
-      NULLIFY (bo, rho, e_0, e_rho, e_rho_rho, e_rho_rho_rho, dummy)
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
+      NULLIFY (rho, e_0, e_rho, e_rho_rho, e_rho_rho_rho, dummy)
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           local_bounds=bo, rho_cutoff=rho_cutoff)
       npoints = (bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1)
@@ -173,22 +170,22 @@ CONTAINS
       e_rho_rho_rho => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
       END IF
       IF (order >= 2 .OR. order == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho)
       END IF
       IF (order >= 3 .OR. order == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_rho)
       END IF
@@ -234,7 +231,7 @@ CONTAINS
 !! order_ is positive as it must be in this case:
 !! ec(:,2) needs ed(:,1) for example
             CALL pw_lda_ed_loc(rho(k), ed, abs_order)
-            ed = scale*ed
+            ed(0:abs_order) = scale*ed(0:abs_order)
 
             IF (order >= 0) THEN
                e_0(k) = e_0(k) + rho(k)*ed(0)
@@ -273,27 +270,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE perdew_wang_lsd_eval(method, rho_set, deriv_set, order, scale)
       INTEGER, INTENT(in)                                :: method
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN), OPTIONAL                      :: order
       REAL(kind=dp), INTENT(in)                          :: scale
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perdew_wang_lsd_eval', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'perdew_wang_lsd_eval'
 
       INTEGER                                            :: npoints, timer_handle
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                  :: bo
       REAL(KIND=dp)                                      :: rho_cutoff
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: a, b, dummy, e_0, ea, eaa, eaaa, eaab, &
-                                                            eab, eabb, eb, ebb, ebbb
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER         :: a, b, dummy, e_0, ea, eaa, eaaa, eaab, &
+                                                                        eab, eabb, eb, ebb, ebbb
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, timer_handle)
-      NULLIFY (bo, a, b, e_0, ea, eb, eaa, eab, ebb, eaaa, eaab, eabb, ebbb)
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
+      NULLIFY (a, b, e_0, ea, eb, eaa, eab, ebb, eaaa, eaab, eabb, ebbb)
       CALL xc_rho_set_get(rho_set, rhoa=a, rhob=b, &
                           local_bounds=bo, rho_cutoff=rho_cutoff)
       npoints = (bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1)
@@ -310,40 +302,40 @@ CONTAINS
       eaaa => dummy; eaab => dummy; eabb => dummy; ebbb => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=ea)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eb)
       END IF
       IF (order >= 2 .OR. order == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eaa)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eab)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=ebb)
       END IF
       IF (order >= 3 .OR. order == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eaaa)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eaab)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=eabb)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=ebbb)
       END IF
@@ -398,8 +390,10 @@ CONTAINS
          rho = rhoa(k) + rhob(k)
          IF (rho > eps_rho) THEN
 
+            ed = 0.0_dp
             CALL pw_lsd_ed_loc(rhoa(k), rhob(k), ed, abs_order)
             ed = ed*scale
+
             IF (order >= 0) THEN
                e_0(k) = e_0(k) + rho*ed(0)
             END IF
@@ -425,7 +419,7 @@ CONTAINS
 
    END SUBROUTINE perdew_wang_lsd_calc
 
-@:calc_g()
+   @:calc_g()
 
 ! **************************************************************************************************
 !> \brief ...

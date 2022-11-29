@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -119,9 +121,6 @@ CONTAINS
       TYPE(add_shell_type), OPTIONAL, POINTER            :: added_shells
       LOGICAL                                            :: shell_model
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'assign_mm_charges_and_radius', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: I, ilink, IndMM, IndShell, ishell
       LOGICAL                                            :: is_shell
       REAL(dp)                                           :: qcore, qi, qshell, rc, ri
@@ -218,9 +217,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: qmmm_section
       LOGICAL, INTENT(IN)                                :: nocompatibility, shell_model
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_qmmm_charges', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: I, ind1, ind2, IndMM, iw
       REAL(KIND=dp)                                      :: qi, qtot, rc, ri
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -311,9 +307,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: qmmm_section
       TYPE(qmmm_links_type), POINTER                     :: qmmm_links
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_qmmm_links', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iw, mm_index, qm_index
       REAL(KIND=dp)                                      :: alpha
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -379,9 +372,6 @@ CONTAINS
       TYPE(add_set_type), POINTER                        :: added_charges
       TYPE(add_shell_type), POINTER                      :: added_shells
       TYPE(section_vals_type), POINTER                   :: print_section, qmmm_section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_init_gaussian_type', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: maxchrg
@@ -480,9 +470,6 @@ CONTAINS
       TYPE(add_shell_type), POINTER                      :: added_shells
       TYPE(section_vals_type), POINTER                   :: print_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qmmm_init_potential', &
-         routineP = moduleN//':'//routineN
-
       CALL qmmm_potential_init(qmmm_coupl_type=qmmm_env_qm%qmmm_coupl_type, &
                                mm_el_pot_radius=qmmm_env_qm%mm_el_pot_radius, &
                                potentials=qmmm_env_qm%potentials, &
@@ -541,9 +528,6 @@ CONTAINS
       TYPE(add_shell_type), POINTER                      :: added_shells
       TYPE(section_vals_type), POINTER                   :: qmmm_periodic, print_section
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mm_atom_chrg
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qmmm_init_periodic_potential', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: maxchrg
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -657,9 +641,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: eps_mm_rspace
       LOGICAL, INTENT(OUT)                               :: qmmm_link
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_qmmm_vars_qm', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: atmname, mm_atom_kind
       INTEGER                                            :: i, icount, ikind, ikindr, my_type, &
@@ -776,7 +757,7 @@ CONTAINS
 
       ELSE
          CPABORT("QMMM section not present in input file!")
-      ENDIF
+      END IF
       !
       ! Build MM atoms list
       !
@@ -849,7 +830,7 @@ CONTAINS
                                        l_max=0, &
                                        para_env=para_env)
 
-         ENDIF
+         END IF
       END IF
 
    END SUBROUTINE setup_qmmm_vars_qm
@@ -879,9 +860,6 @@ CONTAINS
                                                             fist_scale_charge_link
       INTEGER, INTENT(OUT)                               :: qmmm_coupl_type
       LOGICAL, INTENT(OUT)                               :: qmmm_link
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_qmmm_vars_mm', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: explicit
       TYPE(section_vals_type), POINTER                   :: qmmm_ff_section
@@ -919,9 +897,6 @@ CONTAINS
    SUBROUTINE read_qmmm_ff_section(qmmm_ff_section, inp_info)
       TYPE(section_vals_type), POINTER                   :: qmmm_ff_section
       TYPE(input_info_type), POINTER                     :: inp_info
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_qmmm_ff_section', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n_gd, n_gp, n_lj, n_wl, np
       TYPE(section_vals_type), POINTER                   :: gd_section, gp_section, lj_section, &
@@ -1016,9 +991,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: mm_link_scale_factor
       LOGICAL, INTENT(OUT), OPTIONAL                     :: qmmm_link
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: fist_scale_charge_link
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_qm_atom_list', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: qm_atom_kind, qm_link_element
       INTEGER                                            :: ikind, k, link_involv_mm, link_type, &
@@ -1150,9 +1122,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_qmmm_links', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind, link_type, mm_index, n_gho, &
                                                             n_imomm, n_pseudo, n_rep_val, n_tot, &
                                                             nlinks, qm_index
@@ -1273,9 +1242,6 @@ CONTAINS
                                                             mm_el_pot_radius_corr
       TYPE(add_set_type), POINTER                        :: added_charges
       INTEGER, DIMENSION(:), POINTER                     :: mm_atom_index
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'move_or_add_atoms', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i_add, icount, ikind, ind1, Index1, &
                                                             Index2, n_add_tot, n_adds, n_move_tot, &
@@ -1404,9 +1370,6 @@ CONTAINS
       INTEGER, INTENT(in), OPTIONAL                      :: move
       INTEGER, INTENT(OUT), OPTIONAL                     :: ind1
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_add_set_type', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, my_move
       REAL(KIND=dp)                                      :: my_c_radius, my_charge, my_radius
 
@@ -1454,9 +1417,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: qm_cell_small
       REAL(KIND=dp), DIMENSION(3), INTENT(in)            :: dr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_origin_mm_cell', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: center_grid
       REAL(KIND=dp), DIMENSION(3)                        :: tmp
       REAL(KINd=dp), DIMENSION(:), POINTER               :: vec
@@ -1475,7 +1435,7 @@ CONTAINS
          qmmm_env%utrasl = dr
       ELSE
          qmmm_env%utrasl = 1.0_dp
-      ENDIF
+      END IF
       CALL section_vals_val_get(qmmm_section, "INITIAL_TRANSLATION_VECTOR", r_vals=vec)
       qmmm_env%transl_v = vec
    END SUBROUTINE setup_origin_mm_cell
@@ -1497,9 +1457,6 @@ CONTAINS
       TYPE(qmmm_env_qm_type), POINTER                    :: qmmm_env
       INTEGER, DIMENSION(:), POINTER                     :: qm_atom_index
       TYPE(cp_subsys_type), POINTER                      :: subsys_mm
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_image_atom_list', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: atom_a, atom_b, i, j, k, max_index, &
                                                             n_var, num_const_atom, &
@@ -1548,13 +1505,13 @@ CONTAINS
          atom_a = qmmm_env%image_charge_pot%image_mm_list(i)
          IF (ANY(qm_atom_index == atom_a)) THEN
             CPABORT("Image atom list must only contain MM atoms")
-         ENDIF
+         END IF
          DO j = i + 1, num_image_mm_atom
             atom_b = qmmm_env%image_charge_pot%image_mm_list(j)
             IF (atom_a == atom_b) &
                CPABORT("There are atoms doubled in image list.")
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! check if molecules in list carry constraints
       num_const_atom = 0
@@ -1574,13 +1531,13 @@ CONTAINS
                         IF (molecule_kind(i)%fixd_list(j)%itype /= use_perd_xyz) THEN
                            fix_xyz = .FALSE.
                            EXIT
-                        ENDIF
-                     ENDIF
-                  ENDDO
-               ENDDO
-            ENDDO
-         ENDIF
-      ENDIF
+                        END IF
+                     END IF
+                  END DO
+               END DO
+            END DO
+         END IF
+      END IF
 
       ! if all image atoms are constrained, calculate image matrix only
       ! once for the first MD or GEO_OPT step (for non-iterative case)
@@ -1588,7 +1545,7 @@ CONTAINS
          qmmm_env%image_charge_pot%state_image_matrix = calc_once
       ELSE
          qmmm_env%image_charge_pot%state_image_matrix = calc_always
-      ENDIF
+      END IF
 
    END SUBROUTINE setup_image_atom_list
 
@@ -1604,9 +1561,6 @@ CONTAINS
 
       TYPE(qmmm_env_qm_type), POINTER                    :: qmmm_env
       TYPE(section_vals_type), POINTER                   :: qmmm_section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_image_charge_info', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iw
       REAL(KIND=dp)                                      :: eta, eta_conv, V0, V0_conv

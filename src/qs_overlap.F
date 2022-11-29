@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -195,7 +197,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: owork, pmat
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: oint
       REAL(KIND=dp), DIMENSION(3)                        :: force_a, rab
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_loc, pv_thread
+      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_thread
       REAL(KIND=dp), DIMENSION(3, natom)                 :: force_thread
       REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: p_block, rpgfa, rpgfb, scon_a, scon_b, &
@@ -234,7 +236,6 @@ CONTAINS
       NULLIFY (atomic_kind_set)
       CALL get_ks_env(ks_env, &
                       atomic_kind_set=atomic_kind_set, &
-                      natom=natom, &
                       qs_kind_set=qs_kind_set, &
                       dft_control=dft_control)
 
@@ -277,11 +278,12 @@ CONTAINS
       END IF
       maxs = maxder
 
+      use_virial = .FALSE.
       IF (do_forces) THEN
          CALL get_ks_env(ks_env=ks_env, force=force, virial=virial)
          use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
-         pv_loc = virial%pv_virial
       END IF
+
       force_thread = 0.0_dp
       pv_thread = 0.0_dp
 
@@ -514,9 +516,9 @@ CONTAINS
          DEALLOCATE (atom_of_kind, kind_of)
       END IF
       IF (do_forces .AND. use_virial) THEN
+         virial%pv_overlap = virial%pv_overlap + pv_thread
          virial%pv_virial = virial%pv_virial + pv_thread
-         virial%pv_overlap = virial%pv_virial - pv_loc
-      ENDIF
+      END IF
 
       IF (dokp) THEN
          DO i = 1, maxs
@@ -524,14 +526,14 @@ CONTAINS
                CALL dbcsr_finalize(matrixkp_s(i, ic)%matrix)
                CALL dbcsr_filter(matrixkp_s(i, ic)%matrix, &
                                  dft_control%qs_control%eps_filter_matrix)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
       ELSE
          DO i = 1, maxs
             CALL dbcsr_finalize(matrix_s(i)%matrix)
             CALL dbcsr_filter(matrix_s(i)%matrix, &
                               dft_control%qs_control%eps_filter_matrix)
-         ENDDO
+         END DO
       END IF
 
       ! *** Release work storage ***
@@ -563,8 +565,7 @@ CONTAINS
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_overlap_matrix_simple', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_overlap_matrix_simple'
 
       INTEGER                                            :: handle, iatom, icol, ikind, irow, iset, &
                                                             jatom, jkind, jset, ldsab, m1, m2, n1, &
@@ -790,8 +791,7 @@ CONTAINS
          POINTER                                         :: sab_nl
       TYPE(dbcsr_type), POINTER                          :: matrix_p
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_overlap_force', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_overlap_force'
 
       INTEGER                                            :: handle, iatom, icol, ikind, irow, iset, &
                                                             jatom, jkind, jset, ldsab, n1, n2, &
@@ -964,6 +964,7 @@ CONTAINS
 !$OMP END PARALLEL
       IF (use_virial) THEN
          virial%pv_virial = virial%pv_virial + virial_thread
+         virial%pv_overlap = virial%pv_overlap + virial_thread
       END IF
 
       DEALLOCATE (basis_set_list_a, basis_set_list_b)
@@ -993,9 +994,6 @@ CONTAINS
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
       LOGICAL, INTENT(IN)                                :: symmetric
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_sab_matrix_1d', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=12)                                  :: cgfsym
       CHARACTER(LEN=32)                                  :: symmetry_string
@@ -1087,9 +1085,6 @@ CONTAINS
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
       LOGICAL, INTENT(IN)                                :: symmetric
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_sab_matrix_2d', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=12)                                  :: cgfsym
       CHARACTER(LEN=32)                                  :: symmetry_string

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -121,8 +123,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: shell_particle_set, core_particle_set
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_field_pack', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'force_field_pack'
 
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: Ainfo
@@ -317,6 +318,7 @@ CONTAINS
       CALL ewald_env_get(ewald_env, rcut=ewald_rcut)
       CALL section_vals_val_get(mm_section, "NEIGHBOR_LISTS%VERLET_SKIN", &
                                 r_val=verlet_skin)
+      ALLOCATE (fist_nonbond_env)
       CALL fist_nonbond_env_create(fist_nonbond_env, atomic_kind_set, &
                                    potparm_nonbond14, potparm_nonbond, ff_type%do_nonbonded, &
                                    verlet_skin, ewald_rcut, ff_type%ei_scale14, &
@@ -347,9 +349,6 @@ CONTAINS
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: array
       INTEGER, INTENT(IN)                                :: output_unit, iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_FF_missing_par', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -406,8 +405,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: mm_section
       REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_field_qeff_output', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'force_field_qeff_output'
 
       CHARACTER(LEN=default_string_length)               :: atmname, molname
       INTEGER                                            :: first, handle, iatom, imol, iw, j, jatom
@@ -499,8 +497,7 @@ CONTAINS
       TYPE(molecule_kind_type), DIMENSION(:), POINTER    :: molecule_kind_set
       TYPE(section_vals_type), POINTER                   :: mm_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'clean_intra_force_kind', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'clean_intra_force_kind'
 
       INTEGER :: atm2_a, atm2_b, atm2_c, atm_a, atm_b, atm_c, atm_d, counter, handle, i, ibend, &
          ibond, icolv, ig3x3, ig4x6, iimpr, ikind, iopbend, itorsion, iub, iw, j, k, nbend, nbond, &
@@ -1245,9 +1242,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: var_values
       INTEGER, INTENT(IN), OPTIONAL                      :: size_variables, i_rep_sec
       CHARACTER(LEN=*), DIMENSION(:), OPTIONAL           :: input_variables
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_generic_info', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: my_par, my_par_tmp, my_units, &

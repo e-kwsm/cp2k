@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -28,7 +30,6 @@ MODULE kpoint_methods
         copy_info_type, cp_fm_cleanup_copy_general, cp_fm_create, cp_fm_finish_copy_general, &
         cp_fm_get_info, cp_fm_p_type, cp_fm_release, cp_fm_start_copy_general, cp_fm_to_fm, &
         cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE cp_para_env,                     ONLY: cp_cart_create,&
                                               cp_para_env_create,&
@@ -64,6 +65,7 @@ MODULE kpoint_methods
                                               mp_cart_sub,&
                                               mp_max,&
                                               mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_matrix_pools,                 ONLY: mpools_create,&
                                               mpools_get,&
@@ -71,7 +73,7 @@ MODULE kpoint_methods
                                               qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               get_mo_set,&
-                                              mo_set_p_type,&
+                                              init_mo_set,&
                                               mo_set_type,&
                                               set_mo_set
    USE qs_neighbor_list_types,          ONLY: get_iterator_info,&
@@ -91,7 +93,7 @@ MODULE kpoint_methods
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'kpoint_methods'
 
-   PUBLIC :: kpoint_initialize, kpoint_env_initialize, kpoint_initialize_mos
+   PUBLIC :: kpoint_initialize, kpoint_env_initialize, kpoint_initialize_mos, kpoint_initialize_mo_set
    PUBLIC :: kpoint_init_cell_index, kpoint_set_mo_occupation
    PUBLIC :: kpoint_density_matrices, kpoint_density_transform
    PUBLIC :: rskp_transform
@@ -112,8 +114,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(cell_type), POINTER                           :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_initialize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'kpoint_initialize'
 
       INTEGER                                            :: handle, i, ik, iounit, ir, is, natom, &
                                                             nr, ns
@@ -269,8 +270,7 @@ CONTAINS
 
       TYPE(kpoint_type), POINTER                         :: kpoint
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_env_initialize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_env_initialize'
 
       INTEGER                                            :: comm_cart, comm_inter_kp, comm_kp, &
                                                             handle, igr, ik, ikk, ngr, niogrp, &
@@ -330,7 +330,7 @@ CONTAINS
                nkp_grp = npe/igr
                IF (MOD(nkp, nkp_grp) .NE. 0) CYCLE
                ngr = igr
-            ENDDO
+            END DO
          ELSE IF (kpoint%parallel_group_size == 0) THEN
             ! no parallelization over kpoints
             ngr = npe
@@ -399,7 +399,8 @@ CONTAINS
          kpoint%kp_env => kp_env
 
          unit_nr = cp_logger_get_default_io_unit()
-         IF (unit_nr > 0) THEN
+
+         IF (unit_nr > 0 .AND. kpoint%verbose) THEN
             WRITE (unit_nr, *)
             WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Number of kpoint groups ", nkp_grp
             WRITE (unit_nr, FMT="(T2,A,T71,I10)") "KPOINTS| Size of each kpoint group", ngr
@@ -422,11 +423,10 @@ CONTAINS
    SUBROUTINE kpoint_initialize_mos(kpoint, mos, added_mos)
 
       TYPE(kpoint_type), POINTER                         :: kpoint
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mos
       INTEGER, INTENT(IN), OPTIONAL                      :: added_mos
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_initialize_mos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_initialize_mos'
 
       INTEGER                                            :: handle, ic, ik, is, nadd, nao, nc, &
                                                             nelectron, nkp_loc, nmo, nmorig(2), &
@@ -443,7 +443,7 @@ CONTAINS
 
       CPASSERT(ASSOCIATED(kpoint))
 
-      IF (ASSOCIATED(mos)) THEN
+      IF (.TRUE. .OR. ASSOCIATED(mos(1)%mo_coeff)) THEN
 
          IF (PRESENT(added_mos)) THEN
             nadd = added_mos
@@ -465,12 +465,11 @@ CONTAINS
                kp => kpoint%kp_env(ik)%kpoint_env
                ALLOCATE (kp%mos(nc, nspin))
                DO is = 1, nspin
-                  CALL get_mo_set(mos(is)%mo_set, nao=nao, nmo=nmo, nelectron=nelectron, &
+                  CALL get_mo_set(mos(is), nao=nao, nmo=nmo, nelectron=nelectron, &
                                   n_el_f=n_el_f, maxocc=maxocc, flexible_electron_count=flexible_electron_count)
                   nmo = MIN(nao, nmo + nadd)
                   DO ic = 1, nc
-                     NULLIFY (kp%mos(ic, is)%mo_set)
-                     CALL allocate_mo_set(kp%mos(ic, is)%mo_set, nao, nmo, nelectron, n_el_f, maxocc, &
+                     CALL allocate_mo_set(kp%mos(ic, is), nao, nmo, nelectron, n_el_f, maxocc, &
                                           flexible_electron_count)
                   END DO
                END DO
@@ -486,11 +485,11 @@ CONTAINS
 
             ! set possible new number of MOs
             DO is = 1, nspin
-               CALL get_mo_set(mos(is)%mo_set, nmo=nmorig(is))
+               CALL get_mo_set(mos(is), nmo=nmorig(is))
                nmo = MIN(nao, nmorig(is) + nadd)
-               CALL set_mo_set(mos(is)%mo_set, nmo=nmo)
+               CALL set_mo_set(mos(is), nmo=nmo)
             END DO
-            ! matrix pools for the kpoint group, information on MOs is transfered using
+            ! matrix pools for the kpoint group, information on MOs is transferred using
             ! generic mos structure
             NULLIFY (mpools)
             CALL mpools_create(mpools=mpools)
@@ -499,11 +498,12 @@ CONTAINS
             kpoint%mpools => mpools
             ! reset old number of MOs
             DO is = 1, nspin
-               CALL set_mo_set(mos(is)%mo_set, nmo=nmorig(is))
+               CALL set_mo_set(mos(is), nmo=nmorig(is))
             END DO
 
             ! allocate density matrices
             CALL mpools_get(mpools, ao_ao_fm_pools=ao_ao_fm_pools)
+            ALLOCATE (fmlocal)
             CALL fm_pool_create_fm(ao_ao_fm_pools(1)%pool, fmlocal)
             CALL cp_fm_get_info(fmlocal, matrix_struct=matrix_struct)
             DO ik = 1, nkp_loc
@@ -513,6 +513,7 @@ CONTAINS
                   DO is = 1, SIZE(kp%pmat, 2)
                      DO ic = 1, SIZE(kp%pmat, 1)
                         CALL cp_fm_release(kp%pmat(ic, is)%matrix)
+                        DEALLOCATE (kp%pmat(ic, is)%matrix)
                      END DO
                   END DO
                   DEALLOCATE (kp%pmat)
@@ -520,6 +521,7 @@ CONTAINS
                ALLOCATE (kp%pmat(nc, nspin))
                DO is = 1, nspin
                   DO ic = 1, nc
+                     ALLOCATE (kp%pmat(ic, is)%matrix)
                      CALL cp_fm_create(kp%pmat(ic, is)%matrix, matrix_struct)
                   END DO
                END DO
@@ -528,6 +530,7 @@ CONTAINS
                   DO is = 1, SIZE(kp%wmat, 2)
                      DO ic = 1, SIZE(kp%wmat, 1)
                         CALL cp_fm_release(kp%wmat(ic, is)%matrix)
+                        DEALLOCATE (kp%wmat(ic, is)%matrix)
                      END DO
                   END DO
                   DEALLOCATE (kp%wmat)
@@ -535,11 +538,13 @@ CONTAINS
                ALLOCATE (kp%wmat(nc, nspin))
                DO is = 1, nspin
                   DO ic = 1, nc
+                     ALLOCATE (kp%wmat(ic, is)%matrix)
                      CALL cp_fm_create(kp%wmat(ic, is)%matrix, matrix_struct)
                   END DO
                END DO
             END DO
             CALL fm_pool_give_back_fm(ao_ao_fm_pools(1)%pool, fmlocal)
+            DEALLOCATE (fmlocal)
 
          END IF
 
@@ -548,6 +553,42 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE kpoint_initialize_mos
+
+! **************************************************************************************************
+!> \brief ...
+!> \param kpoint ...
+! **************************************************************************************************
+   SUBROUTINE kpoint_initialize_mo_set(kpoint)
+      TYPE(kpoint_type), POINTER                         :: kpoint
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_initialize_mo_set'
+
+      INTEGER                                            :: handle, ic, ik, ikk, ispin
+      TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
+      TYPE(mo_set_type), DIMENSION(:, :), POINTER        :: moskp
+
+      CALL timeset(routineN, handle)
+
+      DO ik = 1, SIZE(kpoint%kp_env)
+         CALL mpools_get(kpoint%mpools, ao_mo_fm_pools=ao_mo_fm_pools)
+         moskp => kpoint%kp_env(ik)%kpoint_env%mos
+         ikk = kpoint%kp_range(1) + ik - 1
+         CPASSERT(ASSOCIATED(moskp))
+         DO ispin = 1, SIZE(moskp, 2)
+            DO ic = 1, SIZE(moskp, 1)
+               CALL get_mo_set(moskp(ic, ispin), mo_coeff=mo_coeff)
+               IF (.NOT. ASSOCIATED(mo_coeff)) THEN
+                  CALL init_mo_set(moskp(ic, ispin), &
+                                   fm_pool=ao_mo_fm_pools(ispin)%pool, name="kpoints")
+               END IF
+            END DO
+         END DO
+      END DO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE kpoint_initialize_mo_set
 
 ! **************************************************************************************************
 !> \brief Generates the mapping of cell indices and linear RS index
@@ -565,8 +606,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_init_cell_index', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_init_cell_index'
 
       INTEGER                                            :: handle, i1, i2, i3, ic, icount, it, &
                                                             ncount
@@ -701,7 +741,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: is_complex
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: rs_sign
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rskp_transform', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rskp_transform'
 
       INTEGER                                            :: handle, iatom, ic, icol, irow, jatom
       INTEGER, DIMENSION(3)                              :: cell
@@ -788,8 +828,7 @@ CONTAINS
       TYPE(kpoint_type), POINTER                         :: kpoint
       TYPE(smear_type), POINTER                          :: smear
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_set_mo_occupation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_set_mo_occupation'
 
       INTEGER                                            :: handle, ik, ikpgr, ispin, kplocal, nb, &
                                                             ne_a, ne_b, nelectron, nkp, nmo, nspin
@@ -807,11 +846,11 @@ CONTAINS
       CALL get_kpoint_info(kpoint, nkp=nkp)
       kp => kpoint%kp_env(1)%kpoint_env
       nspin = SIZE(kp%mos, 2)
-      mo_set => kp%mos(1, 1)%mo_set
+      mo_set => kp%mos(1, 1)
       CALL get_mo_set(mo_set, nmo=nmo, nelectron=nelectron)
       ne_a = nelectron
       IF (nspin == 2) THEN
-         CALL get_mo_set(kp%mos(1, 2)%mo_set, nmo=nb, nelectron=ne_b)
+         CALL get_mo_set(kp%mos(1, 2), nmo=nb, nelectron=ne_b)
          CPASSERT(nmo == nb)
       END IF
       ALLOCATE (weig(nmo, nkp, nspin), wocc(nmo, nkp, nspin))
@@ -823,7 +862,7 @@ CONTAINS
          ik = kp_range(1) + ikpgr - 1
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             CALL get_mo_set(mo_set, eigenvalues=eigenvalues)
             weig(1:nmo, ik, ispin) = eigenvalues(1:nmo)
          END DO
@@ -874,7 +913,7 @@ CONTAINS
          ik = kp_range(1) + ikpgr - 1
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             CALL get_mo_set(mo_set, eigenvalues=eigenvalues, occupation_numbers=occupation)
             eigenvalues(1:nmo) = weig(1:nmo, ik, ispin)
             occupation(1:nmo) = wocc(1:nmo, ik, ispin)
@@ -899,8 +938,7 @@ CONTAINS
       TYPE(kpoint_type), POINTER                         :: kpoint
       LOGICAL, OPTIONAL                                  :: energy_weighted
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_matrices'
 
       INTEGER                                            :: handle, ikpgr, ispin, kplocal, nao, nmo, &
                                                             nspin
@@ -908,7 +946,8 @@ CONTAINS
       LOGICAL                                            :: wtype
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, occupation
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: cpmat, fwork, pmat, rpmat
+      TYPE(cp_fm_type)                                   :: fwork
+      TYPE(cp_fm_type), POINTER                          :: cpmat, pmat, rpmat
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(mo_set_type), POINTER                         :: mo_set
 
@@ -922,7 +961,7 @@ CONTAINS
       END IF
 
       ! work matrix
-      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)%mo_set
+      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)
       CALL get_mo_set(mo_set, nao=nao, nmo=nmo)
       CALL cp_fm_get_info(mo_set%mo_coeff, matrix_struct=matrix_struct)
       CALL cp_fm_create(fwork, matrix_struct)
@@ -933,7 +972,7 @@ CONTAINS
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          nspin = SIZE(kp%mos, 2)
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             IF (wtype) THEN
                CALL get_mo_set(mo_set, eigenvalues=eigenvalues)
             END IF
@@ -949,7 +988,7 @@ CONTAINS
                IF (wtype) THEN
                   CALL cp_fm_column_scale(fwork, eigenvalues)
                END IF
-               CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, pmat)
+               CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, pmat)
             ELSE
                IF (wtype) THEN
                   rpmat => kp%wmat(1, ispin)%matrix
@@ -965,19 +1004,19 @@ CONTAINS
                   CALL cp_fm_column_scale(fwork, eigenvalues)
                END IF
                ! Re(c)*Re(c)
-               CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
-               mo_set => kp%mos(2, ispin)%mo_set
+               CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
+               mo_set => kp%mos(2, ispin)
                ! Im(c)*Re(c)
-               CALL cp_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
+               CALL parallel_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
                ! Re(c)*Im(c)
-               CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
+               CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
                CALL cp_fm_to_fm(mo_set%mo_coeff, fwork)
                CALL cp_fm_column_scale(fwork, occupation)
                IF (wtype) THEN
                   CALL cp_fm_column_scale(fwork, eigenvalues)
                END IF
                ! Im(c)*Im(c)
-               CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
+               CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
             END IF
          END DO
       END DO
@@ -1006,10 +1045,9 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: tempmat
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: fmwork
+      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(IN)       :: fmwork
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_transform', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_transform'
 
       INTEGER                                            :: handle, ic, ik, ikk, indx, is, ispin, &
                                                             nc, nimg, nkp, nspin
@@ -1019,7 +1057,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: wkp
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: xkp
       TYPE(copy_info_type), ALLOCATABLE, DIMENSION(:)    :: info
-      TYPE(cp_fm_type), POINTER                          :: fmdummy
+      TYPE(cp_fm_type)                                   :: fmdummy
       TYPE(cp_para_env_type), POINTER                    :: para_env, para_env_inter_kp
       TYPE(dbcsr_type), POINTER                          :: cpmat, rpmat, scpmat, srpmat
       TYPE(kpoint_env_type), POINTER                     :: kp
@@ -1054,7 +1092,6 @@ CONTAINS
       real_only = (nc == 1)
 
       para_env => kpoint%blacs_env_all%para_env
-      NULLIFY (fmdummy)
       ALLOCATE (info(nspin*nkp*nc))
 
       ! Start all the communication
@@ -1093,7 +1130,7 @@ CONTAINS
          END DO
       END DO
 
-      ! Finish communication and transform the recieved matrices
+      ! Finish communication and transform the received matrices
       indx = 0
       DO ispin = 1, nspin
          DO ik = 1, nkp
@@ -1146,11 +1183,7 @@ CONTAINS
 
                DO ic = 1, nc
                   indx = indx + 1
-                  IF (wtype) THEN
-                     CALL cp_fm_cleanup_copy_general(kp%wmat(ic, ispin)%matrix, info(indx))
-                  ELSE
-                     CALL cp_fm_cleanup_copy_general(kp%pmat(ic, ispin)%matrix, info(indx))
-                  END IF
+                  CALL cp_fm_cleanup_copy_general(info(indx))
                END DO
             ELSE
                ! calls with dummy arguments, so not included
@@ -1198,7 +1231,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: xkp
       REAL(KIND=dp), INTENT(IN)                          :: wkp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'transform_dmat', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'transform_dmat'
 
       INTEGER                                            :: handle, iatom, icell, icol, irow, jatom
       INTEGER, DIMENSION(3)                              :: cell
@@ -1269,7 +1302,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: f0
       LOGICAL, INTENT(IN), OPTIONAL                      :: symmetric, antisymmetric
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'symtrans', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'symtrans'
 
       INTEGER                                            :: handle, iatom, icol, ip, irow, jcol, jp, &
                                                             jrow, natom, numnodes

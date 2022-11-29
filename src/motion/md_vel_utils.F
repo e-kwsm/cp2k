@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,7 +44,7 @@ MODULE md_vel_utils
    USE input_constants,                 ONLY: &
         md_init_default, md_init_vib, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        reftraj_ensemble
+        npt_ia_ensemble, reftraj_ensemble
    USE input_cp2k_binary_restarts,      ONLY: read_binary_velocities
    USE input_restart_force_eval,        ONLY: update_subsys
    USE input_section_types,             ONLY: section_vals_get,&
@@ -104,8 +106,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: rcom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_rcom', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: denom, mass
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
@@ -143,8 +143,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: vcom
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: ecom
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_vcom', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: denom, mass
@@ -185,9 +183,6 @@ CONTAINS
    SUBROUTINE clone_core_shell_vel(part, shell_part, core_part)
       TYPE(particle_type), DIMENSION(:), POINTER         :: part, shell_part, core_part
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'clone_core_shell_vel', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       LOGICAL                                            :: is_shell
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
@@ -218,8 +213,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: part
       INTEGER, INTENT(IN), OPTIONAL                      :: ireg
       REAL(KIND=dp)                                      :: ekin
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_ekin', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: mass
@@ -269,8 +262,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: ireg, nfree
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: temp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rescale_vel', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, my_ireg, my_nfree
       REAL(KIND=dp)                                      :: factor, my_temp
 
@@ -291,7 +282,7 @@ CONTAINS
          factor = my_temp/(2.0_dp*ekin)*REAL(my_nfree, KIND=dp)
       ELSE
          factor = 0.0_dp
-      ENDIF
+      END IF
       ! Note:
       ! this rescaling is still wrong, it should take the masses into account
       ! rescaling is generally not correct, so needs fixing
@@ -326,9 +317,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: part
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(simpar_type), POINTER                         :: simpar
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rescale_vel_region', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ireg, nfree, nfree0, nfree_done
       REAL(KIND=dp)                                      :: ekin, temp
@@ -376,8 +364,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: vcom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'subtract_vcom', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       DO i = 1, SIZE(part)
@@ -419,8 +405,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rcom
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: vang
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_vang', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: mass, proj
@@ -487,8 +471,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: part
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rcom, vang
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'subtract_vang', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp), DIMENSION(3)                        :: r
@@ -573,12 +555,10 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(IN)                                :: write_binary_restart_file
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_velocities', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_velocities'
 
-      CHARACTER(LEN=default_string_length)               :: my_format
       INTEGER                                            :: handle, i, ifixd, imolecule_kind, iw, &
-                                                            natoms, num_x
+                                                            natoms
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: is_fixed
       LOGICAL                                            :: success
       REAL(KIND=dp)                                      :: ecom, ekin, mass, mass_tot, temp, tmp_r1
@@ -601,11 +581,6 @@ CONTAINS
       ! Logging
       logger => cp_get_default_logger()
       iw = cp_print_key_unit_nr(logger, print_section, "PROGRAM_RUN_INFO", extension=".log")
-      IF (iw > 0) THEN
-         num_x = (79 - LEN_TRIM(ADJUSTL(label)) - 2)/2
-         WRITE (my_format, '(A,I0,A,I0,A)') '(1X,', num_x, '("*"),1X,A,1X,', num_x, '("*"))'
-         WRITE (iw, TRIM(my_format)) TRIM(ADJUSTL(label))
-      END IF
 
       ! Build a list of all fixed atoms (if any)
       ALLOCATE (is_fixed(natoms))
@@ -661,6 +636,8 @@ CONTAINS
       END IF
 
       IF (iw > 0) THEN
+         WRITE (iw, '(/,T2,A)') &
+            'MD_VEL| '//TRIM(ADJUSTL(label))
          ! Recompute vcom, ecom and ekin for IO
          CALL compute_vcom(part, is_fixed, vcom, ecom)
          ekin = compute_ekin(part) - ecom
@@ -671,18 +648,21 @@ CONTAINS
             temp = 2.0_dp*ekin/REAL(simpar%nfree, KIND=dp)
          END IF
          tmp_r1 = cp_unit_from_cp2k(temp, "K")
-         WRITE (iw, '( A, T61, F18.2, A2 )') ' Initial Temperature ', tmp_r1, " K"
-         WRITE (iw, '( A, T21, F20.12 , F20.12 , F20.12 )') ' COM velocity:', vcom(1), vcom(2), vcom(3)
+         WRITE (iw, '(T2,A,T61,F20.6)') &
+            'MD_VEL| Initial temperature [K]', tmp_r1
+         WRITE (iw, '(T2,A,T30,3(1X,F16.10))') &
+            'MD_VEL| COM velocity', vcom(1:3)
 
          ! compute and log rcom and vang if not periodic
          CALL force_env_get(force_env, cell=cell)
          IF (SUM(cell%perd(1:3)) == 0) THEN
             CALL compute_rcom(part, is_fixed, rcom)
             CALL compute_vang(part, is_fixed, rcom, vang)
-            WRITE (iw, '( A, T21, F20.12 , F20.12 , F20.12 )') ' COM position:', rcom(1), rcom(2), rcom(3)
-            WRITE (iw, '( A, T21, F20.12 , F20.12 , F20.12 )') ' Angular velocity:', vang(1), vang(2), vang(3)
+            WRITE (iw, '(T2,A,T30,3(1X,F16.10))') &
+               'MD_VEL| COM position', rcom(1:3)
+            WRITE (iw, '(T2,A,T30,3(1X,F16.10))') &
+               'MD_VEL| Angular velocity', vang(1:3)
          END IF
-         WRITE (iw, '( 1X,79("*"),/)')
       END IF
 
       DEALLOCATE (is_fixed)
@@ -720,9 +700,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: is_fixed
       LOGICAL, INTENT(OUT)                               :: success
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_input_velocities', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, natoms, nshell, shell_index
       LOGICAL :: atomvel_explicit, atomvel_read, corevel_explicit, corevel_read, is_ok, &
@@ -905,9 +882,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: shell_present
       TYPE(particle_type), DIMENSION(:), POINTER         :: shell_particles, core_particles
       INTEGER, DIMENSION(:), INTENT(IN)                  :: is_fixed
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'generate_coords_vels_vib', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: dof, fixed_dof, iatom, ii, imode, &
                                                             my_dof, natoms, shell_index
@@ -1104,13 +1078,10 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: scale
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dr_from_vib_data', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: imode, ind
 
       res = 0.0_dp
-      ! assuming the eigenvalues are sorted in accending order, the
+      ! assuming the eigenvalues are sorted in ascending order, the
       ! first three modes are acoustic with zero frequencies. These are
       ! excluded from considerations, and should have been reflected in
       ! the calculation of scale outside this function
@@ -1163,13 +1134,10 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: scale
       REAL(KIND=dp)                                      :: res
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dv_from_vib_data', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: imode, ind
 
       res = 0.0_dp
-      ! assuming the eigenvalues are sorted in accending order, the
+      ! assuming the eigenvalues are sorted in ascending order, the
       ! first three modes are acoustic with zero frequencies. These are
       ! excluded from considerations, and should have been reflected in
       ! the calculation of scale outside this function
@@ -1210,9 +1178,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: shell_part, core_part
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: is_fixed
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'generate_velocities', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, natoms
       REAL(KIND=dp)                                      :: mass
@@ -1259,7 +1224,7 @@ CONTAINS
       ! copied so that the initial relative core-shell velocity is zero.
       IF (shell_present) THEN
          CALL optimize_shell_core(force_env, part, shell_part, core_part, globenv)
-      ENDIF
+      END IF
    END SUBROUTINE generate_velocities
 
 ! **************************************************************************************************
@@ -1281,9 +1246,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: is_fixed
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'soften_velocities', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, k
       REAL(KIND=dp), DIMENSION(SIZE(part), 3)            :: F, F_t, N, x0
@@ -1349,9 +1311,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: is_fixed
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'normalize_velocities', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: ekin
       REAL(KIND=dp), DIMENSION(3)                        :: rcom, vang, vcom
       TYPE(cell_type), POINTER                           :: cell
@@ -1390,7 +1349,7 @@ CONTAINS
       TYPE(md_ener_type), POINTER                        :: md_ener
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: vsubtract
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'reset_vcom', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'reset_vcom'
 
       INTEGER                                            :: atom, handle, iatom, ikind, natom, &
                                                             shell_index
@@ -1484,8 +1443,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: temp_expected, temp_tol
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_velocity', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: ekin_old, scale, temp_old
 
       IF (ABS(temp_expected - md_ener%temp_part/kelvin) > temp_tol) THEN
@@ -1503,12 +1460,15 @@ CONTAINS
             md_ener%temp_part = 2.0_dp*md_ener%ekin/REAL(md_ener%nfree, KIND=dp)*kelvin
          END IF
          md_ener%constant = md_ener%constant - ekin_old + md_ener%ekin
-
          IF (iw > 0) THEN
-            WRITE (UNIT=iw, FMT="(/,T2,A,F10.2,A,F10.2,A)") "Temperature scaled to requested temperature:", &
-               temp_old, " K  ->", md_ener%temp_part, " K"
+            WRITE (UNIT=iw, FMT='(/,T2,A)') &
+               'MD_VEL| Temperature scaled to requested temperature'
+            WRITE (UNIT=iw, FMT='(T2,A,T61,F20.6)') &
+               'MD_VEL| Old temperature [K]', temp_old, &
+               'MD_VEL| New temperature [K]', md_ener%temp_part
          END IF
       END IF
+
    END SUBROUTINE scale_velocity
 
 ! **************************************************************************************************
@@ -1527,9 +1487,6 @@ CONTAINS
       TYPE(md_ener_type), POINTER                        :: md_ener
       TYPE(simpar_type), POINTER                         :: simpar
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_velocity_region', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ireg, nfree, nfree_done, nregions
       REAL(KIND=dp)                                      :: ekin, ekin_old, ekin_total_new, fscale, &
@@ -1590,13 +1547,17 @@ CONTAINS
          md_ener%temp_part = 2.0_dp*md_ener%ekin/REAL(md_ener%nfree, KIND=dp)*kelvin
       END IF
       md_ener%constant = md_ener%constant - ekin_old + md_ener%ekin
-
-      DO ireg = 0, nregions
-         IF (iw > 0 .AND. temp_new(ireg) > 0.0_dp) THEN
-            WRITE (UNIT=iw, FMT="(/,T2,A,I5, A,F10.2,A,F10.2,A)") "Temperature region ", ireg, &
-               " rescaled from:", temp_old(ireg), " K  to ", temp_new(ireg), " K"
-         END IF
-      END DO
+      IF (iw > 0) THEN
+         DO ireg = 0, nregions
+            IF (temp_new(ireg) > 0.0_dp) THEN
+               WRITE (UNIT=iw, FMT='(/,T2,A,I0,A)') &
+                  'MD_VEL| Temperature region ', ireg, ' scaled to requested temperature'
+               WRITE (UNIT=iw, FMT='(T2,A,T61,F20.6)') &
+                  'MD_VEL| Old temperature [K]', temp_old(ireg), &
+                  'MD_VEL| New temperature [K]', temp_new(ireg)
+            END IF
+         END DO
+      END IF
       DEALLOCATE (temp_new, temp_old)
 
    END SUBROUTINE scale_velocity_region
@@ -1616,9 +1577,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: fscale
       INTEGER, INTENT(IN)                                :: ireg
       REAL(KIND=dp), INTENT(OUT)                         :: ekin, vcom(3)
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_velocity_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: atom, iatom, ikind, my_ireg, natom, &
                                                             shell_index
@@ -1721,9 +1679,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: temp_expected, temp_tol
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_velocity_internal', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: atom, iatom, ikind, natom, shell_index
       INTEGER, DIMENSION(:), POINTER                     :: atom_list
       LOGICAL                                            :: is_shell
@@ -1787,13 +1742,15 @@ CONTAINS
             md_ener%temp_shell = 2.0_dp*md_ener%ekin_shell/REAL(md_ener%nfree_shell, KIND=dp)*kelvin
          END IF
          md_ener%constant = md_ener%constant - ekin_shell_old + md_ener%ekin_shell
-
          IF (iw > 0) THEN
-            WRITE (UNIT=iw, FMT="(/,T2,A,F10.2,A,F10.2,A)") &
-               "Temperature  shell internal motion scaled to requested temperature:", &
-               temp_shell_old, " K  ->", md_ener%temp_shell, " K"
+            WRITE (UNIT=iw, FMT='(/,T2,A)') &
+               'MD_VEL| Temperature of shell internal motion scaled to requested temperature'
+            WRITE (UNIT=iw, FMT='(T2,A,T61,F20.6)') &
+               'MD_VEL| Old temperature [K]', temp_shell_old, &
+               'MD_VEL| New temperature [K]', md_ener%temp_shell
          END IF
-      ENDIF
+      END IF
+
    END SUBROUTINE scale_velocity_internal
 
 ! **************************************************************************************************
@@ -1812,9 +1769,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: temp_expected, temp_tol
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'scale_velocity_baro', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, nfree
       REAL(KIND=dp)                                      :: ekin_old, scale, temp_old
       TYPE(npt_info_type), POINTER                       :: npt(:, :)
@@ -1829,7 +1783,8 @@ CONTAINS
          temp_old = md_ener%temp_baro
          md_ener%baro_kin = 0.0_dp
          md_ener%temp_baro = 0.0_dp
-         IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npe_i_ensemble) THEN
+         IF (simpar%ensemble == npt_i_ensemble .OR. simpar%ensemble == npe_i_ensemble &
+             .OR. simpar%ensemble == npt_ia_ensemble) THEN
             npt(1, 1)%v = npt(1, 1)%v*scale
             md_ener%baro_kin = 0.5_dp*npt(1, 1)%v**2*npt(1, 1)%mass
          ELSE IF (simpar%ensemble == npt_f_ensemble .OR. simpar%ensemble == npe_f_ensemble) THEN
@@ -1841,15 +1796,17 @@ CONTAINS
                END DO
             END DO
          END IF
-
          nfree = SIZE(npt, 1)*SIZE(npt, 2)
          md_ener%temp_baro = 2.0_dp*md_ener%baro_kin/REAL(nfree, dp)*kelvin
          IF (iw > 0) THEN
-            WRITE (UNIT=iw, FMT="(/,T2,A,F10.2,A,F10.2,A)") &
-               "Temperature  of barostat motion scaled to requested temperature:", &
-               temp_old, " K  ->", md_ener%temp_baro, " K"
+            WRITE (UNIT=iw, FMT='(/,T2,A)') &
+               'MD_VEL| Temperature of barostat motion scaled to requested temperature'
+            WRITE (UNIT=iw, FMT='(T2,A,T61,F20.6)') &
+               'MD_VEL| Old temperature [K]', temp_old, &
+               'MD_VEL| New temperature [K]', md_ener%temp_baro
          END IF
       END IF
+
    END SUBROUTINE scale_velocity_baro
 
 ! **************************************************************************************************
@@ -1872,8 +1829,7 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'temperature_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'temperature_control'
 
       INTEGER                                            :: handle, iw
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -1903,7 +1859,7 @@ CONTAINS
       ! Control cell motion
       SELECT CASE (simpar%ensemble)
       CASE (nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, &
-            npt_f_ensemble, npt_i_ensemble, npe_f_ensemble, npe_i_ensemble)
+            npt_f_ensemble, npt_i_ensemble, npe_f_ensemble, npe_i_ensemble, npt_ia_ensemble)
          IF (simpar%temp_baro_tol > 0.0_dp) THEN
             CALL scale_velocity_baro(md_env, md_ener, simpar%temp_baro_ext, simpar%temp_baro_tol, iw)
          END IF
@@ -1931,7 +1887,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: md_section
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'comvel_control', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'comvel_control'
 
       INTEGER                                            :: handle, iw
       LOGICAL                                            :: explicit
@@ -1947,8 +1903,10 @@ CONTAINS
       ! Print COMVEL and COM Position
       iw = cp_print_key_unit_nr(logger, md_section, "PRINT%CENTER_OF_MASS", extension=".mdLog")
       IF (iw > 0) THEN
-         WRITE (UNIT=iw, FMT="(/,T2,A,(T58,A3,F20.10))") &
-            "Centre of mass motion (COM):", "x =", md_ener%vcom(1), "y =", md_ener%vcom(2), "z =", md_ener%vcom(3)
+         WRITE (UNIT=iw, FMT="(/,T2,A)") &
+            "MD_VEL| Centre of mass motion (COM)"
+         WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,F16.10))") &
+            "MD_VEL| VCOM [a.u.]", md_ener%vcom(1:3)
       END IF
       CALL cp_print_key_finished_output(iw, logger, md_section, "PRINT%CENTER_OF_MASS")
 
@@ -1967,9 +1925,10 @@ CONTAINS
             CALL reset_vcom(subsys, md_ener, vsubtract=vcom_old)
             CALL scale_velocity(subsys, md_ener, temp_old, 0.0_dp, iw)
             IF (iw > 0) THEN
-               WRITE (UNIT=iw, FMT="(T2,'MD| ',A,3F16.10,A)") &
-                  "Old VCOM = ", vcom_old(1:3), " a.u.", &
-                  "New VCOM = ", md_ener%vcom(1:3), " a.u"
+               WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,F16.10))") &
+                  "MD_VEL| Old VCOM [a.u.]", vcom_old(1:3)
+               WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,F16.10))") &
+                  "MD_VEL| New VCOM [a.u.]", md_ener%vcom(1:3)
             END IF
          END IF
          CALL cp_print_key_finished_output(iw, logger, md_section, &
@@ -1995,7 +1954,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: md_section
       TYPE(cp_logger_type), POINTER                      :: logger
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'angvel_control', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'angvel_control'
 
       INTEGER                                            :: handle, ifixd, imolecule_kind, iw, natoms
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: is_fixed
@@ -2055,9 +2014,10 @@ CONTAINS
                CALL scale_velocity(subsys, md_ener, temp_old, 0.0_dp, iw)
                CALL compute_vang(particles%els, is_fixed, rcom, vang_new)
                IF (iw > 0) THEN
-                  WRITE (UNIT=iw, FMT="(T2,'MD| ',A,3F16.10,A)") &
-                     "Old VANG = ", vang(1:3), " a.u.", &
-                     "New VANG = ", vang_new(1:3), " a.u"
+                  WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,F16.10))") &
+                     'MD_VEL| Old VANG [a.u.]', vang(1:3)
+                  WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,F16.10))") &
+                     'MD_VEL| New VANG [a.u.]', vang_new(1:3)
                END IF
             END IF
 
@@ -2093,8 +2053,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: md_section, constraint_section
       LOGICAL, INTENT(IN)                                :: write_binary_restart_file
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_velocities', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'setup_velocities'
 
       INTEGER                                            :: handle, nconstraint, nconstraint_fixd
       LOGICAL                                            :: apply_cns0, shell_adiabatic, &
@@ -2241,8 +2200,7 @@ CONTAINS
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
       TYPE(section_vals_type), POINTER                   :: md_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_cascade', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_cascade'
 
       CHARACTER(len=2*default_string_length)             :: line
       INTEGER                                            :: handle, iatom, ifixd, imolecule_kind, &
@@ -2293,7 +2251,7 @@ CONTAINS
 
          IF (iw > 0) THEN
             ekin = cp_unit_from_cp2k(energy, "keV")
-            WRITE (UNIT=iw, FMT="(T2,A,T61,F20.6)") &
+            WRITE (UNIT=iw, FMT="(/,T2,A,T61,F20.6)") &
                "CASCADE| Energy [keV]", ekin
             WRITE (UNIT=iw, FMT="(T2,A)") &
                "CASCADE|"
@@ -2403,10 +2361,10 @@ CONTAINS
             temperature = cp_unit_from_cp2k(temp, "K")
             WRITE (UNIT=iw, FMT="(T2,A)") &
                "CASCADE|"
-            WRITE (UNIT=iw, FMT="(T2,A,T61,F18.2,A2)") &
-               "CASCADE| Temperature after cascade initialization", temperature, " K"
-            WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,ES16.8),/)") &
-               "CASCADE| COM velocity: ", vcom(1:3)
+            WRITE (UNIT=iw, FMT="(T2,A,T61,F20.6)") &
+               "CASCADE| Temperature after cascade initialization [K]", temperature
+            WRITE (UNIT=iw, FMT="(T2,A,T30,3(1X,ES16.8))") &
+               "CASCADE| COM velocity", vcom(1:3)
 !MK          ! compute and log rcom and vang if not periodic
 !MK          CALL force_env_get(force_env,cell=cell)
 !MK          IF (SUM(cell%perd(1:3)) == 0) THEN

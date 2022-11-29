@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 content = """
 MODULE prettify_selftest
    IMPLICIT NONE
@@ -38,7 +40,7 @@ CONTAINS
          l = 0
       ELSE
          l = 1
-      ENDIF
+      END IF
    END FUNCTION
 
    SUBROUTINE write ()
@@ -50,13 +52,14 @@ PROGRAM example_prog
    USE example, ONLY: dp, test_routine, test_function, test_type, str_function
 
    IMPLICIT NONE
-   INTEGER :: r, i, j, k, l, my_integer, m
+   INTEGER :: r, i, j, k, l, my_integer, m, saved_var = 10
    INTEGER, DIMENSION(5) :: arr
    INTEGER, DIMENSION(20) :: big_arr
    INTEGER :: ENDIF
    TYPE(test_type) :: t
    REAL(KIND=dp) :: r1, r2, r3, r4, r5, r6
    INTEGER, POINTER :: point
+   INTEGER, POINTER :: point_init => NULL()
 
    point => NULL()
 
@@ -121,13 +124,13 @@ PROGRAM example_prog
                   DO k = 1, 3
                      IF (k == 1) l = l + 1
                   END DO
-               ENDDO
-            ENDIF
-         ENDDO do_label
+               END DO
+            END IF
+         END DO do_label
       CASE (2)
          l = i + j + k
       END SELECT
-   ENDDO
+   END DO
 
 ! example 2.2
    DO m = 1, 2
@@ -139,13 +142,13 @@ PROGRAM example_prog
             DO my_integer = 1, 1
             DO j = 1, 2
                WRITE (*, *) test_function(m, r, k, l) + i
-            ENDDO
-            ENDDO
-         ENDDO
-         ENDDO
-         ENDDO
-      ENDDO
-   ENDDO
+            END DO
+            END DO
+         END DO
+         END DO
+         END DO
+      END DO
+   END DO
 
 ! 3) auto alignment for linebreaks   !
 !************************************!
@@ -206,17 +209,17 @@ PROGRAM example_prog
                      l = l + 1
 ! unindented comment
                      ! indented comment
-                  END DO; ENDDO
+                  END DO; END DO
             ELSEIF (.NOT. j == 4) THEN
                my_integer = 4
             ELSE
                WRITE (*, *) "hello"
-            ENDIF
-         ENDDO
+            END IF
+         END DO
       CASE (2)
          l = i + j + k
       END SELECT
-   ENDDO
+   END DO
 
 ! example 4.2
    IF ( &
@@ -236,7 +239,7 @@ PROGRAM example_prog
       END & ! comment
          ! comment
          DO
-   ENDIF
+   END IF
 
 ! example 4.3
    arr = [1, (/3, 4, &
@@ -251,12 +254,12 @@ PROGRAM example_prog
       ENDIF = 5
    ELSE IF (ENDIF == 3) THEN
       WRITE (*, *) ENDIF
-   ENDIF
+   END IF
 
 ! example 4.5
    DO i = 1, 2; IF (.TRUE.) THEN
          WRITE (*, *) "hello"
-      ENDIF; ENDDO
+      END IF; END DO
 
 END PROGRAM
 """

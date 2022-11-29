@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_fb_filter_matrix_methods
@@ -110,8 +112,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: filter_mat
       REAL(KIND=dp), INTENT(IN)                          :: tolerance
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_build', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'fb_fltrmat_build'
 
       CHARACTER(LEN=32)                                  :: symmetry_string
       CHARACTER(LEN=default_string_length)               :: name_string
@@ -271,8 +272,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: filter_mat
       REAL(KIND=dp), INTENT(IN)                          :: tolerance
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_build_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_build_2'
 
       CHARACTER(LEN=default_string_length)               :: name_string
       INTEGER                                            :: handle, iblkcol, ihalo, ikind, &
@@ -478,8 +478,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: filter_mat
       REAL(KIND=dp), INTENT(IN)                          :: tolerance
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_add_blkcol', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_add_blkcol'
 
       INTEGER :: handle, handle_mpi, iatom_global, iatom_in_halo, ind, ipair, ipe, itrial, &
          jatom_global, jatom_in_halo, jkind, natoms_global, natoms_in_halo, ncols_atmatrix, &
@@ -795,8 +794,7 @@ CONTAINS
       TYPE(fb_matrix_data_obj), INTENT(INOUT)            :: filter_mat_data
       REAL(KIND=dp), INTENT(IN)                          :: tolerance
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_add_blkcol_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_add_blkcol_2'
 
       INTEGER :: handle, iatom_global, iatom_in_halo, itrial, jatom_global, jatom_in_halo, jkind, &
          natoms_global, natoms_in_halo, ncols_atmatrix, ncols_blk, ncols_blk_max, nrows_atmatrix, &
@@ -961,7 +959,7 @@ CONTAINS
 !>        in order to construct the filter matrix for each atomic halo.
 !>        This version is for use with fb_fltrmat_build, where MPI
 !>        communications are done at each step
-!> \param filter_mat : DBCSR formated filter matrix
+!> \param filter_mat : DBCSR formatted filter matrix
 !> \param atomic_halo :  the halo that contributes to a blk
 !>                       col of the filter matrix
 !> \param para_env : cp2k parallel environment
@@ -979,8 +977,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(fb_com_atom_pairs_obj), INTENT(INOUT)         :: atom_pairs_send, atom_pairs_recv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_generate_com_pairs', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_generate_com_pairs'
 
       INTEGER                                            :: dest, handle, iatom_global, &
                                                             iatom_in_halo, itask, jatom_global, &
@@ -1022,7 +1019,7 @@ CONTAINS
       ! owner atom of each halo. The row atom block index for each
       ! filter matrix block corresponding to each col are the halo atoms
       ! of the corresponding halos. Filter matrix is non-symmetric: it
-      ! is non-square, because the blocks themselves are non-sqaure
+      ! is non-square, because the blocks themselves are non-square
 
       CALL fb_atomic_halo_get(atomic_halo=atomic_halo, &
                               owner_atom=jatom_global, &
@@ -1098,9 +1095,9 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief generate the list of blocks (atom pairs) to be sent and received
 !>        in order to construct the filter matrix for each atomic halo.
-!>        This vesion is for use with fb_fltrmat_build_2, where MPI
+!>        This version is for use with fb_fltrmat_build_2, where MPI
 !>        communications are done collectively.
-!> \param filter_mat  : DBCSR formated filter matrix
+!> \param filter_mat  : DBCSR formatted filter matrix
 !> \param atomic_halos : set of all local atomic halos contributing to the
 !>                       filter matrix
 !> \param para_env : cp2k parallel environment
@@ -1118,8 +1115,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(fb_com_atom_pairs_obj), INTENT(INOUT)         :: atom_pairs_send, atom_pairs_recv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_generate_com_pairs_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_generate_com_pairs_2'
 
       INTEGER :: dest, handle, iatom_global, iatom_in_halo, iatom_stored, ihalo, itask, &
          jatom_global, jatom_stored, natoms_in_halo, nblkrows_total, nhalos, ntasks_send, src
@@ -1154,7 +1150,7 @@ CONTAINS
       ! owner atom of each halo. The row atom block index for each
       ! filter matrix block corresponding to each col are the halo atoms
       ! of the corresponding halos. Filter matrix is non-symmetric: it
-      ! is non-square, because the blocks themselves are non-sqaure
+      ! is non-square, because the blocks themselves are non-square
 
       CALL fb_atomic_halo_list_get(atomic_halos=atomic_halos, &
                                    nhalos=nhalos, &
@@ -1267,8 +1263,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: atomic_filter_mat
       REAL(KIND=dp), INTENT(IN)                          :: tolerance
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_build_atomic_fltrmat', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'fb_fltrmat_build_atomic_fltrmat'
 
       INTEGER                                            :: handle, handle_dgemm, handle_dsygv, ii, &
                                                             info, jj, mat_dim, work_array_size
@@ -1419,9 +1414,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: eigenvals
       REAL(KIND=dp), INTENT(IN)                          :: T, mu
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_fltrmat_fermi_dirac_mu', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: kTS, ne
 
 ! we want fermi function max at 1, so maxocc = 1 here
@@ -1443,9 +1435,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: f
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: eigenvals
       REAL(KIND=dp), INTENT(IN)                          :: T, ne, maxocc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fb_fltrmat_fermi_dirac_ne', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: kTS, mu
 

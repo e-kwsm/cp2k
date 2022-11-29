@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -82,9 +84,6 @@ CONTAINS
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
       REAL(KIND=dp)                                      :: my_res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rescaling_factor', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: factor, resample, reverse, rr
 
       my_res = 0.0_dp
@@ -124,8 +123,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nn
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
       REAL(KIND=dp)                                      :: sum_gauss
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'sumnoises', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 

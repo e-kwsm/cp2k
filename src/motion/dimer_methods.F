@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,7 +68,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: gradient
       LOGICAL, INTENT(IN)                                :: calc_force
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_eval_at_ts', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_eval_at_ts'
 
       INTEGER                                            :: handle, iw
       LOGICAL                                            :: eval_analytical
@@ -221,8 +223,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: gradient
       TYPE(section_vals_type), POINTER                   :: print_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'remove_rot_transl_component', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'remove_rot_transl_component'
 
       INTEGER                                            :: dof, handle, i, j, natoms
       REAL(KIND=dp)                                      :: norm, norm_gradient_old
@@ -288,8 +289,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: f
       REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: gradient
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_eval_at_ts_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_eval_at_ts_low'
 
       INTEGER                                            :: handle, idg, idir, ip
       TYPE(cp_subsys_type), POINTER                      :: subsys

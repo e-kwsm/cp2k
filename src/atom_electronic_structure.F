@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE atom_electronic_structure
@@ -60,7 +62,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: noguess
       LOGICAL, INTENT(OUT), OPTIONAL                     :: converged
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_atom', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'calculate_atom'
 
       INTEGER                                            :: handle, method
       LOGICAL                                            :: explicit
@@ -127,8 +129,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: noguess
       LOGICAL, INTENT(OUT), OPTIONAL                     :: converged
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_atom_restricted', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_atom_restricted'
 
       INTEGER                                            :: handle, i, iter, l, max_iter, method, &
                                                             reltyp
@@ -184,7 +185,7 @@ CONTAINS
          ALLOCATE (ext_density(atom%basis%grid%nr))
          ext_density = 0._dp
          CALL atom_read_external_density(ext_density, atom, iw)
-      ENDIF
+      END IF
 
       ! ZMP starting to read external vxc for the zmp calculation
       need_vxc = atom%read_vxc
@@ -196,7 +197,7 @@ CONTAINS
          ALLOCATE (ext_vxc(atom%basis%grid%nr))
          ext_vxc = 0._dp
          CALL atom_read_external_vxc(ext_vxc, atom, iw)
-      ENDIF
+      END IF
 
       ! check for relativistic method
       reltyp = atom%relativistic
@@ -376,7 +377,7 @@ CONTAINS
                CALL atom_print_zmp_iteration(iter, deps, atom, iw)
             ELSE
                CALL atom_print_iteration(iter, deps, atom%energy%etot, iw)
-            ENDIF
+            END IF
          END IF
 
          IF (deps < eps_scf) THEN
@@ -445,8 +446,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: noguess
       LOGICAL, INTENT(OUT), OPTIONAL                     :: converged
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_atom_unrestricted', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_atom_unrestricted'
 
       INTEGER                                            :: handle, i, iter, k, l, max_iter, method, &
                                                             reltyp

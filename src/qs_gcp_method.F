@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -64,8 +66,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: energy
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_gcp_pairpot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_gcp_pairpot'
 
       INTEGER                                            :: atom_a, atom_b, handle, i, iatom, ikind, &
                                                             jatom, jkind, mepos, natom, nkind, &
@@ -123,9 +124,7 @@ CONTAINS
          atener => atprop%ategcp
       END IF
       atstress = atprop%stress
-      IF (atstress) THEN
-         atstr => atprop%atstress
-      END IF
+      atstr => atprop%atstress
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, *)

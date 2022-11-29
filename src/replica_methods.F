@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -98,8 +100,6 @@ CONTAINS
       INTEGER                                            :: nrep, prep
       LOGICAL, INTENT(in), OPTIONAL                      :: sync_v, keep_wf_history, row_force
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rep_env_create', routineP = moduleN//':'//routineN
-
       CHARACTER(len=default_path_length)                 :: input_file_path, output_file_path
       INTEGER :: comm_cart, comm_f, comm_inter_rep, forcedim, i, i0, ierr, ip, ir, irep, lp, &
          my_prep, new_env_id, nparticle, nrep_local, unit_nr
@@ -160,7 +160,7 @@ CONTAINS
                gridinfo(forcedim, i), ")"
          END DO
          WRITE (unit_nr, *)
-      ENDIF
+      END IF
       DEALLOCATE (gridinfo)
       IF (ASSOCIATED(rep_env)) THEN
          last_rep_env_id = last_rep_env_id + 1
@@ -291,9 +291,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: rep_env_id
       INTEGER, INTENT(out)                               :: ierr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rep_env_init_low', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, in_use, stat
       LOGICAL                                            :: do_kpoints, has_unit_metric
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -375,8 +372,7 @@ CONTAINS
       TYPE(replica_env_type), POINTER                    :: rep_env
       LOGICAL, OPTIONAL                                  :: calc_f
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rep_env_calc_e_f', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rep_env_calc_e_f'
 
       INTEGER                                            :: handle, ierr, my_calc_f
 
@@ -408,9 +404,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: rep_env_id, calc_f
       INTEGER, INTENT(out)                               :: ierr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rep_env_calc_e_f_low', &
-         routineP = moduleN//':'//routineN
-
       TYPE(f_env_type), POINTER                          :: f_env
       TYPE(replica_env_type), POINTER                    :: rep_env
 
@@ -435,9 +428,6 @@ CONTAINS
    SUBROUTINE rep_env_calc_e_f_int(rep_env, calc_f)
       TYPE(replica_env_type), POINTER                    :: rep_env
       LOGICAL, OPTIONAL                                  :: calc_f
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rep_env_calc_e_f_int', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ierr, irep, md_iter, my_calc_f, ndim
       TYPE(cp_logger_type), POINTER                      :: logger

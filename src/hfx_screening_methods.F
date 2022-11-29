@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -146,8 +148,7 @@ CONTAINS
       INTEGER                                            :: nkind
       INTEGER, DIMENSION(:, :)                           :: is_assoc_atomic_block
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_pmax_mat', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'update_pmax_mat'
 
       INTEGER :: act_atomic_block_offset, act_set_offset, handle, i, img, jatom, jkind, jset, &
          katom, kind_kind_idx, kkind, kset, mb, mc, nimg, nsetb, nsetc
@@ -190,9 +191,9 @@ CONTAINS
                                  pmax_tmp = MAX(pmax_tmp, ABS(full_density_beta(i, img)))
                               END IF
                               i = i + 1
-                           ENDDO
-                        ENDDO
-                     ENDDO
+                           END DO
+                        END DO
+                     END DO
                      IF (pmax_tmp == 0.0_dp) THEN
                         pmax_tmp = log_zero
                      ELSE
@@ -215,9 +216,9 @@ CONTAINS
                                  pmax_tmp = MAX(pmax_tmp, ABS(full_density_beta(i, img)))
                               END IF
                               i = i + nsgfc(kset)
-                           ENDDO
-                        ENDDO
-                     ENDDO
+                           END DO
+                        END DO
+                     END DO
                      IF (pmax_tmp == 0.0_dp) THEN
                         pmax_tmp = log_zero
                      ELSE
@@ -313,8 +314,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: max_set, max_pgf, n_threads, i_thread
       REAL(dp), DIMENSION(:), POINTER                    :: p_work
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_screening_functions', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_screening_functions'
 
       INTEGER                                            :: handle, i, ikind, ipgf, iset, jkind, &
                                                             jpgf, jset, la, lb, ncoa, ncob, nkind, &
@@ -666,8 +666,7 @@ CONTAINS
       REAL(dp)                                           :: eps_schwarz
       INTEGER, INTENT(IN)                                :: n_threads, i_thread
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_pair_dist_radii', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_pair_dist_radii'
 
       INTEGER                                            :: handle, i, ikind, ipgf, iset, jkind, &
                                                             jpgf, jset, la, lb, ncoa, ncob, nkind, &
@@ -772,7 +771,7 @@ CONTAINS
                                  cutoff = 1.0_dp
                                  R1 = exp_radius_very_extended( &
                                       la, la, lb, lb, ra=ra, rb=rb, rp=rp, &
-                                      zetp=zetp, eps=eps_schwarz, prefactor=prefactor, cutoff=cutoff, epsin=1.0E-12_dp)
+                                      zetp=zetp, eps=eps_schwarz, prefactor=prefactor, cutoff=cutoff, epsabs=1.0E-12_dp)
                                  R_max = MAX(R_max, R1)
                               END DO
                            END DO
@@ -869,7 +868,7 @@ CONTAINS
          opt_state%state = 8
          CALL powell_optimize(opt_state%nvar, x, opt_state)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE optimize_it
 

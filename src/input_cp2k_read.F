@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -53,15 +55,14 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_input', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'read_input'
 
       INTEGER                                            :: handle
-      TYPE(cp_parser_type), POINTER                      :: cpparser
-      TYPE(cp_unit_set_type), POINTER                    :: default_units
+      TYPE(cp_parser_type)                               :: cpparser
+      TYPE(cp_unit_set_type)                             :: default_units
 
       CALL timeset(routineN, handle)
       NULLIFY (res)
-      NULLIFY (cpparser, default_units)
       CALL section_vals_create(res, input_declaration)
       CALL parser_create(cpparser, initial_variables=initial_variables, file_name=file_path, &
                          para_env=para_env)

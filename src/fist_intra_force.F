@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -100,8 +102,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: use_virial
       TYPE(atprop_type), POINTER                         :: atprop_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_intra_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'force_intra_control'
 
       INTEGER :: first_atom, handle, i, ibend, ibond, ikind, imol, imul, index_a, index_b, &
          index_c, index_d, iopbend, ishell, itorsion, nbends, nbonds, nimptors, nkind, &

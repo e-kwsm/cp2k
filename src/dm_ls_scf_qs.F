@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,7 +49,8 @@ MODULE dm_ls_scf_qs
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
+   USE qs_atomic_block,                 ONLY: calculate_atomic_block_dm
    USE qs_collocate_density,            ONLY: calculate_rho_elec
    USE qs_density_mixing_types,         ONLY: direct_mixing_nr,&
                                               gspace_mixing_nr
@@ -55,8 +58,7 @@ MODULE dm_ls_scf_qs
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_gspace_mixing,                ONLY: gspace_mixing
-   USE qs_initial_guess,                ONLY: calculate_atomic_block_dm,&
-                                              calculate_mopac_dm
+   USE qs_initial_guess,                ONLY: calculate_mopac_dm
    USE qs_kind_types,                   ONLY: qs_kind_type
    USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
    USE qs_ks_types,                     ONLY: qs_ks_did_change,&
@@ -100,8 +102,7 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: matrix_ls, matrix_qs
       TYPE(ls_mstruct_type), INTENT(IN)                  :: ls_mstruct
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'matrix_ls_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'matrix_ls_create'
 
       CHARACTER(len=default_string_length)               :: name
       INTEGER                                            :: handle, iatom, imol, jatom, &
@@ -124,7 +125,7 @@ CONTAINS
       ! PAO ----------------------------------------------------------------------------------------
       IF (ls_mstruct%do_pao) THEN
          CALL dbcsr_get_info(ls_mstruct%matrix_A, col_blk_size=ls_blk_sizes)
-      ENDIF
+      END IF
 
       ! Clustering ---------------------------------------------------------------------------------
       SELECT CASE (ls_mstruct%cluster_type)
@@ -147,29 +148,29 @@ CONTAINS
                   atom_to_cluster_primus(iatom) = jatom
                ELSE
                   EXIT
-               ENDIF
-            ENDDO
+               END IF
+            END DO
             primus_of_mol(atom_to_cluster(iatom)) = atom_to_cluster_primus(iatom)
-         ENDDO
+         END DO
 
          ! row
          ALLOCATE (clustered_row_dist(nmol))
          DO imol = 1, nmol
             clustered_row_dist(imol) = ls_row_dist(primus_of_mol(imol))
-         ENDDO
+         END DO
 
          ! col
          ALLOCATE (clustered_col_dist(nmol))
          DO imol = 1, nmol
             clustered_col_dist(imol) = ls_col_dist(primus_of_mol(imol))
-         ENDDO
+         END DO
 
          ALLOCATE (clustered_blk_sizes(nmol))
          clustered_blk_sizes = 0
          DO iatom = 1, natom
             clustered_blk_sizes(atom_to_cluster(iatom)) = clustered_blk_sizes(atom_to_cluster(iatom)) + &
                                                           ls_blk_sizes(iatom)
-         ENDDO
+         END DO
          ls_blk_sizes => clustered_blk_sizes ! redirect pointer
 
          ! create new distribution
@@ -182,7 +183,7 @@ CONTAINS
          ls_dist = ls_dist_clustered
 
       CASE DEFAULT
-         CPABORT("Unkown LS cluster type")
+         CPABORT("Unknown LS cluster type")
       END SELECT
 
       ! Create actual matrix -----------------------------------------------------------------------
@@ -249,7 +250,7 @@ CONTAINS
 
          CALL matrix_cluster(matrix_ls, matrix_pao, ls_mstruct)
          CALL dbcsr_release(matrix_pao)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -290,11 +291,11 @@ CONTAINS
             CALL dbcsr_release(matrix_tmp)
          ELSE
             CALL dbcsr_complete_redistribute(matrix_in_nosym, matrix_out); 
-         ENDIF
+         END IF
          CALL dbcsr_release(matrix_in_nosym)
 
       CASE DEFAULT
-         CPABORT("Unkown LS cluster type")
+         CPABORT("Unknown LS cluster type")
       END SELECT
 
       CALL timestop(handle)
@@ -343,7 +344,7 @@ CONTAINS
             CALL dbcsr_copy_into_existing(matrix_qs, matrix_declustered) ! preserve sparsity of matrix_qs
          ELSE
             CALL dbcsr_copy(matrix_qs, matrix_declustered) ! overwrite sparsity of matrix_qs
-         ENDIF
+         END IF
          CALL dbcsr_release(matrix_declustered)
 
       ELSE ! using pao
@@ -365,11 +366,11 @@ CONTAINS
             CALL dbcsr_copy_into_existing(matrix_qs, matrix_tmp2) ! preserve sparsity of matrix_qs
          ELSE
             CALL dbcsr_copy(matrix_qs, matrix_tmp2) ! overwrite sparsity of matrix_qs
-         ENDIF
+         END IF
          CALL dbcsr_release(matrix_declustered)
          CALL dbcsr_release(matrix_tmp1)
          CALL dbcsr_release(matrix_tmp2)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -406,10 +407,10 @@ CONTAINS
             CALL dbcsr_release(matrix_tmp)
          ELSE
             CALL dbcsr_complete_redistribute(matrix_in, matrix_out)
-         ENDIF
+         END IF
 
       CASE DEFAULT
-         CPABORT("Unkown LS cluster type")
+         CPABORT("Unknown LS cluster type")
       END SELECT
 
       CALL timestop(handle)
@@ -427,7 +428,7 @@ CONTAINS
    SUBROUTINE ls_scf_init_qs(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_init_qs', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ls_scf_init_qs'
 
       INTEGER                                            :: handle, ispin, nspin, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -446,7 +447,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! get basic quantities from the qs_env
       CALL get_qs_env(qs_env, dft_control=dft_control, &
@@ -465,9 +466,9 @@ CONTAINS
             CALL dbcsr_create(matrix_ks(ispin)%matrix, template=matrix_s(1)%matrix)
             CALL cp_dbcsr_alloc_block_from_nbl(matrix_ks(ispin)%matrix, sab_orb)
             CALL dbcsr_set(matrix_ks(ispin)%matrix, 0.0_dp)
-         ENDDO
+         END DO
          CALL set_ks_env(ks_env, matrix_ks=matrix_ks)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -485,8 +486,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(KIND=dp)                                      :: energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_qs_atomic_guess', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_qs_atomic_guess'
 
       INTEGER                                            :: handle, nspin, unit_nr
       INTEGER, DIMENSION(2)                              :: nelectron_spin
@@ -511,7 +511,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       ! get basic quantities from the qs_env
       CALL get_qs_env(qs_env, dft_control=dft_control, &
@@ -541,7 +541,7 @@ CONTAINS
          CALL calculate_atomic_block_dm(rho_ao, matrix_s(1)%matrix, &
                                         particle_set, atomic_kind_set, qs_kind_set, &
                                         nspin, nelectron_spin, unit_nr, para_env)
-      ENDIF
+      END IF
 
       CALL qs_rho_update_rho(rho, qs_env=qs_env)
       CALL qs_ks_did_change(qs_env%ks_env, rho_changed=.TRUE.)
@@ -570,8 +570,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: energy_new
       INTEGER, INTENT(IN)                                :: iscf
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ls_scf_dm_to_ks', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ls_scf_dm_to_ks'
 
       INTEGER                                            :: handle, ispin, nspin, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -588,7 +587,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       nspin = ls_scf_env%nspins
       CALL get_qs_env(qs_env, para_env=para_env, energy=energy, rho=rho)
@@ -621,10 +620,10 @@ CONTAINS
                      1.0_dp - ls_scf_env%mixing_store%alpha, "*rho_old"
                   WRITE (unit_nr, '(A57)') &
                      "*********************************************************"
-               ENDIF
-            ENDIF
-         ENDIF
-      ENDIF
+               END IF
+            END IF
+         END IF
+      END IF
 
       CALL qs_ks_did_change(qs_env%ks_env, rho_changed=.TRUE.)
       CALL qs_ks_update_qs_env(qs_env, calculate_forces=.FALSE., &
@@ -652,18 +651,16 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: title
       INTEGER, DIMENSION(:), POINTER                     :: stride
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_matrix_to_cube', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_matrix_to_cube'
 
       INTEGER                                            :: handle
-      REAL(KIND=dp)                                      :: tot_rho
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks
-      TYPE(dbcsr_type), POINTER                          :: matrix_p_qs
+      TYPE(dbcsr_type), TARGET                           :: matrix_p_qs
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
@@ -680,7 +677,6 @@ CONTAINS
       CALL qs_subsys_get(subsys, particles=particles)
 
       ! convert the density matrix (ls style) to QS style
-      ALLOCATE (matrix_p_qs)
       CALL dbcsr_copy(matrix_p_qs, matrix_ks(1)%matrix)
       CALL dbcsr_set(matrix_p_qs, 0.0_dp) !zero matrix creation
       CALL matrix_ls_to_qs(matrix_p_qs, matrix_p_ls, ls_scf_env%ls_mstruct, covariant=.FALSE.)
@@ -690,30 +686,28 @@ CONTAINS
                       auxbas_pw_pool=auxbas_pw_pool, &
                       pw_pools=pw_pools)
       CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                             pw=wf_r%pw, &
+                             pw=wf_r, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
-      CALL pw_zero(wf_r%pw)
+      CALL pw_zero(wf_r)
       CALL pw_pool_create_pw(pool=auxbas_pw_pool, &
-                             pw=wf_g%pw, &
+                             pw=wf_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
-      CALL pw_zero(wf_g%pw)
+      CALL pw_zero(wf_g)
       CALL calculate_rho_elec(matrix_p=matrix_p_qs, &
                               rho=wf_r, &
                               rho_gspace=wf_g, &
-                              total_rho=tot_rho, &
                               ks_env=ks_env)
 
       ! write this to a cube
-      CALL cp_pw_to_cube(wf_r%pw, unit_nr=unit_nr, title=title, &
+      CALL cp_pw_to_cube(wf_r, unit_nr=unit_nr, title=title, &
                          particles=particles, stride=stride)
 
       !free memory
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
       CALL dbcsr_release(matrix_p_qs)
-      DEALLOCATE (matrix_p_qs)
 
       CALL timestop(handle)
 
@@ -728,8 +722,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(ls_scf_env_type)                              :: ls_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rho_mixing_ls_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'rho_mixing_ls_init'
 
       INTEGER                                            :: handle
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -754,8 +747,8 @@ CONTAINS
          ELSE
             CALL mixing_init(ls_scf_env%density_mixing_method, rho, ls_scf_env%mixing_store, &
                              ls_scf_env%para_env)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       CALL timestop(handle)
    END SUBROUTINE rho_mixing_ls_init
 

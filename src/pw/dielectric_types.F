@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,8 +16,7 @@ MODULE dielectric_types
    USE kinds,                           ONLY: dp
    USE pw_pool_types,                   ONLY: pw_pool_give_back_pw,&
                                               pw_pool_type
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release,&
+   USE pw_types,                        ONLY: pw_release,&
                                               pw_type
 #include "../base/base_uses.f90"
 
@@ -53,7 +54,7 @@ MODULE dielectric_types
       TYPE(dielectric_parameters)       :: params
       TYPE(pw_type), POINTER            :: eps
       TYPE(pw_type), POINTER            :: deps_drho
-      TYPE(pw_p_type), DIMENSION(3)     :: dln_eps
+      TYPE(pw_type), DIMENSION(3)     :: dln_eps
    END TYPE dielectric_type
 
    PUBLIC :: dielectric_type, dielectric_parameters
@@ -83,8 +84,7 @@ CONTAINS
       TYPE(dielectric_type), POINTER                     :: dielectric
       TYPE(pw_pool_type), INTENT(IN), OPTIONAL, POINTER  :: pw_pool
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dielectric_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'dielectric_release'
 
       INTEGER                                            :: handle, i
       LOGICAL                                            :: can_give_back
@@ -94,19 +94,18 @@ CONTAINS
          can_give_back = PRESENT(pw_pool)
          IF (can_give_back) can_give_back = ASSOCIATED(pw_pool)
          IF (can_give_back) THEN
-            CALL pw_pool_give_back_pw(pw_pool, dielectric%eps, &
-                                      accept_non_compatible=.TRUE.)
-            CALL pw_pool_give_back_pw(pw_pool, dielectric%deps_drho, &
-                                      accept_non_compatible=.TRUE.)
+            CALL pw_pool_give_back_pw(pw_pool, dielectric%eps)
+            CALL pw_pool_give_back_pw(pw_pool, dielectric%deps_drho)
+            DEALLOCATE (dielectric%eps, dielectric%deps_drho)
             DO i = 1, 3
-               CALL pw_pool_give_back_pw(pw_pool, dielectric%dln_eps(i)%pw, &
-                                         accept_non_compatible=.TRUE.)
+               CALL pw_pool_give_back_pw(pw_pool, dielectric%dln_eps(i))
             END DO
          ELSE
             CALL pw_release(dielectric%eps)
             CALL pw_release(dielectric%deps_drho)
+            DEALLOCATE (dielectric%eps, dielectric%deps_drho)
             DO i = 1, 3
-               CALL pw_release(dielectric%dln_eps(i)%pw)
+               CALL pw_release(dielectric%dln_eps(i))
             END DO
          END IF
          CALL dielectric_parameters_dealloc(dielectric%params)
@@ -127,9 +126,6 @@ CONTAINS
    SUBROUTINE dielectric_parameters_dealloc(dielec_params)
 
       TYPE(dielectric_parameters), INTENT(INOUT)         :: dielec_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dielectric_parameters_dealloc', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(dielec_params%aa_cuboidal_xxtnt)) DEALLOCATE (dielec_params%aa_cuboidal_xxtnt)
       IF (ASSOCIATED(dielec_params%aa_cuboidal_yxtnt)) DEALLOCATE (dielec_params%aa_cuboidal_yxtnt)

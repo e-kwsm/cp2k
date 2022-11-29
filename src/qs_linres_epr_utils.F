@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -41,7 +43,7 @@ MODULE qs_linres_epr_utils
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: qs_kind_type
@@ -53,7 +55,7 @@ MODULE qs_linres_epr_utils
                                               nablavks_atom_type,&
                                               set_epr_env
    USE qs_matrix_pools,                 ONLY: qs_matrix_pools_type
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: mo_set_type
    USE qs_rho_atom_types,               ONLY: deallocate_rho_atom_set
    USE qs_rho_types,                    ONLY: qs_rho_clear,&
                                               qs_rho_create,&
@@ -84,7 +86,7 @@ CONTAINS
       TYPE(epr_env_type)                                 :: epr_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'epr_env_init', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'epr_env_init'
 
       INTEGER                                            :: handle, i_B, idir, ispin, n_mo(2), nao, &
                                                             natom, nmoloc, nspins, output_unit
@@ -94,12 +96,12 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(nablavks_atom_type), DIMENSION(:), POINTER    :: nablavks_atom_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g, rho_r
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, rho_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_matrix_pools_type), POINTER                :: mpools
       TYPE(scf_control_type), POINTER                    :: scf_control
@@ -123,14 +125,12 @@ CONTAINS
       output_unit = cp_print_key_unit_nr(logger, lr_section, "PRINT%PROGRAM_RUN_INFO", &
                                          extension=".linresLog")
 
-      IF (epr_env%ref_count /= 0) THEN
-         CALL epr_env_cleanup(epr_env)
-      END IF
+      CALL epr_env_cleanup(epr_env)
 
       IF (output_unit > 0) THEN
          WRITE (output_unit, "(/,T20,A,/)") "*** Start EPR g tensor calculation ***"
          WRITE (output_unit, "(T10,A,/)") "Initialization of the EPR environment"
-      ENDIF
+      END IF
 
       CALL epr_env_create(epr_env)
 
@@ -156,7 +156,7 @@ CONTAINS
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(A)') &
             ' To get EPR parameters within PBC you need localized zero order orbitals '
-      ENDIF
+      END IF
       gapw = dft_control%qs_control%gapw
       nspins = dft_control%nspins
       natom = SIZE(particle_set, 1)
@@ -180,18 +180,19 @@ CONTAINS
          CALL init_nablavks_atom_set(nablavks_atom_set, atomic_kind_set, qs_kind_set, nspins)
          CALL set_epr_env(epr_env=epr_env, &
                           nablavks_atom_set=nablavks_atom_set)
-      ENDIF
+      END IF
       !
       ! Bind
       ALLOCATE (epr_env%bind_set(3, 3))
       DO i_B = 1, 3
          DO idir = 1, 3
             NULLIFY (epr_env%bind_set(idir, i_B)%rho, rho_r, rho_g)
+            ALLOCATE (epr_env%bind_set(idir, i_B)%rho)
             CALL qs_rho_create(epr_env%bind_set(idir, i_B)%rho)
             ALLOCATE (rho_r(1), rho_g(1))
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(1)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(1), &
                                    use_data=REALDATA3D, in_space=REALSPACE)
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(1)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(1), &
                                    use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
             CALL qs_rho_set(epr_env%bind_set(idir, i_B)%rho, rho_r=rho_r, rho_g=rho_g)
          END DO
@@ -202,11 +203,12 @@ CONTAINS
       DO idir = 1, 3
          DO ispin = 1, nspins
             NULLIFY (epr_env%nablavks_set(idir, ispin)%rho, rho_r, rho_g)
+            ALLOCATE (epr_env%nablavks_set(idir, ispin)%rho)
             CALL qs_rho_create(epr_env%nablavks_set(idir, ispin)%rho)
             ALLOCATE (rho_r(1), rho_g(1))
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(1)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_r(1), &
                                    use_data=REALDATA3D, in_space=REALSPACE)
-            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(1)%pw, &
+            CALL pw_pool_create_pw(auxbas_pw_pool, rho_g(1), &
                                    use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
             CALL qs_rho_set(epr_env%nablavks_set(idir, ispin)%rho, &
                             rho_r=rho_r, rho_g=rho_g)
@@ -240,58 +242,52 @@ CONTAINS
 
       TYPE(epr_env_type)                                 :: epr_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'epr_env_cleanup', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i_B, idir, ispin
 
-      epr_env%ref_count = epr_env%ref_count - 1
-      IF (epr_env%ref_count == 0) THEN
-         ! nablavks_set
-         IF (ASSOCIATED(epr_env%nablavks_set)) THEN
-            DO ispin = 1, SIZE(epr_env%nablavks_set, 2)
-            DO idir = 1, SIZE(epr_env%nablavks_set, 1)
-               CALL qs_rho_clear(epr_env%nablavks_set(idir, ispin)%rho)
-               DEALLOCATE (epr_env%nablavks_set(idir, ispin)%rho)
-            ENDDO
-            ENDDO
-            DEALLOCATE (epr_env%nablavks_set)
-         END IF
-         ! nablavks_atom_set
-         IF (ASSOCIATED(epr_env%nablavks_atom_set)) THEN
-            CALL deallocate_nablavks_atom_set(epr_env%nablavks_atom_set)
-         END IF
-         ! vks_atom_set
-         IF (ASSOCIATED(epr_env%vks_atom_set)) THEN
-            CALL deallocate_rho_atom_set(epr_env%vks_atom_set)
-         END IF
-         ! bind_set
-         IF (ASSOCIATED(epr_env%bind_set)) THEN
-            DO i_B = 1, SIZE(epr_env%bind_set, 2)
-            DO idir = 1, SIZE(epr_env%bind_set, 1)
-               CALL qs_rho_clear(epr_env%bind_set(idir, i_B)%rho)
-               DEALLOCATE (epr_env%bind_set(idir, i_B)%rho)
-            ENDDO
-            ENDDO
-            DEALLOCATE (epr_env%bind_set)
-         END IF
-         ! bind_atom_set
-         IF (ASSOCIATED(epr_env%bind_atom_set)) THEN
-            DEALLOCATE (epr_env%bind_atom_set)
-         END IF
-         ! g_total
-         IF (ASSOCIATED(epr_env%g_total)) THEN
-            DEALLOCATE (epr_env%g_total)
-         END IF
-         ! g_so
-         IF (ASSOCIATED(epr_env%g_so)) THEN
-            DEALLOCATE (epr_env%g_so)
-         END IF
-         ! g_soo
-         IF (ASSOCIATED(epr_env%g_soo)) THEN
-            DEALLOCATE (epr_env%g_soo)
-         END IF
-      END IF ! ref count
+      ! nablavks_set
+      IF (ASSOCIATED(epr_env%nablavks_set)) THEN
+         DO ispin = 1, SIZE(epr_env%nablavks_set, 2)
+         DO idir = 1, SIZE(epr_env%nablavks_set, 1)
+            CALL qs_rho_clear(epr_env%nablavks_set(idir, ispin)%rho)
+            DEALLOCATE (epr_env%nablavks_set(idir, ispin)%rho)
+         END DO
+         END DO
+         DEALLOCATE (epr_env%nablavks_set)
+      END IF
+      ! nablavks_atom_set
+      IF (ASSOCIATED(epr_env%nablavks_atom_set)) THEN
+         CALL deallocate_nablavks_atom_set(epr_env%nablavks_atom_set)
+      END IF
+      ! vks_atom_set
+      IF (ASSOCIATED(epr_env%vks_atom_set)) THEN
+         CALL deallocate_rho_atom_set(epr_env%vks_atom_set)
+      END IF
+      ! bind_set
+      IF (ASSOCIATED(epr_env%bind_set)) THEN
+         DO i_B = 1, SIZE(epr_env%bind_set, 2)
+         DO idir = 1, SIZE(epr_env%bind_set, 1)
+            CALL qs_rho_clear(epr_env%bind_set(idir, i_B)%rho)
+            DEALLOCATE (epr_env%bind_set(idir, i_B)%rho)
+         END DO
+         END DO
+         DEALLOCATE (epr_env%bind_set)
+      END IF
+      ! bind_atom_set
+      IF (ASSOCIATED(epr_env%bind_atom_set)) THEN
+         DEALLOCATE (epr_env%bind_atom_set)
+      END IF
+      ! g_total
+      IF (ASSOCIATED(epr_env%g_total)) THEN
+         DEALLOCATE (epr_env%g_total)
+      END IF
+      ! g_so
+      IF (ASSOCIATED(epr_env%g_so)) THEN
+         DEALLOCATE (epr_env%g_so)
+      END IF
+      ! g_soo
+      IF (ASSOCIATED(epr_env%g_soo)) THEN
+         DEALLOCATE (epr_env%g_soo)
+      END IF
 
    END SUBROUTINE epr_env_cleanup
 

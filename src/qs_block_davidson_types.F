@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -57,9 +59,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nspins
       TYPE(section_vals_type), POINTER                   :: scf_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'block_davidson_env_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ispin
 
       CPASSERT(.NOT. ASSOCIATED(bdav_env))
@@ -105,11 +104,10 @@ CONTAINS
    SUBROUTINE block_davidson_allocate(bdav_env, mo_coeff, nao, nmo)
 
       TYPE(davidson_type)                                :: bdav_env
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff
       INTEGER, INTENT(IN)                                :: nao, nmo
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'block_davidson_allocate', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'block_davidson_allocate'
 
       INTEGER                                            :: handle, nmox2
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
@@ -118,18 +116,12 @@ CONTAINS
       NULLIFY (fm_struct_tmp)
 
       nmox2 = 2*nmo
-!    CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nmox2, ncol_global=nmox2,&
-!                             para_env=mo_coeff%matrix_struct%para_env, &
-!                             context=mo_coeff%matrix_struct%context)
-!    CALL cp_fm_create(bdav_env%H_block_mat,fm_struct_tmp,name="H_dav")
-!    CALL cp_fm_create(bdav_env%S_block_mat,fm_struct_tmp,name="S_dav")
-!    CALL cp_fm_create(bdav_env%H_block_vec,fm_struct_tmp,name="C_dav")
-!    CALL cp_fm_create(bdav_env%W_block_mat,fm_struct_tmp,name="W_dav")
-!    CALL cp_fm_struct_release(fm_struct_tmp)
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nao, ncol_global=nmo, &
                                para_env=mo_coeff%matrix_struct%para_env, &
                                context=mo_coeff%matrix_struct%context)
+      NULLIFY (bdav_env%matrix_z, bdav_env%matrix_pz)
+      ALLOCATE (bdav_env%matrix_z, bdav_env%matrix_pz)
       CALL cp_fm_create(bdav_env%matrix_z, fm_struct_tmp, name="Z_mat")
       CALL cp_fm_create(bdav_env%matrix_pz, fm_struct_tmp, name="Z_mat")
       CALL cp_fm_struct_release(fm_struct_tmp)
@@ -146,9 +138,6 @@ CONTAINS
 
       TYPE(davidson_type), DIMENSION(:), POINTER         :: bdav_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'block_davidson_deallocate', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ispin, nspins
 
       IF (ASSOCIATED(bdav_env)) THEN
@@ -158,10 +147,8 @@ CONTAINS
 
             CALL cp_fm_release(bdav_env(ispin)%matrix_z)
             CALL cp_fm_release(bdav_env(ispin)%matrix_pz)
-!        CALL cp_fm_release(bdav_env(ispin)%H_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%S_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%W_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%H_block_vec)
+            DEALLOCATE (bdav_env(ispin)%matrix_z, bdav_env(ispin)%matrix_pz)
+            NULLIFY (bdav_env(ispin)%matrix_z, bdav_env(ispin)%matrix_pz)
 
          END DO
 
@@ -177,9 +164,6 @@ CONTAINS
 
       TYPE(davidson_type), DIMENSION(:), POINTER         :: bdav_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'block_davidson_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ispin, nspins
 
       IF (ASSOCIATED(bdav_env)) THEN
@@ -190,11 +174,9 @@ CONTAINS
             IF (ASSOCIATED(bdav_env(ispin)%matrix_z)) THEN
                CALL cp_fm_release(bdav_env(ispin)%matrix_z)
                CALL cp_fm_release(bdav_env(ispin)%matrix_pz)
+               DEALLOCATE (bdav_env(ispin)%matrix_z, bdav_env(ispin)%matrix_pz)
+               NULLIFY (bdav_env(ispin)%matrix_z, bdav_env(ispin)%matrix_pz)
             END IF
-!        CALL cp_fm_release(bdav_env(ispin)%H_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%S_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%W_block_mat)
-!        CALL cp_fm_release(bdav_env(ispin)%H_block_vec)
 
          END DO
          DEALLOCATE (bdav_env)

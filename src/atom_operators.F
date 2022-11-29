@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -64,7 +66,7 @@ CONTAINS
       TYPE(atom_potential_type), INTENT(IN), OPTIONAL    :: potential
       LOGICAL, INTENT(IN), OPTIONAL                      :: eri_coulomb, eri_exchange, all_nu
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_int_setup', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_int_setup'
 
       INTEGER                                            :: handle, i, ii, info, ipiv(1000), l, l1, &
                                                             l2, ll, lwork, m, m1, m2, mm1, mm2, n, &
@@ -293,7 +295,7 @@ CONTAINS
          integrals%uptrans = 0._dp
          integrals%nne = integrals%n
          lwork = 10*n
-         ALLOCATE (omat(n, n), w(n), vmat(n, n), work(lwork))
+         ALLOCATE (omat(n, n), vmat(n, n), w(n), work(lwork))
          DO l = 0, lmat
             n = integrals%n(l)
             IF (n > 0) THEN
@@ -312,14 +314,13 @@ CONTAINS
                   omat(1:ii, 1:ii) = MATMUL(TRANSPOSE(integrals%utrans(1:n, 1:ii, l)), integrals%utrans(1:n, 1:ii, l))
                   DO i = 1, ii
                      integrals%uptrans(i, i, l) = 1._dp
-                  ENDDO
+                  END DO
                   CALL lapack_sgesv(ii, ii, omat(1:ii, 1:ii), ii, ipiv, integrals%uptrans(1:ii, 1:ii, l), ii, info)
                   CPASSERT(info == 0)
                END IF
             END IF
          END DO
          DEALLOCATE (omat, vmat, w, work)
-
       END IF
 
       CALL timestop(handle)
@@ -337,8 +338,7 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
       TYPE(atom_potential_type), INTENT(IN)              :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_ppint_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_ppint_setup'
 
       INTEGER                                            :: handle, i, ii, j, k, l, m, n
       REAL(KIND=dp)                                      :: al, alpha, rc
@@ -648,8 +648,6 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
       TYPE(atom_potential_type), INTENT(IN)              :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'upfint_setup', routineP = moduleN//':'//routineN
-
       CHARACTER(len=4)                                   :: ptype
       INTEGER                                            :: i, j, k1, k2, la, lb, m, n
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: spot
@@ -729,8 +727,6 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
       TYPE(atom_potential_type), INTENT(IN)              :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'sgpint_setup', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ia, j, l, m, n, na
       REAL(KIND=dp)                                      :: a, c, rc, zval
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: cpot, pgauss
@@ -809,8 +805,7 @@ CONTAINS
       REAL(dp), INTENT(IN)                               :: zcore
       REAL(dp), INTENT(IN), OPTIONAL                     :: alpha
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_relint_setup', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_relint_setup'
 
       INTEGER                                            :: dkhorder, handle, i, k1, k2, l, m, n, nl
       REAL(dp)                                           :: ascal
@@ -998,8 +993,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: order
       REAL(dp), DIMENSION(:, :, 0:)                      :: sp, tp, vp, pvp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dkh_integrals', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: l, m, n
       REAL(dp), DIMENSION(:, :, :), POINTER              :: hdkh
 
@@ -1114,9 +1107,6 @@ CONTAINS
    SUBROUTINE atom_int_release(integrals)
       TYPE(atom_integrals), INTENT(INOUT)                :: integrals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_int_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ll
 
       IF (ASSOCIATED(integrals%ovlp)) THEN
@@ -1154,9 +1144,6 @@ CONTAINS
    SUBROUTINE atom_ppint_release(integrals)
       TYPE(atom_integrals), INTENT(INOUT)                :: integrals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_ppint_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(integrals%hnl)) THEN
          DEALLOCATE (integrals%hnl)
       END IF
@@ -1177,9 +1164,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE atom_relint_release(integrals)
       TYPE(atom_integrals), INTENT(INOUT)                :: integrals
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_relint_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(integrals%tzora)) THEN
          DEALLOCATE (integrals%tzora)
@@ -1203,9 +1187,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(INOUT)              :: modpot
       TYPE(grid_atom_type), INTENT(IN)                   :: grid
       REAL(dp), INTENT(IN)                               :: zcore
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_model_potential', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ii, l, ll, n, z
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: pot, rho

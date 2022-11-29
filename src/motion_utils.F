@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -55,7 +57,7 @@ MODULE motion_utils
              get_output_format, rot_ana
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'motion_utils'
-   REAL(KIND=dp), PARAMETER, PUBLIC     :: thrs_motion = 1.0E4_dp*EPSILON(0.0_dp)
+   REAL(KIND=dp), PARAMETER, PUBLIC     :: thrs_motion = 5.0E-10_dp
 
 CONTAINS
 
@@ -85,7 +87,7 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: rot_dof
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: inertia(3)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rot_ana', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rot_ana'
 
       INTEGER                                            :: handle, i, iparticle, iseq, iw, j, k, &
                                                             lrot(3)
@@ -133,20 +135,27 @@ CONTAINS
          IF (PRESENT(inertia)) inertia = Ip_eigval
          iw = cp_print_key_unit_nr(logger, print_section, "ROTATIONAL_INFO", extension=".vibLog")
          IF (iw > 0) THEN
-            WRITE (iw, '(T2,A,3F12.6)') "ROT| Rotational Analysis Info "
-            WRITE (iw, '(T2,A)') "ROT| Principal axes and moments of inertia in atomic units:"
-            WRITE (iw, '(T2,A,T27,3(3X,I9,6X))') "ROT|", 1, 2, 3
-            WRITE (iw, '(T2,A,T27,3(3X,E15.9))') "ROT| EIGENVALUES", Ip_eigval
-            WRITE (iw, '(T2,A,T27,3(3X,F15.9))') "ROT|      X", Ip(1, 1), Ip(1, 2), Ip(1, 3)
-            WRITE (iw, '(T2,A,T27,3(3X,F15.9))') "ROT|      Y", Ip(2, 1), Ip(2, 2), Ip(2, 3)
-            WRITE (iw, '(T2,A,T27,3(3X,F15.9))') "ROT|      Z", Ip(3, 1), Ip(3, 2), Ip(3, 3)
+            WRITE (UNIT=iw, FMT='(/,T2,A)') &
+               'ROT| Rotational analysis information'
+            WRITE (UNIT=iw, FMT='(T2,A)') &
+               'ROT| Principal axes and moments of inertia [a.u.]'
+            WRITE (UNIT=iw, FMT='(T2,A,T14,3(1X,I19))') &
+               'ROT|', 1, 2, 3
+            WRITE (UNIT=iw, FMT='(T2,A,T21,3(1X,ES19.11))') &
+               'ROT| Eigenvalues', Ip_eigval(1:3)
+            WRITE (UNIT=iw, FMT='(T2,A,T21,3(1X,F19.12))') &
+               'ROT|      x', Ip(1, 1:3)
+            WRITE (UNIT=iw, FMT='(T2,A,T21,3(1X,F19.12))') &
+               'ROT|      y', Ip(2, 1:3)
+            WRITE (UNIT=iw, FMT='(T2,A,T21,3(1X,F19.12))') &
+               'ROT|      z', Ip(3, 1:3)
          END IF
          CALL cp_print_key_finished_output(iw, logger, print_section, "ROTATIONAL_INFO")
          iw = cp_print_key_unit_nr(logger, print_section, "ROTATIONAL_INFO/COORDINATES", extension=".vibLog")
          IF (iw > 0) THEN
-            WRITE (iw, '(/,T2,A)') "ROT| Standard Molecule Orientation - ANGSTROM "
+            WRITE (UNIT=iw, FMT='(/,T2,A)') 'ROT| Standard molecule orientation in Angstrom'
             DO iparticle = 1, natoms
-               WRITE (iw, '(T2,"ROT|",T20,A,T27,3(3X,F15.9))') &
+               WRITE (UNIT=iw, FMT='(T2,"ROT|",T20,A,T27,3(3X,F15.9))') &
                   TRIM(particles(iparticle)%atomic_kind%name), &
                   MATMUL(particles(iparticle)%r, Ip)*angstrom
             END DO
@@ -202,7 +211,7 @@ CONTAINS
          lrot = 1
          DO i = 1, 3
             norm = SQRT(DOT_PRODUCT(Rot(:, i), Rot(:, i)))
-            IF (norm <= thrs_motion) THEN
+            IF (norm <= SQRT(thrs_motion)) THEN
                lrot(i) = 0
                CYCLE
             END IF
@@ -219,9 +228,15 @@ CONTAINS
       dof = dof + COUNT(lrot == 1)
       iw = cp_print_key_unit_nr(logger, print_section, "ROTATIONAL_INFO", extension=".vibLog")
       IF (iw > 0) THEN
-         WRITE (iw, '(T2,A,I6)') "ROT| Number of Rotovibrational vectors:", dof
-         IF (dof == 5) WRITE (iw, '(T2,A)') "ROT| Linear Molecule detected.."
-         IF (dof == 3 .AND. (.NOT. keep_rotations)) WRITE (iw, '(T2,A)') "ROT| Single Atom detected.."
+         WRITE (iw, '(T2,A,T71,I10)') 'ROT| Number of rotovibrational vectors', dof
+         IF (dof == 5) THEN
+            WRITE (iw, '(T2,A)') &
+               'ROT| Linear molecule detected'
+         END IF
+         IF ((dof == 3) .AND. (.NOT. keep_rotations)) THEN
+            WRITE (iw, '(T2,A)') &
+               'ROT| Single atom detected'
+         END IF
       END IF
       CALL cp_print_key_finished_output(iw, logger, print_section, "ROTATIONAL_INFO")
       IF (present_mat) THEN
@@ -239,6 +254,7 @@ CONTAINS
       DEALLOCATE (Tr)
       DEALLOCATE (Rot)
       CALL timestop(handle)
+
    END SUBROUTINE rot_ana
 
 ! **************************************************************************************************
@@ -271,8 +287,7 @@ CONTAINS
       TYPE(particle_list_type), OPTIONAL, POINTER        :: particles
       LOGICAL, INTENT(IN), OPTIONAL                      :: extended_xmol_title
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_trajectory', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'write_trajectory'
 
       CHARACTER(LEN=4)                                   :: id_dcd
       CHARACTER(LEN=default_string_length)               :: id_label, id_wpc, my_act, my_ext, &
@@ -285,7 +300,8 @@ CONTAINS
                                                             force_mixing_labels(:)
       LOGICAL                                            :: charge_beta, charge_extended, &
                                                             charge_occup, explicit, &
-                                                            my_extended_xmol_title, new_file
+                                                            my_extended_xmol_title, new_file, &
+                                                            print_kind
       REAL(dp), ALLOCATABLE                              :: fml_array(:)
       REAL(KIND=dp)                                      :: unit_conv
       TYPE(cell_type), POINTER                           :: cell
@@ -330,6 +346,7 @@ CONTAINS
       charge_occup = .FALSE.
       charge_beta = .FALSE.
       charge_extended = .FALSE.
+      print_kind = .FALSE.
 
       CALL force_env_get(force_env, cell=cell, subsys=subsys)
       IF (PRESENT(particles)) THEN
@@ -346,7 +363,7 @@ CONTAINS
          CALL section_vals_val_get(root_section, "MOTION%PRINT%"//TRIM(my_pk_name)//"%UNIT", &
                                    c_val=unit_str)
          unit_conv = cp_unit_from_cp2k(1.0_dp, TRIM(unit_str))
-      ENDIF
+      END IF
 
       ! Get the output format
       CALL get_output_format(root_section, "MOTION%PRINT%"//TRIM(my_pk_name), my_form, my_ext)
@@ -371,9 +388,11 @@ CONTAINS
                WRITE (UNIT=traj_unit) 2, remark1, remark2
                WRITE (UNIT=traj_unit) nat
                CALL m_flush(traj_unit)
-            ENDIF
+            END IF
          CASE (dump_xmol)
             my_extended_xmol_title = .FALSE.
+            CALL section_vals_val_get(root_section, "MOTION%PRINT%TRAJECTORY%PRINT_ATOM_KIND", &
+                                      l_val=print_kind)
             IF (PRESENT(extended_xmol_title)) my_extended_xmol_title = extended_xmol_title
             ! This information can be digested by Molden
             IF (my_extended_xmol_title) THEN
@@ -434,14 +453,14 @@ CONTAINS
                      CPASSERT(ii <= SIZE(particle_set))
                      fml_array((ii - 1)*3 + 1:(ii - 1)*3 + 3) = force_mixing_labels(i)
                   END DO
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             CALL write_particle_coordinates(particle_set, traj_unit, outformat, TRIM(id_wpc), TRIM(title), cell, &
-                                            array=fml_array)
+                                            array=fml_array, print_kind=print_kind)
             DEALLOCATE (fml_array)
          ELSE
             CALL write_particle_coordinates(particle_set, traj_unit, outformat, TRIM(id_wpc), TRIM(title), cell, &
-                                            unit_conv=unit_conv, &
+                                            unit_conv=unit_conv, print_kind=print_kind, &
                                             charge_occup=charge_occup, &
                                             charge_beta=charge_beta, &
                                             charge_extended=charge_extended)
@@ -467,9 +486,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: section
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: path
       CHARACTER(LEN=*), INTENT(OUT)                      :: my_form, my_ext
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_output_format', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: output_format
 
@@ -516,9 +532,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: time
       CHARACTER(LEN=default_string_length), INTENT(IN), &
          OPTIONAL                                        :: pos, act
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_stress_tensor', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: my_act, my_pos
       INTEGER                                            :: output_unit
@@ -590,9 +603,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: time
       CHARACTER(LEN=default_string_length), INTENT(IN), &
          OPTIONAL                                        :: pos, act
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_simulation_cell', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: my_act, my_pos
       INTEGER                                            :: output_unit

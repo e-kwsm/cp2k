@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,8 +21,7 @@ MODULE eip_environment
                                               get_cell
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_subsys_methods,               ONLY: cp_subsys_create
-   USE cp_subsys_types,                 ONLY: cp_subsys_release,&
-                                              cp_subsys_set,&
+   USE cp_subsys_types,                 ONLY: cp_subsys_set,&
                                               cp_subsys_type
    USE distribution_1d_types,           ONLY: distribution_1d_release,&
                                               distribution_1d_type
@@ -73,7 +74,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eip_init'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: use_ref_cell
@@ -113,7 +114,6 @@ CONTAINS
 
       CALL cell_release(cell)
       CALL cell_release(cell_ref)
-      CALL cp_subsys_release(subsys)
 
       CALL timestop(handle)
 
@@ -138,8 +138,7 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: use_ref_cell
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_init_subsys', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eip_init_subsys'
 
       INTEGER                                            :: handle, natom
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
@@ -164,8 +163,7 @@ CONTAINS
       CALL write_molecule_kind_set(molecule_kind_set, subsys_section)
 
 !   *** Print the atomic coordinates
-      CALL write_fist_particle_coordinates(particle_set, subsys_section, &
-                                           charges=Null())
+      CALL write_fist_particle_coordinates(particle_set, subsys_section)
       CALL write_particle_distances(particle_set, cell=cell, &
                                     subsys_section=subsys_section)
       CALL write_structure_data(particle_set, cell=cell, &
@@ -211,7 +209,7 @@ CONTAINS
    SUBROUTINE eip_init_model(eip_env)
       TYPE(eip_environment_type), POINTER                :: eip_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eip_init_model', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eip_init_model'
 
       CHARACTER(LEN=default_string_length)               :: eip_atomic_kind_name
       INTEGER                                            :: handle, i

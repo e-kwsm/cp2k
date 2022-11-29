@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -83,7 +85,8 @@ MODULE lri_optimize_ri_basis
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'lri_optimize_ri_basis'
 
-   PUBLIC :: optimize_lri_basis
+   PUBLIC :: optimize_lri_basis, &
+             get_condition_number_of_overlap
 
 ! **************************************************************************************************
 
@@ -96,9 +99,6 @@ CONTAINS
    SUBROUTINE optimize_lri_basis(qs_env)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'optimize_lri_basis', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iunit, nkind
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
@@ -132,7 +132,7 @@ CONTAINS
 
       IF (iunit > 0) THEN
          WRITE (iunit, '(/," POWELL| Start optimization procedure")')
-      ENDIF
+      END IF
 
       ! *** initialization
       CALL create_lri_opt(lri_opt)
@@ -150,14 +150,14 @@ CONTAINS
                                                   nkind)
             ! lri_density has been re-initialized!
             CALL set_qs_env(qs_env, lri_density=lri_density)
-         ENDIF
+         END IF
 
          IF (opt_state%state == -1) EXIT
 
          CALL powell_optimize(opt_state%nvar, lri_opt%x, opt_state)
          CALL update_exponents(lri_env, lri_opt, lri_opt%x, lri_opt%zet_init, nkind)
          CALL print_optimization_update(opt_state, lri_opt, iunit)
-      ENDDO
+      END DO
       ! *** ======================= END optimization =======================
 
       ! *** get final optimized parameters
@@ -172,7 +172,7 @@ CONTAINS
          WRITE (iunit, '(" POWELL| Number of function evaluations",T71,I10)') opt_state%nf
          WRITE (iunit, '(" POWELL| Final value of function",T61,F20.10)') opt_state%fopt
          WRITE (iunit, '(/," Printed optimized lri basis set to file")')
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(iunit, logger, input, &
                                         "PRINT%PROGRAM_RUN_INFO")
@@ -192,8 +192,7 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_lri_overlap_aabb', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_lri_overlap_aabb'
 
       INTEGER                                            :: handle, iac, iatom, ikind, ilist, jatom, &
                                                             jkind, jneighbor, nba, nbb, nkind, &
@@ -255,7 +254,7 @@ CONTAINS
 
          CALL neighbor_list_iterator_release(nl_iterator)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -282,9 +281,6 @@ CONTAINS
       TYPE(opt_state_type)                               :: opt_state
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x, zet_init
       INTEGER, INTENT(IN)                                :: nkind, iunit
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_optimization', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, iset, ishell, n, nset
       INTEGER, DIMENSION(:), POINTER                     :: npgf, nshell
@@ -324,10 +320,10 @@ CONTAINS
                   CALL reallocate(x, 1, opt_state%nvar)
                   x(n + 1:n + npgf(iset)) = zet(1:npgf(iset), iset)
                   n = n + npgf(iset)
-               ENDIF
+               END IF
                lri_opt%nexp = lri_opt%nexp + npgf(iset)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
 
          ! *** constraints on exponents
          IF (lri_opt%use_constraints) THEN
@@ -335,15 +331,15 @@ CONTAINS
             zet_init(:) = x
          ELSE
             x(:) = SQRT(x)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! *** get the original gcc without normalization factor
       DO ikind = 1, nkind
          fbas => lri_env%ri_basis(ikind)%gto_basis_set
          CALL get_original_gcc(lri_opt%ri_gcc_orig(ikind)%gcc_orig, fbas, &
                                lri_opt)
-      ENDDO
+      END DO
 
       ! *** init coefficients
       IF (lri_opt%opt_coeffs) THEN
@@ -362,10 +358,10 @@ CONTAINS
                   x(n + 1:n + npgf(iset)) = gcc_orig(1:npgf(iset), ishell, iset)
                   lri_opt%ncoeff = lri_opt%ncoeff + npgf(iset)
                   n = n + npgf(iset)
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDIF
+               END DO
+            END DO
+         END DO
+      END IF
 
       IF (iunit > 0) THEN
          WRITE (iunit, '(/," POWELL| Accuracy",T69,ES12.5)') opt_state%rhoend
@@ -374,7 +370,7 @@ CONTAINS
             opt_state%maxfun
          WRITE (iunit, '(" POWELL| Total number of parameters",T71,I10)') &
             opt_state%nvar
-      ENDIF
+      END IF
 
    END SUBROUTINE init_optimization
 
@@ -390,9 +386,6 @@ CONTAINS
       TYPE(lri_opt_type), POINTER                        :: lri_opt
       TYPE(section_vals_type), POINTER                   :: lri_optbas_section
       TYPE(opt_state_type)                               :: opt_state
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_optimization_parameter', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: degree_freedom
       TYPE(section_vals_type), POINTER                   :: constrain_exp_section
@@ -441,7 +434,7 @@ CONTAINS
                                    r_val=lri_opt%scale_exp)
          CALL section_vals_val_get(constrain_exp_section, "FERMI_EXP", &
                                    r_val=lri_opt%fermi_exp)
-      ENDIF
+      END IF
 
    END SUBROUTINE get_optimization_parameter
 
@@ -459,9 +452,6 @@ CONTAINS
       TYPE(lri_opt_type), POINTER                        :: lri_opt
       REAL(KIND=dp), DIMENSION(:), POINTER               :: x, zet_init
       INTEGER, INTENT(IN)                                :: nkind
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'update_exponents', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, iset, ishell, n, nset, nvar_exp
       INTEGER, DIMENSION(:), POINTER                     :: npgf, nshell
@@ -483,7 +473,7 @@ CONTAINS
             CALL transfer_exp(lri_opt, zet, zet_init, zet_trans, nvar_exp)
          ELSE
             zet_trans(:) = x(1:nvar_exp)**2.0_dp
-         ENDIF
+         END IF
          n = 0
          DO ikind = 1, nkind
             fbas => lri_env%ri_basis(ikind)%gto_basis_set
@@ -498,10 +488,10 @@ CONTAINS
                ELSE
                   fbas%zet(1:npgf(iset), iset) = zet_trans(n + 1:n + npgf(iset))
                   n = n + npgf(iset)
-               ENDIF
-            ENDDO
-         ENDDO
-      ENDIF
+               END IF
+            END DO
+         END DO
+      END IF
 
       ! *** update coefficients
       IF (lri_opt%opt_coeffs) THEN
@@ -515,12 +505,12 @@ CONTAINS
                DO ishell = 1, nshell(iset)
                   gcc_orig(1:npgf(iset), ishell, iset) = x(n + 1:n + npgf(iset))
                   n = n + npgf(iset)
-               ENDDO
-            ENDDO
+               END DO
+            END DO
             ! *** Gram Schmidt orthonormalization
             CALL orthonormalize_gcc(gcc_orig, fbas, lri_opt)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       DEALLOCATE (zet_trans)
    END SUBROUTINE update_exponents
@@ -538,8 +528,6 @@ CONTAINS
       TYPE(lri_opt_type), POINTER                        :: lri_opt
       REAL(KIND=dp), DIMENSION(:), POINTER               :: zet, zet_init, zet_trans
       INTEGER, INTENT(IN)                                :: nvar
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'transfer_exp', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: a
       REAL(KIND=dp), DIMENSION(:), POINTER               :: zet_max, zet_min
@@ -570,9 +558,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: zet_max, zet_min
       INTEGER, INTENT(IN)                                :: nexp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'geometric_progression', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, n
       REAL(KIND=dp)                                      :: q
 
@@ -582,7 +567,7 @@ CONTAINS
 
       DO i = 1, nexp
          zet(i) = zet_max*q**(i - 1)
-      ENDDO
+      END DO
 
    END SUBROUTINE geometric_progression
 
@@ -611,9 +596,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: nkind
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_lri_integrals_get_objective', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind, nset
       INTEGER, DIMENSION(:), POINTER                     :: npgf
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
@@ -629,13 +611,13 @@ CONTAINS
          !build new sphi
          fbas%gcc = lri_opt%ri_gcc_orig(ikind)%gcc_orig
          CALL init_orb_basis_set(fbas)
-      ENDDO
+      END DO
       CALL lri_basis_init(lri_env)
       CALL calculate_lri_integrals(lri_env, qs_env)
       CALL calculate_avec_lri(lri_env, lri_density, pmatrix, cell_to_index)
       IF (lri_opt%use_condition_number) THEN
          CALL get_condition_number_of_overlap(lri_env)
-      ENDIF
+      END IF
       CALL calculate_objective(lri_env, lri_density, lri_opt, pmatrix, para_env, &
                                opt_state%f)
 
@@ -662,8 +644,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), INTENT(OUT)                         :: fobj
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_objective', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_objective'
 
       INTEGER :: handle, iac, iatom, ikind, ilist, isgfa, ispin, jatom, jkind, jneighbor, jsgfa, &
          ksgfb, lsgfb, mepos, nba, nbb, nfa, nfb, nkind, nlist, nn, nneighbor, nspin, nthread
@@ -752,7 +733,7 @@ CONTAINS
                                             *lriir%soaabb(isgfa, jsgfa, ksgfb, lsgfb)
                            END DO
                         END DO
-                     ENDDO
+                     END DO
                   END DO
                ELSE
                   DO isgfa = 1, nba
@@ -763,38 +744,38 @@ CONTAINS
                                             *lriir%soaabb(isgfa, jsgfa, ksgfb, lsgfb)
                            END DO
                         END DO
-                     ENDDO
+                     END DO
                   END DO
-               ENDIF
+               END IF
 
                ! *** calculate integral of the square of the fitted density rhofit_sq
                DO isgfa = 1, nfa
                   DO jsgfa = 1, nfa
                      rhofit_sq = rhofit_sq + lrho%avec(isgfa)*lrho%avec(jsgfa) &
                                  *lri_env%bas_prop(ikind)%ri_ovlp(isgfa, jsgfa)
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                IF (iatom /= jatom) THEN
                   DO ksgfb = 1, nfb
                      DO lsgfb = 1, nfb
                         rhofit_sq = rhofit_sq + lrho%avec(nfa + ksgfb)*lrho%avec(nfa + lsgfb) &
                                     *lri_env%bas_prop(jkind)%ri_ovlp(ksgfb, lsgfb)
-                     ENDDO
-                  ENDDO
+                     END DO
+                  END DO
                   DO isgfa = 1, nfa
                      DO ksgfb = 1, nfb
                         rhofit_sq = rhofit_sq + 2._dp*lrho%avec(isgfa)*lrho%avec(nfa + ksgfb) &
                                     *lrii%sab(isgfa, ksgfb)
-                     ENDDO
-                  ENDDO
-               ENDIF
+                     END DO
+                  END DO
+               END IF
 
                ! *** and integral of the product of exact and fitted density rhomix
                IF (iatom == jatom) THEN
                   rhomix = SUM(lrho%avec(1:nfa)*lrho%tvec(1:nfa))
                ELSE
                   rhomix = SUM(lrho%avec(1:nn)*lrho%tvec(1:nn))
-               ENDIF
+               END IF
 
                ! *** calculate contribution to the objective function for pair ab
                ! *** taking density matrix symmetry in account, double-count for off-diagonal blocks
@@ -802,7 +783,7 @@ CONTAINS
                   obj_ab = rhoexact_sq - 2._dp*rhomix + rhofit_sq
                ELSE
                   obj_ab = 2.0_dp*(rhoexact_sq - 2._dp*rhomix + rhofit_sq)
-               ENDIF
+               END IF
 
 !$OMP CRITICAL(addfun)
                IF (lri_opt%use_condition_number) THEN
@@ -810,18 +791,18 @@ CONTAINS
                   lri_opt%rho_diff = lri_opt%rho_diff + obj_ab
                ELSE
                   fobj = fobj + obj_ab
-               ENDIF
+               END IF
 !$OMP END CRITICAL(addfun)
 
-            ENDDO
+            END DO
 !$OMP END PARALLEL
 
             CALL neighbor_list_iterator_release(nl_iterator)
 
-         ENDDO
+         END DO
          CALL mp_sum(fobj, para_env%group)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -835,8 +816,7 @@ CONTAINS
 
       TYPE(lri_environment_type), POINTER                :: lri_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_condition_number_of_overlap', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_condition_number_of_overlap'
 
       INTEGER                                            :: handle, iac, iatom, ikind, ilist, info, &
                                                             jatom, jkind, jneighbor, lwork, mepos, &
@@ -886,14 +866,14 @@ CONTAINS
             ALLOCATE (smat(nfa, nfa))
          ELSE
             ALLOCATE (smat(nn, nn))
-         ENDIF
+         END IF
          smat(1:nfa, 1:nfa) = lri_env%bas_prop(ikind)%ri_ovlp(1:nfa, 1:nfa)
          IF (iatom /= jatom) THEN
             nn = nfa + nfb
             smat(1:nfa, nfa + 1:nn) = lrii%sab(1:nfa, 1:nfb)
             smat(nfa + 1:nn, 1:nfa) = TRANSPOSE(lrii%sab(1:nfa, 1:nfb))
             smat(nfa + 1:nn, nfa + 1:nn) = lri_env%bas_prop(jkind)%ri_ovlp(1:nfb, 1:nfb)
-         ENDIF
+         END IF
 
          IF (iatom == jatom) nn = nfa
          ALLOCATE (diag(nn), off_diag(nn - 1), tau(nn - 1), work(1))
@@ -934,9 +914,6 @@ CONTAINS
       TYPE(lri_opt_type), POINTER                        :: lri_opt
       INTEGER, INTENT(IN)                                :: iunit
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_optimization_update', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: n10
 
       n10 = MAX(opt_state%maxfun/100, 1)
@@ -947,13 +924,13 @@ CONTAINS
       IF (MOD(opt_state%nf, n10) == 0 .AND. opt_state%nf > 1 .AND. iunit > 0) THEN
          WRITE (iunit, '(" POWELL| Reached",i4,"% of maximal function calls",T61,F20.10)') &
             INT(REAL(opt_state%nf, dp)/REAL(opt_state%maxfun, dp)*100._dp), opt_state%fopt
-      ENDIF
+      END IF
       IF (lri_opt%use_condition_number) THEN
          IF (MOD(opt_state%nf, n10) == 0 .AND. opt_state%nf > 1 .AND. iunit > 0) THEN
             WRITE (iunit, '(" POWELL| Recent value of function without condition nr.",T61,F20.10)') &
                lri_opt%rho_diff
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
    END SUBROUTINE print_optimization_update
 
@@ -973,9 +950,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nkind
       TYPE(lri_opt_type), POINTER                        :: lri_opt
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_optimized_lri_basis', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_path_length)                 :: filename
       INTEGER                                            :: cc_l, ikind, ipgf, iset, ishell, nset, &
@@ -1031,11 +1005,11 @@ CONTAINS
                         ELSE
                            WRITE (output_file, '(1X,I0)', advance='no') cc_l
                            cc_l = 1
-                        ENDIF
+                        END IF
                      ELSE
                         WRITE (output_file, '(1X,I0)') cc_l
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
                   DO ipgf = 1, npgf(iset)
                      WRITE (output_file, '(F18.12)', advance='no') zet(ipgf, iset)
                      DO ishell = 1, nshell(iset)
@@ -1043,17 +1017,17 @@ CONTAINS
                            WRITE (output_file, '(T5,F18.12)') gcc_orig(ipgf, ishell, iset)
                         ELSE
                            WRITE (output_file, '(T5,F18.12)', advance='no') gcc_orig(ipgf, ishell, iset)
-                        ENDIF
-                     ENDDO
-                  ENDDO
-               ENDDO
-            ENDDO
+                        END IF
+                     END DO
+                  END DO
+               END DO
+            END DO
 
-         ENDIF
+         END IF
 
          CALL cp_print_key_finished_output(output_file, logger, dft_section, &
                                            "PRINT%OPTIMIZE_LRI_BASIS")
-      ENDIF
+      END IF
 
    END SUBROUTINE write_optimized_lri_basis
 

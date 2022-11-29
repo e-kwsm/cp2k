@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -61,8 +63,7 @@ MODULE basis_set_types
 
    ! basis set sort criteria
    INTEGER, PARAMETER, PUBLIC               :: basis_sort_default = 0, &
-                                               basis_sort_radius = 1, &
-                                               basis_sort_zet = 2
+                                               basis_sort_zet = 1
 
 ! **************************************************************************************************
    ! Define the Gaussian-type orbital basis set type
@@ -84,7 +85,6 @@ MODULE basis_set_types
       INTEGER, DIMENSION(:, :), POINTER           :: first_cgf, first_sgf, l, &
                                                      last_cgf, last_sgf, n
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: gcc
-      INTEGER                                    :: sort = basis_sort_default
    END TYPE gto_basis_set_type
 
    TYPE gto_basis_set_p_type
@@ -102,10 +102,6 @@ MODULE basis_set_types
       INTEGER, DIMENSION(:), POINTER             :: nq, lq
       REAL(KIND=dp), DIMENSION(:), POINTER     :: zet
    END TYPE sto_basis_set_type
-
-   TYPE sto_basis_set_p_type
-      TYPE(sto_basis_set_type), POINTER :: sto_basis_set
-   END TYPE sto_basis_set_p_type
 
 ! **************************************************************************************************
    INTERFACE read_gto_basis_set
@@ -155,9 +151,6 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_gto_basis_set', &
-         routineP = moduleN//':'//routineN
-
       CALL deallocate_gto_basis_set(gto_basis_set)
 
       ALLOCATE (gto_basis_set)
@@ -204,16 +197,13 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_gto_basis_set', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(gto_basis_set)) THEN
          IF (ASSOCIATED(gto_basis_set%cgf_symbol)) THEN
             DEALLOCATE (gto_basis_set%cgf_symbol)
-         ENDIF
+         END IF
          IF (ASSOCIATED(gto_basis_set%sgf_symbol)) THEN
             DEALLOCATE (gto_basis_set%sgf_symbol)
-         ENDIF
+         END IF
          DEALLOCATE (gto_basis_set%norm_cgf)
          DEALLOCATE (gto_basis_set%set_radius)
          DEALLOCATE (gto_basis_set%lmax)
@@ -253,9 +243,6 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: basis_set_in, basis_set_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_gto_basis_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: maxco, maxpgf, maxshell, ncgf, nset, nsgf
       TYPE(gto_basis_set_type), POINTER                  :: bin, bout
 
@@ -270,7 +257,6 @@ CONTAINS
       bout%aliases = bin%aliases
       bout%kind_radius = bin%kind_radius
       bout%norm_type = bin%norm_type
-      bout%sort = bin%sort
       bout%nset = bin%nset
       bout%ncgf = bin%ncgf
       bout%nsgf = bin%nsgf
@@ -333,9 +319,6 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: basis_set, pbasis
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_primitive_basis_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ico, ip, ipgf, iset, ishell, l, lm, &
                                                             lshell, m, maxco, mpgf, nc, ncgf, ns, &
                                                             nset, nsgf
@@ -387,7 +370,6 @@ CONTAINS
       pbasis%kind_radius = basis_set%kind_radius
       pbasis%short_kind_radius = basis_set%short_kind_radius
       pbasis%norm_type = basis_set%norm_type
-      pbasis%sort = basis_set%sort
       nset = lm + 1
       pbasis%nset = nset
       ALLOCATE (pbasis%lmax(nset), pbasis%lmin(nset), pbasis%npgf(nset), pbasis%nshell(nset))
@@ -480,7 +462,7 @@ CONTAINS
       ALLOCATE (pbasis%norm_cgf(ncgf))
       ALLOCATE (pbasis%cphi(maxco, ncgf))
       pbasis%cphi = 0.0_dp
-      ALLOCATE (pbasis%sphi(maxco, ncgf))
+      ALLOCATE (pbasis%sphi(maxco, nsgf))
       pbasis%sphi = 0.0_dp
       ALLOCATE (pbasis%scon(maxco, ncgf))
       pbasis%scon = 0.0_dp
@@ -504,9 +486,6 @@ CONTAINS
       ! Combine two Gaussian-type orbital (GTO) basis sets.
 
       TYPE(gto_basis_set_type), POINTER                  :: basis_set, basis_set_add
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'combine_basis_sets', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=12), DIMENSION(:), POINTER           :: cgf_symbol
       CHARACTER(LEN=6), DIMENSION(:), POINTER            :: sgf_symbol
@@ -701,9 +680,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: maxder
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: short_kind_radius
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_gto_basis_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iset, nder
 
 ! -------------------------------------------------------------------------
@@ -814,8 +790,7 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_aux_basis_set', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_aux_basis_set'
 
       INTEGER                                            :: handle
 
@@ -858,8 +833,7 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_cphi_and_sphi', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_cphi_and_sphi'
 
       INTEGER                                            :: first_cgf, first_sgf, handle, icgf, ico, &
                                                             ipgf, iset, ishell, l, last_sgf, lmax, &
@@ -908,7 +882,7 @@ CONTAINS
                           0.0_dp, gto_basis_set%sphi(1, first_sgf), n)
             END DO
          END DO
-      ENDIF
+      END IF
 
       ! Build the reduced transformation matrix "scon"
       ! This matrix transforms from cartesian primitifs to spherical contracted functions
@@ -953,9 +927,6 @@ CONTAINS
       ! - Creation (07.12.2000,MK)
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_norm_cgf_aux', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: icgf, ico, ipgf, iset, ishell, jco, &
                                                             jpgf, ll, lmax, lmin, lx, ly, lz, n, &
@@ -1149,8 +1120,7 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_orb_basis_set', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_orb_basis_set'
 
       INTEGER                                            :: handle
 
@@ -1236,9 +1206,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: dft_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_gto_basis_set1', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(LEN=242)                                 :: line2
       CHARACTER(len=default_path_length)                 :: basis_set_file_name, tmp
@@ -1248,16 +1215,14 @@ CONTAINS
       CHARACTER(LEN=LEN(basis_set_name)+2)               :: bsname2
       CHARACTER(LEN=LEN(element_symbol))                 :: symbol
       CHARACTER(LEN=LEN(element_symbol)+2)               :: symbol2
-      INTEGER                                            :: i, ibasis, ico, ipgf, irep, iset, &
-                                                            ishell, lshell, m, maxco, maxl, &
-                                                            maxpgf, maxshell, nbasis, ncgf, nmin, &
-                                                            nset, nsgf, strlen1, strlen2
+      INTEGER :: i, ibasis, ico, ipgf, irep, iset, ishell, lshell, m, maxco, maxl, maxpgf, &
+         maxshell, nbasis, ncgf, nmin, nset, nsgf, sort_method, strlen1, strlen2
       INTEGER, DIMENSION(:), POINTER                     :: lmax, lmin, npgf, nshell
       INTEGER, DIMENSION(:, :), POINTER                  :: l, n
       LOGICAL                                            :: basis_found, found, match
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: zet
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: gcc
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       line = ""
       line2 = ""
@@ -1276,7 +1241,6 @@ CONTAINS
       DO ibasis = 1, nbasis
          CALL section_vals_val_get(dft_section, "BASIS_SET_FILE_NAME", &
                                    i_rep_val=ibasis, c_val=cbasis(ibasis))
-         NULLIFY (parser)
          basis_set_file_name = cbasis(ibasis)
          tmp = basis_set_file_name
          CALL uppercase(tmp)
@@ -1289,7 +1253,6 @@ CONTAINS
       basis_found = .FALSE.
       basis_loop: DO ibasis = 1, nbasis
          IF (basis_found) EXIT basis_loop
-         NULLIFY (parser)
          basis_set_file_name = cbasis(ibasis)
          CALL parser_create(parser, basis_set_file_name, para_env=para_env)
 
@@ -1531,7 +1494,7 @@ CONTAINS
             match = .FALSE.
             ALLOCATE (gto_basis_set%cgf_symbol(ncgf))
             ALLOCATE (gto_basis_set%sgf_symbol(nsgf))
-         ENDIF
+         END IF
 
          CALL parser_release(parser)
 
@@ -1552,6 +1515,9 @@ CONTAINS
       END IF
       DEALLOCATE (cbasis)
 
+      CALL section_vals_val_get(dft_section, "SORT_BASIS", i_val=sort_method)
+      CALL sort_gto_basis_set(gto_basis_set, sort_method)
+
    END SUBROUTINE read_gto_basis_set1
 
 ! **************************************************************************************************
@@ -1561,9 +1527,10 @@ CONTAINS
 !> \param gto_basis_set ...
 !> \param basis_section ...
 !> \param irep ...
+!> \param dft_section ...
 ! **************************************************************************************************
    SUBROUTINE read_gto_basis_set2(element_symbol, basis_type, gto_basis_set, &
-                                  basis_section, irep)
+                                  basis_section, irep, dft_section)
 
       ! Read a Gaussian-type orbital (GTO) basis set from the database file.
 
@@ -1574,9 +1541,7 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: gto_basis_set
       TYPE(section_vals_type), OPTIONAL, POINTER         :: basis_section
       INTEGER                                            :: irep
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_gto_basis_set2', &
-         routineP = moduleN//':'//routineN
+      TYPE(section_vals_type), OPTIONAL, POINTER         :: dft_section
 
       CHARACTER(len=20*default_string_length)            :: line_att
       CHARACTER(LEN=240)                                 :: line
@@ -1586,7 +1551,7 @@ CONTAINS
       CHARACTER(LEN=LEN(element_symbol)+2)               :: symbol2
       INTEGER                                            :: i, ico, ipgf, iset, ishell, lshell, m, &
                                                             maxco, maxl, maxpgf, maxshell, ncgf, &
-                                                            nmin, nset, nsgf
+                                                            nmin, nset, nsgf, sort_method
       INTEGER, DIMENSION(:), POINTER                     :: lmax, lmin, npgf, nshell
       INTEGER, DIMENSION(:, :), POINTER                  :: l, n
       LOGICAL                                            :: is_ok
@@ -1824,6 +1789,11 @@ CONTAINS
 
       DEALLOCATE (gcc, l, lmax, lmin, n, npgf, nshell, zet)
 
+      IF (PRESENT(dft_section)) THEN
+         CALL section_vals_val_get(dft_section, "SORT_BASIS", i_val=sort_method)
+         CALL sort_gto_basis_set(gto_basis_set, sort_method)
+      END IF
+
    END SUBROUTINE read_gto_basis_set2
 
 ! **************************************************************************************************
@@ -1891,9 +1861,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), OPTIONAL, &
          POINTER                                         :: gcc
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: short_kind_radius
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_gto_basis_set', &
-         routineP = moduleN//':'//routineN
 
 ! -------------------------------------------------------------------------
 
@@ -2076,9 +2043,6 @@ CONTAINS
 
       TYPE(sto_basis_set_type), POINTER                  :: sto_basis_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_sto_basis_set', &
-         routineP = moduleN//':'//routineN
-
 ! -------------------------------------------------------------------------
 
       CALL deallocate_sto_basis_set(sto_basis_set)
@@ -2100,9 +2064,6 @@ CONTAINS
    SUBROUTINE deallocate_sto_basis_set(sto_basis_set)
 
       TYPE(sto_basis_set_type), POINTER                  :: sto_basis_set
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_sto_basis_set', &
-         routineP = moduleN//':'//routineN
 
 ! -------------------------------------------------------------------------
 
@@ -2146,9 +2107,6 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: nq, lq
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: zet
       INTEGER, INTENT(OUT), OPTIONAL                     :: maxlq, numsto
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_sto_basis_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iset
 
@@ -2195,9 +2153,6 @@ CONTAINS
       CHARACTER(LEN=6), DIMENSION(:), OPTIONAL, POINTER  :: symbol
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: nq, lq
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: zet
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_sto_basis_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ns
 
@@ -2250,9 +2205,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: dft_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_sto_basis_set', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=10)                                  :: nlsym
       CHARACTER(LEN=2)                                   :: lsym
       CHARACTER(LEN=240)                                 :: line
@@ -2268,7 +2220,7 @@ CONTAINS
                                                             strlen1, strlen2
       LOGICAL                                            :: basis_found, found, match
       REAL(KIND=dp)                                      :: zet
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       line = ""
       line2 = ""
@@ -2286,7 +2238,6 @@ CONTAINS
       DO ibasis = 1, nbasis
          CALL section_vals_val_get(dft_section, "BASIS_SET_FILE_NAME", &
                                    i_rep_val=ibasis, c_val=cbasis(ibasis))
-         NULLIFY (parser)
          basis_set_file_name = cbasis(ibasis)
          tmp = basis_set_file_name
          CALL uppercase(tmp)
@@ -2298,7 +2249,6 @@ CONTAINS
       basis_found = .FALSE.
       basis_loop: DO ibasis = 1, nbasis
          IF (basis_found) EXIT basis_loop
-         NULLIFY (parser)
          basis_set_file_name = cbasis(ibasis)
          CALL parser_create(parser, basis_set_file_name, para_env=para_env)
 
@@ -2370,7 +2320,7 @@ CONTAINS
                         CASE DEFAULT
                            CALL cp_abort(__LOCATION__, &
                                          "The requested basis set <"//TRIM(bsname)// &
-                                         "> for element <"//TRIM(symbol)//"> has an ivalid component: ")
+                                         "> for element <"//TRIM(symbol)//"> has an invalid component: ")
                         END SELECT
                      END DO
 
@@ -2383,7 +2333,7 @@ CONTAINS
             END DO search_loop
          ELSE
             match = .FALSE.
-         ENDIF
+         END IF
 
          CALL parser_release(parser)
 
@@ -2420,8 +2370,6 @@ CONTAINS
       INTEGER, OPTIONAL                                  :: ngauss
       LOGICAL, OPTIONAL                                  :: ortho
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_gto_from_sto_basis', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: maxng = 6
 
       CHARACTER(LEN=default_string_length)               :: name, sng
@@ -2726,9 +2674,11 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief sort basis sets w.r.t. radius
 !> \param basis_set ...
+!> \param sort_method ...
 ! **************************************************************************************************
-   SUBROUTINE sort_gto_basis_set(basis_set)
+   SUBROUTINE sort_gto_basis_set(basis_set, sort_method)
       TYPE(gto_basis_set_type), POINTER                  :: basis_set
+      INTEGER, INTENT(IN)                                :: sort_method
 
       CHARACTER(LEN=12), DIMENSION(:), POINTER           :: cgf_symbol
       CHARACTER(LEN=6), DIMENSION(:), POINTER            :: sgf_symbol
@@ -2746,9 +2696,9 @@ CONTAINS
 
       CPASSERT(ASSOCIATED(basis_set))
 
-      IF (basis_set%sort == basis_sort_default) RETURN
-
       NULLIFY (set_radius, zet)
+
+      IF (sort_method == basis_sort_default) RETURN
 
       b => basis_set
       CALL get_gto_basis_set(gto_basis_set=b, &
@@ -2763,13 +2713,11 @@ CONTAINS
 
       ALLOCATE (sort_index(nset))
       ALLOCATE (tmp(nset))
-      SELECT CASE (b%sort)
-      CASE (basis_sort_radius)
-         tmp(:) = set_radius(UBOUND(set_radius, 1):LBOUND(set_radius, 1):-1)
+      SELECT CASE (sort_method)
       CASE (basis_sort_zet)
          DO iset = 1, nset
             tmp(iset) = MINVAL(basis_set%zet(:npgf(iset), iset))
-         ENDDO
+         END DO
       CASE DEFAULT
          CPABORT("Request basis sort criterion not implemented.")
       END SELECT
@@ -2785,14 +2733,14 @@ CONTAINS
             DO ico = 1, nco(b%l(ishell, iset))
                ic = ic + 1
                IF (ic > ic_max) ic_max = ic
-            ENDDO
+            END DO
             lshell = b%l(ishell, iset)
             DO mm = -lshell, lshell
                is = is + 1
                IF (is > is_max) is_max = is
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
 
       icgf = 0
       isgf = 0
@@ -2809,15 +2757,15 @@ CONTAINS
                icgf = icgf + 1
                ic = ic + 1
                icgf_set(iset, ic) = icgf
-            ENDDO
+            END DO
             lshell = b%l(ishell, iset)
             DO mm = -lshell, lshell
                isgf = isgf + 1
                is = is + 1
                isgf_set(iset, is) = isgf
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
 
       ALLOCATE (cgf_symbol(SIZE(b%cgf_symbol)))
       ALLOCATE (norm_cgf(SIZE(b%norm_cgf)))
@@ -2847,7 +2795,7 @@ CONTAINS
             lz(icgf_new) = b%lz(icgf_old)
             cphi(:, icgf_new) = b%cphi(:, icgf_old)
             cgf_symbol(icgf_new) = b%cgf_symbol(icgf_old)
-         ENDDO
+         END DO
          DO is = 1, is_max
             isgf_old = isgf_set(sort_index(iset), is)
             IF (isgf_old == 0) CYCLE
@@ -2856,8 +2804,8 @@ CONTAINS
             sphi(:, isgf_new) = b%sphi(:, isgf_old)
             scon(:, isgf_new) = b%scon(:, isgf_old)
             sgf_symbol(isgf_new) = b%sgf_symbol(isgf_old)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DEALLOCATE (b%cgf_symbol)
       b%cgf_symbol => cgf_symbol
@@ -2909,9 +2857,6 @@ CONTAINS
             b%last_sgf(ishell, iset) = ns
          END DO
       END DO
-
-      ! make sure that basis sets are sorted only once
-      b%sort = basis_sort_default
 
    END SUBROUTINE
 

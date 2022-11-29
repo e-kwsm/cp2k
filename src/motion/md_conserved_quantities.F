@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,7 +26,7 @@ MODULE md_conserved_quantities
    USE input_constants,                 ONLY: &
         isokin_ensemble, langevin_ensemble, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble, reftraj_ensemble
+        npt_ia_ensemble, nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble, reftraj_ensemble
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
@@ -83,9 +85,6 @@ CONTAINS
       TYPE(md_ener_type), POINTER                        :: md_ener
       LOGICAL, INTENT(IN)                                :: tkind, tshell
       INTEGER, INTENT(IN)                                :: natom
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_conserved_quantity', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ikind, nfree_qm, nkind
       INTEGER, POINTER                                   :: itimes
@@ -150,7 +149,7 @@ CONTAINS
          CALL get_econs_nve(md_env, md_ener, para_env)
       CASE (nvt_ensemble)
          CALL get_econs_nvt(md_env, md_ener, para_env)
-      CASE (npt_i_ensemble, npt_f_ensemble)
+      CASE (npt_i_ensemble, npt_f_ensemble, npt_ia_ensemble)
          CALL get_econs_npt(md_env, md_ener, para_env)
          md_ener%temp_baro = md_ener%temp_baro*kelvin
       CASE (nph_uniaxial_ensemble)
@@ -191,8 +190,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(md_ener_type), POINTER                        :: md_ener
       INTEGER                                            :: nfree_qm
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_nfree_qm', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       INTEGER, POINTER                                   :: cur_indices(:), cur_labels(:)
@@ -252,8 +249,6 @@ CONTAINS
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_nve', routineP = moduleN//':'//routineN
-
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(thermostat_type), POINTER                     :: thermostat_coeff, thermostat_shell
 
@@ -282,9 +277,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_nvt_adiabatic', &
-         routineP = moduleN//':'//routineN
 
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(thermostat_type), POINTER                     :: thermostat_fast, thermostat_slow
@@ -317,8 +309,6 @@ CONTAINS
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_nvt', routineP = moduleN//':'//routineN
-
       TYPE(force_env_type), POINTER                      :: force_env
       TYPE(thermostat_type), POINTER                     :: thermostat_coeff, thermostat_part, &
                                                             thermostat_shell
@@ -350,8 +340,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_npe', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nfree
       TYPE(cell_type), POINTER                           :: box
@@ -391,8 +379,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_npt', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nfree
       TYPE(cell_type), POINTER                           :: box
@@ -435,9 +421,6 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(md_ener_type), INTENT(inout)                  :: md_ener
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_econs_nph_uniaxial', &
-         routineP = moduleN//':'//routineN
-
       TYPE(cell_type), POINTER                           :: box
       TYPE(npt_info_type), POINTER                       :: npt(:, :)
       TYPE(simpar_type), POINTER                         :: simpar
@@ -465,8 +448,6 @@ CONTAINS
       TYPE(md_ener_type), POINTER                        :: md_ener
       LOGICAL, INTENT(IN)                                :: tkind, tshell
       INTEGER, INTENT(IN)                                :: group
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_part_ke', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -13,8 +15,7 @@ MODULE md_run
    USE atomic_kind_list_types,          ONLY: atomic_kind_list_type
    USE averages_types,                  ONLY: average_quantities_type
    USE barostat_types,                  ONLY: barostat_type,&
-                                              create_barostat_type,&
-                                              release_barostat_type
+                                              create_barostat_type
    USE cell_types,                      ONLY: cell_type
    USE cp_external_control,             ONLY: external_control
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -40,7 +41,7 @@ MODULE md_run
    USE input_constants,                 ONLY: &
         ehrenfest, langevin_ensemble, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        reftraj_ensemble
+        npt_ia_ensemble, reftraj_ensemble
    USE input_cp2k_check,                ONLY: remove_restart_info
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_remove_values,&
@@ -50,8 +51,7 @@ MODULE md_run
                                               dp
    USE machine,                         ONLY: m_walltime
    USE md_ener_types,                   ONLY: create_md_ener,&
-                                              md_ener_type,&
-                                              release_md_ener
+                                              md_ener_type
    USE md_energies,                     ONLY: initialize_md_ener,&
                                               md_ener_reftraj,&
                                               md_energy,&
@@ -75,9 +75,9 @@ MODULE md_run
                                               metadyn_write_colvar
    USE metadynamics_types,              ONLY: set_meta_env
    USE particle_list_types,             ONLY: particle_list_type
+   USE qs_environment_methods,          ONLY: qs_env_time_update
    USE reftraj_types,                   ONLY: create_reftraj,&
-                                              reftraj_type,&
-                                              release_reftraj
+                                              reftraj_type
    USE reftraj_util,                    ONLY: initialize_reftraj,&
                                               write_output_reftraj
    USE rt_propagation,                  ONLY: rt_prop_setup
@@ -85,13 +85,11 @@ MODULE md_run
    USE simpar_types,                    ONLY: create_simpar_type,&
                                               release_simpar_type,&
                                               simpar_type
-   USE thermal_region_types,            ONLY: release_thermal_regions,&
-                                              thermal_regions_type
+   USE thermal_region_types,            ONLY: thermal_regions_type
    USE thermal_region_utils,            ONLY: create_thermal_regions,&
                                               print_thermal_regions_langevin
    USE thermostat_methods,              ONLY: create_thermostats
-   USE thermostat_types,                ONLY: release_thermostats,&
-                                              thermostats_type
+   USE thermostat_types,                ONLY: thermostats_type
    USE velocity_verlet_control,         ONLY: velocity_verlet
    USE virial_methods,                  ONLY: virial_evaluate
    USE virial_types,                    ONLY: virial_type
@@ -128,8 +126,6 @@ CONTAINS
       REAL(KIND=dp), OPTIONAL                            :: hmc_e_initial, hmc_e_final
       TYPE(mdctrl_type), OPTIONAL, POINTER               :: mdctrl
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_mol_dyn', routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: my_rm_restart_info
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(md_environment_type), POINTER                 :: md_env
@@ -143,6 +139,7 @@ CONTAINS
       md_section => section_vals_get_subs_vals(motion_section, "MD")
 
       ! Real call to MD driver - Low Level
+      ALLOCATE (md_env)
       CALL md_env_create(md_env, md_section, para_env, force_env=force_env)
       CALL set_md_env(md_env, averages=averages)
       IF (PRESENT(hmc_e_initial) .AND. PRESENT(hmc_e_final)) THEN
@@ -150,8 +147,9 @@ CONTAINS
                              hmc_e_initial=hmc_e_initial, hmc_e_final=hmc_e_final)
       ELSE
          CALL qs_mol_dyn_low(md_env, md_section, motion_section, force_env, globenv, mdctrl=mdctrl)
-      ENDIF
+      END IF
       CALL md_env_release(md_env)
+      DEALLOCATE (md_env)
 
       ! Clean restartable sections..
       IF (my_rm_restart_info) CALL remove_restart_info(force_env%root_section)
@@ -181,7 +179,7 @@ CONTAINS
       REAL(KIND=dp), OPTIONAL                            :: hmc_e_initial, hmc_e_final
       TYPE(mdctrl_type), OPTIONAL, POINTER               :: mdctrl
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_mol_dyn_low', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'qs_mol_dyn_low'
 
       CHARACTER(LEN=default_string_length)               :: my_act, my_pos
       INTEGER                                            :: handle, i, istep, md_stride, run_type_id
@@ -244,9 +242,10 @@ CONTAINS
                                                         "LAGRANGE_MULTIPLIERS"), cp_p_file)
 
       ! Create the structure for the md energies
+      ALLOCATE (md_ener)
       CALL create_md_ener(md_ener)
       CALL set_md_env(md_env, md_ener=md_ener)
-      CALL release_md_ener(md_ener)
+      NULLIFY (md_ener)
 
       ! If requested setup Thermostats
       CALL create_thermostats(thermostats, md_section, force_env, simpar, para_env, &
@@ -275,9 +274,9 @@ CONTAINS
          CPABORT("Ehrenfest MD does not support reftraj ensemble ")
       IF (simpar%ensemble == reftraj_ensemble) THEN
          reftraj_section => section_vals_get_subs_vals(md_section, "REFTRAJ")
+         ALLOCATE (reftraj)
          CALL create_reftraj(reftraj, reftraj_section, para_env)
          CALL set_md_env(md_env, reftraj=reftraj)
-         CALL release_reftraj(reftraj)
       END IF
 
       CALL force_env_get(force_env, subsys=subsys, cell=cell, &
@@ -287,7 +286,7 @@ CONTAINS
       ! Set V0 if needed
       IF (simpar%ensemble == nph_uniaxial_ensemble .OR. simpar%ensemble == nph_uniaxial_damped_ensemble) THEN
          IF (simpar%v0 == 0._dp) simpar%v0 = cell%deth
-      ENDIF
+      END IF
 
       ! Initialize velocities possibly applying constraints at the zeroth MD step
       CALL section_vals_val_get(motion_section, "PRINT%RESTART%SPLIT_RESTART_FILE", &
@@ -319,6 +318,7 @@ CONTAINS
       ! Check for ensembles requiring the stress tensor - takes into account the possibility for
       ! multiple force_evals
       IF ((simpar%ensemble == npt_i_ensemble) .OR. &
+          (simpar%ensemble == npt_ia_ensemble) .OR. &
           (simpar%ensemble == npt_f_ensemble) .OR. &
           (simpar%ensemble == npe_f_ensemble) .OR. &
           (simpar%ensemble == npe_i_ensemble) .OR. &
@@ -372,8 +372,9 @@ CONTAINS
          END IF
 
          IF (ASSOCIATED(force_env%qs_env)) THEN
-            force_env%qs_env%sim_time = time
-            force_env%qs_env%sim_step = itimes
+            CALL qs_env_time_update(force_env%qs_env, time, itimes)
+!deb        force_env%qs_env%sim_time = time
+!deb        force_env%qs_env%sim_step = itimes
          END IF
          ! Warm-up engines for metadynamics
          IF (ASSOCIATED(force_env%meta_env)) THEN
@@ -383,7 +384,7 @@ CONTAINS
             ELSE
                IF (force_env%meta_env%langevin) THEN
                   CALL create_wiener_process_cv(force_env%meta_env)
-               ENDIF
+               END IF
                IF (force_env%meta_env%well_tempered) THEN
                   force_env%meta_env%wttemperature = simpar%temp_ext
                   IF (force_env%meta_env%wtgamma > EPSILON(1._dp)) THEN
@@ -396,17 +397,17 @@ CONTAINS
                                          " please, verify that DELTA_T=(WTGAMMA-1)*TEMPERATURE")
                      ELSE
                         force_env%meta_env%delta_t = dummy
-                     ENDIF
+                     END IF
                   ELSE
                      force_env%meta_env%wtgamma = 1._dp &
                                                   + force_env%meta_env%delta_t/force_env%meta_env%wttemperature
-                  ENDIF
+                  END IF
                   force_env%meta_env%invdt = 1._dp/force_env%meta_env%delta_t
-               ENDIF
+               END IF
                CALL metadyn_forces(force_env)
                CALL metadyn_write_colvar(force_env)
             END IF
-         ENDIF
+         END IF
 
          IF (simpar%do_respa) THEN
             CALL force_env_calc_energy_force(force_env%sub_force_env(1)%force_env, &
@@ -454,8 +455,9 @@ CONTAINS
          time = time + simpar%dt
          !needed when electric field fields are applied
          IF (ASSOCIATED(force_env%qs_env)) THEN
-            force_env%qs_env%sim_time = time
-            force_env%qs_env%sim_step = itimes
+            CALL qs_env_time_update(force_env%qs_env, time, itimes)
+!deb        force_env%qs_env%sim_time = time
+!deb        force_env%qs_env%sim_step = itimes
          END IF
          IF (ehrenfest_md) force_env%qs_env%rtp%istep = istep
 
@@ -515,7 +517,7 @@ CONTAINS
                CALL md_output(md_env, md_section, force_env%root_section, .FALSE.)
             ELSE
                CALL md_output(md_env, md_section, force_env%root_section, should_stop)
-            ENDIF
+            END IF
             EXIT
          END IF
 
@@ -552,10 +554,7 @@ CONTAINS
       END IF
 
       ! Deallocate Thermostats and Barostats
-      CALL release_thermostats(thermostats)
-      CALL release_barostat_type(barostat)
       CALL release_simpar_type(simpar)
-      CALL release_thermal_regions(thermal_regions)
       CALL timestop(handle)
 
    END SUBROUTINE qs_mol_dyn_low

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,7 +79,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_pbc(helium, r, enforce)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(INOUT)         :: r
       LOGICAL, OPTIONAL                                  :: enforce
 
@@ -144,7 +146,6 @@ CONTAINS
       r(2) = ry*cell_size
       r(3) = rz*cell_size
 
-      RETURN
    END SUBROUTINE helium_pbc
 
 ! ***************************************************************************
@@ -161,7 +162,7 @@ CONTAINS
 
    PURE FUNCTION helium_pbc_r2(helium, r)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r
       REAL(KIND=dp)                                      :: helium_pbc_r2
 
@@ -185,7 +186,6 @@ CONTAINS
       ELSE
          helium_pbc_r2 = (r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
       END IF
-      RETURN
    END FUNCTION helium_pbc_r2
 
 ! ***************************************************************************
@@ -203,7 +203,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_boxmean_3d(helium, a, b, c)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: a, b
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: c
 
@@ -211,7 +211,6 @@ CONTAINS
       CALL helium_pbc(helium, c)
       c(:) = a(:) + 0.5_dp*c(:)
       CALL helium_pbc(helium, c)
-      RETURN
    END SUBROUTINE helium_boxmean_3d
 
 ! ***************************************************************************
@@ -224,10 +223,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_calc_atom_cycle_length(helium)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_atom_cycle_length', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_atom_cycle_length'
 
       CHARACTER(len=default_string_length)               :: err_str
       INTEGER                                            :: clen, curr_idx, handle, ia, start_idx
@@ -294,7 +292,6 @@ CONTAINS
 
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE helium_calc_atom_cycle_length
 
 ! ***************************************************************************
@@ -312,9 +309,6 @@ CONTAINS
 
       INTEGER, DIMENSION(:), POINTER                     :: permutation
       TYPE(int_arr_ptr), DIMENSION(:), POINTER           :: cycles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_cycles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: curat, ncycl, nsize, nused
       INTEGER, DIMENSION(:), POINTER                     :: cur_cycle, used_indices
@@ -363,7 +357,6 @@ CONTAINS
       DEALLOCATE (my_cycles)
       NULLIFY (my_cycles)
 
-      RETURN
    END FUNCTION helium_calc_cycles
 
 ! ***************************************************************************
@@ -375,10 +368,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_calc_rho(helium)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_rho', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'helium_calc_rho'
 
       CHARACTER(len=default_string_length)               :: msgstr
       INTEGER                                            :: aa, bx, by, bz, handle, ia, ib, ic, id, &
@@ -561,7 +553,6 @@ CONTAINS
 
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE helium_calc_rho
 
 #if 0
@@ -575,7 +566,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_norm_rho(helium, rho)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(:, :, :, :), POINTER      :: rho
 
       CHARACTER(len=*), PARAMETER :: routineN = 'helium_norm_rho', &
@@ -623,7 +614,6 @@ CONTAINS
 
       END SELECT
 
-      RETURN
    END SUBROUTINE helium_norm_rho
 #endif
 
@@ -638,10 +628,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_calc_rdf(helium)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_rdf', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'helium_calc_rdf'
 
       CHARACTER(len=default_string_length)               :: msgstr
       INTEGER                                            :: bin, handle, ia, ib, ic, ind_hehe, &
@@ -758,7 +747,6 @@ CONTAINS
 
       CALL timestop(handle)
 
-      RETURN
    END SUBROUTINE helium_calc_rdf
 
 ! ***************************************************************************
@@ -771,12 +759,9 @@ CONTAINS
 !>         inner loop iterations and helium environments is done in
 !>         helium_sample.
 ! **************************************************************************************************
-   SUBROUTINE helium_calc_plength(helium)
+   PURE SUBROUTINE helium_calc_plength(helium)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_plength', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
 
       INTEGER                                            :: i, j, k
 
@@ -793,7 +778,6 @@ CONTAINS
       END DO
       helium%plength_inst(:) = helium%plength_inst(:)/helium%atoms
 
-      RETURN
    END SUBROUTINE helium_calc_plength
 
 ! ***************************************************************************
@@ -808,11 +792,9 @@ CONTAINS
 !>         should be always within 0 (no rotation) and helium%beads-1 (almost
 !>         full rotation). [lwalewski]
 ! **************************************************************************************************
-   SUBROUTINE helium_rotate(helium, nslices)
-      TYPE(helium_solvent_type), POINTER                 :: helium
+   PURE SUBROUTINE helium_rotate(helium, nslices)
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: nslices
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_rotate', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: b, i, j, k, n
 
@@ -833,7 +815,6 @@ CONTAINS
             helium%pos(:, j, b - i + k) = helium%work(:, helium%permutation(j), k)
          END DO
       END DO
-      RETURN
    END SUBROUTINE helium_rotate
 
 ! ***************************************************************************
@@ -849,7 +830,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_eval_expansion(helium, r, rp, work, action) RESULT(res)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: r, rp
       REAL(KIND=dp), CONTIGUOUS, DIMENSION(:), &
          INTENT(INOUT)                                   :: work
@@ -936,7 +917,6 @@ CONTAINS
          END DO
          res = v
       END IF
-      RETURN
    END FUNCTION helium_eval_expansion
 
 ! ***************************************************************************
@@ -954,7 +934,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_eval_chain(helium, rchain, nchain, aij, vcoef, energy) RESULT(res)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: nchain
       REAL(KIND=dp), DIMENSION(3, nchain), INTENT(INOUT) :: rchain
       REAL(KIND=dp), DIMENSION(nchain), INTENT(INOUT)    :: aij
@@ -1067,7 +1047,6 @@ CONTAINS
          END IF
       END DO
       res = totalv
-      RETURN
    END FUNCTION helium_eval_chain
 
 ! **************************************************************************************************
@@ -1077,7 +1056,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_update_transition_matrix(helium)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
 
       INTEGER                                            :: b, c, i, j, k, m, n, nb
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: lens, order
@@ -1431,7 +1410,6 @@ CONTAINS
       DEALLOCATE (order)
       DEALLOCATE (p)
 
-      RETURN
    END SUBROUTINE helium_update_transition_matrix
 
 ! **************************************************************************************************
@@ -1442,7 +1420,7 @@ CONTAINS
 !> \author Harald Forbert
 ! **************************************************************************************************
    FUNCTION helium_spline(spl, xx) RESULT(res)
-      TYPE(spline_data_type), POINTER                    :: spl
+      TYPE(spline_data_type), INTENT(IN)                 :: spl
       REAL(KIND=dp), INTENT(IN)                          :: xx
       REAL(KIND=dp)                                      :: res
 
@@ -1459,7 +1437,6 @@ CONTAINS
       ELSE
          res = spline_value(spl, xx)
       END IF
-      RETURN
    END FUNCTION helium_spline
 
 ! ***************************************************************************
@@ -1474,9 +1451,9 @@ CONTAINS
 !> \date   2009-07-17
 !> \author Lukasz Walewski
 ! **************************************************************************************************
-   FUNCTION helium_bead_rij(helium, ia, ib, ja, jb) RESULT(rij)
+   PURE FUNCTION helium_bead_rij(helium, ia, ib, ja, jb) RESULT(rij)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, INTENT(IN)                                :: ia, ib, ja, jb
       REAL(KIND=dp)                                      :: rij
 
@@ -1487,7 +1464,6 @@ CONTAINS
       dz = helium%pos(3, ia, ib) - helium%pos(3, ja, jb)
       rij = SQRT(dx*dx + dy*dy + dz*dz)
 
-      RETURN
    END FUNCTION helium_bead_rij
 
 ! ***************************************************************************
@@ -1507,7 +1483,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_cycle_number(helium, atom_number, permutation) RESULT(cycle_number)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: atom_number
       INTEGER, DIMENSION(:), POINTER                     :: permutation
       INTEGER                                            :: cycle_number
@@ -1603,7 +1579,6 @@ CONTAINS
 
       NULLIFY (cycle_index)
 
-      RETURN
    END FUNCTION helium_cycle_number
 
 ! ***************************************************************************
@@ -1616,9 +1591,9 @@ CONTAINS
 !> \date   2009-10-07
 !> \author Lukasz Walewski
 ! **************************************************************************************************
-   FUNCTION helium_path_length(helium, atom_number, permutation) RESULT(path_length)
+   PURE FUNCTION helium_path_length(helium, atom_number, permutation) RESULT(path_length)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, INTENT(IN)                                :: atom_number
       INTEGER, DIMENSION(:), POINTER                     :: permutation
       INTEGER                                            :: path_length
@@ -1642,7 +1617,6 @@ CONTAINS
          path_length = -1
       END IF
 
-      RETURN
    END FUNCTION helium_path_length
 
 ! ***************************************************************************
@@ -1655,16 +1629,13 @@ CONTAINS
 !> \note   This function allocates memory and returns a pointer to it,
 !>         do not forget to deallocate once finished with the results.
 ! **************************************************************************************************
-   FUNCTION helium_cycle_of(element, permutation) RESULT(CYCLE)
+   PURE FUNCTION helium_cycle_of(element, permutation) RESULT(CYCLE)
 
       INTEGER, INTENT(IN)                                :: element
       INTEGER, DIMENSION(:), INTENT(IN), POINTER         :: permutation
       INTEGER, DIMENSION(:), POINTER                     :: CYCLE
 
       INTEGER                                            :: ia, icur, len, nsize
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_cycle_of', &
-         routineP = moduleN//':'//routineN
-
       INTEGER, DIMENSION(:), POINTER                     :: my_cycle
       LOGICAL                                            :: cycle_end_reached
 
@@ -1701,7 +1672,6 @@ CONTAINS
       DEALLOCATE (my_cycle)
       NULLIFY (my_cycle)
 
-      RETURN
    END FUNCTION helium_cycle_of
 
 ! ***************************************************************************
@@ -1713,11 +1683,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_winding_number(helium) RESULT(wnum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: wnum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_winding_number', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: rcur
@@ -1754,12 +1721,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_link_winding_number(helium, ia, ib) RESULT(wnum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      INTEGER                                            :: ia, ib
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
+      INTEGER, INTENT(IN)                                :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: wnum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_link_winding_number', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ja1, ja2, jb1, jb2
       REAL(KIND=dp), DIMENSION(:), POINTER               :: r1, r2
@@ -1780,7 +1744,6 @@ CONTAINS
       wnum(:) = r1(:) - r2(:)
       CALL helium_pbc(helium, wnum)
 
-      RETURN
    END FUNCTION helium_link_winding_number
 
 ! ***************************************************************************
@@ -1793,11 +1756,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_winding_number_linkwise(helium) RESULT(wnum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: wnum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_winding_number_linkwise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
 
@@ -1808,7 +1768,6 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END FUNCTION helium_total_winding_number_linkwise
 
 ! ***************************************************************************
@@ -1822,13 +1781,10 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_cycle_winding_number(helium, CYCLE, pos) RESULT(wnum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, DIMENSION(:), POINTER                     :: CYCLE
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: pos
       REAL(KIND=dp), DIMENSION(3)                        :: wnum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_cycle_winding_number', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i2, ia, ib, nsize
       REAL(KIND=dp), DIMENSION(3)                        :: rcur
@@ -1862,7 +1818,6 @@ CONTAINS
          wnum(:) = wnum(:) + rcur(:)
       END DO
 
-      RETURN
    END FUNCTION helium_cycle_winding_number
 
 ! ***************************************************************************
@@ -1875,11 +1830,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_winding_number_cyclewise(helium) RESULT(wnum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: wnum
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_winding_number_cyclewise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ic
       REAL(KIND=dp), DIMENSION(3)                        :: wn
@@ -1898,7 +1850,6 @@ CONTAINS
 
       DEALLOCATE (cycles)
 
-      RETURN
    END FUNCTION helium_total_winding_number_cyclewise
 
 ! ***************************************************************************
@@ -1910,11 +1861,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_projected_area(helium) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_projected_area', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: r1, r12, r2, rcur
@@ -1953,7 +1901,6 @@ CONTAINS
       END DO
       area(:) = 0.5_dp*area(:)
 
-      RETURN
    END FUNCTION helium_total_projected_area
 
 ! ***************************************************************************
@@ -1967,12 +1914,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_link_projected_area(helium, ia, ib) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER                                            :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_link_projected_area', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ja1, ja2, jb1, jb2
       REAL(KIND=dp), DIMENSION(3)                        :: r1, r12, r2
@@ -2001,7 +1945,6 @@ CONTAINS
       area(3) = r1(1)*r2(2) - r1(2)*r2(1)
       area(:) = 0.5_dp*area(:)
 
-      RETURN
    END FUNCTION helium_link_projected_area
 
 ! ***************************************************************************
@@ -2014,11 +1957,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_projected_area_linkwise(helium) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_projected_area_linkwise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
 
@@ -2041,12 +1981,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_cycle_projected_area(helium, CYCLE) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, DIMENSION(:), POINTER                     :: CYCLE
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_cycle_projected_area', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i2, ia, ib, nsize
       REAL(KIND=dp), DIMENSION(3)                        :: rcur, rsum
@@ -2083,7 +2020,6 @@ CONTAINS
       END DO
       area(:) = 0.5_dp*rsum(:)
 
-      RETURN
    END FUNCTION helium_cycle_projected_area
 
 ! ***************************************************************************
@@ -2097,12 +2033,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_cycle_projected_area_pbc(helium, CYCLE) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, DIMENSION(:), POINTER                     :: CYCLE
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_cycle_projected_area_pbc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i2, ia, ib, nsize
       REAL(KIND=dp), DIMENSION(3)                        :: r1, r12, r2, rcur
@@ -2146,7 +2079,6 @@ CONTAINS
       END DO
       area(:) = 0.5_dp*area(:)
 
-      RETURN
    END FUNCTION helium_cycle_projected_area_pbc
 
 ! ***************************************************************************
@@ -2159,11 +2091,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_projected_area_cyclewise(helium) RESULT(area)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: area
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_projected_area_cyclewise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ic
       REAL(KIND=dp), DIMENSION(3)                        :: pa
@@ -2180,7 +2109,6 @@ CONTAINS
          area(:) = area(:) + pa(:)
       END DO
 
-      RETURN
    END FUNCTION helium_total_projected_area_cyclewise
 
 ! ***************************************************************************
@@ -2192,11 +2120,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_moment_of_inertia(helium) RESULT(moit)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: moit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_moment_of_inertia', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: com, r1, r12, r2, rcur
@@ -2237,7 +2162,6 @@ CONTAINS
       END DO
       moit(:) = moit(:)/helium%beads
 
-      RETURN
    END FUNCTION helium_total_moment_of_inertia
 
 ! ***************************************************************************
@@ -2251,12 +2175,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_link_moment_of_inertia(helium, ia, ib) RESULT(moit)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      INTEGER                                            :: ia, ib
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
+      INTEGER, INTENT(IN)                                :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: moit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_link_moment_of_inertia', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ja1, ja2, jb1, jb2
       REAL(KIND=dp), DIMENSION(3)                        :: com, r1, r12, r2
@@ -2287,7 +2208,6 @@ CONTAINS
       moit(3) = r1(1)*r2(1) + r1(2)*r2(2)
       moit(:) = moit(:)/helium%beads
 
-      RETURN
    END FUNCTION helium_link_moment_of_inertia
 
 ! ***************************************************************************
@@ -2300,11 +2220,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_moment_of_inertia_linkwise(helium) RESULT(moit)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: moit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_moment_of_inertia_linkwise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
 
@@ -2328,13 +2245,10 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_cycle_moment_of_inertia(helium, CYCLE, pos) RESULT(moit)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, DIMENSION(:), POINTER                     :: CYCLE
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: pos
       REAL(KIND=dp), DIMENSION(3)                        :: moit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_cycle_moment_of_inertia', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i2, ia, ib, nsize
       REAL(KIND=dp), DIMENSION(3)                        :: com, rcur, ri, rj
@@ -2372,7 +2286,6 @@ CONTAINS
       END DO
       moit(:) = moit(:)/helium%beads
 
-      RETURN
    END FUNCTION helium_cycle_moment_of_inertia
 
 ! ***************************************************************************
@@ -2385,11 +2298,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_moment_of_inertia_cyclewise(helium) RESULT(moit)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: moit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_moment_of_inertia_cyclewise', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ic
       REAL(KIND=dp), DIMENSION(3)                        :: pa
@@ -2408,7 +2318,6 @@ CONTAINS
 
       DEALLOCATE (cycles)
 
-      RETURN
    END FUNCTION helium_total_moment_of_inertia_cyclewise
 
 ! ***************************************************************************
@@ -2422,13 +2331,10 @@ CONTAINS
 !> \note   It can be extended later to set the axes of the coordinate system
 !>         as well, e.g. for dynamic analysis with moving solute.
 ! **************************************************************************************************
-   SUBROUTINE helium_update_coord_system(helium, pint_env)
+   PURE SUBROUTINE helium_update_coord_system(helium, pint_env)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_update_coord_system', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       IF (helium%solute_present) THEN
          helium%center(:) = pint_com_pos(pint_env)
@@ -2440,7 +2346,6 @@ CONTAINS
          END IF
       END IF
 
-      RETURN
    END SUBROUTINE helium_update_coord_system
 
 ! ***************************************************************************
@@ -2454,13 +2359,10 @@ CONTAINS
 !> \note   Sets the centers wrt which radial distribution functions are
 !>         calculated.
 ! **************************************************************************************************
-   SUBROUTINE helium_set_rdf_coord_system(helium, pint_env)
+   PURE SUBROUTINE helium_set_rdf_coord_system(helium, pint_env)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_set_rdf_coord_system', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       INTEGER                                            :: i, j
 
@@ -2472,7 +2374,6 @@ CONTAINS
          END DO
       END IF
 
-      RETURN
    END SUBROUTINE helium_set_rdf_coord_system
 
 ! ***************************************************************************
@@ -2482,12 +2383,10 @@ CONTAINS
 !> \date   2014-04-09
 !> \author Lukasz Walewski
 ! **************************************************************************************************
-   FUNCTION helium_com(helium) RESULT(com)
+   PURE FUNCTION helium_com(helium) RESULT(com)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3)                        :: com
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_com', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib
 
@@ -2512,12 +2411,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_link_vector(helium, ia, ib) RESULT(lvec)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      INTEGER                                            :: ia, ib
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
+      INTEGER, INTENT(IN)                                :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: lvec
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_link_vector', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia1, ia2, ib1, ib2
       REAL(KIND=dp), DIMENSION(:), POINTER               :: r1, r2
@@ -2547,23 +2443,18 @@ CONTAINS
 !> \param ib ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION helium_rperpendicular(helium, ia, ib) RESULT(rperp)
+   PURE FUNCTION helium_rperpendicular(helium, ia, ib) RESULT(rperp)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      INTEGER                                            :: ia, ib
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
+      INTEGER, INTENT(IN)                                :: ia, ib
       REAL(KIND=dp), DIMENSION(3)                        :: rperp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_rperpendicular', &
-         routineP = moduleN//':'//routineN
+      ASSOCIATE (ri => helium%pos(:, ia, ib))
+         rperp(1) = SQRT(ri(2)*ri(2) + ri(3)*ri(3))
+         rperp(2) = SQRT(ri(3)*ri(3) + ri(1)*ri(1))
+         rperp(3) = SQRT(ri(1)*ri(1) + ri(2)*ri(2))
+      END ASSOCIATE
 
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: ri
-
-      ri => helium%pos(:, ia, ib)
-      rperp(1) = SQRT(ri(2)*ri(2) + ri(3)*ri(3))
-      rperp(2) = SQRT(ri(3)*ri(3) + ri(1)*ri(1))
-      rperp(3) = SQRT(ri(1)*ri(1) + ri(2)*ri(2))
-
-      RETURN
    END FUNCTION helium_rperpendicular
 
 ! ***************************************************************************
@@ -2577,21 +2468,15 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_wnumber_to_integer(helium, wnum) RESULT(inum)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      REAL(KIND=dp), DIMENSION(3)                        :: wnum
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
+      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: wnum
       INTEGER, DIMENSION(3)                              :: inum
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_wnumber_to_integer', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp), DIMENSION(3)                        :: wcur
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: invcell
 
-      invcell => helium%cell_m_inv
-      CALL DGEMV('N', 3, 3, 1.0_dp, invcell, SIZE(invcell, 1), wnum, 1, 0.0_dp, wcur, 1)
+      CALL DGEMV('N', 3, 3, 1.0_dp, helium%cell_m_inv, SIZE(helium%cell_m_inv, 1), wnum, 1, 0.0_dp, wcur, 1)
       inum(:) = NINT(wcur(:))
 
-      RETURN
    END FUNCTION helium_wnumber_to_integer
 
 ! ***************************************************************************
@@ -2609,14 +2494,11 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_is_winding(helium, atmidx, pos, permutation) RESULT(is_winding)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, INTENT(IN)                                :: atmidx
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: pos
       INTEGER, DIMENSION(:), POINTER                     :: permutation
       LOGICAL                                            :: is_winding
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_is_winding', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ic
       INTEGER, DIMENSION(3)                              :: inum
@@ -2636,7 +2518,6 @@ CONTAINS
       END DO
       DEALLOCATE (CYCLE)
 
-      RETURN
    END FUNCTION helium_is_winding
 
 END MODULE helium_common

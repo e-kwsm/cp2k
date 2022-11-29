@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE input_restart_rng
@@ -43,9 +45,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: rng_section
       INTEGER, INTENT(IN)                                :: nsize
       INTEGER, DIMENSION(:, :)                           :: ascii
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'section_rng_val_set', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=rng_record_length)                   :: rng_record
       INTEGER                                            :: ik, irk, Nlist

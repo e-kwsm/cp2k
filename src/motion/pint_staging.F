@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,8 +26,6 @@ MODULE pint_staging
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'pint_staging'
 
-   INTEGER, SAVE, PRIVATE :: last_staging_id = 0
-
    PUBLIC :: staging_env_create, staging_release, &
              staging_init_masses, &
              staging_x2u, staging_u2x, staging_f2uf, &
@@ -42,19 +42,10 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE staging_env_create(staging_env, staging_section, p, kT)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+      TYPE(staging_env_type), INTENT(OUT)                :: staging_env
       TYPE(section_vals_type), POINTER                   :: staging_section
       INTEGER, INTENT(in)                                :: p
       REAL(kind=dp), INTENT(in)                          :: kT
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_env_create', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(.NOT. ASSOCIATED(staging_env))
-      ALLOCATE (staging_env)
-      last_staging_id = last_staging_id + 1
-      staging_env%id_nr = last_staging_id
-      staging_env%ref_count = 1
 
       CALL section_vals_val_get(staging_section, "j", i_val=staging_env%j)
       CALL section_vals_val_get(staging_section, "Q_end", i_val=staging_env%j)
@@ -67,46 +58,18 @@ CONTAINS
       IF (staging_env%Q_end <= 0._dp) THEN
          staging_env%Q_end = staging_env%j*staging_env%Q_stage
       END IF
-      RETURN
    END SUBROUTINE staging_env_create
 
 ! ***************************************************************************
-!> \brief releases the staging environment
+!> \brief releases the staging environment, kept for symmetry reasons with staging_env_create
 !> \param staging_env the staging_env to release
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE staging_release(staging_env)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   ELEMENTAL SUBROUTINE staging_release(staging_env)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_release', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(staging_env)) THEN
-         CPASSERT(staging_env%ref_count > 0)
-         staging_env%ref_count = staging_env%ref_count - 1
-         IF (staging_env%ref_count == 0) THEN
-            DEALLOCATE (staging_env)
-         END IF
-      END IF
-      NULLIFY (staging_env)
-      RETURN
+      MARK_USED(staging_env)
    END SUBROUTINE staging_release
-
-! ***************************************************************************
-!> \brief retains a staging_env
-!> \param staging_env the staging_env to retain
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE staging_retain(staging_env)
-      TYPE(staging_env_type), POINTER                    :: staging_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(staging_env))
-      CPASSERT(staging_env%ref_count > 0)
-      staging_env%ref_count = staging_env%ref_count + 1
-      RETURN
-   END SUBROUTINE staging_retain
 
 ! ***************************************************************************
 !> \brief initializes the masses and fictitious masses compatibly with the
@@ -120,16 +83,13 @@ CONTAINS
 !>      11.2003 created [fawzi]
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
-   SUBROUTINE staging_init_masses(staging_env, mass, mass_beads, mass_fict, &
-                                  Q)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   PURE SUBROUTINE staging_init_masses(staging_env, mass, mass_beads, mass_fict, &
+                                       Q)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
       REAL(kind=dp), DIMENSION(:), INTENT(in)            :: mass
       REAL(kind=dp), DIMENSION(:, :), INTENT(out), &
          OPTIONAL                                        :: mass_beads, mass_fict
       REAL(kind=dp), DIMENSION(:), INTENT(out), OPTIONAL :: Q
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_init_masses', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ib, iseg
       REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: scal
@@ -169,7 +129,6 @@ CONTAINS
             END DO
          END IF
       END IF
-      RETURN
    END SUBROUTINE staging_init_masses
 
 ! ***************************************************************************
@@ -180,17 +139,13 @@ CONTAINS
 !> \param x the positions to transform
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE staging_x2u(staging_env, ux, x)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   PURE SUBROUTINE staging_x2u(staging_env, ux, x)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(out)        :: ux
       REAL(kind=dp), DIMENSION(:, :), INTENT(in)         :: x
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_x2u', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: k, s
 
-      CPASSERT(ASSOCIATED(staging_env))
-      CPASSERT(staging_env%ref_count > 0)
       ux = x
       DO s = 0, staging_env%nseg - 1
          DO k = 2, staging_env%j
@@ -200,7 +155,6 @@ CONTAINS
                                              x(staging_env%j*s + 1, :)/REAL(k, dp)))
          END DO
       END DO
-      RETURN
    END SUBROUTINE staging_x2u
 
 ! ***************************************************************************
@@ -211,19 +165,15 @@ CONTAINS
 !> \param x will contain the positions
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE staging_u2x(staging_env, ux, x)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   PURE SUBROUTINE staging_u2x(staging_env, ux, x)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(in)         :: ux
       REAL(kind=dp), DIMENSION(:, :), INTENT(out)        :: x
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_u2x', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ist, j
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii, jjj
       REAL(kind=dp)                                      :: const, const2
 
-      CPASSERT(ASSOCIATED(staging_env))
-      CPASSERT(staging_env%ref_count > 0)
       j = staging_env%j
       const = REAL(j - 1, dp)/REAL(j, dp)
       const2 = 1._dp/REAL(j, dp)
@@ -248,7 +198,6 @@ CONTAINS
                                  + ux(iii(ist), :)/REAL(i, dp)
          END DO
       END DO
-      RETURN
    END SUBROUTINE staging_u2x
 
 ! ***************************************************************************
@@ -258,19 +207,15 @@ CONTAINS
 !> \param f the forces to transform
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE staging_f2uf(staging_env, uf, f)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   PURE SUBROUTINE staging_f2uf(staging_env, uf, f)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
       REAL(kind=dp), DIMENSION(:, :), INTENT(out)        :: uf
       REAL(kind=dp), DIMENSION(:, :), INTENT(in)         :: f
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_f2uf', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, idim, ij, ist, k
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii, jjj, kkk
       REAL(kind=dp)                                      :: const, sum_f
 
-      CPASSERT(ASSOCIATED(staging_env))
-      CPASSERT(staging_env%ref_count > 0)
       const = REAL(staging_env%j - 1, dp)/REAL(staging_env%j, dp)
       ALLOCATE (iii(staging_env%j), jjj(staging_env%j), &
                 kkk(staging_env%j))
@@ -300,7 +245,6 @@ CONTAINS
                                sum_f - const*(uf(jjj(k), idim) - uf(kkk(k), idim))
          END DO
       END DO
-      RETURN
    END SUBROUTINE staging_f2uf
 
 ! ***************************************************************************
@@ -312,13 +256,10 @@ CONTAINS
 !> \param e_h ...
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE staging_calc_uf_h(staging_env, mass_beads, ux, uf_h, e_h)
-      TYPE(staging_env_type), POINTER                    :: staging_env
+   PURE SUBROUTINE staging_calc_uf_h(staging_env, mass_beads, ux, uf_h, e_h)
+      TYPE(staging_env_type), INTENT(IN)                 :: staging_env
       REAL(kind=dp), DIMENSION(:, :), POINTER            :: mass_beads, ux, uf_h
       REAL(KIND=dp), INTENT(OUT)                         :: e_h
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'staging_calc_uf_h', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: idim, isg, ist
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii, jjj, kkk
@@ -331,7 +272,7 @@ CONTAINS
 
       DO ist = 1, staging_env%nseg
          iii(ist) = (ist - 1)*staging_env%j + 1 ! first el
-         jjj(ist) = iii(ist) + staging_env%j ! next fisrt (pbc)
+         jjj(ist) = iii(ist) + staging_env%j ! next first (pbc)
          kkk(ist) = iii(ist) - staging_env%j ! prev first el (pbc)
       END DO
       jjj(staging_env%nseg) = 1
@@ -354,7 +295,6 @@ CONTAINS
             END DO
          END DO
       END DO
-      RETURN
    END SUBROUTINE staging_calc_uf_h
 
 END MODULE pint_staging

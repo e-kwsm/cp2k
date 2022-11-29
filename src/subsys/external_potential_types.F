@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -308,10 +310,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE allocate_all_potential(potential)
-      TYPE(all_potential_type), POINTER                  :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_all_potential', &
-         routineP = moduleN//':'//routineN
+      TYPE(all_potential_type), INTENT(INOUT), POINTER   :: potential
 
       IF (ASSOCIATED(potential)) CALL deallocate_potential(potential)
 
@@ -331,10 +330,7 @@ CONTAINS
 !> \author  Toon.Verstraelen@gmail.com
 ! **************************************************************************************************
    SUBROUTINE allocate_fist_potential(potential)
-      TYPE(fist_potential_type), POINTER                 :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_fist_potential', &
-         routineP = moduleN//':'//routineN
+      TYPE(fist_potential_type), INTENT(INOUT), POINTER  :: potential
 
       IF (ASSOCIATED(potential)) CALL deallocate_potential(potential)
 
@@ -359,10 +355,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE allocate_local_potential(potential)
-      TYPE(local_potential_type), POINTER                :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_local_potential', &
-         routineP = moduleN//':'//routineN
+      TYPE(local_potential_type), INTENT(INOUT), POINTER :: potential
 
       IF (ASSOCIATED(potential)) CALL deallocate_potential(potential)
 
@@ -386,10 +379,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE allocate_gth_potential(potential)
-      TYPE(gth_potential_type), POINTER                  :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_gth_potential', &
-         routineP = moduleN//':'//routineN
+      TYPE(gth_potential_type), INTENT(INOUT), POINTER   :: potential
 
       IF (ASSOCIATED(potential)) CALL deallocate_potential(potential)
 
@@ -427,10 +417,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE allocate_sgp_potential(potential)
-      TYPE(sgp_potential_type), POINTER                  :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_sgp_potential', &
-         routineP = moduleN//':'//routineN
+      TYPE(sgp_potential_type), INTENT(INOUT), POINTER   :: potential
 
       IF (ASSOCIATED(potential)) CALL deallocate_potential(potential)
 
@@ -486,15 +473,12 @@ CONTAINS
    SUBROUTINE deallocate_all_potential(potential)
       TYPE(all_potential_type), POINTER                  :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_all_potential', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(potential)) THEN
-         DEALLOCATE (potential%elec_conf)
-         DEALLOCATE (potential)
-      ELSE
+      IF (.NOT. ASSOCIATED(potential)) THEN
          CPABORT("The pointer potential is not associated.")
       END IF
+
+      DEALLOCATE (potential%elec_conf)
+      DEALLOCATE (potential)
 
    END SUBROUTINE deallocate_all_potential
 
@@ -507,15 +491,12 @@ CONTAINS
    SUBROUTINE deallocate_fist_potential(potential)
       TYPE(fist_potential_type), POINTER                 :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_fist_potential', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(potential)) THEN
-         ! Nothing exciting here yet.
-         DEALLOCATE (potential)
-      ELSE
+      IF (.NOT. ASSOCIATED(potential)) THEN
          CPABORT("The pointer potential is not associated.")
       END IF
+
+      ! Nothing exciting here yet.
+      DEALLOCATE (potential)
 
    END SUBROUTINE deallocate_fist_potential
 
@@ -529,25 +510,18 @@ CONTAINS
    SUBROUTINE deallocate_local_potential(potential)
       TYPE(local_potential_type), POINTER                :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_local_potential', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(potential)) THEN
-
-         IF (ASSOCIATED(potential%alpha)) THEN
-            DEALLOCATE (potential%alpha)
-         END IF
-         IF (ASSOCIATED(potential%cval)) THEN
-            DEALLOCATE (potential%cval)
-         END IF
-
-         DEALLOCATE (potential)
-
-      ELSE
-
+      IF (.NOT. ASSOCIATED(potential)) THEN
          CPABORT("The pointer potential is not associated.")
-
       END IF
+
+      IF (ASSOCIATED(potential%alpha)) THEN
+         DEALLOCATE (potential%alpha)
+      END IF
+      IF (ASSOCIATED(potential%cval)) THEN
+         DEALLOCATE (potential%cval)
+      END IF
+
+      DEALLOCATE (potential)
 
    END SUBROUTINE deallocate_local_potential
 
@@ -561,51 +535,46 @@ CONTAINS
    SUBROUTINE deallocate_gth_potential(potential)
       TYPE(gth_potential_type), POINTER                  :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_gth_potential', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(potential)) THEN
-
-         DEALLOCATE (potential%elec_conf)
-         !     *** Deallocate the parameters of the local part ***
-
-         IF (ASSOCIATED(potential%cexp_ppl)) THEN
-            DEALLOCATE (potential%cexp_ppl)
-         END IF
-
-         !     *** Deallocate the parameters of the non-local part ***
-         IF (ASSOCIATED(potential%alpha_ppnl)) THEN
-            DEALLOCATE (potential%alpha_ppnl)
-            DEALLOCATE (potential%cprj)
-            DEALLOCATE (potential%cprj_ppnl)
-            DEALLOCATE (potential%hprj_ppnl)
-            DEALLOCATE (potential%nprj_ppnl)
-            DEALLOCATE (potential%vprj_ppnl)
-         END IF
-
-         IF (ASSOCIATED(potential%alpha_lpot)) THEN
-            DEALLOCATE (potential%alpha_lpot)
-            DEALLOCATE (potential%nct_lpot)
-            DEALLOCATE (potential%cval_lpot)
-         END IF
-
-         IF (ASSOCIATED(potential%alpha_lsd)) THEN
-            DEALLOCATE (potential%alpha_lsd)
-            DEALLOCATE (potential%nct_lsd)
-            DEALLOCATE (potential%cval_lsd)
-         END IF
-
-         IF (ASSOCIATED(potential%alpha_nlcc)) THEN
-            DEALLOCATE (potential%alpha_nlcc)
-            DEALLOCATE (potential%nct_nlcc)
-            DEALLOCATE (potential%cval_nlcc)
-         END IF
-
-         DEALLOCATE (potential)
-      ELSE
+      IF (.NOT. ASSOCIATED(potential)) THEN
          CPABORT("The pointer potential is not associated.")
       END IF
 
+      DEALLOCATE (potential%elec_conf)
+      !     *** Deallocate the parameters of the local part ***
+
+      IF (ASSOCIATED(potential%cexp_ppl)) THEN
+         DEALLOCATE (potential%cexp_ppl)
+      END IF
+
+      !     *** Deallocate the parameters of the non-local part ***
+      IF (ASSOCIATED(potential%alpha_ppnl)) THEN
+         DEALLOCATE (potential%alpha_ppnl)
+         DEALLOCATE (potential%cprj)
+         DEALLOCATE (potential%cprj_ppnl)
+         DEALLOCATE (potential%hprj_ppnl)
+         DEALLOCATE (potential%nprj_ppnl)
+         DEALLOCATE (potential%vprj_ppnl)
+      END IF
+
+      IF (ASSOCIATED(potential%alpha_lpot)) THEN
+         DEALLOCATE (potential%alpha_lpot)
+         DEALLOCATE (potential%nct_lpot)
+         DEALLOCATE (potential%cval_lpot)
+      END IF
+
+      IF (ASSOCIATED(potential%alpha_lsd)) THEN
+         DEALLOCATE (potential%alpha_lsd)
+         DEALLOCATE (potential%nct_lsd)
+         DEALLOCATE (potential%cval_lsd)
+      END IF
+
+      IF (ASSOCIATED(potential%alpha_nlcc)) THEN
+         DEALLOCATE (potential%alpha_nlcc)
+         DEALLOCATE (potential%nct_nlcc)
+         DEALLOCATE (potential%cval_nlcc)
+      END IF
+
+      DEALLOCATE (potential)
    END SUBROUTINE deallocate_gth_potential
 
 ! **************************************************************************************************
@@ -615,47 +584,44 @@ CONTAINS
    SUBROUTINE deallocate_sgp_potential(potential)
       TYPE(sgp_potential_type), POINTER                  :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_sgp_potential', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(potential)) THEN
-         IF (ASSOCIATED(potential%elec_conf)) THEN
-            DEALLOCATE (potential%elec_conf)
-         END IF
-         IF (ASSOCIATED(potential%a_local)) THEN
-            DEALLOCATE (potential%a_local)
-         END IF
-         IF (ASSOCIATED(potential%c_local)) THEN
-            DEALLOCATE (potential%c_local)
-         END IF
-
-         IF (ASSOCIATED(potential%a_nonlocal)) THEN
-            DEALLOCATE (potential%a_nonlocal)
-         END IF
-         IF (ASSOCIATED(potential%h_nonlocal)) THEN
-            DEALLOCATE (potential%h_nonlocal)
-         END IF
-         IF (ASSOCIATED(potential%c_nonlocal)) THEN
-            DEALLOCATE (potential%c_nonlocal)
-         END IF
-         IF (ASSOCIATED(potential%cprj_ppnl)) THEN
-            DEALLOCATE (potential%cprj_ppnl)
-         END IF
-         IF (ASSOCIATED(potential%vprj_ppnl)) THEN
-            DEALLOCATE (potential%vprj_ppnl)
-         END IF
-
-         IF (ASSOCIATED(potential%a_nlcc)) THEN
-            DEALLOCATE (potential%a_nlcc)
-         END IF
-         IF (ASSOCIATED(potential%c_nlcc)) THEN
-            DEALLOCATE (potential%c_nlcc)
-         END IF
-
-         DEALLOCATE (potential)
-      ELSE
+      IF (.NOT. ASSOCIATED(potential)) THEN
          CPABORT("The pointer potential is not associated.")
       END IF
+
+      IF (ASSOCIATED(potential%elec_conf)) THEN
+         DEALLOCATE (potential%elec_conf)
+      END IF
+      IF (ASSOCIATED(potential%a_local)) THEN
+         DEALLOCATE (potential%a_local)
+      END IF
+      IF (ASSOCIATED(potential%c_local)) THEN
+         DEALLOCATE (potential%c_local)
+      END IF
+
+      IF (ASSOCIATED(potential%a_nonlocal)) THEN
+         DEALLOCATE (potential%a_nonlocal)
+      END IF
+      IF (ASSOCIATED(potential%h_nonlocal)) THEN
+         DEALLOCATE (potential%h_nonlocal)
+      END IF
+      IF (ASSOCIATED(potential%c_nonlocal)) THEN
+         DEALLOCATE (potential%c_nonlocal)
+      END IF
+      IF (ASSOCIATED(potential%cprj_ppnl)) THEN
+         DEALLOCATE (potential%cprj_ppnl)
+      END IF
+      IF (ASSOCIATED(potential%vprj_ppnl)) THEN
+         DEALLOCATE (potential%vprj_ppnl)
+      END IF
+
+      IF (ASSOCIATED(potential%a_nlcc)) THEN
+         DEALLOCATE (potential%a_nlcc)
+      END IF
+      IF (ASSOCIATED(potential%c_nlcc)) THEN
+         DEALLOCATE (potential%c_nlcc)
+      END IF
+
+      DEALLOCATE (potential)
 
    END SUBROUTINE deallocate_sgp_potential
 
@@ -685,9 +651,6 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: z
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: zeff, zeff_correction
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: elec_conf
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_all_potential', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(potential)) THEN
 
@@ -732,9 +695,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: apol, cpol, mm_radius, qeff, &
                                                             qmmm_corr_radius, qmmm_radius
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_fist_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) name = potential%name
@@ -774,9 +734,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: alpha
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: cval
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: radius
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_local_potential', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(potential)) THEN
 
@@ -887,9 +844,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: alpha_nlcc
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: nct_nlcc
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: cval_nlcc
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_gth_potential', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(potential)) THEN
 
@@ -1028,9 +982,6 @@ CONTAINS
       INTEGER, INTENT(OUT), OPTIONAL                     :: n_nlcc
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: a_nlcc, c_nlcc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_sgp_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) name = potential%name
@@ -1101,8 +1052,6 @@ CONTAINS
    SUBROUTINE init_cprj_ppnl(potential)
       TYPE(gth_potential_type), POINTER                  :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_cprj_ppnl', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: cpx, cpy, cpz, cx, cy, cz, ico, iprj, &
                                                             iprj_ppnl, l, lp, lprj_ppnl, nprj, px, &
                                                             py, pz
@@ -1151,9 +1100,6 @@ CONTAINS
    SUBROUTINE init_gth_potential(potential)
       TYPE(gth_potential_type), POINTER                  :: potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_gth_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(potential)) RETURN
 
       IF (potential%nppnl > 0) THEN
@@ -1183,8 +1129,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_vprj_ppnl(potential)
       TYPE(gth_potential_type), POINTER                  :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_vprj_ppnl', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ico, iprj, iprj_ppnl, iso, j, jco, &
                                                             jprj, jprj_ppnl, l, nprj
@@ -1228,9 +1172,6 @@ CONTAINS
       TYPE(all_potential_type), POINTER                  :: potential
       CHARACTER(LEN=*), OPTIONAL                         :: itype
       REAL(KIND=dp), OPTIONAL                            :: zeff, zeff_correction
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_all_potential', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: dz
 
@@ -1308,7 +1249,7 @@ CONTAINS
             ELSE
                potential%description(2) = "Full atomic charge"
             END IF
-         ENDIF
+         END IF
       END IF
 
    END SUBROUTINE init_all_potential
@@ -1319,9 +1260,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_sgp_potential(potential)
       TYPE(sgp_potential_type), POINTER                  :: potential
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_sgp_potential', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i1, i2, j1, j2, l, la, lb, n1, n2, nnl, &
                                                             nprj
@@ -1440,9 +1378,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: potential_section
       LOGICAL, INTENT(IN)                                :: update_input
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_all_potential', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(LEN=242)                                 :: line2
       CHARACTER(len=5*default_string_length)             :: line_att
@@ -1468,6 +1403,7 @@ CONTAINS
       read_from_input = .FALSE.
       CALL section_vals_get(potential_section, explicit=read_from_input)
       IF (.NOT. read_from_input) THEN
+         ALLOCATE (parser)
          CALL parser_create(parser, potential_file_name, para_env=para_env)
       END IF
 
@@ -1597,6 +1533,7 @@ CONTAINS
                                       c_val=TRIM(line_att))
          END IF
          CALL parser_release(parser)
+         DEALLOCATE (parser)
       END IF
    END SUBROUTINE read_all_potential
 
@@ -1623,8 +1560,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: potential_section
       LOGICAL, INTENT(IN)                                :: update_input
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_local_potential', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: eps_tpot = 1.e-10_dp
 
       CHARACTER(LEN=240)                                 :: line
@@ -1652,6 +1587,7 @@ CONTAINS
       read_from_input = .FALSE.
       CALL section_vals_get(potential_section, explicit=read_from_input)
       IF (.NOT. read_from_input) THEN
+         ALLOCATE (parser)
          CALL parser_create(parser, potential_file_name, para_env=para_env)
       END IF
 
@@ -1746,7 +1682,8 @@ CONTAINS
                   DO ipol = 1, npol
                      l = 2*(ipol - 1)
                      potential%radius = MAX(potential%radius, &
-                                            exp_radius(l, alpha(igau), eps_tpot, cval(igau, ipol)))
+                                            exp_radius(l, alpha(igau), eps_tpot, cval(igau, ipol), &
+                                                       rlow=potential%radius))
                   END DO
                END DO
 
@@ -1777,6 +1714,7 @@ CONTAINS
                                       c_val=TRIM(line_att))
          END IF
          CALL parser_release(parser)
+         DEALLOCATE (parser)
       END IF
 
    END SUBROUTINE read_local_potential
@@ -1811,9 +1749,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: potential_section
       LOGICAL, INTENT(IN)                                :: update_input
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_gth_potential', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(LEN=242)                                 :: line2
       CHARACTER(len=5*default_string_length)             :: line_att
@@ -1847,6 +1782,7 @@ CONTAINS
       read_from_input = .FALSE.
       CALL section_vals_get(potential_section, explicit=read_from_input)
       IF (.NOT. read_from_input) THEN
+         ALLOCATE (parser)
          CALL parser_create(parser, potential_file_name, para_env=para_env)
       END IF
 
@@ -1893,7 +1829,7 @@ CONTAINS
                   match = .TRUE.
                   i = i + 1 + INDEX(line2(i + 1:), " ")
                   potential%aliases = line2(i:) ! copy all names into aliases field
-               ENDIF
+               END IF
             END IF
             IF (match) THEN
                !         *** Read the electronic configuration ***
@@ -2408,6 +2344,7 @@ CONTAINS
                                       c_val=TRIM(line_att))
          END IF
          CALL parser_release(parser)
+         DEALLOCATE (parser)
       END IF
 
       IF (ASSOCIATED(tmp_vals)) DEALLOCATE (tmp_vals)
@@ -2425,9 +2362,6 @@ CONTAINS
       TYPE(all_potential_type), POINTER                  :: potential
       INTEGER, INTENT(IN)                                :: z
       REAL(KIND=dp)                                      :: zeff_correction
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_default_all_potential', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: name
       INTEGER, DIMENSION(:), POINTER                     :: elec_conf
@@ -2490,9 +2424,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: zeff, zeff_correction
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: elec_conf
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_all_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) potential%name = name
@@ -2539,9 +2470,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: cval
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: radius
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_local_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) potential%name = name
@@ -2575,9 +2503,6 @@ CONTAINS
       TYPE(fist_potential_type), POINTER                 :: potential
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: apol, cpol, qeff, mm_radius, &
                                                             qmmm_corr_radius, qmmm_radius
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_fist_potential', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(potential)) THEN
 
@@ -2649,9 +2574,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), OPTIONAL, &
          POINTER                                         :: hprj_ppnl
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_gth_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) potential%name = name
@@ -2677,10 +2599,10 @@ CONTAINS
          IF (PRESENT(elec_conf)) THEN
             IF (ASSOCIATED(potential%elec_conf)) THEN
                DEALLOCATE (potential%elec_conf)
-            ENDIF
+            END IF
             ALLOCATE (potential%elec_conf(0:SIZE(elec_conf) - 1))
             potential%elec_conf(:) = elec_conf(:)
-         ENDIF
+         END IF
          IF (PRESENT(nprj_ppnl)) potential%nprj_ppnl => nprj_ppnl
          IF (PRESENT(cprj)) potential%cprj => cprj
          IF (PRESENT(cprj_ppnl)) potential%cprj_ppnl => cprj_ppnl
@@ -2768,9 +2690,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: n_nlcc
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: a_nlcc, c_nlcc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_sgp_potential', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(potential)) THEN
 
          IF (PRESENT(name)) potential%name = name
@@ -2780,10 +2699,10 @@ CONTAINS
          IF (PRESENT(elec_conf)) THEN
             IF (ASSOCIATED(potential%elec_conf)) THEN
                DEALLOCATE (potential%elec_conf)
-            ENDIF
+            END IF
             ALLOCATE (potential%elec_conf(0:SIZE(elec_conf) - 1))
             potential%elec_conf(:) = elec_conf(:)
-         ENDIF
+         END IF
 
          IF (PRESENT(z)) potential%z = z
          IF (PRESENT(zeff)) potential%zeff = zeff
@@ -3028,9 +2947,6 @@ CONTAINS
       TYPE(all_potential_type), INTENT(IN), POINTER      :: pot_in
       TYPE(all_potential_type), INTENT(INOUT), POINTER   :: pot_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_all_potential', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(pot_in))
       CALL allocate_all_potential(pot_out)
 
@@ -3059,9 +2975,6 @@ CONTAINS
 
       TYPE(gth_potential_type), INTENT(IN), POINTER      :: pot_in
       TYPE(gth_potential_type), INTENT(INOUT), POINTER   :: pot_out
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_gth_potential', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(pot_in))
       CALL allocate_gth_potential(pot_out)
@@ -3177,13 +3090,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE copy_sgp_potential(pot_in, pot_out)
 
-      TYPE(sgp_potential_type), INTENT(IN), POINTER      :: pot_in
+      TYPE(sgp_potential_type), INTENT(IN)               :: pot_in
       TYPE(sgp_potential_type), INTENT(INOUT), POINTER   :: pot_out
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_sgp_potential', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(pot_in))
       CALL allocate_sgp_potential(pot_out)
 
       pot_out%name = pot_in%name

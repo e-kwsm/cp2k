@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 MODULE dkh_main
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type
@@ -23,8 +25,8 @@ MODULE dkh_main
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE physcon,                         ONLY: c_light_au
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -98,18 +100,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE DKH_full_transformation(qs_env, matrix_s, matrix_v, matrix_t, matrix_pVp, n, dkh_order)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_s, matrix_v, matrix_t, matrix_pVp
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_s, matrix_v, matrix_t, matrix_pVp
       INTEGER, INTENT(IN)                                :: n, dkh_order
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'DKH_full_transformation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'DKH_full_transformation'
 
       INTEGER                                            :: handle, i
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: aa, e, ev0t, rr, tt
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_full
-      TYPE(cp_fm_type), POINTER :: matrix_aux, matrix_aux2, matrix_eig, matrix_ev1, matrix_ev2, &
-         matrix_ev3, matrix_ev4, matrix_pe1p, matrix_rev, matrix_se, matrix_sinv
+      TYPE(cp_fm_type) :: matrix_aux, matrix_aux2, matrix_eig, matrix_ev1, matrix_ev2, matrix_ev3, &
+         matrix_ev4, matrix_pe1p, matrix_rev, matrix_se, matrix_sinv
 
       CALL timeset(routineN, handle)
       NULLIFY (blacs_env)
@@ -117,6 +118,7 @@ CONTAINS
       !-----------------------------------------------------------------------
       !     Construct the matrix structure
       !-----------------------------------------------------------------------
+
       CALL get_qs_env(qs_env, blacs_env=blacs_env)
       CALL cp_fm_struct_create(fmstruct=matrix_full, &
                                context=blacs_env, &
@@ -132,18 +134,6 @@ CONTAINS
       ALLOCATE (rr(n))
       ALLOCATE (tt(n))
       ALLOCATE (ev0t(n))
-
-      NULLIFY (matrix_eig)
-      NULLIFY (matrix_aux)
-      NULLIFY (matrix_aux2)
-      NULLIFY (matrix_rev)
-      NULLIFY (matrix_se)
-      NULLIFY (matrix_ev1)
-      NULLIFY (matrix_ev2)
-      NULLIFY (matrix_ev3)
-      NULLIFY (matrix_ev4)
-      NULLIFY (matrix_sinv)
-      NULLIFY (matrix_pe1p)
 
       CALL cp_fm_create(matrix_eig, matrix_full)
       CALL cp_fm_create(matrix_aux, matrix_full)
@@ -190,7 +180,7 @@ CONTAINS
 
       CALL cp_fm_to_fm(matrix_rev, matrix_aux)
       CALL cp_fm_column_scale(matrix_aux, ev0t)
-      CALL cp_gemm("N", "T", n, n, n, 1.0_dp, matrix_rev, matrix_aux, 0.0_dp, matrix_t)
+      CALL parallel_gemm("N", "T", n, n, n, 1.0_dp, matrix_rev, matrix_aux, 0.0_dp, matrix_t)
 
       !-----------------------------------------------------------------------
       !     Calculate kinematical factors for DKH
@@ -208,8 +198,8 @@ CONTAINS
 
       CALL cp_fm_cholesky_reduce(matrix_v, matrix_sinv)
       CALL cp_fm_upper_to_full(matrix_v, matrix_aux)
-      CALL cp_gemm("T", "N", n, n, n, 1.0_dp, matrix_eig, matrix_v, 0.0_dp, matrix_aux)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_eig, 0.0_dp, matrix_v)
+      CALL parallel_gemm("T", "N", n, n, n, 1.0_dp, matrix_eig, matrix_v, 0.0_dp, matrix_aux)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_eig, 0.0_dp, matrix_v)
 
       !-----------------------------------------------------------------------
       !     Transform pVp integrals to T-basis (pVp -> pVp(t))
@@ -217,8 +207,8 @@ CONTAINS
 
       CALL cp_fm_cholesky_reduce(matrix_pVp, matrix_sinv)
       CALL cp_fm_upper_to_full(matrix_pVp, matrix_aux)
-      CALL cp_gemm("T", "N", n, n, n, 1.0_dp, matrix_eig, matrix_pVp, 0.0_dp, matrix_aux)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_eig, 0.0_dp, matrix_pVp)
+      CALL parallel_gemm("T", "N", n, n, n, 1.0_dp, matrix_eig, matrix_pVp, 0.0_dp, matrix_aux)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_eig, 0.0_dp, matrix_pVp)
 
       !-----------------------------------------------------------------------
       !     Calculate even1 in T-basis
@@ -244,8 +234,8 @@ CONTAINS
          !     Transform even3 back to position space
          !-----------------------------------------------------------------------
 
-         CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev3, 0.0_dp, matrix_aux)
-         CALL cp_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev3)
+         CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev3, 0.0_dp, matrix_aux)
+         CALL parallel_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev3)
 
          !-----------------------------------------------------------------------
          !     Calculate even4 in T-basis, only if requested
@@ -260,8 +250,8 @@ CONTAINS
             !     Transform even4 back to position space
             !-----------------------------------------------------------------------
 
-            !        CALL cp_gemm("N","N",n,n,n,1.0_dp,matrix_rev,matrix_ev4,0.0_dp,matrix_aux)
-            !        CALL cp_gemm("N","T",n,n,n,1.0_dp,matrix_aux,matrix_rev,0.0_dp,matrix_ev4)
+            !        CALL parallel_gemm("N","N",n,n,n,1.0_dp,matrix_rev,matrix_ev4,0.0_dp,matrix_aux)
+            !        CALL parallel_gemm("N","T",n,n,n,1.0_dp,matrix_aux,matrix_rev,0.0_dp,matrix_ev4)
 
          END IF
       END IF
@@ -270,20 +260,20 @@ CONTAINS
       !     Transform even1 back to position space
       !----------------------------------------------------------------------
 
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev1, 0.0_dp, matrix_aux)
-      CALL cp_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev1)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev1, 0.0_dp, matrix_aux)
+      CALL parallel_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev1)
 
       !-----------------------------------------------------------------------
       !     Transform even2 back to position space
       !-----------------------------------------------------------------------
 
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev2, 0.0_dp, matrix_aux)
-      CALL cp_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev2)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_rev, matrix_ev2, 0.0_dp, matrix_aux)
+      CALL parallel_gemm("N", "T", n, n, n, 1.0_dp, matrix_aux, matrix_rev, 0.0_dp, matrix_ev2)
 
       !-----------------------------------------------------------------------
       !     Calculate v in position space
       !-----------------------------------------------------------------------
-      !
+
       CALL cp_fm_scale_and_add(1.0_dp, matrix_ev1, 1.0_dp, matrix_ev2)
       CALL cp_fm_upper_to_full(matrix_ev1, matrix_aux)
       CALL cp_fm_to_fm(matrix_ev1, matrix_v)
@@ -293,8 +283,6 @@ CONTAINS
             CALL cp_fm_scale_and_add(1.0_dp, matrix_v, 1.0_dp, matrix_ev4)
          END IF
       END IF
-
-      !-----------------------------------------------------------------------
 
       CALL cp_fm_release(matrix_eig)
       CALL cp_fm_release(matrix_aux)
@@ -359,7 +347,6 @@ CONTAINS
          e(i) = ev0t(i) + con
       END DO
 
-      RETURN
    END SUBROUTINE kintegral
 
 ! **************************************************************************************************
@@ -373,9 +360,9 @@ CONTAINS
 !> \param matrix_aux2 ...
 ! **************************************************************************************************
    SUBROUTINE even1(matrix_ev1, matrix_v, matrix_pvp, aa, rr, matrix_aux, matrix_aux2)
-      TYPE(cp_fm_type), POINTER                          :: matrix_ev1, matrix_v, matrix_pVp
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ev1, matrix_v, matrix_pVp
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: aa, rr
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux, matrix_aux2
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux, matrix_aux2
 
       CALL cp_fm_to_fm(matrix_v, matrix_aux)
       CALL cp_fm_column_scale(matrix_aux, aa)
@@ -391,7 +378,6 @@ CONTAINS
 
       CALL cp_fm_scale_and_add(1.0_dp, matrix_ev1, 1.0_dp, matrix_aux2)
 
-      RETURN
    END SUBROUTINE even1
 
 ! **************************************************************************************************
@@ -409,7 +395,7 @@ CONTAINS
    SUBROUTINE peven1p(n, matrix_pe1p, matrix_v, matrix_pvp, matrix_aux, matrix_aux2, aa, rr, tt)
 
       INTEGER, INTENT(IN)                                :: n
-      TYPE(cp_fm_type), POINTER                          :: matrix_pe1p, matrix_v, matrix_pvp, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_pe1p, matrix_v, matrix_pvp, &
                                                             matrix_aux, matrix_aux2
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: aa, rr, tt
 
@@ -418,7 +404,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(n)                        :: vec_ar, vec_arrt
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: vec_full
-      TYPE(cp_fm_type), POINTER                          :: vec_a
+      TYPE(cp_fm_type)                                   :: vec_a
 
       DO i = 1, n
          vec_ar(i) = aa(i)*rr(i)
@@ -431,7 +417,6 @@ CONTAINS
                                nrow_global=n, &
                                ncol_global=1)
 
-      NULLIFY (vec_a)
       CALL cp_fm_create(vec_a, vec_full)
 
       CALL cp_fm_get_info(matrix_v, nrow_local=nrow_local, &
@@ -458,10 +443,7 @@ CONTAINS
       CALL cp_fm_release(vec_a)
       CALL cp_fm_struct_release(vec_full)
 
-      RETURN
    END SUBROUTINE peven1p
-
-   !-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief 2nd order DK-approximation (original DK-transformation with U = SQRT(1+W^2) + W)
@@ -493,13 +475,13 @@ CONTAINS
       !***********************************************************************
 
       INTEGER, INTENT(IN)                                :: n
-      TYPE(cp_fm_type), POINTER                          :: matrix_ev2, matrix_v, matrix_pVp
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ev2, matrix_v, matrix_pVp
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: aa, rr, tt, e
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_full
-      TYPE(cp_fm_type), POINTER                          :: matrix_apVpa, matrix_apVVpa, &
+      TYPE(cp_fm_type)                                   :: matrix_apVpa, matrix_apVVpa, &
                                                             matrix_aux2, matrix_ava, matrix_avva
 
 !     result  intermediate result of even2-calculation
@@ -512,12 +494,6 @@ CONTAINS
                                context=context, &
                                nrow_global=n, &
                                ncol_global=n)
-
-      NULLIFY (matrix_aux2)
-      NULLIFY (matrix_ava)
-      NULLIFY (matrix_avva)
-      NULLIFY (matrix_apVpa)
-      NULLIFY (matrix_apVVpa)
 
       CALL cp_fm_create(matrix_aux2, matrix_full)
       CALL cp_fm_create(matrix_ava, matrix_full)
@@ -552,17 +528,17 @@ CONTAINS
 
       !  Calculate w1o1:
 
-      CALL cp_gemm("N", "N", n, n, n, -1.0_dp, matrix_apVVpa, matrix_ava, 0.0_dp, matrix_aux2)
+      CALL parallel_gemm("N", "N", n, n, n, -1.0_dp, matrix_apVVpa, matrix_ava, 0.0_dp, matrix_aux2)
       CALL mat_muld(matrix_aux2, matrix_apVVpa, matrix_apVpa, n, 1.0_dp, 1.0_dp, tt, rr, matrix_aux)
       CALL mat_mulm(matrix_aux2, matrix_avva, matrix_ava, n, 1.0_dp, 1.0_dp, tt, rr, matrix_aux)
-      CALL cp_gemm("N", "N", n, n, n, -1.0_dp, matrix_avva, matrix_apVpa, 1.0_dp, matrix_aux2)
+      CALL parallel_gemm("N", "N", n, n, n, -1.0_dp, matrix_avva, matrix_apVpa, 1.0_dp, matrix_aux2)
 
       !  Calculate o1w1 (already stored in ev2):
 
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_apVpa, matrix_avva, 0.0_dp, matrix_ev2)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_apVpa, matrix_avva, 0.0_dp, matrix_ev2)
       CALL mat_muld(matrix_ev2, matrix_apVpa, matrix_apVVpa, n, -1.0_dp, 1.0_dp, tt, rr, matrix_aux)
       CALL mat_mulm(matrix_ev2, matrix_ava, matrix_avva, n, -1.0_dp, 1.0_dp, tt, rr, matrix_aux)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_ava, matrix_apVVpa, 1.0_dp, matrix_ev2)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_ava, matrix_apVVpa, 1.0_dp, matrix_ev2)
 
       !-----------------------------------------------------------------------
       !     2.   1/2 [W1,O1] = 1/2 W1O1 -  1/2 O1W1
@@ -584,10 +560,8 @@ CONTAINS
 
 !    WRITE (*,*) "CAW:  DKH2 with even2c (Alex)"
 !    WRITE (*,*) "JT:  Now available in cp2k"
-      RETURN
-   END SUBROUTINE even2c
 
-   !-----------------------------------------------------------------------
+   END SUBROUTINE even2c
 
 ! **************************************************************************************************
 !> \brief ...
@@ -643,14 +617,14 @@ CONTAINS
       !***********************************************************************
 
       INTEGER, INTENT(IN)                                :: n
-      TYPE(cp_fm_type), POINTER                          :: matrix_ev3, matrix_ev1, matrix_pe1p, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_ev3, matrix_ev1, matrix_pe1p, &
                                                             matrix_v, matrix_pVp
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: aa, rr, tt, e
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_full
-      TYPE(cp_fm_type), POINTER                          :: matrix_apVVpa, matrix_aux2, matrix_avva, &
+      TYPE(cp_fm_type)                                   :: matrix_apVVpa, matrix_aux2, matrix_avva, &
                                                             matrix_w1e1w1, matrix_w1w1
 
 !-----------------------------------------------------------------------
@@ -662,12 +636,6 @@ CONTAINS
                                context=context, &
                                nrow_global=n, &
                                ncol_global=n)
-
-      NULLIFY (matrix_aux2)
-      NULLIFY (matrix_w1w1)
-      NULLIFY (matrix_w1e1w1)
-      NULLIFY (matrix_avva)
-      NULLIFY (matrix_apVVpa)
 
       CALL cp_fm_create(matrix_aux2, matrix_full)
       CALL cp_fm_create(matrix_w1w1, matrix_full)
@@ -692,26 +660,26 @@ CONTAINS
 
       !  Calculate w1w1:
 
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_apVVpa, matrix_avva, 0.0_dp, matrix_w1w1)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_apVVpa, matrix_avva, 0.0_dp, matrix_w1w1)
       CALL mat_muld(matrix_w1w1, matrix_apVVpa, matrix_apVVpa, n, -1.0_dp, 1.0_dp, tt, rr, matrix_aux2)
       CALL mat_mulm(matrix_w1w1, matrix_avva, matrix_avva, n, -1.0_dp, 1.0_dp, tt, rr, matrix_aux2)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_avva, matrix_apVVpa, 1.0_dp, matrix_w1w1)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_avva, matrix_apVVpa, 1.0_dp, matrix_w1w1)
 
       !  Calculate w1e1w1: (warning: ev3 is scratch array)
 
       CALL mat_muld(matrix_aux, matrix_apVVpa, matrix_pe1p, n, 1.0_dp, 0.0_dp, tt, rr, matrix_aux2)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_avva, matrix_pe1p, 0.0_dp, matrix_aux2)
-      CALL cp_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_avva, 0.0_dp, matrix_w1e1w1)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_avva, matrix_pe1p, 0.0_dp, matrix_aux2)
+      CALL parallel_gemm("N", "N", n, n, n, 1.0_dp, matrix_aux, matrix_avva, 0.0_dp, matrix_w1e1w1)
       CALL mat_muld(matrix_w1e1w1, matrix_aux, matrix_apVVpa, n, -1.0_dp, 1.0_dp, tt, rr, matrix_ev3)
-      CALL cp_gemm("N", "N", n, n, n, -1.0_dp, matrix_aux2, matrix_avva, 1.0_dp, matrix_w1e1w1)
+      CALL parallel_gemm("N", "N", n, n, n, -1.0_dp, matrix_aux2, matrix_avva, 1.0_dp, matrix_w1e1w1)
       CALL mat_muld(matrix_w1e1w1, matrix_aux2, matrix_apVVpa, n, 1.0_dp, 1.0_dp, tt, rr, matrix_ev3)
 
       !-----------------------------------------------------------------------
       !     2.   ev3 = 1/2 (W1^2)E1 + 1/2 E1(W1^2) - W1E1W1
       !-----------------------------------------------------------------------
 
-      CALL cp_gemm("N", "N", n, n, n, 0.5_dp, matrix_w1w1, matrix_ev1, 0.0_dp, matrix_ev3)
-      CALL cp_gemm("N", "N", n, n, n, 0.5_dp, matrix_ev1, matrix_w1w1, 1.0_dp, matrix_ev3)
+      CALL parallel_gemm("N", "N", n, n, n, 0.5_dp, matrix_w1w1, matrix_ev1, 0.0_dp, matrix_ev3)
+      CALL parallel_gemm("N", "N", n, n, n, 0.5_dp, matrix_ev1, matrix_w1w1, 1.0_dp, matrix_ev3)
       CALL cp_fm_scale_and_add(1.0_dp, matrix_ev3, -1.0_dp, matrix_w1e1w1)
 
       !-----------------------------------------------------------------------
@@ -728,7 +696,7 @@ CONTAINS
 
 !    WRITE (*,*) "CAW:  DKH3 with even3b (Alex)"
 !    WRITE (*,*) "JT:  Now available in cp2k"
-      RETURN
+
    END SUBROUTINE even3b
 
    !-----------------------------------------------------------------------
@@ -987,14 +955,13 @@ CONTAINS
 !    WRITE (*,*) "CAW:  DKH4 with even4a (Alex)"
 !    WRITE (*,*) "JT:   Now available in cp2k"
 
-      RETURN
    END SUBROUTINE even4a
 
    !-----------------------------------------------------------------------
    !                                                                      -
    !     Matrix routines for DKH-procedure                                -
    !     Alexander Wolf                                                   -
-   !     modifed: Jens Thar: Mem manager deleted                          -
+   !     modified: Jens Thar: Mem manager deleted                          -
    !     This file contains the                                           -
    !      following subroutines:                                          -
    !                                 1. mat_1_over_h                      -
@@ -1024,9 +991,9 @@ CONTAINS
       !                                                                      *
       !***********************************************************************
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_p, matrix_pp
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_p, matrix_pp
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: e
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       INTEGER                                            :: i, j, ncol_local, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
@@ -1037,15 +1004,12 @@ CONTAINS
       DO j = 1, ncol_local
          DO i = 1, nrow_local
             matrix_aux%local_data(i, j) = 1/(e(row_indices(i)) + e(col_indices(j)))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       CALL cp_fm_schur_product(matrix_p, matrix_aux, matrix_pp)
 
-      RETURN
-
    END SUBROUTINE mat_1_over_h
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1067,16 +1031,16 @@ CONTAINS
       !C                                                                      *
       !C***********************************************************************
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_x, matrix_axa
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_x, matrix_axa
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: a
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       INTEGER                                            :: i, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: row_indices
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: vec_full
-      TYPE(cp_fm_type), POINTER                          :: vec_a
+      TYPE(cp_fm_type)                                   :: vec_a
 
       CALL cp_fm_struct_get(matrix_x%matrix_struct, context=context)
       CALL cp_fm_struct_create(fmstruct=vec_full, &
@@ -1084,7 +1048,6 @@ CONTAINS
                                nrow_global=n, &
                                ncol_global=1)
 
-      NULLIFY (vec_a)
       CALL cp_fm_create(vec_a, vec_full)
 
       CALL cp_fm_get_info(matrix_x, nrow_local=nrow_local, &
@@ -1101,15 +1064,13 @@ CONTAINS
       !     DO i=1,n
       !       DO j=1,n
       !          p(i,j)=p(i,j)*a(i)*a(j)
-      !       ENDDO
-      !     ENDDO
+      !       END DO
+      !     END DO
 
       CALL cp_fm_release(vec_a)
       CALL cp_fm_struct_release(vec_full)
 
-      RETURN
    END SUBROUTINE mat_axa
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1133,16 +1094,16 @@ CONTAINS
       !C                                                                      *
       !C***********************************************************************
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_x, matrix_axa
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_x, matrix_axa
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: a, r
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       INTEGER                                            :: i, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: row_indices
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: vec_full
-      TYPE(cp_fm_type), POINTER                          :: vec_a
+      TYPE(cp_fm_type)                                   :: vec_a
 
       CALL cp_fm_struct_get(matrix_x%matrix_struct, context=context)
       CALL cp_fm_struct_create(fmstruct=vec_full, &
@@ -1153,7 +1114,6 @@ CONTAINS
       CALL cp_fm_get_info(matrix_aux, nrow_local=nrow_local, &
                           row_indices=row_indices)
 
-      NULLIFY (vec_a)
       CALL cp_fm_create(vec_a, vec_full)
 
       DO i = 1, nrow_local
@@ -1167,9 +1127,7 @@ CONTAINS
       CALL cp_fm_release(vec_a)
       CALL cp_fm_struct_release(vec_full)
 
-      RETURN
    END SUBROUTINE mat_arxra
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1202,11 +1160,11 @@ CONTAINS
       !C                                                                      *
       !C***********************************************************************
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_p, matrix_q, matrix_r
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_p, matrix_q, matrix_r
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), INTENT(IN)                          :: alpha, beta
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: t, rr
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       INTEGER                                            :: i
       REAL(KIND=dp), DIMENSION(n)                        :: vec
@@ -1218,11 +1176,9 @@ CONTAINS
       END DO
       CALL cp_fm_column_scale(matrix_aux, vec)
 
-      CALL cp_gemm("N", "N", n, n, n, alpha, matrix_aux, matrix_r, beta, matrix_p)
-      RETURN
+      CALL parallel_gemm("N", "N", n, n, n, alpha, matrix_aux, matrix_r, beta, matrix_p)
 
    END SUBROUTINE mat_mulm
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1255,11 +1211,11 @@ CONTAINS
       !C                                                                      *
       !C***********************************************************************
 
-      TYPE(cp_fm_type), POINTER                          :: matrix_p, matrix_q, matrix_r
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_p, matrix_q, matrix_r
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), INTENT(IN)                          :: alpha, beta
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: t, rr
-      TYPE(cp_fm_type), POINTER                          :: matrix_aux
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_aux
 
       INTEGER                                            :: i
       REAL(KIND=dp), DIMENSION(n)                        :: vec
@@ -1272,12 +1228,9 @@ CONTAINS
 
       CALL cp_fm_column_scale(matrix_aux, vec)
 
-      CALL cp_gemm("N", "N", n, n, n, alpha, matrix_aux, matrix_r, beta, matrix_p)
-
-      RETURN
+      CALL parallel_gemm("N", "N", n, n, n, alpha, matrix_aux, matrix_r, beta, matrix_p)
 
    END SUBROUTINE mat_muld
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1326,13 +1279,8 @@ CONTAINS
       !    con         prefactor, 137^2                                      *
       !-----------------------------------------------------------------------
 
-      !-----------------------------------------------------------------------
-
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: s, v, h, pVp
       INTEGER, INTENT(IN)                                :: n, dkh_order
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'DKH_atom_transformation', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, k
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: aa, e, ev0t, rr, tt
@@ -1340,7 +1288,7 @@ CONTAINS
                                                             ev3t, ev4, ev4t, ove, pev1tp, pVpt, &
                                                             revt, sinv, vt
 
-      IF (dkh_order .LT. 0) RETURN
+      IF (dkh_order < 0) RETURN
 
       !CAW  pp: p^2-values (in momentum-space), stored as matrix!!
 
@@ -1519,10 +1467,7 @@ CONTAINS
       DEALLOCATE (eig, sinv, revt, ove, aux, vt, pVpt, ev1, ev2, ev3, ev4, ev1t, ev2t, ev3t, ev4t, pev1tp)
       DEALLOCATE (ev0t, e, aa, rr, tt)
 
-      RETURN
    END SUBROUTINE dkh_atom_transformation
-
-   !-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1533,8 +1478,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE kintegral_a(n, ev0t, tt, e)
 
-      !-----------------------------------------------------------------------
-
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: ev0t
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: tt
@@ -1543,8 +1486,6 @@ CONTAINS
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: con, con2, prea, ratio, tv1, tv2, tv3, &
                                                             tv4
-
-!-----------------------------------------------------------------------
 
       DO i = 1, n
          IF (tt(i) .LT. 0.0_dp) THEN
@@ -1574,10 +1515,7 @@ CONTAINS
          e(i) = ev0t(i) + con
       END DO
 
-      RETURN
    END SUBROUTINE kintegral_a
-
-   !-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1619,10 +1557,7 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END SUBROUTINE even1_a
-
-   !-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1666,10 +1601,7 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END SUBROUTINE peven1p_a
-
-   !-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1793,10 +1725,8 @@ CONTAINS
 
 !    WRITE (*,*) "CAW:  DKH2 with even2c (Alex)"
 !    WRITE (*,*) "!JT:  Now available in cp2k"
-      RETURN
-   END SUBROUTINE even2c_a
 
-   !-----------------------------------------------------------------------
+   END SUBROUTINE even2c_a
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1920,10 +1850,8 @@ CONTAINS
 
 !    WRITE (*,*) "CAW:  DKH3 with even3b (Alex)"
 !    WRITE (*,*) "JT:  Now available in cp2k"
-      RETURN
-   END SUBROUTINE even3b_a
 
-   !-----------------------------------------------------------------------
+   END SUBROUTINE even3b_a
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2183,14 +2111,13 @@ CONTAINS
 !    WRITE (*,*) "CAW:  DKH4 with even4a (Alex)"
 !    WRITE (*,*) "JT:   Now available in cp2k"
 
-      RETURN
    END SUBROUTINE even4a_a
 
    !-----------------------------------------------------------------------
    !                                                                      -
    !     Matrix routines for DKH-procedure                                -
    !     Alexander Wolf                                                   -
-   !     modifed: Jens Thar: Mem manager deleted                          -
+   !     modified: Jens Thar: Mem manager deleted                          -
    !     This file contains the                                           -
    !      following subroutines:                                          -
    !                                 1. mat_1_over_h                      -
@@ -2229,12 +2156,10 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             p(i, j) = p(i, j)/(e(i) + e(j))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
-      RETURN
    END SUBROUTINE mat_1_over_h_a
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2263,12 +2188,10 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             p(i, j) = p(i, j)*a(i)*a(j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
-      RETURN
    END SUBROUTINE mat_axa_a
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2299,12 +2222,10 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             p(i, j) = p(i, j)*a(i)*a(j)*r(i)*r(j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
-      RETURN
    END SUBROUTINE mat_arxra_a
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2349,14 +2270,14 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             qtemp(i, j) = q(i, j)*2.0_dp*t(j)*rr(j)*rr(j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       CALL dgemm("N", "N", n, n, n, alpha, qtemp, n, r, n, beta, p, n)
-      RETURN
+
       DEALLOCATE (qtemp)
+
    END SUBROUTINE mat_mulm_a
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2401,15 +2322,14 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             qtemp(i, j) = q(i, j)*0.5_dp/(t(j)*rr(j)*rr(j))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       CALL dgemm("N", "N", n, n, n, alpha, qtemp, n, r, n, beta, p, n)
 
-      RETURN
       DEALLOCATE (qtemp)
+
    END SUBROUTINE mat_muld_a
-   !C-----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2451,13 +2371,10 @@ CONTAINS
       DO i = 1, n
          DO j = 1, n
             p(i, j) = alpha*p(i, j) + beta*r(i, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
-      RETURN
    END SUBROUTINE mat_add2
-
-   !CAW---------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2497,18 +2414,15 @@ CONTAINS
 
       INTEGER                                            :: i, j
 
-!C  Add matrices:
+      ! Add matrices:
 
       DO i = 1, n
          DO j = 1, n
             p(i, j) = alpha*q(i, j) + beta*r(i, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
-      RETURN
    END SUBROUTINE mat_add
-
-   !CAW---------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2561,10 +2475,7 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END SUBROUTINE TRSM
-
-   !JT----------------------------------------------------------------------
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2600,10 +2511,8 @@ CONTAINS
       n2 = 3*n - 1
 
       CALL JACOB2(AUX, EIG, EW, N, IC)
-      RETURN
-   END SUBROUTINE dkh_diag
 
-   !CAW---------------------------------------------------------------------
+   END SUBROUTINE dkh_diag
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2733,10 +2642,8 @@ CONTAINS
          END DO
 
       END IF
-      RETURN
-   END SUBROUTINE JACOB2
 
-   !JT---------------------------------------------------------------------
+   END SUBROUTINE JACOB2
 
 ! **************************************************************************************************
 !> \brief ...
@@ -2755,7 +2662,6 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: a
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: g
 
-!
 !     SUBROUTINE TO CALCULATE TRANSFORMATION TO SCHMIDT-
 !     ORTHOGONALIZED BASIS.
 !     sinv-1*matrix_s_pgf*sinv = "orthogonal matrix"
@@ -2764,7 +2670,6 @@ CONTAINS
 !     matrix_sinv_pgf new overlap matrix
 !     g              scratch
 !     a              scratch
-!
 
       ALLOCATE (a(n))
       ALLOCATE (g(n, n))
@@ -2804,9 +2709,8 @@ CONTAINS
             matrix_sinv_pgf(i, j) = g(i, j)
          END DO
       END DO
-      DEALLOCATE (a, g)
 
-      RETURN
+      DEALLOCATE (a, g)
 
    END SUBROUTINE SOG
 

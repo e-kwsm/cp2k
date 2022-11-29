@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -33,12 +35,14 @@ MODULE input_cp2k_properties_dft
         current_orb_center_wannier, do_et_ddapc, do_full_density, do_no_et, do_spin_density, &
         gto_cartesian, gto_spherical, oe_gllb, oe_lb, oe_none, oe_saop, oe_shift, &
         ot_precond_full_all, ot_precond_full_kinetic, ot_precond_full_single, &
-        ot_precond_full_single_inverse, ot_precond_none, ot_precond_s_inverse, &
-        tddfpt_dipole_berry, tddfpt_dipole_length, tddfpt_dipole_velocity, tddfpt_kernel_full, &
-        tddfpt_kernel_stda, use_mom_ref_coac, use_mom_ref_com, use_mom_ref_user, use_mom_ref_zero
+        ot_precond_full_single_inverse, ot_precond_none, ot_precond_s_inverse, scan_x, scan_xy, &
+        scan_xyz, scan_xz, scan_y, scan_yz, scan_z, tddfpt_dipole_berry, tddfpt_dipole_length, &
+        tddfpt_dipole_velocity, tddfpt_kernel_full, tddfpt_kernel_none, tddfpt_kernel_stda, &
+        use_mom_ref_coac, use_mom_ref_com, use_mom_ref_user, use_mom_ref_zero
    USE input_cp2k_atprop,               ONLY: create_atprop_section
    USE input_cp2k_dft,                  ONLY: create_ddapc_restraint_section,&
                                               create_interp_section,&
+                                              create_lrigpw_section,&
                                               create_mgrid_section
    USE input_cp2k_loc,                  ONLY: create_localize_section
    USE input_cp2k_resp,                 ONLY: create_resp_section
@@ -51,7 +55,8 @@ MODULE input_cp2k_properties_dft
                                               section_create,&
                                               section_release,&
                                               section_type
-   USE input_val_types,                 ONLY: integer_t,&
+   USE input_val_types,                 ONLY: char_t,&
+                                              integer_t,&
                                               lchar_t,&
                                               logical_t,&
                                               real_t
@@ -76,9 +81,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_properties_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_properties_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -126,6 +128,10 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_tipscan_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
    END SUBROUTINE create_properties_section
 
 ! **************************************************************************************************
@@ -137,9 +143,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_linres_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_linres_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -250,6 +253,10 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_dcdr_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
       CALL section_create(subsection, __LOCATION__, name="PRINT", &
                           description="printing of information during the linear response calculation", &
                           repeats=.FALSE.)
@@ -279,6 +286,112 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief creates the input structure used to activate
+!>      calculation of position perturbation  DFPT
+!> \param section ...
+!> \author Sandra Luber, Edward Ditler
+! **************************************************************************************************
+   SUBROUTINE create_dcdr_section(section)
+
+      TYPE(section_type), POINTER                        :: section
+
+      LOGICAL                                            :: failure
+      TYPE(keyword_type), POINTER                        :: keyword
+      TYPE(section_type), POINTER                        :: print_key, subsection
+
+      failure = .FALSE.
+      NULLIFY (keyword, print_key, subsection)
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+
+      IF (.NOT. failure) THEN
+         CALL section_create(section, __LOCATION__, name="DCDR", &
+                             description="Compute analytical gradients the dipole moments.", &
+                             n_keywords=50, n_subsections=1, repeats=.FALSE.)
+
+         CALL keyword_create(keyword, __LOCATION__, name="_SECTION_PARAMETERS_", &
+                             description="controls the activation of the APT calculation", &
+                             usage="&DCDR T", &
+                             default_l_val=.FALSE., &
+                             lone_keyword_l_val=.TRUE.)
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         CALL keyword_create(keyword, __LOCATION__, name="LIST_OF_ATOMS", &
+                             description="Specifies a list of atoms.", &
+                             usage="LIST {integer} {integer} .. {integer}", repeats=.TRUE., &
+                             n_var=-1, type_of_var=integer_t)
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         CALL keyword_create(keyword, __LOCATION__, name="DISTRIBUTED_ORIGIN", &
+                             variants=(/"DO_GAUGE"/), &
+                             description="Use the distributed origin (DO) gauge?", &
+                             usage="DISTRIBUTED_ORIGIN T", &
+                             default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         CALL keyword_create(keyword, __LOCATION__, name="ORBITAL_CENTER", &
+                             description="The orbital center.", &
+                             usage="ORBITAL_CENTER WANNIER", &
+                             default_i_val=current_orb_center_wannier, &
+                             enum_c_vals=s2a("WANNIER", "COMMON", "ATOM", "BOX"), &
+                             enum_desc=s2a("Use the Wannier centers.", &
+                                           "Use a common center (works only for an isolate molecule).", &
+                                           "Use the atoms as center.", &
+                                           "Boxing."), &
+                             enum_i_vals=(/current_orb_center_wannier, current_orb_center_common, &
+                                           current_orb_center_atom, current_orb_center_box/))
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         CALL keyword_create(keyword, __LOCATION__, name="REFERENCE", &
+                             description="Gauge origin of the velocity gauge factor.", &
+                             enum_c_vals=s2a("COM", "COAC", "USER_DEFINED", "ZERO"), &
+                             enum_desc=s2a("Use Center of Mass", &
+                                           "Use Center of Atomic Charges", &
+                                           "Use User-defined Point", &
+                                           "Use Origin of Coordinate System"), &
+                             enum_i_vals=(/use_mom_ref_com, &
+                                           use_mom_ref_coac, &
+                                           use_mom_ref_user, &
+                                           use_mom_ref_zero/), &
+                             default_i_val=use_mom_ref_zero)
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         CALL keyword_create(keyword, __LOCATION__, name="REFERENCE_POINT", &
+                             description="User-defined reference point of the velocity gauge factor.", &
+                             usage="REFERENCE_POINT x y z", &
+                             repeats=.FALSE., n_var=3, type_of_var=real_t, unit_str='bohr')
+         CALL section_add_keyword(section, keyword)
+         CALL keyword_release(keyword)
+
+         NULLIFY (subsection)
+         CALL section_create(subsection, __LOCATION__, name="PRINT", &
+                             description="print results of the magnetic dipole moment calculation", &
+                             repeats=.FALSE.)
+
+         CALL cp_print_key_section_create(print_key, __LOCATION__, "APT", &
+                                          description="Controls the printing of the electric dipole gradient", &
+                                          print_level=low_print_level, add_last=add_last_numeric, filename="")
+         CALL section_add_subsection(subsection, print_key)
+         CALL section_release(print_key)
+
+         CALL section_add_subsection(section, subsection)
+         CALL section_release(subsection)
+
+         NULLIFY (subsection)
+         CALL create_interp_section(subsection)
+         CALL section_add_subsection(section, subsection)
+         CALL section_release(subsection)
+
+      END IF
+
+   END SUBROUTINE create_dcdr_section
+
+! **************************************************************************************************
+!> \brief creates the input structure used to activate
 !>      calculation of induced current  DFPT
 !>      Available properties : none
 !> \param section the section to create
@@ -286,9 +399,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_current_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_current_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -388,7 +498,7 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="SELECTED_STATES_ATOM_RADIUS", &
-                          description="Select all the states included in the given radius arround each atoms "// &
+                          description="Select all the states included in the given radius around each atoms "// &
                           "in SELECTED_STATES_ON_ATOM_LIST.", &
                           usage="SELECTED_STATES_ATOM_RADIUS 2.0", &
                           type_of_var=real_t, &
@@ -485,9 +595,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_nmr_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_nmr_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -635,9 +742,6 @@ CONTAINS
    SUBROUTINE create_spin_spin_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_spin_spin_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -737,9 +841,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_epr_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_epr_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection, subsubsection
@@ -871,9 +972,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_polarizability_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -937,9 +1035,6 @@ CONTAINS
    SUBROUTINE create_et_coupling_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_et_coupling_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -995,9 +1090,6 @@ CONTAINS
       ! Routine arguments
       TYPE(section_type), POINTER                        :: section
       CHARACTER(len=*), INTENT(in)                       :: section_name
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_projection', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, section_block, section_print
@@ -1146,9 +1238,6 @@ CONTAINS
    SUBROUTINE create_tddfpt2_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_tddfpt2_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
 
@@ -1214,8 +1303,8 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="KERNEL", &
                           description="Options to compute the kernel", &
                           usage="KERNEL FULL", &
-                          enum_c_vals=s2a("FULL", "sTDA"), &
-                          enum_i_vals=(/tddfpt_kernel_full, tddfpt_kernel_stda/), &
+                          enum_c_vals=s2a("FULL", "sTDA", "NONE"), &
+                          enum_i_vals=(/tddfpt_kernel_full, tddfpt_kernel_stda, tddfpt_kernel_none/), &
                           default_i_val=tddfpt_kernel_full)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -1294,6 +1383,37 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="ADMM_KERNEL_XC_CORRECTION", &
+                          description="Use/Ignore ADMM correction xc functional for TD kernel."// &
+                          "XC correction functional is defined in ground state XC section.", &
+                          n_var=1, type_of_var=logical_t, &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="ADMM_KERNEL_CORRECTION_SYMMETRIC", &
+                          description="ADMM correction functional in kernel is applied symmetrically."// &
+                          "Original implementation is using a non-symmetric formula.", &
+                          n_var=1, type_of_var=logical_t, &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="DO_LRIGPW", &
+                          description="Local resolution of identity for Coulomb contribution.", &
+                          n_var=1, type_of_var=logical_t, &
+                          default_l_val=.FALSE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="AUTO_BASIS", &
+                          description="Specify size of automatically generated auxiliary basis sets: "// &
+                          "Options={small,medium,large,huge}", &
+                          usage="AUTO_BASIS {basis_type} {basis_size}", &
+                          type_of_var=char_t, repeats=.TRUE., n_var=-1, default_c_vals=(/"X", "X"/))
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       ! Strings
       CALL keyword_create(keyword, __LOCATION__, name="WFN_RESTART_FILE_NAME", &
                           variants=(/"RESTART_FILE_NAME"/), &
@@ -1312,12 +1432,12 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="DIPOLE_FORM", &
                           description="Form of dipole transition integrals.", &
-                          default_i_val=tddfpt_dipole_velocity, &
                           enum_c_vals=s2a("BERRY", "LENGTH", "VELOCITY"), &
                           enum_desc=s2a("Based on Berry phase formula (valid for fully periodic molecular systems only)", &
                                         "Length form &lang; i | r | j &rang; (valid for non-periodic molecular systems only)", &
                                         "Velocity form &lang; i | d/dr | j &rang;"), &
-                          enum_i_vals=(/tddfpt_dipole_berry, tddfpt_dipole_length, tddfpt_dipole_velocity/))
+                          enum_i_vals=(/tddfpt_dipole_berry, tddfpt_dipole_length, tddfpt_dipole_velocity/), &
+                          default_i_val=tddfpt_dipole_velocity)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
 
@@ -1362,6 +1482,11 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      ! LRI subsection
+      CALL create_lrigpw_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
       ! PRINT subsection
       CALL section_create(subsection, __LOCATION__, name="PRINT", &
                           description="Printing of information during the TDDFT run.", repeats=.FALSE.)
@@ -1389,6 +1514,12 @@ CONTAINS
                                        description="Controls the printing of detailed energy information "// &
                                        "during the TDDFT run.", &
                                        print_level=medium_print_level, add_last=add_last_numeric, filename="__STD_OUT__")
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="BASIS_SET_FILE", &
+                                       description="Controls the printing of a file with all basis sets used.", &
+                                       print_level=debug_print_level, filename="BASIS_SETS")
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
@@ -1443,7 +1574,7 @@ CONTAINS
                                        description="Write the NTO in Molden file format, for visualisation.", &
                                        print_level=debug_print_level + 1, add_last=add_last_numeric, filename="MOS")
       CALL keyword_create(keyword, __LOCATION__, name="NDIGITS", &
-                          description="Specifies the number of signficiant digits retained. 3 is OK for visualization.", &
+                          description="Specifies the number of significant digits retained. 3 is OK for visualization.", &
                           usage="NDIGITS {int}", &
                           default_i_val=3)
       CALL section_add_keyword(print_key, keyword)
@@ -1461,6 +1592,38 @@ CONTAINS
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="NAMD_PRINT", &
+                                       description="Controls the printout required for NAMD with NEWTONX.", &
+                                       print_level=debug_print_level + 1, filename="CP2K_NEWTONX")
+      CALL keyword_create(keyword, __LOCATION__, name="PRINT_VIRTUALS", &
+                          description="Print occupied AND virtual molecular orbital coefficients", &
+                          default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="FORCES", &
+                                       description="Controls the calculation and printing of excited state forces."// &
+                                       "Prints difference in forces between excited state and ground state!", &
+                                       print_level=debug_print_level, filename="TDFORCE")
+      CALL keyword_create(keyword, __LOCATION__, name="LIST", &
+                          description="Specifies a list of states for the force calculations.", &
+                          usage="LIST {integer} {integer} .. {integer}", repeats=.TRUE., &
+                          n_var=-1, type_of_var=integer_t)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="THRESHOLD", &
+                          description="Threshold for oszillator strength to screen states.", &
+                          usage="Threshold 0.01", &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -1473,9 +1636,6 @@ CONTAINS
    SUBROUTINE create_stda_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_stda_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1486,11 +1646,17 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="FRACTION", &
                           variants=(/"HFX_FRACTION"/), &
-                          description="The fraction of Hartree-Fock to add to the total energy. "// &
-                          "1.0 implies standard Hartree-Fock if used with XC_FUNCTIONAL NONE. "// &
-                          "NOTE: In a mixed potential calculation this should be set to 1.0, otherwise "// &
-                          "all parts are multiplied with this factor. ", &
+                          description="The fraction of TB Hartree-Fock exchange to use in the Kernel. "// &
+                          "0.0 implies no HFX part is used in the kernel. ", &
                           usage="FRACTION 0.0", default_r_val=0.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      ! even if scaling parameter for exchange FRACTION (see above) is zero, the semi-empirical electron repulsion
+      ! operator for exchange is not, so that a keyword is required to switch off sTDA exchange (if wanted)
+      CALL keyword_create(keyword, __LOCATION__, name="DO_EXCHANGE", &
+                          description="Explicitly including or switching off sTDA exchange", &
+                          usage="DO_EXCHANGE", default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1502,10 +1668,103 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="EPS_TD_FILTER", &
                           description="Threshold for filtering the transition density matrix", &
-                          usage="EPS_TD_FILTER", default_r_val=1.e-10_dp)
+                          usage="EPS_TD_FILTER epsf", default_r_val=1.e-10_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MATAGA_NISHIMOTO_CEXP", &
+                          description="Exponent used in Mataga-Nishimoto formula for Coulomb (alpha). "// &
+                          "Default value is method dependent!", &
+                          usage="MATAGA_NISHIMOTO_CEXP cexp", default_r_val=-99.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MATAGA_NISHIMOTO_XEXP", &
+                          description="Exponent used in Mataga-Nishimoto formula for Exchange (beta). "// &
+                          "Default value is method dependent!", &
+                          usage="MATAGA_NISHIMOTO_XEXP xexp", default_r_val=-99.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_CUT", &
+                          description="Maximum range of short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_CUT rcut", default_r_val=20.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_EPS", &
+                          description="Threshold for short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_EPS sreps", default_r_val=1.e-03_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
    END SUBROUTINE create_stda_section
+
+! **************************************************************************************************
+!> \brief creates an input section for a tip scan calculation
+!> \param section section to create
+!> \par History
+!>    * 04.2021 created [JGH]
+! **************************************************************************************************
+   SUBROUTINE create_tipscan_section(section)
+      TYPE(section_type), POINTER                        :: section
+
+      TYPE(keyword_type), POINTER                        :: keyword
+
+      CPASSERT(.NOT. ASSOCIATED(section))
+      CALL section_create(section, __LOCATION__, name="TIP_SCAN", &
+                          description="Parameters needed to set up a Tip Scan."// &
+                          "Needs external definition of tip induced field.", &
+                          n_keywords=1, n_subsections=1, repeats=.FALSE.)
+
+      NULLIFY (keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="_SECTION_PARAMETERS_", &
+                          description="Controls the activation of the Tip Scan procedure", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SCAN_DIRECTION", &
+                          description="Defines scan direction and scan type(line, plane).", &
+                          usage="SCAN_DIRECTION XY", &
+                          enum_c_vals=s2a("X", "Y", "Z", "XY", "XZ", "YZ", "XYZ"), &
+                          enum_i_vals=(/scan_x, scan_y, scan_z, scan_xy, scan_xz, scan_yz, scan_xyz/), &
+                          default_i_val=scan_xy)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="REFERENCE_POINT", &
+                          description="The reference point to define the absolute position of the scan. ", &
+                          usage="REFERENCE_POINT 0.0 0.0 1.0", &
+                          n_var=3, default_r_vals=(/0.0_dp, 0.0_dp, 0.0_dp/), type_of_var=real_t, &
+                          unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SCAN_POINTS", &
+                          description="Number of points calculated for each scan direction.", &
+                          usage="SCAN_POINTS 20 20", &
+                          n_var=-1, type_of_var=integer_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="SCAN_STEP", &
+                          description="Step size for each scan direction.", &
+                          usage="SCAN_STEP 0.01 0.01", &
+                          n_var=-1, type_of_var=real_t, unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="TIP_FILENAME", &
+                          description="Filename of tip potential defined in cube file format.", &
+                          usage="TIP_FILENAME <filename>", &
+                          type_of_var=lchar_t)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+   END SUBROUTINE create_tipscan_section
 
 END MODULE input_cp2k_properties_dft

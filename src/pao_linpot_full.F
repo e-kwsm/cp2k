@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -68,8 +70,8 @@ CONTAINS
          kterm = kterm + 1
          V_blocks(i, j, kterm) = 1.0_dp
          V_blocks(j, i, kterm) = 1.0_dp
-      ENDDO
-      ENDDO
+      END DO
+      END DO
 
       CPASSERT(kterm == nterms)
    END SUBROUTINE linpot_full_calc_terms

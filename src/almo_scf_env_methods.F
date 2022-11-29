@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -49,8 +51,7 @@ CONTAINS
    SUBROUTINE almo_scf_env_create(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_env_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_env_create'
 
       INTEGER                                            :: handle, nallocate
       TYPE(almo_scf_env_type), POINTER                   :: almo_scf_env
@@ -101,14 +102,13 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(almo_scf_env_type), INTENT(INOUT)             :: almo_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_init_read_write_input', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'almo_scf_init_read_write_input'
 
       INTEGER                                            :: handle
       TYPE(section_vals_type), POINTER :: almo_analysis_section, almo_opt_diis_section, &
-         almo_opt_pcg_section, almo_scf_section, matrix_iterate_section, nlmo_opt_pcg_section, &
-         penalty_section, xalmo_opt_newton_pcg_section, xalmo_opt_pcg_section, &
-         xalmo_opt_trustr_section
+         almo_opt_pcg_section, almo_opt_trustr_section, almo_scf_section, matrix_iterate_section, &
+         nlmo_opt_pcg_section, penalty_section, xalmo_opt_newton_pcg_section, &
+         xalmo_opt_pcg_section, xalmo_opt_trustr_section
 
       CALL timeset(routineN, handle)
 
@@ -117,6 +117,8 @@ CONTAINS
                                                           "ALMO_OPTIMIZER_DIIS")
       almo_opt_pcg_section => section_vals_get_subs_vals(almo_scf_section, &
                                                          "ALMO_OPTIMIZER_PCG")
+      almo_opt_trustr_section => section_vals_get_subs_vals(almo_scf_section, &
+                                                            "ALMO_OPTIMIZER_TRUSTR")
       xalmo_opt_pcg_section => section_vals_get_subs_vals(almo_scf_section, &
                                                           "XALMO_OPTIMIZER_PCG")
       xalmo_opt_trustr_section => section_vals_get_subs_vals(almo_scf_section, &
@@ -197,6 +199,33 @@ CONTAINS
                                 i_val=almo_scf_env%opt_block_diag_pcg%conjugator)
       CALL section_vals_val_get(almo_opt_pcg_section, "PRECONDITIONER", &
                                 i_val=almo_scf_env%opt_block_diag_pcg%preconditioner)
+
+      CALL section_vals_val_get(almo_opt_trustr_section, "EPS_ERROR", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%eps_error)
+      CALL section_vals_val_get(almo_opt_trustr_section, "MAX_ITER", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%max_iter)
+      CALL section_vals_val_get(almo_opt_trustr_section, "ALGORITHM", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%trustr_algorithm)
+      CALL section_vals_val_get(almo_opt_trustr_section, "EPS_ERROR_EARLY", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%eps_error_early)
+      CALL section_vals_val_get(almo_opt_trustr_section, "MAX_ITER_EARLY", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%max_iter_early)
+      CALL section_vals_val_get(almo_opt_trustr_section, "MAX_ITER_OUTER_LOOP", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%max_iter_outer_loop)
+      CALL section_vals_val_get(almo_opt_trustr_section, "ETA", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%rho_do_not_update)
+      almo_scf_env%opt_block_diag_trustr%rho_do_not_update = &
+         MIN(MAX(almo_scf_env%opt_block_diag_trustr%rho_do_not_update, 0.0_dp), 0.25_dp)
+      CALL section_vals_val_get(almo_opt_trustr_section, "MODEL_GRAD_NORM_RATIO", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%model_grad_norm_ratio)
+      CALL section_vals_val_get(almo_opt_trustr_section, "INITIAL_TRUST_RADIUS", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%initial_trust_radius)
+      CALL section_vals_val_get(almo_opt_trustr_section, "MAX_TRUST_RADIUS", &
+                                r_val=almo_scf_env%opt_block_diag_trustr%max_trust_radius)
+      CALL section_vals_val_get(almo_opt_trustr_section, "CONJUGATOR", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%conjugator)
+      CALL section_vals_val_get(almo_opt_trustr_section, "PRECONDITIONER", &
+                                i_val=almo_scf_env%opt_block_diag_trustr%preconditioner)
 
       CALL section_vals_val_get(xalmo_opt_trustr_section, "EPS_ERROR", &
                                 r_val=almo_scf_env%opt_xalmo_trustr%eps_error)
@@ -474,7 +503,7 @@ CONTAINS
       IF (almo_scf_env%xalmo_trial_wf .EQ. xalmo_trial_r0_out .AND. &
           almo_scf_env%xalmo_update_algorithm .EQ. almo_scf_trustr) THEN
          CPABORT("Trust region algorithm cannot optimize projected XALMOs")
-      ENDIF
+      END IF
 
       CALL section_vals_val_get(almo_scf_section, "XALMO_ALGORITHM", &
                                 i_val=almo_scf_env%xalmo_update_algorithm)
@@ -483,55 +512,55 @@ CONTAINS
       IF (almo_scf_env%deloc_method .EQ. almo_deloc_xalmo_1diag .AND. &
           almo_scf_env%xalmo_update_algorithm .NE. almo_scf_diag) THEN
          CPABORT("1-step delocalization correction requires a different algorithm")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%xalmo_trial_wf .EQ. xalmo_trial_r0_out .AND. &
           almo_scf_env%almo_update_algorithm .EQ. almo_scf_skip .AND. &
           almo_scf_env%almo_scf_guess .NE. molecular_guess) THEN
          CPABORT("R0 projector requires optimized ALMOs")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%deloc_method .EQ. almo_deloc_none .AND. &
           almo_scf_env%almo_update_algorithm .EQ. almo_scf_skip) THEN
          CPABORT("No optimization requested")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%deloc_truncate_virt .EQ. virt_number .AND. &
           almo_scf_env%deloc_virt_per_domain .LE. 0) THEN
          CPABORT("specify a positive number of virtual orbitals")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%deloc_truncate_virt .EQ. virt_minimal) THEN
          CPABORT("VIRT TRUNCATION TO MINIMAL BASIS IS NIY")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%domain_layout_mos .NE. almo_domain_layout_molecular) THEN
          CPABORT("use MOLECULAR domains")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%domain_layout_aos .NE. almo_domain_layout_molecular) THEN
          CPABORT("use MOLECULAR domains")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%mat_distr_mos .NE. almo_mat_distr_molecular) THEN
          CPABORT("use MOLECULAR distr for MOs")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%mat_distr_aos == almo_mat_distr_molecular .AND. &
           almo_scf_env%domain_layout_aos == almo_domain_layout_atomic) THEN
          CPABORT("AO blocks cannot be larger than domains")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%mat_distr_mos == almo_mat_distr_molecular .AND. &
           almo_scf_env%domain_layout_mos == almo_domain_layout_atomic) THEN
          CPABORT("MO blocks cannot be larger than domains")
-      ENDIF
+      END IF
 
       IF (almo_scf_env%quencher_r1_factor .GT. almo_max_cutoff_multiplier) THEN
          CALL cp_abort(__LOCATION__, &
                        "XALMO_R_CUTOFF_FACTOR is larger than almo_max_cutoff_multiplier. "// &
                        "Increase the hard-coded almo_max_cutoff_multiplier")
-      ENDIF
+      END IF
 
       ! check analysis settings
       IF (almo_scf_env%almo_analysis%do_analysis) THEN
@@ -539,9 +568,9 @@ CONTAINS
          IF (almo_scf_env%almo_analysis%frozen_mo_energy_term == almo_frz_crystal &
              .AND. almo_scf_env%almo_scf_guess .NE. molecular_guess) THEN
             CPABORT("To compute frozen-MO energy term set ALMO_SCF_GUESS MOLECULAR")
-         ENDIF
+         END IF
 
-      ENDIF ! end analysis settings
+      END IF ! end analysis settings
 
       CALL timestop(handle)
 

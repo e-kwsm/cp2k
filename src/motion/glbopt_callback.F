@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,9 +44,6 @@ CONTAINS
       TYPE(glbopt_mdctrl_data_type), POINTER             :: mdctrl_data
       TYPE(md_environment_type), POINTER                 :: md_env
       LOGICAL, INTENT(inout)                             :: should_stop
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'glbopt_md_callback', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iw, n_atoms
       INTEGER, POINTER                                   :: itimes

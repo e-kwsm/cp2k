@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -161,9 +163,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: z
       REAL(KIND=dp), INTENT(OUT)                         :: radius
       LOGICAL, INTENT(OUT)                               :: found
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_uff_vdw_radius', &
-         routineP = moduleN//':'//routineN
 
       IF (uff_vdw_radius(z) == NAN) THEN
          radius = 0.0_dp

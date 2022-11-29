@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -40,11 +42,11 @@ MODULE cp2k_runs
                                               cp_unit_set_release,&
                                               cp_unit_set_type,&
                                               print_all_units
-   USE cuda_profiling,                  ONLY: cuda_nvtx_init
    USE dbcsr_api,                       ONLY: dbcsr_finalize_lib,&
                                               dbcsr_init_lib,&
                                               dbcsr_print_config,&
                                               dbcsr_print_statistics
+   USE dbm_api,                         ONLY: dbm_library_print_stats
    USE environment,                     ONLY: cp2k_finalize,&
                                               cp2k_init,&
                                               cp2k_read,&
@@ -71,12 +73,13 @@ MODULE cp2k_runs
    USE geo_opt,                         ONLY: cp_geo_opt
    USE global_types,                    ONLY: global_environment_type,&
                                               globenv_create,&
-                                              globenv_release,&
-                                              globenv_retain
+                                              globenv_release
+   USE grid_api,                        ONLY: grid_library_print_stats,&
+                                              grid_library_set_config
    USE input_constants,                 ONLY: &
         bsse_run, cell_opt_run, debug_run, do_atom, do_band, do_cp2k, do_embed, do_farming, &
-        do_fist, do_mixed, do_opt_basis, do_optimize_input, do_qmmm, do_qs, do_sirius, do_swarm, &
-        do_tamc, do_test, do_tree_mc, do_tree_mc_ana, driver_run, ehrenfest, &
+        do_fist, do_mixed, do_nnp, do_opt_basis, do_optimize_input, do_qmmm, do_qs, do_sirius, &
+        do_swarm, do_tamc, do_test, do_tree_mc, do_tree_mc_ana, driver_run, ehrenfest, &
         electronic_spectra_run, energy_force_run, energy_run, geo_opt_run, linear_response_run, &
         mol_dyn_run, mon_car_run, negf_run, none_run, pint_run, real_time_propagation, &
         tree_mc_run, vib_anal
@@ -112,13 +115,15 @@ MODULE cp2k_runs
                                               loop_over_molecules
    USE neb_methods,                     ONLY: neb
    USE negf_methods,                    ONLY: do_negf
+   USE offload_api,                     ONLY: offload_get_chosen_device,&
+                                              offload_get_device_count
    USE optimize_basis,                  ONLY: run_optimize_basis
    USE optimize_input,                  ONLY: run_optimize_input
    USE pint_methods,                    ONLY: do_pint_run
-   USE pw_cuda,                         ONLY: pw_cuda_finalize,&
-                                              pw_cuda_init
    USE pw_fpga,                         ONLY: pw_fpga_finalize,&
                                               pw_fpga_init
+   USE pw_gpu,                          ONLY: pw_gpu_finalize,&
+                                              pw_gpu_init
    USE qs_environment_types,            ONLY: get_qs_env
    USE qs_linres_module,                ONLY: linres_calculation
    USE qs_tddfpt_module,                ONLY: tddfpt_calculation
@@ -139,8 +144,11 @@ MODULE cp2k_runs
    IMPLICIT NONE
 
    PRIVATE
+
    PUBLIC :: write_xml_file, run_input
+
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp2k_runs'
+
 CONTAINS
 
 ! **************************************************************************************************
@@ -173,13 +181,12 @@ CONTAINS
       CHARACTER(len=default_path_length), &
          DIMENSION(:, :), INTENT(IN)                     :: initial_variables
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp2k_run', routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: f_env_handle, ierr, iter_level, &
-                                                            method_name_id, new_env_id, &
-                                                            prog_name_id, run_type_id
+      INTEGER                                            :: f_env_handle, grid_backend, ierr, &
+                                                            iter_level, method_name_id, &
+                                                            new_env_id, prog_name_id, run_type_id
       INTEGER(KIND=int_8)                                :: m_memory_max_mpi
-      LOGICAL                                            :: echo_input, I_was_ionode
+      LOGICAL                                            :: echo_input, grid_apply_cutoff, &
+                                                            grid_validate, I_was_ionode
       TYPE(cp_logger_type), POINTER                      :: logger, sublogger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -191,16 +198,19 @@ CONTAINS
       NULLIFY (para_env, f_env, dft_control)
       CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.)
 
-      ! DBCSR sets the GPU device, make sure it is the first GPU call
+#if defined(__DBCSR_ACC)
+      IF (offload_get_device_count() > 0) THEN
+         CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit, &
+                             accdrv_active_device_id=offload_get_chosen_device())
+      ELSE
+         CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+      END IF
+#else
       CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+#endif
 
-      CALL cuda_nvtx_init()
-
-      CALL pw_cuda_init()
-
+      CALL pw_gpu_init()
       CALL pw_fpga_init()
-
-      CALL cp_sirius_init()
 
       NULLIFY (globenv, force_env)
 
@@ -227,13 +237,11 @@ CONTAINS
                                 i_val=prog_name_id)
       CALL section_vals_val_get(input_file, "GLOBAL%RUN_TYPE", &
                                 i_val=run_type_id)
+      CALL section_vals_val_get(root_section, "FORCE_EVAL%METHOD", i_val=method_name_id)
 
       IF (prog_name_id /= do_cp2k) THEN
          ! initial setup (cp2k does in in the creation of the force_env)
          CALL globenv_create(globenv)
-         ! XXXXXXXXX
-         ! root_section => input_file
-         ! XXXXXXXXX
          CALL section_vals_retain(input_file)
          CALL cp2k_init(para_env, output_unit, globenv, input_file_name=input_file_name)
          CALL cp2k_read(root_section, para_env, globenv)
@@ -245,7 +253,16 @@ CONTAINS
           cp_logger_would_log(logger, cp_note_level)) THEN
          CALL dbcsr_print_config(unit_nr=output_unit)
          WRITE (UNIT=output_unit, FMT='()')
-      ENDIF
+      END IF
+
+      ! Configure the grid library.
+      CALL section_vals_val_get(root_section, "GLOBAL%GRID%BACKEND", i_val=grid_backend)
+      CALL section_vals_val_get(root_section, "GLOBAL%GRID%VALIDATE", l_val=grid_validate)
+      CALL section_vals_val_get(root_section, "GLOBAL%GRID%APPLY_CUTOFF", l_val=grid_apply_cutoff)
+
+      CALL grid_library_set_config(backend=grid_backend, &
+                                   validate=grid_validate, &
+                                   apply_cutoff=grid_apply_cutoff)
 
       SELECT CASE (prog_name_id)
       CASE (do_atom)
@@ -260,19 +277,30 @@ CONTAINS
          ! But, we don't want to change the public f77_interface.
          ! TODO: refactor cp2k's startup code
          CALL dbcsr_finalize_lib()
-         CALL cp_sirius_finalize()
-         CALL pw_cuda_finalize()
+         IF (method_name_id == do_sirius) CALL cp_sirius_finalize()
+
+         CALL pw_gpu_finalize()
          CALL pw_fpga_finalize()
-         ! DBCSR sets the GPU device, make sure it is the first GPU call
          CALL farming_run(input_declaration, root_section, para_env, initial_variables)
+#if defined(__DBCSR_ACC)
+         IF (offload_get_device_count() > 0) THEN
+            CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit, &
+                                accdrv_active_device_id=offload_get_chosen_device())
+         ELSE
+            CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+         END IF
+#else
          CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
-         CALL pw_cuda_init()
+#endif
+
+         CALL pw_gpu_init()
          CALL pw_fpga_init()
-         CALL cp_sirius_init()
+         IF (method_name_id == do_sirius) CALL cp_sirius_init()
       CASE (do_opt_basis)
          CALL run_optimize_basis(input_declaration, root_section, para_env)
          globenv%run_type_id = none_run
       CASE (do_cp2k)
+         IF (method_name_id == do_sirius) CALL cp_sirius_init()
          CALL create_force_env(new_env_id, &
                                input_declaration=input_declaration, &
                                input_path=input_file_name, &
@@ -284,9 +312,6 @@ CONTAINS
          CALL f_env_add_defaults(new_env_id, f_env, handle=f_env_handle)
          force_env => f_env%force_env
          CALL force_env_get(force_env, globenv=globenv)
-         CALL globenv_retain(globenv)
-         CALL section_vals_val_get(force_env%force_env_section, "METHOD", i_val=method_name_id)
-
       CASE (do_test)
          CALL lib_test(root_section, para_env, globenv)
       CASE (do_tree_mc) ! TMC entry point
@@ -310,6 +335,7 @@ CONTAINS
              method_name_id /= do_sirius .AND. &
              method_name_id /= do_qmmm .AND. &
              method_name_id /= do_mixed .AND. &
+             method_name_id /= do_nnp .AND. &
              method_name_id /= do_embed .AND. &
              method_name_id /= do_fist) &
             CPABORT("Energy/Force run not available for all methods ")
@@ -389,14 +415,15 @@ CONTAINS
       !sample peak memory
       CALL m_memory()
 
-      CALL cp_sirius_finalize()
+      IF (method_name_id == do_sirius) CALL cp_sirius_finalize()
 
-      CALL pw_cuda_finalize()
-
+      CALL pw_gpu_finalize()
       CALL pw_fpga_finalize()
 
       CALL dbcsr_print_statistics()
-      CALL dbcsr_finalize_lib()
+
+      CALL dbm_library_print_stats(mpi_comm=mpi_comm, output_unit=output_unit)
+      CALL grid_library_print_stats(mpi_comm=mpi_comm, output_unit=output_unit)
 
       m_memory_max_mpi = m_memory_max
       CALL mp_max(m_memory_max_mpi, mpi_comm)
@@ -404,19 +431,21 @@ CONTAINS
          WRITE (output_unit, *)
          WRITE (output_unit, '(T2,"MEMORY| Estimated peak process memory [MiB]",T73,I8)') &
             (m_memory_max_mpi + (1024*1024) - 1)/(1024*1024)
-      ENDIF
+      END IF
 
       IF (prog_name_id == do_cp2k) THEN
          f_env%force_env => force_env ! for mc
-         CALL globenv_retain(globenv) !mc
-         CALL globenv_release(force_env%globenv) !mc
+         IF (ASSOCIATED(force_env%globenv)) THEN
+         IF (.NOT. ASSOCIATED(force_env%globenv, globenv)) THEN
+            CALL globenv_release(force_env%globenv) !mc
+         END IF
+         END IF
          force_env%globenv => globenv !mc
          CALL f_env_rm_defaults(f_env, ierr=ierr, &
                                 handle=f_env_handle)
          CPASSERT(ierr == 0)
          CALL destroy_force_env(new_env_id, ierr=ierr)
          CPASSERT(ierr == 0)
-         CALL globenv_release(globenv)
       ELSE
          I_was_ionode = para_env%ionode
          CALL cp2k_finalize(root_section, para_env, globenv)
@@ -424,6 +453,8 @@ CONTAINS
          CALL section_vals_release(root_section)
          CALL globenv_release(globenv)
       END IF
+
+      CALL dbcsr_finalize_lib()
 
       CALL cp_para_env_release(para_env)
 
@@ -446,8 +477,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER          :: para_env
       CHARACTER(len=default_path_length), DIMENSION(:, :), INTENT(IN) :: initial_variables
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'farming_run', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'farming_run'
       INTEGER, PARAMETER                       :: slave_status_done = -3, &
                                                   slave_status_wait = -4
 
@@ -467,14 +497,14 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:) :: waittime
       TYPE(cp_logger_type), POINTER            :: logger
       TYPE(cp_parser_type), POINTER            :: my_parser
-      TYPE(cp_unit_set_type), POINTER          :: default_units
+      TYPE(cp_unit_set_type)         :: default_units
       TYPE(farming_env_type), POINTER          :: farming_env
       TYPE(section_type), POINTER              :: g_section
       TYPE(section_vals_type), POINTER         :: g_data
 
       ! the primus of all slaves, talks to the master on topics concerning all slaves
       CALL timeset(routineN, handle)
-      NULLIFY (my_parser, g_section, g_data, default_units)
+      NULLIFY (my_parser, g_section, g_data)
 
       logger => cp_get_default_logger()
       output_unit = cp_print_key_unit_nr(logger, root_section, "FARMING%PROGRAM_RUN_INFO", &
@@ -512,14 +542,14 @@ CONTAINS
             CPASSERT(num_slaves == 1)
             num_slaves = para_env%num_pe - 1
             slave_rank = -1
-         ENDIF
+         END IF
          CPASSERT(num_slaves == para_env%num_pe - 1)
       ELSE
          ! all processes are slaves
          IF (output_unit > 0) WRITE (output_unit, FMT="(T2,A)") "FARMING| using a slave-only setup"
          CALL mp_comm_dup(para_env%group, slave_group)
          CALL mp_environ(num_slaves, slave_rank, slave_group)
-      ENDIF
+      END IF
       IF (output_unit > 0) WRITE (output_unit, FMT="(T2,A,I0)") "FARMING| number of slaves ", num_slaves
 
       ! keep track of which para_env rank is which slave/master
@@ -531,7 +561,7 @@ CONTAINS
       primus_slave = 0
       DO i = 1, para_env%num_pe - 1
          IF (slave_distribution(i) == 0) primus_slave = i
-      ENDDO
+      END DO
 
       ! split the current communicator for the slaves
       ! in a new_group, new_size and new_rank according to the number of groups required according to the input
@@ -550,12 +580,12 @@ CONTAINS
             ELSE
                CALL mp_comm_split(slave_group, new_group, ngroups, group_distribution, &
                                   n_subgroups=farming_env%ngroup_wish, stride=farming_env%stride)
-            ENDIF
+            END IF
          ELSE
             CPABORT("must set either group_size_wish or ngroup_wish")
-         ENDIF
+         END IF
          CALL mp_environ(new_size, new_rank, new_group)
-      ENDIF
+      END IF
 
       ! transfer the info about the slave group distribution to the master
       IF (farming_env%master_slave) THEN
@@ -564,14 +594,14 @@ CONTAINS
             CALL mp_send(group_distribution, 0, tag, para_env%group)
             tag = 2
             CALL mp_send(ngroups, 0, tag, para_env%group)
-         ENDIF
+         END IF
          IF (para_env%mepos == 0) THEN
             tag = 1
             CALL mp_recv(group_distribution, primus_slave, tag, para_env%group)
             tag = 2
             CALL mp_recv(ngroups, primus_slave, tag, para_env%group)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ! write info on group distribution
       IF (output_unit > 0) THEN
@@ -584,7 +614,7 @@ CONTAINS
          END DO
          WRITE (output_unit, *)
          CALL m_flush(output_unit)
-      ENDIF
+      END IF
 
       ! protect about too many jobs being run in single go. Not more jobs are allowed than the number in the input file
       ! and determine the future restart point
@@ -595,14 +625,14 @@ CONTAINS
          n_jobs_to_run = MIN(farming_env%njobs, farming_env%max_steps*ngroups)
          n_jobs_to_run = MIN(n_jobs_to_run, farming_env%njobs - farming_env%restart_n + 1)
          i_job_to_restart = n_jobs_to_run + farming_env%restart_n
-      ENDIF
+      END IF
 
       ! and write the restart now, that's the point where the next job starts, even if this one is running
       iunit = cp_print_key_unit_nr(logger, root_section, "FARMING%RESTART", &
                                    extension=".restart")
       IF (iunit > 0) THEN
          WRITE (iunit, *) i_job_to_restart
-      ENDIF
+      END IF
       CALL cp_print_key_finished_output(iunit, logger, root_section, "FARMING%RESTART")
 
       ! this is the job range to be executed.
@@ -613,7 +643,7 @@ CONTAINS
          WRITE (output_unit, FMT="(T2,A)") "FARMING| is the cycle keyword required ?"
          WRITE (output_unit, FMT="(T2,A)") "FARMING| or is a stray RESTART file present ?"
          WRITE (output_unit, FMT="(T2,A)") "FARMING| or is the group_size requested smaller than the number of CPUs?"
-      ENDIF
+      END IF
 
       ! actual executions of the jobs in two different modes
       IF (farming_env%master_slave) THEN
@@ -637,7 +667,7 @@ CONTAINS
                   CALL mp_bcast(todo, 0, new_group)
                ELSE
                   CALL mp_bcast(todo, 0, new_group)
-               ENDIF
+               END IF
 
                ! if the todo is do_nothing we are flagged to quit. Otherwise it is the job number
                SELECT CASE (todo)
@@ -647,13 +677,13 @@ CONTAINS
                   DO
                      t2 = m_walltime()
                      IF (t2 - t1 > farming_env%wait_time) EXIT
-                  ENDDO
+                  END DO
                CASE (do_nothing)
                   EXIT
                CASE (1:)
                   CALL execute_job(todo)
                END SELECT
-            ENDDO
+            END DO
          ELSE ! master
             ALLOCATE (slave_status(0:ngroups - 1))
             slave_status = slave_status_wait
@@ -671,8 +701,8 @@ CONTAINS
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, FMT=*) "Job finished: ", todo
                      CALL m_flush(output_unit)
-                  ENDIF
-               ENDIF
+                  END IF
+               END IF
 
                ! get the next job in line, this could be do_nothing, if we're finished
                CALL get_next_job(farming_env, ijob_start, ijob_end, ijob_current, todo)
@@ -686,31 +716,31 @@ CONTAINS
                      WRITE (output_unit, FMT=*) "Job: ", todo, " Dir: ", TRIM(farming_env%Job(todo)%cwd), &
                         " assigned to group ", group_distribution(slave_distribution(dest))
                      CALL m_flush(output_unit)
-                  ENDIF
+                  END IF
                ELSE
                   IF (todo == do_nothing) THEN
                      slave_status(group_distribution(slave_distribution(dest))) = slave_status_done
                      IF (output_unit > 0) THEN
                         WRITE (output_unit, FMT=*) "group done: ", group_distribution(slave_distribution(dest))
                         CALL m_flush(output_unit)
-                     ENDIF
-                  ENDIF
+                     END IF
+                  END IF
                   IF (todo == do_deadlock) THEN
                      IF (output_unit > 0) THEN
                         WRITE (output_unit, FMT=*) ""
                         WRITE (output_unit, FMT=*) "FARMING JOB DEADLOCKED ... CIRCULAR DEPENDENCIES"
                         WRITE (output_unit, FMT=*) ""
                         CALL m_flush(output_unit)
-                     ENDIF
+                     END IF
                      CPASSERT(todo .NE. do_deadlock)
-                  ENDIF
-               ENDIF
+                  END IF
+               END IF
 
-            ENDDO
+            END DO
 
             DEALLOCATE (slave_status)
 
-         ENDIF
+         END IF
       ELSE
          ! this is the non-master-slave mode way of executing the jobs
          ! the i-th job in the input is always executed by the MODULO(i-1,ngroups)-th group
@@ -722,10 +752,10 @@ CONTAINS
                   i = MODULO(ijob - 1, farming_env%njobs) + 1
                   WRITE (output_unit, FMT=*) "Job: ", i, " Dir: ", TRIM(farming_env%Job(i)%cwd), " Input: ", &
                      TRIM(farming_env%Job(i)%input), " MPI group:", MODULO(i - 1, ngroups)
-               ENDDO
-            ENDIF
+               END DO
+            END IF
             CALL m_flush(output_unit)
-         ENDIF
+         END IF
 
          DO ijob = ijob_start, ijob_end
             i = MODULO(ijob - 1, farming_env%njobs) + 1
@@ -735,15 +765,15 @@ CONTAINS
                   WRITE (output_unit, FMT="(T2,A,I5.5,A)", ADVANCE="NO") " Running Job ", i, &
                      " in "//TRIM(farming_env%Job(i)%cwd)//"."
                   CALL m_flush(output_unit)
-               ENDIF
+               END IF
                CALL execute_job(i)
                IF (output_unit > 0) THEN
                   WRITE (output_unit, FMT="(A)") " Done, output in "//TRIM(output_file)
                   CALL m_flush(output_unit)
-               ENDIF
-            ENDIF
-         ENDDO
-      ENDIF
+               END IF
+            END IF
+         END DO
+      END IF
 
       ! keep information about how long each process has to wait
       ! i.e. the load imbalance
@@ -760,9 +790,9 @@ CONTAINS
             WRITE (output_unit, FMT='(A2,I6,A3,F8.3,A1)', ADVANCE="NO") &
                " (", i, " : ", waittime(i), ")"
             IF (MOD(i + 1, 4) == 0) WRITE (output_unit, '(A)') ""
-         ENDDO
+         END DO
          CALL m_flush(output_unit)
-      ENDIF
+      END IF
       DEALLOCATE (waittime)
 
       ! give back the communicators of the split groups
@@ -801,6 +831,7 @@ CONTAINS
             IF (farming_env%Job(i)%output == "") THEN
                ! generate the output file
                WRITE (output_file, '(A12,I5.5)') "FARMING_OUT_", i
+               ALLOCATE (my_parser)
                CALL parser_create(my_parser, file_name=TRIM(farming_env%Job(i)%input))
                label = "&GLOBAL"
                CALL parser_search_string(my_parser, label, ignore_case=.TRUE., found=found)
@@ -820,9 +851,10 @@ CONTAINS
                   CALL section_release(g_section)
                END IF
                CALL parser_release(my_parser)
+               DEALLOCATE (my_parser)
             ELSE
                output_file = farming_env%Job(i)%output
-            ENDIF
+            END IF
 
             CALL open_file(file_name=TRIM(output_file), &
                            file_action="WRITE", &
@@ -834,7 +866,7 @@ CONTAINS
             ! start writing output (to the same file, adding to confusion).
             ! error handling should be careful, asking for a local output unit if required
             new_output_unit = -1
-         ENDIF
+         END IF
 
          CALL cp2k_run(input_declaration, TRIM(farming_env%Job(i)%input), new_output_unit, new_group, initial_variables)
 
@@ -851,8 +883,6 @@ CONTAINS
 !> \brief ...
 ! **************************************************************************************************
    SUBROUTINE write_xml_file()
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_xml_file', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ie, is, unit_number
       TYPE(section_type), POINTER                        :: root_section
@@ -943,31 +973,27 @@ CONTAINS
          DIMENSION(:, :), INTENT(IN)                     :: initial_variables
       INTEGER, INTENT(in), OPTIONAL                      :: mpi_comm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'run_input', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: unit_nr
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       IF (PRESENT(mpi_comm)) THEN
          NULLIFY (para_env)
-         CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.) !XXXXXXXXXXXX uninitiliased error
+         CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.)
       ELSE
          para_env => f77_default_para_env
-         CALL cp_para_env_retain(para_env) !XXXXXXXXXXXX uninitiliased error
+         CALL cp_para_env_retain(para_env)
       END IF
       IF (para_env%ionode) THEN
          IF (output_file_path == "__STD_OUT__") THEN
             unit_nr = default_output_unit
          ELSE
-            CALL open_file(file_name=output_file_path, file_status="UNKNOWN", &
-                           file_action="WRITE", file_position="APPEND", &
-                           unit_number=unit_nr)
+            INQUIRE (FILE=output_file_path, NUMBER=unit_nr)
          END IF
       ELSE
          unit_nr = -1
       END IF
       CALL cp2k_run(input_declaration, input_file_path, unit_nr, para_env%group, initial_variables)
-      CALL cp_para_env_release(para_env) !XXXXXXXXXXXX uninitiliased error
+      CALL cp_para_env_release(para_env)
    END SUBROUTINE run_input
 
 END MODULE cp2k_runs

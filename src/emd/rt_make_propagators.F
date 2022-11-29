@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -71,7 +73,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'propagate_exp', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'propagate_exp'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, im, nmo, re
@@ -135,8 +137,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'propagate_exp_density', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'propagate_exp_density'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, im, re
@@ -173,7 +174,7 @@ CONTAINS
             ELSE
                CALL dbcsr_copy(rho_next(re)%matrix, rho_old(re)%matrix)
                CALL dbcsr_copy(rho_next(im)%matrix, rho_old(im)%matrix)
-            ENDIF
+            END IF
          END IF
          CALL cp_complex_dbcsr_gemm_3("N", "N", one, exp_H_new(re)%matrix, exp_H_new(im)%matrix, &
                                       rho_next(re)%matrix, rho_next(im)%matrix, zero, tmp_re, tmp_im, filter_eps=rtp%filter_eps)
@@ -199,8 +200,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'propagate_arnoldi', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'propagate_arnoldi'
 
       INTEGER                                            :: handle, i, im, ispin, nspin, re
       REAL(dp)                                           :: eps_arnoldi, t
@@ -227,6 +227,7 @@ CONTAINS
       NULLIFY (propagator_matrix_fm)
       ALLOCATE (propagator_matrix_fm(SIZE(propagator_matrix)))
       DO i = 1, SIZE(propagator_matrix)
+         ALLOCATE (propagator_matrix_fm(i)%matrix)
          CALL cp_fm_create(propagator_matrix_fm(i)%matrix, &
                            matrix_struct=rtp%ao_ao_fmstruct, &
                            name="prop_fm")
@@ -270,7 +271,7 @@ CONTAINS
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'propagate_bch', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'propagate_bch'
 
       INTEGER                                            :: handle, im, ispin, re
       REAL(dp)                                           :: dt
@@ -306,7 +307,7 @@ CONTAINS
                   CALL bch_expansion_complex_propagator( &
                      exp_H_old(re)%matrix, exp_H_old(im)%matrix, rho_next(re)%matrix, rho_next(im)%matrix, &
                      rtp%filter_eps, rtp%filter_eps_small, rtp_control%eps_exp)
-               ENDIF
+               END IF
             END IF
          END IF
          CALL dbcsr_copy(rho_new(re)%matrix, rho_next(re)%matrix)
@@ -319,7 +320,7 @@ CONTAINS
             CALL bch_expansion_complex_propagator( &
                propagator_matrix(re)%matrix, propagator_matrix(im)%matrix, rho_new(re)%matrix, rho_new(im)%matrix, &
                rtp%filter_eps, rtp%filter_eps_small, rtp_control%eps_exp)
-         ENDIF
+         END IF
 
       END DO
 
@@ -341,9 +342,6 @@ CONTAINS
       TYPE(rtp_control_type), POINTER                    :: rtp_control
       TYPE(rt_prop_type), POINTER                        :: rtp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_exponential', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, im, ispin, re
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: propagator_fm, propagator_matrix_fm
 
@@ -352,10 +350,12 @@ CONTAINS
       NULLIFY (propagator_matrix_fm)
       ALLOCATE (propagator_matrix_fm(SIZE(propagator_matrix)))
       DO i = 1, SIZE(propagator)
+         ALLOCATE (propagator_fm(i)%matrix)
          CALL cp_fm_create(propagator_fm(i)%matrix, &
                            matrix_struct=rtp%ao_ao_fmstruct, &
                            name="prop_fm")
          CALL copy_dbcsr_to_fm(propagator(i)%matrix, propagator_fm(i)%matrix)
+         ALLOCATE (propagator_matrix_fm(i)%matrix)
          CALL cp_fm_create(propagator_matrix_fm(i)%matrix, &
                            matrix_struct=rtp%ao_ao_fmstruct, &
                            name="prop_mat_fm")
@@ -410,8 +410,7 @@ CONTAINS
       TYPE(rtp_control_type), POINTER                    :: rtp_control
       TYPE(rt_prop_type), POINTER                        :: rtp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_exponential_sparse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_exponential_sparse'
 
       INTEGER                                            :: handle, im, ispin, re
 

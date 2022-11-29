@@ -2,65 +2,57 @@
 
 # author: Ole Schuett
 
-function run_tests {
-    PYTHON=$1
-    SCRIPTS=$2
-    BASEDIR=$(pwd)
-    VERSION=$(${PYTHON} -V 2>&1 | tr -d '\n')
-    echo ""
-    echo "========== Running ${VERSION} Tests =========="
-    #find ./src/ ./tools/ -name "*.pyc" -exec rm {} \;
-    for i in $SCRIPTS ; do
-        set +e #disable error trapping
-        if [[ $(head -n1 "$i") =~ "python3" && "$PYTHON" != "python3" ]]; then
-          echo "Skipping $i - it's Python3 only."
-          continue
-        fi
-        echo "Running $i"
-        cd "$(dirname "$i")"
-        SCRIPT=$(basename "$i")
-        if ! $PYTHON -B "./${SCRIPT}" ; then
-            echo "Test $i failed"
-            ERRORS=$((ERRORS+1))
-        fi
-        set -e #re-enable error trapping
-        cd "$BASEDIR"
-    done
-}
-
-function run_pre_commit {
-    set +e #disable error trapping
-    if ! pre-commit run --all-files --hook-stage manual check-ast ; then
-        echo "Syntax check failed for either Python 2 or 3"
-        ERRORS=$((ERRORS+1))
-    fi
-    set -e #re-enable error trapping
+function run_test {
+  TEST_COMMAND=("$@")
+  echo -en "Running \"${TEST_COMMAND[*]}\"... "
+  if "${TEST_COMMAND[@]}" &> test.out; then
+    echo "done."
+  else
+    echo -e "failed.\n\n"
+    tail -n 100 test.out
+    echo -e "\nSummary: Test \"${TEST_COMMAND[*]}\" failed."
+    echo -e "Status: FAILED\n"
+    exit 0
+  fi
 }
 
 #===============================================================================
-ERRORS=0
+cd /opt/cp2k
 
-cd /workspace/cp2k
-
-# find executable python scripts
-ALL_TEST_SCRIPTS=$(find ./src/ ./tools/ -name "*_test.py"  -executable)
-ESSENTIAL_TEST_SCRIPTS=$(find ./tools/build_utils -name "*_test.py"  -executable)
-
-# python 2.7
-run_tests python2.7 "${ALL_TEST_SCRIPTS}"
-
-# python 3.x
-run_tests python3 "${ALL_TEST_SCRIPTS}"
-
-# run manual pre-commit checks
-run_pre_commit
-
-# print report
-NUM_TEST_SCRIPTS=$(( $(wc -w <<< "${ALL_TEST_SCRIPTS}") + 1 ))
+echo "Using $(python3 --version) and $(mypy --version)."
 echo ""
-echo "Summary: Run ${NUM_TEST_SCRIPTS} Python test scripts, found ${ERRORS} errors."
-if [ $ERRORS == 0 ]; then
-    echo "Status: OK"
-else
-    echo "Status: FAILED"
-fi
+
+# prepare inputs for minimax_to_fortran_source.py
+unzip -q -d ./tools/minimax_tools/1_xData 1_xData.zip
+
+run_test ./tools/prettify/prettify_test.py
+run_test ./tools/minimax_tools/minimax_to_fortran_source.py --check
+run_test ./tools/docker/generate_dockerfiles.py --check
+
+run_test mypy --strict ./tools/minimax_tools/minimax_to_fortran_source.py
+run_test mypy --strict ./tools/dashboard/generate_dashboard.py
+run_test mypy --strict ./tools/dashboard/generate_regtest_survey.py
+run_test mypy --strict ./tools/regtesting/do_regtest.py
+run_test mypy --strict ./tools/regtesting/optimize_test_dirs.py
+run_test mypy --strict ./tools/precommit/precommit.py
+run_test mypy --strict ./tools/precommit/check_file_properties.py
+run_test mypy --strict ./tools/precommit/format_makefile.py
+run_test mypy --strict ./tools/docker/generate_dockerfiles.py
+run_test mypy --strict ./tools/conventions/analyze_gfortran_ast.py
+
+# TODO: Find a way to test generate_dashboard.py without git repository.
+#
+# # Test generate_dashboard.py. Running it twice to also execute its caching.
+# mkdir -p /workspace/artifacts/dashboard
+# for _ in {1..2}; do
+#   run_test ./tools/dashboard/generate_dashboard.py \
+#     ./tools/dashboard/dashboard.conf \
+#     /workspace/artifacts/dashboard/status.pickle \
+#     /workspace/artifacts/dashboard/
+# done
+
+echo ""
+echo "Summary: Python tests passed"
+echo "Status: OK"
+
+#EOF

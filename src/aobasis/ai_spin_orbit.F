@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -86,8 +88,6 @@ CONTAINS
       REAL(dp), DIMENSION(0:ldrr1-1, ldrr2, *), &
          INTENT(INOUT)                                   :: rr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pso', routineP = moduleN//':'//routineN
-
       INTEGER :: ax, ay, az, bx, by, bz, coa, coam1x, coam1y, coam1z, coap1x, coap1y, coap1z, cob, &
          cobm1x, cobm1y, cobm1z, cobp1x, cobp1y, cobp1z, i, ipgf, j, jpgf, la, lb, ma, mb, na, nb
       REAL(dp)                                           :: dab, dum1, dum2, f0, rab2, xhi, zet, &
@@ -117,11 +117,11 @@ CONTAINS
                      vab(i, j, 1) = 0.0_dp
                      vab(i, j, 2) = 0.0_dp
                      vab(i, j, 3) = 0.0_dp
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                nb = nb + ncoset(lb_max)
                CYCLE
-            ENDIF
+            END IF
 
             ! *** Calculate some prefactors ***
 
@@ -219,21 +219,21 @@ CONTAINS
                   IF (ay .GT. 0 .AND. bx .GT. 0) dum2 = dum2 + REAL(ay, dp)*REAL(bx, dp)*rr(0, coam1y, cobm1x)
                   vab(ma, mb, 3) = f0*(dum1 - dum2)
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
+               END DO
+               END DO
+               END DO !la
 
-            ENDDO
-            ENDDO
-            ENDDO !lb
+            END DO
+            END DO
+            END DO !lb
 
             nb = nb + ncoset(lb_max)
 
-         ENDDO
+         END DO
 
          na = na + ncoset(la_max)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE pso
 

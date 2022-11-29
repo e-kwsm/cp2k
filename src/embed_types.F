@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE embed_types
@@ -21,7 +23,6 @@ MODULE embed_types
    USE cp_result_types,                 ONLY: cp_result_type
    USE cp_subsys_types,                 ONLY: cp_subsys_get,&
                                               cp_subsys_release,&
-                                              cp_subsys_retain,&
                                               cp_subsys_set,&
                                               cp_subsys_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
@@ -42,7 +43,7 @@ MODULE embed_types
                                               particle_list_release,&
                                               particle_list_type
    USE particle_types,                  ONLY: particle_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -54,11 +55,9 @@ MODULE embed_types
    PUBLIC :: get_embed_env, &
              set_embed_env, &
              embed_env_create, &
-             embed_env_release, &
-             embed_env_retain
+             embed_env_release
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
-   INTEGER, PRIVATE, SAVE :: last_embed_env_id_nr = 0
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'embed_types'
 
 ! **************************************************************************************************
@@ -67,17 +66,19 @@ MODULE embed_types
 ! **************************************************************************************************
 
    TYPE opt_embed_pot_type
-      TYPE(cp_fm_type), POINTER                 :: embed_pot_coef, embed_pot_grad, &
-                                                   prev_step, step, embed_pot_hess, &
-                                                   prev_embed_pot_coef, prev_embed_pot_grad, &
-                                                   prev_embed_pot_hess, kinetic_mat
+      TYPE(cp_fm_type), POINTER                 :: embed_pot_coef => NULL(), embed_pot_grad => NULL(), &
+                                                   prev_step => NULL(), step => NULL(), embed_pot_hess => NULL(), &
+                                                   prev_embed_pot_coef => NULL(), prev_embed_pot_grad => NULL(), &
+                                                   prev_embed_pot_hess => NULL(), kinetic_mat => NULL()
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)  :: w_func, max_diff, int_diff, int_diff_square, &
                                                    max_grid_step, max_subsys_dens_diff
       INTEGER                                   :: n_iter, i_iter, dimen_aux, last_accepted, dimen_var_aux
       REAL(KIND=dp)                             :: lambda, allowed_decrease, max_trad, min_trad, &
                                                    grad_norm, vw_cutoff, vw_smooth_cutoff_range, eta
-      TYPE(pw_p_type), POINTER                  :: const_pot, prev_embed_pot, prev_spin_embed_pot, pot_diff
-      TYPE(pw_p_type), DIMENSION(:), POINTER    :: prev_grid_grad, prev_grid_pot, prev_subsys_dens, v_w
+      TYPE(pw_type), POINTER                  :: const_pot => NULL(), prev_embed_pot => NULL(), &
+                                                 prev_spin_embed_pot => NULL(), pot_diff => NULL()
+      TYPE(pw_type), DIMENSION(:), POINTER    :: prev_grid_grad => NULL(), prev_grid_pot => NULL(), &
+                                                 prev_subsys_dens => NULL(), v_w => NULL()
       REAL(KIND=dp)                             :: reg_term, trust_rad, conv_max, conv_int, &
                                                    conv_max_spin, conv_int_spin, step_len
       LOGICAL                                   :: accept_step, newton_step, level_shift, steep_desc, &
@@ -86,7 +87,7 @@ MODULE embed_types
                                                    grid_opt, leeuwen, fab, coulomb_guess, fermi_amaldi, &
                                                    diff_guess
       INTEGER, ALLOCATABLE, DIMENSION(:)        :: all_nspins
-      TYPE(lri_kind_type), DIMENSION(:), POINTER :: lri ! Needed to store integrals
+      TYPE(lri_kind_type), DIMENSION(:), POINTER :: lri => NULL() ! Needed to store integrals
 
    END TYPE opt_embed_pot_type
 
@@ -115,7 +116,6 @@ MODULE embed_types
 ! **************************************************************************************************
 
    TYPE embed_env_type
-      INTEGER                                          :: id_nr, ref_count
       TYPE(cell_type), POINTER                         :: cell_ref
       TYPE(cp_para_env_type), POINTER                  :: para_env
       TYPE(cp_subsys_type), POINTER                    :: subsys
@@ -171,8 +171,6 @@ CONTAINS
       TYPE(cp_result_type), OPTIONAL, POINTER            :: results
       REAL(KIND=dp), OPTIONAL                            :: pot_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_embed_env', routineP = moduleN//':'//routineN
-
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
       TYPE(molecule_list_type), POINTER                  :: molecules
@@ -222,9 +220,6 @@ CONTAINS
       NULLIFY (embed_env%subsys)
       CALL cp_para_env_retain(para_env)
       embed_env%para_env => para_env
-      embed_env%ref_count = 1
-      last_embed_env_id_nr = last_embed_env_id_nr + 1
-      embed_env%id_nr = last_embed_env_id_nr
 
    END SUBROUTINE init_embed_env
 
@@ -247,7 +242,7 @@ CONTAINS
                             molecule_set, cell_ref, subsys, &
                             input, sub_para_env)
 
-      TYPE(embed_env_type), POINTER                      :: embed_env
+      TYPE(embed_env_type), INTENT(INOUT)                :: embed_env
       TYPE(atomic_kind_type), OPTIONAL, POINTER          :: atomic_kind_set(:)
       TYPE(particle_type), OPTIONAL, POINTER             :: particle_set(:)
       TYPE(distribution_1d_type), OPTIONAL, POINTER      :: local_particles, local_molecules
@@ -259,14 +254,10 @@ CONTAINS
       TYPE(cp_para_env_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: sub_para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_embed_env', routineP = moduleN//':'//routineN
-
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
       TYPE(molecule_list_type), POINTER                  :: molecules
       TYPE(particle_list_type), POINTER                  :: particles
-
-      CPASSERT(embed_env%ref_count > 0)
 
       IF (PRESENT(cell_ref)) THEN
          CALL cell_retain(cell_ref)
@@ -279,8 +270,11 @@ CONTAINS
          embed_env%input => input
       END IF
       IF (PRESENT(subsys)) THEN
-         CALL cp_subsys_retain(subsys)
-         CALL cp_subsys_release(embed_env%subsys)
+         IF (ASSOCIATED(embed_env%subsys)) THEN
+         IF (.NOT. ASSOCIATED(embed_env%subsys, subsys)) THEN
+            CALL cp_subsys_release(embed_env%subsys)
+         END IF
+         END IF
          embed_env%subsys => subsys
       END IF
       IF (PRESENT(sub_para_env)) THEN
@@ -328,13 +322,9 @@ CONTAINS
 !> \author Vladimir Rybkin 02.2018
 ! **************************************************************************************************
    SUBROUTINE embed_env_create(embed_env, para_env)
-      TYPE(embed_env_type), POINTER                      :: embed_env
+      TYPE(embed_env_type), INTENT(OUT)                  :: embed_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'embed_env_create', &
-         routineP = moduleN//':'//routineN
-
-      ALLOCATE (embed_env)
       CALL init_embed_env(embed_env, para_env=para_env)
    END SUBROUTINE embed_env_create
 
@@ -343,55 +333,28 @@ CONTAINS
 !> \param embed_env ...
 !> \author Vladimir Rybkin 02.2018
 ! **************************************************************************************************
-   SUBROUTINE embed_env_retain(embed_env)
-      TYPE(embed_env_type), POINTER                      :: embed_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'embed_env_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(embed_env))
-      CPASSERT(embed_env%ref_count > 0)
-      embed_env%ref_count = embed_env%ref_count + 1
-   END SUBROUTINE embed_env_retain
-
-! **************************************************************************************************
-!> \brief ...
-!> \param embed_env ...
-!> \author Vladimir Rybkin 02.2018
-! **************************************************************************************************
    SUBROUTINE embed_env_release(embed_env)
-      TYPE(embed_env_type), POINTER                      :: embed_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'embed_env_release', &
-         routineP = moduleN//':'//routineN
+      TYPE(embed_env_type), INTENT(INOUT)                :: embed_env
 
       INTEGER                                            :: i, ngroups
 
-      IF (ASSOCIATED(embed_env)) THEN
-         CPASSERT(embed_env%ref_count > 0)
-         embed_env%ref_count = embed_env%ref_count - 1
-         IF (embed_env%ref_count < 1) THEN
-            ngroups = SIZE(embed_env%sub_para_env)
-            DO i = 1, ngroups
-               IF (ASSOCIATED(embed_env%sub_para_env(i)%para_env)) THEN
-                  CALL cp_logger_release(embed_env%sub_logger(i)%p)
-                  CALL cp_para_env_release(embed_env%sub_para_env(i)%para_env)
-               END IF
-            END DO
-            DEALLOCATE (embed_env%sub_para_env)
-            DEALLOCATE (embed_env%sub_logger)
-            DEALLOCATE (embed_env%energies)
-            CALL cell_release(embed_env%cell_ref)
-            CALL cp_para_env_release(embed_env%para_env)
-            CALL cp_subsys_release(embed_env%subsys)
-            CALL section_vals_release(embed_env%input)
-            IF (ASSOCIATED(embed_env%group_distribution)) THEN
-               DEALLOCATE (embed_env%group_distribution)
-            END IF
-            DEALLOCATE (embed_env)
+      ngroups = SIZE(embed_env%sub_para_env)
+      DO i = 1, ngroups
+         IF (ASSOCIATED(embed_env%sub_para_env(i)%para_env)) THEN
+            CALL cp_logger_release(embed_env%sub_logger(i)%p)
+            CALL cp_para_env_release(embed_env%sub_para_env(i)%para_env)
          END IF
+      END DO
+      DEALLOCATE (embed_env%sub_para_env)
+      DEALLOCATE (embed_env%sub_logger)
+      DEALLOCATE (embed_env%energies)
+      CALL cell_release(embed_env%cell_ref)
+      CALL cp_para_env_release(embed_env%para_env)
+      CALL cp_subsys_release(embed_env%subsys)
+      CALL section_vals_release(embed_env%input)
+      IF (ASSOCIATED(embed_env%group_distribution)) THEN
+         DEALLOCATE (embed_env%group_distribution)
       END IF
-      NULLIFY (embed_env)
 
    END SUBROUTINE embed_env_release
 

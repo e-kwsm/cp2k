@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,6 +24,9 @@ MODULE xc_vwn
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
+   USE xc_derivative_desc,              ONLY: deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -45,7 +50,7 @@ MODULE xc_vwn
                                af = 0.01554535_dp, &
                                aa = -0.0168868639404_dp !-1/(6pi^2)
 
-   PUBLIC :: vwn_lda_info, vwn_lda_eval, vwn_lsd_eval
+   PUBLIC :: vwn_lda_info, vwn_lda_eval, vwn_lsd_eval, vwn_lsd_info
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'xc_vwn'
 
@@ -62,8 +67,6 @@ CONTAINS
 
       REAL(KIND=dp), INTENT(IN)                          :: cutoff
       TYPE(section_vals_type), POINTER                   :: vwn_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'vwn_init', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: TYPE
 
@@ -129,35 +132,57 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief ...
+!> \param reference ...
+!> \param shortform ...
+!> \param needs ...
+!> \param max_deriv ...
+! **************************************************************************************************
+   SUBROUTINE vwn_lsd_info(reference, shortform, needs, max_deriv)
+      CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: reference, shortform
+      TYPE(xc_rho_cflags_type), INTENT(inout), OPTIONAL  :: needs
+      INTEGER, INTENT(out), OPTIONAL                     :: max_deriv
+
+      IF (PRESENT(reference)) THEN
+         reference = "S. H. Vosko, L. Wilk and M. Nusair,"// &
+                     " Can. J. Phys. 58, 1200 (1980) {LDA version}"
+      END IF
+      IF (PRESENT(shortform)) THEN
+         shortform = "Vosko-Wilk-Nusair Functional {LDA}"
+      END IF
+      IF (PRESENT(needs)) THEN
+         needs%rho_spin = .TRUE.
+      END IF
+      IF (PRESENT(max_deriv)) max_deriv = 3
+
+   END SUBROUTINE vwn_lsd_info
+
+! **************************************************************************************************
+!> \brief ...
 !> \param rho_set ...
 !> \param deriv_set ...
 !> \param order ...
 !> \param vwn_params ...
 ! **************************************************************************************************
    SUBROUTINE vwn_lda_eval(rho_set, deriv_set, order, vwn_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: order
       TYPE(section_vals_type), POINTER                   :: vwn_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'vwn_lda_eval', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'vwn_lda_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(KIND=dp)                                      :: epsilon_rho, sc
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: x
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: e_0, e_rho, e_rho_rho, e_rho_rho_rho, rho
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: e_0, e_rho, e_rho_rho, e_rho_rho_rho, rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
-      NULLIFY (bo)
 
       CALL section_vals_val_get(vwn_params, "scale_c", r_val=sc)
 
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           local_bounds=bo, rho_cutoff=epsilon_rho)
       npoints = (bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1)
@@ -167,36 +192,36 @@ CONTAINS
       CALL calc_srs_pw(rho, x, npoints)
 
       IF (order >= 1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
 
          CALL vwn_lda_01(rho, x, e_0, e_rho, npoints, sc)
       ELSEIF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
 
          CALL vwn_lda_0(rho, x, e_0, npoints, sc)
       ELSEIF (order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
 
          CALL vwn_lda_1(rho, x, e_rho, npoints, sc)
       END IF
       IF (order >= 2 .OR. order == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho)
 
          CALL vwn_lda_2(rho, x, e_rho_rho, npoints, sc)
       END IF
       IF (order >= 3 .OR. order == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)(rho)(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho, deriv_rho, deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho_rho_rho)
 
@@ -497,30 +522,26 @@ CONTAINS
 !> \param vwn_params ...
 ! **************************************************************************************************
    SUBROUTINE vwn_lsd_eval(rho_set, deriv_set, order, vwn_params)
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(in)                                :: order
       TYPE(section_vals_type), POINTER                   :: vwn_params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'vwn_lsd_eval', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'vwn_lsd_eval'
 
       INTEGER                                            :: handle, npoints, TYPE
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(KIND=dp)                                      :: epsilon_rho, sc
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_a, e_aa, e_aaa, e_aab, &
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_a, e_aa, e_aaa, e_aab, &
                                                             e_ab, e_abb, e_b, e_bb, e_bbb, rhoa, &
                                                             rhob
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
-      NULLIFY (bo)
 
       CALL section_vals_val_get(vwn_params, "scale_c", r_val=sc)
 
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
       CALL xc_rho_set_get(rho_set, rhoa=rhoa, rhob=rhob, &
                           local_bounds=bo, rho_cutoff=epsilon_rho)
       npoints = (bo(2, 1) - bo(1, 1) + 1)*(bo(2, 2) - bo(1, 2) + 1)*(bo(2, 3) - bo(1, 3) + 1)
@@ -540,46 +561,46 @@ CONTAINS
       e_abb => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_a)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_b)
       END IF
       IF (order >= 2 .OR. order == -2) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_aa)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_bb)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ab)
       END IF
       IF (order >= 3 .OR. order == -3) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_aaa)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_bbb)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhoa)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhoa, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_aab)
 
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)(rhob)(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa, deriv_rhob, deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_abb)
 

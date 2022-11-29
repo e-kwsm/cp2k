@@ -67,16 +67,13 @@
             CROSSING_SEARCH       Z_SHOT
             FERMI_LEVEL_OFFSET    2.0E-2
             EV_GW_ITER            1
+            RI_SIGMA_X            FALSE
           &END GW
         &END RI_RPA
         MEMORY  200.
         NUMBER_PROC  1
         &RI
           DO_SVD
-          EPS_SVD 1.0E-5
-          &RI_METRIC
-            POTENTIAL_TYPE IDENTITY
-          &END
         &END RI
       &END
     &END XC

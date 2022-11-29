@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,8 +20,10 @@ MODULE hirshfeld_methods
                                               pbc
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_para_types,                   ONLY: cp_para_env_type
+   USE cp_result_methods,               ONLY: cp_results_erase,&
+                                              put_results
+   USE cp_result_types,                 ONLY: cp_result_type
    USE cp_units,                        ONLY: cp_unit_to_cp2k
-   USE cube_utils,                      ONLY: cube_info_type
    USE grid_api,                        ONLY: GRID_FUNC_AB,&
                                               collocate_pgf_product,&
                                               integrate_pgf_product
@@ -33,8 +37,8 @@ MODULE hirshfeld_methods
                                               radius_vdw,&
                                               shape_function_density,&
                                               shape_function_gaussian
-   USE kinds,                           ONLY: dp,&
-                                              int_8
+   USE kinds,                           ONLY: default_string_length,&
+                                              dp
    USE mathconstants,                   ONLY: pi
    USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
@@ -47,8 +51,8 @@ MODULE hirshfeld_methods
                                               pw_pool_type
    USE pw_types,                        ONLY: REALDATA3D,&
                                               REALSPACE,&
-                                              pw_p_type,&
-                                              pw_release
+                                              pw_release,&
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: get_qs_kind,&
@@ -59,8 +63,6 @@ MODULE hirshfeld_methods
                                               realspace_grid_desc_type,&
                                               realspace_grid_type,&
                                               rs2pw,&
-                                              rs_grid_release,&
-                                              rs_grid_retain,&
                                               rs_grid_zero,&
                                               rs_pw_transfer
 #include "./base/base_uses.f90"
@@ -71,7 +73,8 @@ MODULE hirshfeld_methods
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'hirshfeld_methods'
 
    PUBLIC :: create_shape_function, comp_hirshfeld_charges, &
-             comp_hirshfeld_i_charges, write_hirshfeld_charges
+             comp_hirshfeld_i_charges, write_hirshfeld_charges, &
+             save_hirshfeld_charges
 
 ! **************************************************************************************************
 
@@ -92,9 +95,6 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       INTEGER, INTENT(IN)                                :: unit_nr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_hirshfeld_charges', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=2)                                   :: element_symbol
       INTEGER                                            :: iatom, ikind, natom, nspin
@@ -133,6 +133,48 @@ CONTAINS
    END SUBROUTINE write_hirshfeld_charges
 
 ! **************************************************************************************************
+!> \brief saves the Hirshfeld charges to the results structure
+!> \param charges the calculated Hirshfeld charges
+!> \param particle_set the particle set
+!> \param qs_kind_set the kind set
+!> \param qs_env the environment
+! **************************************************************************************************
+   SUBROUTINE save_hirshfeld_charges(charges, particle_set, qs_kind_set, qs_env)
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(inout)      :: charges
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(LEN=default_string_length)               :: description
+      INTEGER                                            :: iatom, ikind, natom
+      REAL(KIND=dp)                                      :: zeff
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: charges_save
+      TYPE(cp_result_type), POINTER                      :: results
+
+      NULLIFY (results)
+      CALL get_qs_env(qs_env, results=results)
+
+      natom = SIZE(charges, 1)
+      ALLOCATE (charges_save(natom))
+
+      DO iatom = 1, natom
+         CALL get_atomic_kind(atomic_kind=particle_set(iatom)%atomic_kind, &
+                              kind_number=ikind)
+         CALL get_qs_kind(qs_kind_set(ikind), zeff=zeff)
+         charges_save(iatom) = zeff - SUM(charges(iatom, :))
+      END DO
+
+      ! Store charges in results
+      description = "[HIRSHFELD-CHARGES]"
+      CALL cp_results_erase(results=results, description=description)
+      CALL put_results(results=results, description=description, &
+                       values=charges_save)
+
+      DEALLOCATE (charges_save)
+
+   END SUBROUTINE save_hirshfeld_charges
+
+! **************************************************************************************************
 !> \brief creates kind specific shape functions for Hirshfeld charges
 !> \param hirshfeld_env the env that holds information about Hirshfeld
 !> \param qs_kind_set the qs_kind_set
@@ -147,8 +189,6 @@ CONTAINS
       REAL(KIND=dp), OPTIONAL                            :: radius
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: radii_list
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_shape_function', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: ngto = 8
 
       CHARACTER(len=2)                                   :: esym
@@ -238,45 +278,38 @@ CONTAINS
       TYPE(hirshfeld_type), POINTER                      :: hirshfeld_env
       REAL(KIND=dp), DIMENSION(:, :), INTENT(inout)      :: charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'comp_hirshfeld_charges', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: is
       LOGICAL                                            :: rho_r_valid
       REAL(KIND=dp)                                      :: tnfun
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
-      TYPE(pw_p_type), POINTER                           :: rhonorm
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rhonorm
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_rho_type), POINTER                         :: rho
 
       NULLIFY (rho_r)
       ! normalization function on grid
       CALL calculate_hirshfeld_normalization(qs_env, hirshfeld_env)
       ! check normalization
-      tnfun = pw_integrate_function(hirshfeld_env%fnorm%pw)
+      tnfun = pw_integrate_function(hirshfeld_env%fnorm)
       tnfun = ABS(tnfun - SUM(hirshfeld_env%charges))
-      !
-      ALLOCATE (rhonorm)
       !
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, rho=rho)
       CALL qs_rho_get(rho, rho_r=rho_r, rho_r_valid=rho_r_valid)
       CALL pw_env_get(pw_env=pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rhonorm%pw, use_data=REALDATA3D)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rhonorm, use_data=REALDATA3D)
       ! loop over spins
       DO is = 1, SIZE(rho_r)
          IF (rho_r_valid) THEN
-            CALL hfun_scale(rhonorm%pw%cr3d, rho_r(is)%pw%cr3d, &
-                            hirshfeld_env%fnorm%pw%cr3d)
+            CALL hfun_scale(rhonorm%cr3d, rho_r(is)%cr3d, &
+                            hirshfeld_env%fnorm%cr3d)
          ELSE
             CPABORT("We need rho in real space")
          END IF
          CALL hirshfeld_integration(qs_env, hirshfeld_env, rhonorm, charges(:, is))
          charges(:, is) = charges(:, is)*hirshfeld_env%charges(:)
       END DO
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rhonorm%pw)
-      !
-      DEALLOCATE (rhonorm)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rhonorm)
 
    END SUBROUTINE comp_hirshfeld_charges
 ! **************************************************************************************************
@@ -289,7 +322,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(OUT)     :: fout
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: fun1, fun2
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hfun_scale', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: small = 1.0e-12_dp
 
       INTEGER                                            :: i1, i2, i3, n1, n2, n3
@@ -331,8 +363,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(inout)      :: charges
       INTEGER, INTENT(IN)                                :: ounit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'comp_hirshfeld_i_charges', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: maxloop = 100
       REAL(KIND=dp), PARAMETER                           :: maxres = 1.0e-2_dp
 
@@ -341,9 +371,9 @@ CONTAINS
       LOGICAL                                            :: rho_r_valid
       REAL(KIND=dp)                                      :: res, tnfun
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
-      TYPE(pw_p_type), POINTER                           :: rhonorm
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rhonorm
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_rho_type), POINTER                         :: rho
 
       NULLIFY (rho_r)
@@ -352,25 +382,23 @@ CONTAINS
 
       IF (ounit > 0) WRITE (ounit, "(/,T2,A)") "Hirshfeld charge iterations: Residuals ..."
       !
-      ALLOCATE (rhonorm)
-      !
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, rho=rho)
       CALL qs_rho_get(rho, rho_r=rho_r, rho_r_valid=rho_r_valid)
       CALL pw_env_get(pw_env=pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, rhonorm%pw, use_data=REALDATA3D)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rhonorm, use_data=REALDATA3D)
       !
       DO iloop = 1, maxloop
 
          ! normalization function on grid
          CALL calculate_hirshfeld_normalization(qs_env, hirshfeld_env)
          ! check normalization
-         tnfun = pw_integrate_function(hirshfeld_env%fnorm%pw)
+         tnfun = pw_integrate_function(hirshfeld_env%fnorm)
          tnfun = ABS(tnfun - SUM(hirshfeld_env%charges))
          ! loop over spins
          DO is = 1, SIZE(rho_r)
             IF (rho_r_valid) THEN
-               CALL hfun_scale(rhonorm%pw%cr3d, rho_r(is)%pw%cr3d, &
-                               hirshfeld_env%fnorm%pw%cr3d)
+               CALL hfun_scale(rhonorm%cr3d, rho_r(is)%cr3d, &
+                               hirshfeld_env%fnorm%cr3d)
             ELSE
                CPABORT("We need rho in real space")
             END IF
@@ -396,9 +424,7 @@ CONTAINS
 
       END DO
       !
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rhonorm%pw)
-      !
-      DEALLOCATE (rhonorm)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rhonorm)
 
    END SUBROUTINE comp_hirshfeld_i_charges
 
@@ -412,25 +438,22 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(hirshfeld_type), POINTER                      :: hirshfeld_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_hirshfeld_normalization', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_hirshfeld_normalization'
 
       INTEGER                                            :: atom_a, handle, iatom, iex, ikind, &
                                                             ithread, j, natom, npme, nthread, &
-                                                            numexp
-      INTEGER(KIND=int_8)                                :: subpatch_pattern
+                                                            numexp, subpatch_pattern
       INTEGER, DIMENSION(:), POINTER                     :: atom_list, cores
       REAL(KIND=dp)                                      :: alpha, coef, eps_rho_rspace, radius
       REAL(KIND=dp), DIMENSION(3)                        :: ra
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: pab
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cube_info_type)                               :: cube_info
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: fnorm
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), POINTER                             :: fnorm
       TYPE(realspace_grid_desc_type), POINTER            :: auxbas_rs_desc
       TYPE(realspace_grid_type), POINTER                 :: rs_rho
 
@@ -440,9 +463,7 @@ CONTAINS
                       dft_control=dft_control, particle_set=particle_set, pw_env=pw_env)
       CALL pw_env_get(pw_env, auxbas_rs_desc=auxbas_rs_desc, auxbas_rs_grid=rs_rho, &
                       auxbas_pw_pool=auxbas_pw_pool)
-      cube_info = pw_env%cube_info(1)
-      ! be careful in parallel nsmax is choosen with multigrid in mind!
-      CALL rs_grid_retain(rs_rho)
+      ! be careful in parallel nsmax is chosen with multigrid in mind!
       CALL rs_grid_zero(rs_rho)
 
       eps_rho_rspace = dft_control%qs_control%eps_rho_rspace
@@ -469,11 +490,11 @@ CONTAINS
                   IF (MODULO(iatom, rs_rho%desc%group_size) == rs_rho%desc%my_pos) THEN
                      npme = npme + 1
                      cores(npme) = iatom
-                  ENDIF
+                  END IF
                ELSE
                   npme = npme + 1
                   cores(npme) = iatom
-               ENDIF
+               END IF
             END DO
             DO j = 1, npme
                iatom = cores(j)
@@ -489,7 +510,7 @@ CONTAINS
                ! la_max==0 so set lmax_global to 0
                CALL collocate_pgf_product(0, alpha, 0, 0, 0.0_dp, 0, ra, &
                                           (/0.0_dp, 0.0_dp, 0.0_dp/), 1.0_dp, pab, 0, 0, rs_rho, &
-                                          cell, cube_info, radius=radius, ga_gb_function=GRID_FUNC_AB, &
+                                          radius=radius, ga_gb_function=GRID_FUNC_AB, &
                                           use_subpatch=.TRUE., subpatch_pattern=subpatch_pattern)
             END DO
          END DO
@@ -501,16 +522,15 @@ CONTAINS
       NULLIFY (fnorm)
       CALL get_hirshfeld_info(hirshfeld_env, fnorm=fnorm)
       IF (ASSOCIATED(fnorm)) THEN
-         CALL pw_release(fnorm%pw)
+         CALL pw_release(fnorm)
          DEALLOCATE (fnorm)
-      ENDIF
+      END IF
       ALLOCATE (fnorm)
-      CALL pw_pool_create_pw(auxbas_pw_pool, fnorm%pw, use_data=REALDATA3D)
-      fnorm%pw%in_space = REALSPACE
+      CALL pw_pool_create_pw(auxbas_pw_pool, fnorm, use_data=REALDATA3D)
+      fnorm%in_space = REALSPACE
       CALL set_hirshfeld_info(hirshfeld_env, fnorm=fnorm)
 
-      CALL rs_pw_transfer(rs_rho, fnorm%pw, rs2pw)
-      CALL rs_grid_release(rs_rho)
+      CALL rs_pw_transfer(rs_rho, fnorm, rs2pw)
 
       CALL timestop(handle)
 
@@ -528,13 +548,12 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(hirshfeld_type), POINTER                      :: hirshfeld_env
-      TYPE(pw_p_type), POINTER                           :: rfun
+      TYPE(pw_type)                                      :: rfun
       REAL(KIND=dp), DIMENSION(:), INTENT(inout)         :: fval
       REAL(KIND=dp), DIMENSION(:, :), INTENT(inout), &
          OPTIONAL                                        :: fderiv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hirshfeld_integration', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'hirshfeld_integration'
 
       INTEGER                                            :: atom_a, handle, iatom, iex, ikind, &
                                                             ithread, j, natom, npme, nthread, &
@@ -558,14 +577,13 @@ CONTAINS
 
       do_force = PRESENT(fderiv)
       fval = 0.0_dp
-      dvol = rfun%pw%pw_grid%dvol
+      dvol = rfun%pw_grid%dvol
 
       NULLIFY (pw_env, auxbas_rs_desc)
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_desc=auxbas_rs_desc, &
                       auxbas_rs_grid=rs_v)
-      CALL rs_grid_retain(rs_v)
-      CALL rs_pw_transfer(rs_v, rfun%pw, pw2rs)
+      CALL rs_pw_transfer(rs_v, rfun, pw2rs)
 
       CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, cell=cell, &
                       dft_control=dft_control, particle_set=particle_set)
@@ -594,11 +612,11 @@ CONTAINS
                   IF (MODULO(iatom, rs_v%desc%group_size) == rs_v%desc%my_pos) THEN
                      npme = npme + 1
                      cores(npme) = iatom
-                  ENDIF
+                  END IF
                ELSE
                   npme = npme + 1
                   cores(npme) = iatom
-               ENDIF
+               END IF
             END DO
 
             DO j = 1, npme
@@ -618,10 +636,10 @@ CONTAINS
 
                CALL integrate_pgf_product(0, alpha, 0, &
                                           0, 0.0_dp, 0, ra, (/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                          rs_v, cell, pw_env%cube_info(1), hab, pab=pab, o1=0, o2=0, &
+                                          rs_v, hab, pab=pab, o1=0, o2=0, &
                                           radius=radius, calculate_forces=do_force, &
                                           force_a=force_a, force_b=force_b, use_virial=.FALSE., &
-                                          use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+                                          use_subpatch=.TRUE., subpatch_pattern=0)
                fval(atom_a) = fval(atom_a) + hab(1, 1)*dvol*coef
                IF (do_force) THEN
                   fderiv(:, atom_a) = fderiv(:, atom_a) + force_a(:)*dvol
@@ -633,7 +651,6 @@ CONTAINS
 
       END DO
 
-      CALL rs_grid_release(rs_v)
       DEALLOCATE (hab, pab)
 
       CALL get_qs_env(qs_env=qs_env, para_env=para_env)

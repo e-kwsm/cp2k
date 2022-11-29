@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -34,7 +36,6 @@ MODULE force_env_types
                                               fist_env_release,&
                                               fist_environment_type
    USE fp_types,                        ONLY: fp_env_release,&
-                                              fp_env_retain,&
                                               fp_type
    USE global_types,                    ONLY: global_environment_type,&
                                               globenv_release
@@ -45,12 +46,14 @@ MODULE force_env_types
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE metadynamics_types,              ONLY: meta_env_release,&
-                                              meta_env_retain,&
                                               meta_env_type
    USE mixed_energy_types,              ONLY: mixed_energy_type
    USE mixed_environment_types,         ONLY: get_mixed_env,&
                                               mixed_env_release,&
                                               mixed_environment_type
+   USE nnp_environment_types,           ONLY: nnp_env_get,&
+                                              nnp_env_release,&
+                                              nnp_type
    USE pwdft_environment_types,         ONLY: pwdft_energy_type,&
                                               pwdft_env_get,&
                                               pwdft_env_release,&
@@ -80,9 +83,10 @@ MODULE force_env_types
                                  use_eip_force = 505, &
                                  use_mixed_force = 506, &
                                  use_embed = 507, &
-                                 use_pwdft_force = 508
+                                 use_pwdft_force = 508, &
+                                 use_nnp_force = 509
 
-   CHARACTER(LEN=10), DIMENSION(501:508), PARAMETER, PUBLIC :: &
+   CHARACTER(LEN=10), DIMENSION(501:509), PARAMETER, PUBLIC :: &
       use_prog_name = (/ &
       "FIST  ", &
       "QS    ", &
@@ -91,7 +95,8 @@ MODULE force_env_types
       "EIP   ", &
       "MIXED ", &
       "EMBED ", &
-      "SIRIUS"/)
+      "SIRIUS", &
+      "NNP   "/)
 
    PUBLIC :: force_env_type, &
              force_env_p_type
@@ -109,7 +114,6 @@ MODULE force_env_types
 
 ! **************************************************************************************************
 !> \brief wrapper to abstract the force evaluation of the various methods
-!> \param id_nr identification number
 !> \param ref_count reference count (see doc/ReferenceCounting.html)
 !> \param in_use which method is in use
 !> \param fist_env the fist environment (allocated only if fist is in use)
@@ -133,7 +137,7 @@ MODULE force_env_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE force_env_type
-      INTEGER :: id_nr, ref_count, in_use, method_name_id
+      INTEGER :: ref_count, in_use, method_name_id
       REAL(KIND=dp)                                    :: additional_potential
       TYPE(fist_environment_type), POINTER             :: fist_env
       TYPE(meta_env_type), POINTER                     :: meta_env
@@ -147,6 +151,7 @@ MODULE force_env_types
       TYPE(qmmm_env_type), POINTER                     :: qmmm_env
       TYPE(qmmmx_env_type), POINTER                    :: qmmmx_env
       TYPE(mixed_environment_type), POINTER            :: mixed_env
+      TYPE(nnp_type), POINTER                          :: nnp_env
       TYPE(embed_env_type), POINTER                    :: embed_env
       TYPE(section_vals_type), POINTER                 :: force_env_section
       TYPE(section_vals_type), POINTER                 :: root_section
@@ -177,9 +182,6 @@ CONTAINS
    SUBROUTINE force_env_retain(force_env)
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_env_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
       force_env%ref_count = force_env%ref_count + 1
@@ -196,9 +198,6 @@ CONTAINS
 ! **************************************************************************************************
    RECURSIVE SUBROUTINE force_env_release(force_env)
       TYPE(force_env_type), POINTER                      :: force_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_env_release', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, my_group
       TYPE(cp_logger_type), POINTER                      :: my_logger
@@ -235,16 +234,25 @@ CONTAINS
             SELECT CASE (force_env%in_use)
             CASE (use_fist_force)
                CALL fist_env_release(force_env%fist_env)
+               DEALLOCATE (force_env%fist_env)
             CASE (use_qs_force)
                CALL qs_env_release(force_env%qs_env)
+               DEALLOCATE (force_env%qs_env)
             CASE (use_eip_force)
                CALL eip_env_release(force_env%eip_env)
+               DEALLOCATE (force_env%eip_env)
             CASE (use_pwdft_force)
                CALL pwdft_env_release(force_env%pwdft_env)
+               DEALLOCATE (force_env%pwdft_env)
             CASE (use_mixed_force)
                CALL mixed_env_release(force_env%mixed_env)
+               DEALLOCATE (force_env%mixed_env)
+            CASE (use_nnp_force)
+               CALL nnp_env_release(force_env%nnp_env)
+               DEALLOCATE (force_env%nnp_env)
             CASE (use_embed)
                CALL embed_env_release(force_env%embed_env)
+               DEALLOCATE (force_env%embed_env)
             END SELECT
             CALL globenv_release(force_env%globenv)
             CALL cp_para_env_release(force_env%para_env)
@@ -254,11 +262,24 @@ CONTAINS
             CPASSERT(.NOT. ASSOCIATED(force_env%eip_env))
             CPASSERT(.NOT. ASSOCIATED(force_env%pwdft_env))
             CPASSERT(.NOT. ASSOCIATED(force_env%mixed_env))
+            CPASSERT(.NOT. ASSOCIATED(force_env%nnp_env))
             CPASSERT(.NOT. ASSOCIATED(force_env%embed_env))
-            CALL meta_env_release(force_env%meta_env)
-            CALL fp_env_release(force_env%fp_env)
-            CALL qmmm_env_release(force_env%qmmm_env)
-            CALL qmmmx_env_release(force_env%qmmmx_env)
+            IF (ASSOCIATED(force_env%meta_env)) THEN
+               CALL meta_env_release(force_env%meta_env)
+               DEALLOCATE (force_env%meta_env)
+            END IF
+            IF (ASSOCIATED(force_env%fp_env)) THEN
+               CALL fp_env_release(force_env%fp_env)
+               DEALLOCATE (force_env%fp_env)
+            END IF
+            IF (ASSOCIATED(force_env%qmmm_env)) THEN
+               CALL qmmm_env_release(force_env%qmmm_env)
+               DEALLOCATE (force_env%qmmm_env)
+            END IF
+            IF (ASSOCIATED(force_env%qmmmx_env)) THEN
+               CALL qmmmx_env_release(force_env%qmmmx_env)
+               DEALLOCATE (force_env%qmmmx_env)
+            END IF
             CALL section_vals_release(force_env%force_env_section)
             CALL section_vals_release(force_env%root_section)
             DEALLOCATE (force_env)
@@ -294,6 +315,7 @@ CONTAINS
 !> \param method_name_id ...
 !> \param root_section ...
 !> \param mixed_env ...
+!> \param nnp_env ...
 !> \param embed_env ...
 !> \par History
 !>      04.2003 created [fawzi]
@@ -303,8 +325,8 @@ CONTAINS
                                       meta_env, fp_env, subsys, para_env, potential_energy, additional_potential, &
                                       kinetic_energy, harmonic_shell, kinetic_shell, cell, sub_force_env, &
                                       qmmm_env, qmmmx_env, eip_env, pwdft_env, globenv, input, force_env_section, &
-                                      method_name_id, root_section, mixed_env, embed_env)
-      TYPE(force_env_type), POINTER                      :: force_env
+                                      method_name_id, root_section, mixed_env, nnp_env, embed_env)
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       INTEGER, INTENT(out), OPTIONAL                     :: in_use
       TYPE(fist_environment_type), OPTIONAL, POINTER     :: fist_env
       TYPE(qs_environment_type), OPTIONAL, POINTER       :: qs_env
@@ -327,9 +349,8 @@ CONTAINS
       INTEGER, INTENT(out), OPTIONAL                     :: method_name_id
       TYPE(section_vals_type), OPTIONAL, POINTER         :: root_section
       TYPE(mixed_environment_type), OPTIONAL, POINTER    :: mixed_env
+      TYPE(nnp_type), OPTIONAL, POINTER                  :: nnp_env
       TYPE(embed_env_type), OPTIONAL, POINTER            :: embed_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_env_get', routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: eip_kinetic_energy, eip_potential_energy
       TYPE(cp_subsys_type), POINTER                      :: subsys_tmp
@@ -340,7 +361,6 @@ CONTAINS
 
       NULLIFY (subsys_tmp)
 
-      CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
 
       SELECT CASE (force_env%in_use)
@@ -411,6 +431,12 @@ CONTAINS
          CALL get_embed_env(force_env%embed_env, &
                             pot_energy=potential_energy, &
                             subsys=subsys)
+      CASE (use_nnp_force)
+         CPASSERT(ASSOCIATED(force_env%nnp_env))
+         CALL nnp_env_get(force_env%nnp_env, &
+                          nnp_potential_energy=potential_energy, &
+                          subsys=subsys)
+         CPASSERT(.NOT. PRESENT(kinetic_energy))
       CASE DEFAULT
          CPABORT("unknown in_use flag value ")
       END SELECT
@@ -430,6 +456,9 @@ CONTAINS
       IF (PRESENT(pwdft_env)) THEN
          pwdft_env => force_env%pwdft_env
       END IF
+      IF (PRESENT(nnp_env)) THEN
+         nnp_env => force_env%nnp_env
+      END IF
       IF (PRESENT(para_env)) para_env => force_env%para_env
       ! adjust the total energy for the metadynamics
       IF (ASSOCIATED(force_env%meta_env)) THEN
@@ -447,8 +476,8 @@ CONTAINS
       IF (ASSOCIATED(force_env%fp_env) .AND. PRESENT(potential_energy)) THEN
          IF (force_env%fp_env%use_fp) THEN
             potential_energy = potential_energy + force_env%fp_env%energy
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       IF (PRESENT(potential_energy)) THEN
          potential_energy = potential_energy + force_env%additional_potential
       END IF
@@ -480,11 +509,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION force_env_get_natom(force_env) RESULT(n_atom)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       INTEGER                                            :: n_atom
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_env_get_natom', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
@@ -504,11 +530,8 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION force_env_get_nparticle(force_env) RESULT(n_particle)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       INTEGER                                            :: n_particle
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_env_get_nparticle', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
@@ -529,18 +552,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE force_env_get_frc(force_env, frc, n)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       REAL(KIND=dp), DIMENSION(*), INTENT(OUT)           :: frc
       INTEGER, INTENT(IN)                                :: n
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_env_get_frc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'force_env_get_frc'
 
       INTEGER                                            :: handle
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
-      CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
       CALL force_env_get(force_env, subsys=subsys)
       CALL pack_subsys_particles(subsys=subsys, f=frc(1:n))
@@ -558,18 +579,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE force_env_get_pos(force_env, pos, n)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       REAL(kind=dp), DIMENSION(*), INTENT(OUT)           :: pos
       INTEGER, INTENT(IN)                                :: n
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_env_get_pos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'force_env_get_pos'
 
       INTEGER                                            :: handle
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
-      CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
       CALL force_env_get(force_env, subsys=subsys)
       CALL pack_subsys_particles(subsys=subsys, r=pos(1:n))
@@ -587,18 +606,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE force_env_get_vel(force_env, vel, n)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(IN)                   :: force_env
       REAL(KIND=dp), DIMENSION(*), INTENT(OUT)           :: vel
       INTEGER, INTENT(IN)                                :: n
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_env_get_vel', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'force_env_get_vel'
 
       INTEGER                                            :: handle
       TYPE(cp_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
-      CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
       CALL force_env_get(force_env, subsys=subsys)
       CALL pack_subsys_particles(subsys=subsys, v=vel(1:n))
@@ -621,27 +638,23 @@ CONTAINS
    SUBROUTINE force_env_set(force_env, meta_env, fp_env, force_env_section, &
                             method_name_id, additional_potential)
 
-      TYPE(force_env_type), POINTER                      :: force_env
+      TYPE(force_env_type), INTENT(INOUT)                :: force_env
       TYPE(meta_env_type), OPTIONAL, POINTER             :: meta_env
       TYPE(fp_type), OPTIONAL, POINTER                   :: fp_env
       TYPE(section_vals_type), OPTIONAL, POINTER         :: force_env_section
       INTEGER, OPTIONAL                                  :: method_name_id
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: additional_potential
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_env_set', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(force_env))
       CPASSERT(force_env%ref_count > 0)
       IF (PRESENT(meta_env)) THEN
-         IF (ASSOCIATED(meta_env)) THEN
-            CALL meta_env_retain(meta_env)
+         IF (ASSOCIATED(force_env%meta_env)) THEN
+            CALL meta_env_release(force_env%meta_env)
+            DEALLOCATE (force_env%meta_env)
          END IF
-         CALL meta_env_release(force_env%meta_env)
          force_env%meta_env => meta_env
       END IF
       IF (PRESENT(fp_env)) THEN
-         CALL fp_env_retain(fp_env)
-         CALL fp_env_release(force_env%fp_env)
+         IF (ASSOCIATED(force_env%fp_env)) CALL fp_env_release(force_env%fp_env)
          force_env%fp_env => fp_env
       END IF
       IF (PRESENT(force_env_section)) THEN
@@ -670,12 +683,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE multiple_fe_list(force_env_sections, root_section, i_force_eval, nforce_eval)
 
-      TYPE(section_vals_type), POINTER                   :: force_env_sections, root_section
+      TYPE(section_vals_type), INTENT(IN)                :: force_env_sections, root_section
       INTEGER, DIMENSION(:), POINTER                     :: i_force_eval
       INTEGER                                            :: nforce_eval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'multiple_fe_list', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iforce_eval, main_force_eval
       INTEGER, DIMENSION(:), POINTER                     :: my_i_force_eval
@@ -705,4 +715,3 @@ CONTAINS
    END SUBROUTINE multiple_fe_list
 
 END MODULE force_env_types
-

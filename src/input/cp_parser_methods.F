@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -59,22 +61,17 @@ MODULE cp_parser_methods
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief return a description of the part of the file acually parsed
+!> \brief return a description of the part of the file actually parsed
 !> \param parser the parser
 !> \return ...
 !> \author fawzi
 ! **************************************************************************************************
    FUNCTION parser_location(parser) RESULT(res)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(IN)                   :: parser
       CHARACTER&
          (len=default_path_length+default_string_length) :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'parser_location', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       res = ", File: '"//TRIM(parser%input_file_name)//"', Line: "// &
             TRIM(ADJUSTL(cp_to_string(parser%input_line_number)))// &
             ", Column: "//TRIM(ADJUSTL(cp_to_string(parser%icol)))
@@ -95,13 +92,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_store_status(parser)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_store_status', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       CPASSERT(ASSOCIATED(parser%status))
       parser%status%in_use = .TRUE.
       parser%status%old_input_line = parser%input_line
@@ -122,13 +114,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_retrieve_status(parser)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_retrieve_status', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
       ! Always store the new buffer (if it is really newly read)
       IF (parser%buffer%buffer_id /= parser%status%buffer%buffer_id) THEN
@@ -159,19 +145,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_read_line(parser, nline, at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(IN)                                :: nline
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_read_line', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'parser_read_line'
 
       INTEGER                                            :: handle, iline, istat
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       IF (PRESENT(at_end)) at_end = .FALSE.
 
       DO iline = 1, nline
@@ -215,11 +198,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_get_line_from_buffer(parser, istat)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(OUT)                               :: istat
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_get_line_from_buffer', &
-         routineP = moduleN//':'//routineN
 
       istat = 0
       ! Check buffer
@@ -250,10 +230,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_read_line_low(parser)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_read_line_low', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_read_line_low'
 
       INTEGER                                            :: handle, iline, imark, islen, istat, &
                                                             last_buffered_line_number
@@ -262,8 +241,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       parser%buffer%input_lines = ""
       IF (parser%para_env%ionode) THEN
          iline = 0
@@ -358,18 +335,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE broadcast_input_information(parser)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'broadcast_input_information', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'broadcast_input_information'
 
       INTEGER                                            :: handle
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       para_env => parser%para_env
       IF (para_env%num_pe > 1) THEN
          CALL mp_bcast(parser%buffer%buffer_id, para_env%source, para_env%group)
@@ -392,14 +366,11 @@ CONTAINS
 !> \par History
 !>      03.2009 [tlaino] - Teodoro Laino
 ! **************************************************************************************************
-   FUNCTION is_comment_line(parser, line) RESULT(resval)
+   ELEMENTAL FUNCTION is_comment_line(parser, line) RESULT(resval)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(IN)                   :: parser
       CHARACTER(LEN=*), INTENT(IN)                       :: line
       LOGICAL                                            :: resval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'is_comment_line', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=1)                                   :: thischar
       INTEGER                                            :: icol
@@ -424,13 +395,11 @@ CONTAINS
 !>      02.2008 created, AK
 !> \author AK
 ! **************************************************************************************************
-   FUNCTION is_comment(parser, testchar) RESULT(resval)
+   ELEMENTAL FUNCTION is_comment(parser, testchar) RESULT(resval)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(IN)                   :: parser
       CHARACTER(LEN=1), INTENT(IN)                       :: testchar
       LOGICAL                                            :: resval
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'is_comment', routineP = moduleN//':'//routineN
 
       resval = .FALSE.
       ! We are in a private function, and parser has been tested before...
@@ -450,12 +419,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_get_next_line(parser, nline, at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(IN)                                :: nline
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'parser_get_next_line', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: my_at_end
 
@@ -482,16 +448,11 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE parser_skip_space(parser)
-      TYPE(cp_parser_type), POINTER                      :: parser
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_skip_space', &
-         routineP = moduleN//':'//routineN
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
       INTEGER                                            :: i
       LOGICAL                                            :: at_end
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       ! Variable input string length (automatic search)
 
       ! Check for EOF
@@ -562,18 +523,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE parser_next_token(parser, string_length)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(IN), OPTIONAL                      :: string_length
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_next_token', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=1)                                   :: token
       INTEGER                                            :: i, len_trim_inputline, length
       LOGICAL                                            :: at_end
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       IF (PRESENT(string_length)) THEN
          IF (string_length > max_line_length) THEN
             CPABORT("string length > max_line_length")
@@ -733,12 +689,9 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION parser_test_next_token(parser, string_length) RESULT(test_result)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(IN), OPTIONAL                      :: string_length
       CHARACTER(LEN=3)                                   :: test_result
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'parser_test_next_token', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=max_line_length)                     :: error_message, string
       INTEGER                                            :: iz, n
@@ -746,8 +699,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: fz
 
       test_result = ""
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
 
       ! Store current status
       CALL parser_store_status(parser)
@@ -833,15 +784,12 @@ CONTAINS
    SUBROUTINE parser_search_string(parser, string, ignore_case, found, line, begin_line, &
                                    search_from_begin_of_file)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=*), INTENT(IN)                       :: string
       LOGICAL, INTENT(IN)                                :: ignore_case
       LOGICAL, INTENT(OUT)                               :: found
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: line
       LOGICAL, INTENT(IN), OPTIONAL                      :: begin_line, search_from_begin_of_file
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_search_string', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=LEN(string))                         :: pattern
       CHARACTER(LEN=max_line_length+1)                   :: current_line
@@ -853,8 +801,6 @@ CONTAINS
       do_reset = .FALSE.
       IF (PRESENT(begin_line)) begin = begin_line
       IF (PRESENT(search_from_begin_of_file)) do_reset = search_from_begin_of_file
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       IF (PRESENT(line)) line = ""
 
       ! Search for string pattern
@@ -913,7 +859,7 @@ CONTAINS
 !>            Teodoro Laino [tlaino] - University of Zurich - 08.2008
 !>          - Parse also a product of integer numbers (23.11.2012,MK)
 ! **************************************************************************************************
-   FUNCTION integer_object(string) RESULT(contains_integer_object)
+   ELEMENTAL FUNCTION integer_object(string) RESULT(contains_integer_object)
 
       CHARACTER(LEN=*), INTENT(IN)                       :: string
       LOGICAL                                            :: contains_integer_object
@@ -956,7 +902,7 @@ CONTAINS
 !> \param string ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION is_integer(string) RESULT(check)
+   ELEMENTAL FUNCTION is_integer(string) RESULT(check)
 
       CHARACTER(LEN=*), INTENT(IN)                       :: string
       LOGICAL                                            :: check
@@ -1005,21 +951,16 @@ CONTAINS
    SUBROUTINE parser_get_integer(parser, object, newline, skip_lines, &
                                  string_length, at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       INTEGER, INTENT(OUT)                               :: object
       LOGICAL, INTENT(IN), OPTIONAL                      :: newline
       INTEGER, INTENT(IN), OPTIONAL                      :: skip_lines, string_length
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_get_integer', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=max_line_length)                     :: error_message
       INTEGER                                            :: nline
       LOGICAL                                            :: my_at_end
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       IF (PRESENT(skip_lines)) THEN
          nline = skip_lines
       ELSE
@@ -1095,21 +1036,16 @@ CONTAINS
    SUBROUTINE parser_get_logical(parser, object, newline, skip_lines, &
                                  string_length, at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       LOGICAL, INTENT(OUT)                               :: object
       LOGICAL, INTENT(IN), OPTIONAL                      :: newline
       INTEGER, INTENT(IN), OPTIONAL                      :: skip_lines, string_length
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_get_logical', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=max_line_length)                     :: input_string
       INTEGER                                            :: input_string_length, nline
       LOGICAL                                            :: my_at_end
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       CPASSERT(.NOT. parser%ilist%in_use)
       IF (PRESENT(skip_lines)) THEN
          nline = skip_lines
@@ -1177,21 +1113,16 @@ CONTAINS
    SUBROUTINE parser_get_real(parser, object, newline, skip_lines, string_length, &
                               at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       REAL(KIND=dp), INTENT(OUT)                         :: object
       LOGICAL, INTENT(IN), OPTIONAL                      :: newline
       INTEGER, INTENT(IN), OPTIONAL                      :: skip_lines, string_length
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_get_real', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=max_line_length)                     :: error_message
       INTEGER                                            :: nline
       LOGICAL                                            :: my_at_end
 
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       CPASSERT(.NOT. parser%ilist%in_use)
 
       IF (PRESENT(skip_lines)) THEN
@@ -1250,21 +1181,16 @@ CONTAINS
    SUBROUTINE parser_get_string(parser, object, lower_to_upper, newline, skip_lines, &
                                 string_length, at_end)
 
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       CHARACTER(LEN=*), INTENT(OUT)                      :: object
       LOGICAL, INTENT(IN), OPTIONAL                      :: lower_to_upper, newline
       INTEGER, INTENT(IN), OPTIONAL                      :: skip_lines, string_length
       LOGICAL, INTENT(out), OPTIONAL                     :: at_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_get_string', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: input_string_length, nline
       LOGICAL                                            :: my_at_end
 
       object = ""
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
       CPASSERT(.NOT. parser%ilist%in_use)
       IF (PRESENT(skip_lines)) THEN
          nline = skip_lines
@@ -1327,7 +1253,7 @@ CONTAINS
 !> \note - Parse also multiple products and fractions of floating point
 !>            numbers (23.11.2012,MK)
 ! **************************************************************************************************
-   SUBROUTINE read_float_object(string, object, error_message)
+   ELEMENTAL SUBROUTINE read_float_object(string, object, error_message)
 
       CHARACTER(LEN=*), INTENT(IN)                       :: string
       REAL(KIND=dp), INTENT(OUT)                         :: object
@@ -1394,7 +1320,7 @@ CONTAINS
 !> \version 1.0
 !> \note - Parse also (multiple) products of integer numbers (23.11.2012,MK)
 ! **************************************************************************************************
-   SUBROUTINE read_integer_object(string, object, error_message)
+   ELEMENTAL SUBROUTINE read_integer_object(string, object, error_message)
 
       CHARACTER(LEN=*), INTENT(IN)                       :: string
       INTEGER, INTENT(OUT)                               :: object
@@ -1433,7 +1359,7 @@ CONTAINS
             ! this leads to wrong CP2K results (e.g. parsing force fields).
             WRITE (fmtstr, FMT='(A,I0,A)') '(I', iop - 1, ')'
             READ (UNIT=string(i:i + iop - 2), FMT=fmtstr, IOSTAT=istat) iz8
-         ENDIF
+         END IF
          IF (istat /= 0) THEN
             error_message = "An integer type object was expected, found <"// &
                             string(i:i + iop - 2)//">"

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -75,8 +77,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_efg
       REAL(dp), DIMENSION(3), INTENT(IN)                 :: rc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_efg_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'build_efg_matrix'
 
       INTEGER :: after, handle, i, iatom, icol, ikind, inode, irow, iset, iw, jatom, jkind, jset, &
          last_jatom, ldai, maxco, maxlgto, maxsgf, natom, ncoa, ncob, neighbor_list_id, nkind, &
@@ -214,8 +215,8 @@ CONTAINS
                NULLIFY (efgint(i)%block)
                CALL dbcsr_get_block_p(matrix=matrix_efg(i)%matrix, &
                                       row=irow, col=icol, BLOCK=efgint(i)%block, found=found)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
          DO iset = 1, nseta
 
@@ -260,13 +261,13 @@ CONTAINS
                                 sphi_a(1, sgfa), SIZE(sphi_a, 1), &
                                 1.0_dp, efgint(i)%block(sgfb, sgfa), &
                                 SIZE(efgint(i)%block, 1))
-                  ENDIF
+                  END IF
 
-               ENDDO
+               END DO
 
-            ENDDO
+            END DO
 
-         ENDDO
+         END DO
 
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)

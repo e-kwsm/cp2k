@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -80,8 +82,7 @@ CONTAINS
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb3_diagonal', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb3_diagonal'
 
       INTEGER                                            :: atom_i, atom_j, blk, handle, i, ia, iac, &
                                                             iatom, ic, icol, ikind, irow, is, &
@@ -190,7 +191,7 @@ CONTAINS
                   force(jkind)%rho_elec(i, atom_j) = force(jkind)%rho_elec(i, atom_j) - fi
                   fij(i) = fi
                END DO
-            ENDDO
+            END DO
             CALL dbcsr_iterator_stop(iter)
             ! use dsint list
             IF (use_virial) THEN
@@ -337,7 +338,7 @@ CONTAINS
                   CPASSERT(found)
                   ksblock = ksblock - 0.5_dp*gmij*sblock
                END DO
-            ENDDO
+            END DO
             CALL dbcsr_iterator_stop(iter)
          ELSE
             NULLIFY (n_list)

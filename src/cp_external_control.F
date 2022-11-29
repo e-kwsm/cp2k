@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -56,9 +58,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: comm, in_external_master_id
       INTEGER, INTENT(IN), OPTIONAL                      :: in_scf_energy_message_tag, in_exit_tag
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_external_comm', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(in_external_master_id .GE. 0)
 
       external_comm = comm
@@ -84,17 +83,18 @@ CONTAINS
 !> \param globenv ...
 !> \param target_time ...
 !> \param start_time ...
+!> \param force_check ...
 !> \author MI (10.03.2005)
 ! **************************************************************************************************
-   SUBROUTINE external_control(should_stop, flag, globenv, target_time, start_time)
+   SUBROUTINE external_control(should_stop, flag, globenv, target_time, start_time, force_check)
 
       LOGICAL, INTENT(OUT)                               :: should_stop
       CHARACTER(LEN=*), INTENT(IN)                       :: flag
       TYPE(global_environment_type), OPTIONAL, POINTER   :: globenv
       REAL(dp), OPTIONAL                                 :: target_time, start_time
+      LOGICAL, OPTIONAL                                  :: force_check
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'external_control', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'external_control'
 
       CHARACTER(LEN=default_string_length)               :: exit_fname, exit_fname_level, &
                                                             exit_gname, exit_gname_level
@@ -110,6 +110,12 @@ CONTAINS
 
       logger => cp_get_default_logger()
       should_stop = .FALSE.
+
+      IF (PRESENT(force_check)) THEN
+         IF (force_check) THEN
+            check_always = .TRUE.
+         END IF
+      END IF
 
       exit_gname = "EXIT"
       exit_gname_level = TRIM(exit_gname)//"_"//TRIM(flag)
@@ -148,13 +154,13 @@ CONTAINS
                   DO I = 1, 100000000
                      t2 = m_walltime()
                      IF (t2 - t1 > 1.0_dp) EXIT
-                  ENDDO
+                  END DO
                   ! and ask again
                   INQUIRE (FILE="WAIT", EXIST=should_wait)
                   IF (.NOT. should_wait) EXIT
-               ENDDO
+               END DO
                CALL close_file(unit_number=unit_number, file_status="DELETE")
-            ENDIF
+            END IF
             ! EXIT control sequence
             ! Check for <PROJECT_NAME>.EXIT_<FLAG>
             IF (.NOT. should_stop) THEN
@@ -172,7 +178,7 @@ CONTAINS
                IF (should_stop) THEN
                   WRITE (UNIT=cp_logger_get_default_unit_nr(logger), FMT="(/,T2,A,/)") &
                      "*** "//TRIM(flag)//" run terminated by external request ***"
-               ENDIF
+               END IF
             END IF
             ! Check for EXIT_<FLAG>
             IF (.NOT. should_stop) THEN
@@ -190,9 +196,9 @@ CONTAINS
                IF (should_stop) THEN
                   WRITE (UNIT=cp_logger_get_default_unit_nr(logger), FMT="(/,T2,A,/)") &
                      "*** "//TRIM(flag)//" run terminated by external request ***"
-               ENDIF
+               END IF
             END IF
-         ENDIF
+         END IF
 
          IF (PRESENT(target_time)) THEN
             my_target_time = target_time

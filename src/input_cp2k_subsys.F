@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -239,9 +241,6 @@ CONTAINS
    SUBROUTINE create_rng_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_rng_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -266,9 +265,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_subsys_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_subsys_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -355,9 +351,6 @@ CONTAINS
    SUBROUTINE create_subsys_print_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_subsys_print_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -379,10 +372,20 @@ CONTAINS
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
-      CALL cp_print_key_section_create(print_key, __LOCATION__, "interatomic_distances", &
-                                       description="controls the output of the interatomic distances when setting up the"// &
+      CALL cp_print_key_section_create(print_key, __LOCATION__, "INTERATOMIC_DISTANCES", &
+                                       description="Controls the printout of the interatomic distances when setting up the "// &
                                        "force environment", unit_str="angstrom", &
                                        print_level=debug_print_level, filename="__STD_OUT__")
+      CALL keyword_create(keyword, __LOCATION__, name="CHECK_INTERATOMIC_DISTANCES", &
+                          description="Minimum allowed distance between two atoms. "// &
+                          "A warning is printed, if a smaller interatomic distance is encountered. "// &
+                          "The check is disabled for the threshold value 0 which is the default "// &
+                          "for systems with more than 2000 atoms (otherwise 0.5 A)."// &
+                          "The run is aborted, if an interatomic distance is smaller than the absolute "// &
+                          "value of a negative threshold value.", &
+                          default_r_val=0.5_dp*bohr, unit_str="angstrom")
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
 
@@ -487,7 +490,7 @@ CONTAINS
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, name="EPS_GEO", &
                           description="Accuracy required for symmetry detection", &
-                          default_r_val=1.e-4_dp)
+                          default_r_val=1.0E-4_dp)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
       CALL keyword_create(keyword, __LOCATION__, name="STANDARD_ORIENTATION", &
@@ -597,9 +600,6 @@ CONTAINS
    SUBROUTINE create_multipole_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_multipole_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -645,9 +645,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_structure_data_section(print_key)
       TYPE(section_type), POINTER                        :: print_key
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_structure_data_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -708,9 +705,6 @@ CONTAINS
    SUBROUTINE create_velocity_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_velocity_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -747,9 +741,6 @@ CONTAINS
    SUBROUTINE create_shell_vel_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_shell_vel_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -777,9 +768,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_core_vel_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_core_vel_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -809,9 +797,6 @@ CONTAINS
    SUBROUTINE create_potential_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_potential_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CALL section_create(section, __LOCATION__, name="potential", &
@@ -834,9 +819,6 @@ CONTAINS
    SUBROUTINE create_kgpot_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_kgpot_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CALL section_create(section, __LOCATION__, name="kg_potential", &
@@ -858,9 +840,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_basis_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_basis_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -916,9 +895,6 @@ CONTAINS
    SUBROUTINE create_coord_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_coord_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -963,9 +939,6 @@ CONTAINS
    SUBROUTINE create_shell_coord_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_shell_coord_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1007,9 +980,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_core_coord_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_core_coord_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1053,9 +1023,6 @@ CONTAINS
    SUBROUTINE create_kind_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_kind_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -1087,37 +1054,48 @@ CONTAINS
 
       ! old type basis set input keywords
       ! kept for backward compatibility
-      CALL keyword_create(keyword, __LOCATION__, name="AUX_BASIS_SET", &
-                          variants=s2a("AUXILIARY_BASIS_SET", "AUX_BASIS"), &
-                          description="DEPRECATED (use BASIS_SET): The auxiliary basis set (GTO type)", &
-                          usage="AUX_BASIS_SET DZVP", default_c_val=" ", &
-                          n_var=1)
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="AUX_BASIS_SET", &
+         variants=s2a("AUXILIARY_BASIS_SET", "AUX_BASIS"), &
+         description="The auxiliary basis set (GTO type)", &
+         usage="AUX_BASIS_SET DZVP", default_c_val=" ", &
+         n_var=1, &
+         deprecation_notice="use 'BASIS_SET AUX ...' instead", &
+         removed=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="RI_AUX_BASIS_SET", &
-                          variants=s2a("RI_MP2_BASIS_SET", "RI_RPA_BASIS_SET", "RI_AUX_BASIS"), &
-                          description="DEPRECATED (use BASIS_SET): The RI auxiliary basis set used in WF_CORRELATION (GTO type)", &
-                          usage="RI_AUX_BASIS_SET DZVP", default_c_val=" ", &
-                          n_var=1)
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="RI_AUX_BASIS_SET", &
+         variants=s2a("RI_MP2_BASIS_SET", "RI_RPA_BASIS_SET", "RI_AUX_BASIS"), &
+         description="The RI auxiliary basis set used in WF_CORRELATION (GTO type)", &
+         usage="RI_AUX_BASIS_SET DZVP", default_c_val=" ", &
+         n_var=1, &
+         deprecation_notice="Use 'BASIS_SET RI_AUX ...' instead.", &
+         removed=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
-      CALL keyword_create(keyword, __LOCATION__, name="LRI_BASIS_SET", &
-                          variants=s2a("LRI_BASIS"), &
-                          description="DEPRECATED (use BASIS_SET): The local resolution of identity basis set (GTO type)", &
-                          usage="", default_c_val=" ", &
-                          n_var=1)
+      CALL keyword_create( &
+         keyword, __LOCATION__, name="LRI_BASIS_SET", &
+         variants=s2a("LRI_BASIS"), &
+         description="The local resolution of identity basis set (GTO type)", &
+         usage="", default_c_val=" ", &
+         n_var=1, &
+         deprecation_notice="Use 'BASIS_SET LRI ...' instead.", &
+         removed=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create( &
          keyword, __LOCATION__, name="AUX_FIT_BASIS_SET", &
          variants=s2a("AUXILIARY_FIT_BASIS_SET", "AUX_FIT_BASIS"), &
-         description="DEPRECATED (use BASIS_SET): The auxiliary basis set (GTO type) for auxiliary density matrix method", &
+         description="The auxiliary basis set (GTO type) for auxiliary density matrix method", &
          usage="AUX_FIT_BASIS_SET DZVP", default_c_val=" ", &
          citations=(/Guidon2010/), &
-         n_var=1)
+         n_var=1, &
+         deprecation_notice="Use 'BASIS_SET AUX_FIT ...' instead.", &
+         removed=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
       ! end of old basis set keywords
@@ -1170,13 +1148,14 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="POTENTIAL_TYPE", &
                           description="The type of this kinds pseudopotential (ECP, ALL, GTH, UPS).", &
+                          deprecation_notice="Use 'POTENTIAL <TYPE> ...' instead.", &
                           usage="POTENTIAL_TYPE <TYPE>", default_c_val="", n_var=1)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="POTENTIAL", &
                           variants=(/"POT"/), &
-                          description="The type and name of the pseudopotential for the defined kind.", &
+                          description="The type (ECP, ALL, GTH, UPS) and name of the pseudopotential for the defined kind.", &
                           usage="POTENTIAL [type] <POTENTIAL-NAME>", type_of_var=char_t, default_c_vals=(/" ", " "/), &
                           citations=(/Goedecker1996, Hartwigsen1998, Krack2005/), n_var=-1)
       CALL section_add_keyword(section, keyword)
@@ -1193,6 +1172,21 @@ CONTAINS
                           variants=(/"KG_POT"/), &
                           description="The name of the non-additive atomic kinetic energy potential.", &
                           usage="KG_POTENTIAL <TNADD-POTENTIAL-NAME>", default_c_val="NONE", n_var=1)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COVALENT_RADIUS", &
+                          description="Use this covalent radius (in Angstrom) for all atoms of "// &
+                          "the atomic kind instead of the internally tabulated default value", &
+                          usage="COVALENT_RADIUS 1.24", n_var=1, default_r_val=0.0_dp, &
+                          unit_str="angstrom")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="VDW_RADIUS", &
+                          description="Use this van der Waals radius (in Angstrom) for all atoms of "// &
+                          "the atomic kind instead of the internally tabulated default value", &
+                          usage="VDW_RADIUS 1.85", n_var=1, default_r_val=0.0_dp, unit_str="angstrom")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -1445,9 +1439,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_bs_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -1571,9 +1562,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_topology_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_topology_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -1812,9 +1800,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       CHARACTER(LEN=*), INTENT(IN)                       :: header
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_exclude_list_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -1842,9 +1827,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_center_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_center_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -1878,9 +1860,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_molset_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_molset_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection, subsubsection
@@ -1974,9 +1953,6 @@ CONTAINS
    SUBROUTINE create_generate_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_generate_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -2024,15 +2000,17 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="BONDLENGTH_MAX", &
                           description="Maximum distance to generate neighbor lists to build connectivity", &
-                          usage="BONDLENGTH_MAX <real>", default_r_val=cp_unit_to_cp2k(value=3.0_dp, &
-                                                                                       unit_str="angstrom"), unit_str="angstrom")
+                          usage="BONDLENGTH_MAX <real>", &
+                          default_r_val=cp_unit_to_cp2k(value=3.0_dp, unit_str="angstrom"), &
+                          unit_str="angstrom")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="BONDLENGTH_MIN", &
                           description="Minimum distance to generate neighbor lists to build connectivity", &
-                          usage="BONDLENGTH_MIN <real>", default_r_val=cp_unit_to_cp2k(value=0.01_dp, &
-                                                                                       unit_str="angstrom"), unit_str="angstrom")
+                          usage="BONDLENGTH_MIN <real>", &
+                          default_r_val=cp_unit_to_cp2k(value=0.01_dp, unit_str="angstrom"), &
+                          unit_str="angstrom")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -2169,9 +2147,6 @@ CONTAINS
    SUBROUTINE create_gen_print_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_gen_print_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_type), POINTER                        :: print_key
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -2206,9 +2181,6 @@ CONTAINS
       TYPE(section_type), POINTER                        :: section
       INTEGER, INTENT(IN)                                :: default
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'connectivity_framework', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(ASSOCIATED(section))
@@ -2238,7 +2210,7 @@ CONTAINS
                           enum_desc=s2a("Use  a PSF file to determine the connectivity."// &
                                         " (support standard CHARMM/XPLOR and EXT CHARMM)", &
                                         "Read a PSF file in an unformatted way (useful for not so standard PSF).", &
-                                        "Use multiple PSF (for now...) files to generate the whole sytem.", &
+                                        "Use multiple PSF (for now...) files to generate the whole system.", &
                                         "Use a simple distance criteria. (Look at keyword BONDPARM)", &
                                         "Do not generate molecules. (e.g. for QS or ill defined systems)", &
                                         "Use GROMOS G87 topology file.", &
@@ -2263,9 +2235,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_dft_plus_u_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -2277,7 +2246,6 @@ CONTAINS
                           n_keywords=3, &
                           n_subsections=1, &
                           repeats=.FALSE.)
-
       NULLIFY (keyword)
 
       CALL keyword_create(keyword, __LOCATION__, &
@@ -2303,6 +2271,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, &
                           name="U_MINUS_J", &
+                          variants=(/"U_EFF"/), &
                           description="Effective parameter U(eff) = U - J", &
                           repeats=.FALSE., &
                           n_var=1, &
@@ -2310,6 +2279,89 @@ CONTAINS
                           default_r_val=0.0_dp, &
                           unit_str="au_e", &
                           usage="U_MINUS_J [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="N", &
+                          description="principal quantum number of the"// &
+                          "orbitals to which the correction is applied. Ignored unless pwdft is used for the calculations", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=integer_t, &
+                          default_i_val=-1, &
+                          usage="N 2")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="U", &
+                          description="U parameter in the theory of Dudarev et al. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          unit_str="au_e", &
+                          usage="U [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="J", &
+                          description="J parameter in the theory of Dudarev et al. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          unit_str="au_e", &
+                          usage="J [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="alpha", &
+                          description="alpha parameter in the theory of Dudarev et al. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          unit_str="au_e", &
+                          usage="alpha [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="beta", &
+                          description="beta parameter in the theory of Dudarev et al. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          unit_str="au_e", &
+                          usage="beta [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="J0", &
+                          description="J0 parameter in the theory of Dudarev et al. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          unit_str="au_e", &
+                          usage="J0 [eV] 1.4")
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, &
+                          name="occupation", &
+                          description="number of electrons in the hubbard shell. Ignored unless pwdft is used", &
+                          repeats=.FALSE., &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp, &
+                          usage="occupation 6")
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

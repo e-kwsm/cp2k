@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! *****************************************************************************
@@ -26,6 +28,7 @@ MODULE qs_basis_gradient
    USE kinds,                           ONLY: dp
    USE particle_types,                  ONLY: particle_type
    USE qs_core_hamiltonian,             ONLY: build_core_hamiltonian_matrix
+   USE qs_density_matrices,             ONLY: calculate_density_matrix
    USE qs_energy_matrix_w,              ONLY: qs_energies_compute_w
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -41,10 +44,9 @@ MODULE qs_basis_gradient
    USE qs_ks_types,                     ONLY: qs_ks_env_type,&
                                               set_ks_env
    USE qs_mixing_utils,                 ONLY: mixing_allocate
-   USE qs_mo_methods,                   ONLY: calculate_density_matrix,&
-                                              make_basis_sm
+   USE qs_mo_methods,                   ONLY: make_basis_sm
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_lists,               ONLY: build_qs_neighbor_lists
    USE qs_rho_methods,                  ONLY: qs_rho_update_rho
    USE qs_rho_types,                    ONLY: qs_rho_get,&
@@ -81,8 +83,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_basis_center_gradient', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_basis_center_gradient'
 
       INTEGER                                            :: handle, i, iatom, ikind, img, ispin, &
                                                             natom, nimg, nkind, nspin
@@ -155,8 +156,8 @@ CONTAINS
                END DO
             END DO
             CALL set_ks_env(ks_env, matrix_w_kp=matrix_w_kp)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       ! time to compute the w matrix
       CALL qs_energies_compute_w(qs_env, .TRUE.)
 
@@ -231,8 +232,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_update_basis_center_pos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_update_basis_center_pos'
 
       INTEGER                                            :: handle, iatom, ikind, natom
       LOGICAL                                            :: floating
@@ -276,15 +276,14 @@ CONTAINS
    SUBROUTINE qs_basis_reinit_energy(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_basis_reinit_energy', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_basis_reinit_energy'
 
       INTEGER                                            :: handle, ispin, nmo
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s_kp, rho_ao_kp
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(section_vals_type), POINTER                   :: input
@@ -314,11 +313,11 @@ CONTAINS
       CALL get_qs_env(qs_env, mos=mos, rho=rho, matrix_s_kp=matrix_s_kp)
       CALL qs_rho_get(rho, rho_ao_kp=rho_ao_kp)
       DO ispin = 1, SIZE(mos)
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nmo=nmo)
          ! reorthogonalize MOs
          CALL make_basis_sm(mo_coeff, nmo, matrix_s_kp(1, 1)%matrix)
          ! update density matrix
-         CALL calculate_density_matrix(mos(ispin)%mo_set, rho_ao_kp(ispin, 1)%matrix)
+         CALL calculate_density_matrix(mos(ispin), rho_ao_kp(ispin, 1)%matrix)
       END DO
       CALL qs_rho_set(rho, rho_r_valid=.FALSE., drho_r_valid=.FALSE., rho_g_valid=.FALSE., &
                       drho_g_valid=.FALSE., tau_r_valid=.FALSE., tau_g_valid=.FALSE.)

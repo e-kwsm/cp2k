@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -11,19 +13,16 @@
 !>      of documentation.
 !>
 !>      reference_manager.F provides an easy way to cite these references from the code
-!>      (e.g. whenever the relevant part of the code is executed)
+!>      (e.g., whenever the relevant part of the code is executed)
 !>      and to add citations to the input
-!>      at the end of the run a bibliography is printed that can be used e.g. in papers
+!>      at the end of the run a bibliography is printed that can be used, e.g., in papers
 !> \note
 !>      references need to be input using the ISI citation format, because it is
 !>      uniform, easy to parse, and can be exported for example from web of science.
 !>      (mark the reference, and click 'export to reference software', open the resulting file)
 !>      Furthermore, it can be easily converted to and from using the bibutils tools
 !>      a collection of easy to use conversion programs that can be found at
-!>      http://www.scripps.edu/~cdputnam/software/bibutils/ by Chris Putnam
-!> \par History
-!>      08.2007 [Joost VandeVondele] Created
-!>      01.2014 [Lianheng Tong] Added Kantorovich2008, Kantorovich2008a
+!>      https://ctan.org/pkg/bibutils by Chris Putnam
 !> \author Joost VandeVondele
 ! **************************************************************************************************
 MODULE bibliography
@@ -68,7 +67,7 @@ MODULE bibliography
                             Sabatini2013, DelBen2013, Kikuchi2009, Putrino2000, &
                             Putrino2002, Sebastiani2001, Weber2009, Tran2013, Golze2013, &
                             Golze2015, Golze2017a, Golze2017b, Tuckerman1992, Zhao1994, &
-                            Tozer1996, Goedecker2004, &
+                            Tozer1996, Goedecker2004, Rengaraj2020, &
                             Khaliullin2013, Kruse2012, Hutter2014, Bengtsson1999, Kantorovich2008, &
                             Kantorovich2008a, Wellendorff2012, Niklasson2014, Borstnik2014, &
                             Rayson2009, Grimme2011, Fattebert2002, Andreussi2012, &
@@ -84,10 +83,13 @@ MODULE bibliography
                             Stoychev2016, Futera2017, Bailey2006, Papior2017, Lehtola2018, &
                             Brieuc2016, Barca2018, Scheiber2018, Huang2011, Heaton_Burgess2007, &
                             Schuett2018, Holmberg2018, Togo2018, Staub2019, Grimme2013, Grimme2016, &
-                            Grimme2017, Kondov2007, &
-                            Ren2011, Ren2013, Cohen2000, Rogers2002, Filippetti2000, Paziani2006, &
-                            Toulouse2004, Limpanuparb2011, Martin2003, Yin2017, Goerigk2017, &
-                            Wilhelm2016a, Wilhelm2016b, Wilhelm2017, Wilhelm2018, Lass2018
+                            Grimme2017, Kondov2007, Clabaut2020, Clabaut2021, &
+                            Ren2011, Ren2013, Cohen2000, Rogers2002, Filippetti2000, &
+                            Limpanuparb2011, Martin2003, Yin2017, Goerigk2017, &
+                            Wilhelm2016a, Wilhelm2016b, Wilhelm2017, Wilhelm2018, Lass2018, cp2kqs2020, &
+                            Behler2007, Behler2011, Schran2020a, Schran2020b, &
+                            Rycroft2009, Thomas2015, Brehm2018, Brehm2020, Shigeta2001, Heinecke2016, &
+                            Brehm2021, Bussy2021a, Bussy2021b, Ditler2021, Mattiat2019, Mattiat2022
 
 CONTAINS
 
@@ -1980,8 +1982,8 @@ CONTAINS
 
       CALL add_reference(key=Kolafa2004, ISI_record=s2a( &
                          "AU Kolafa, J", &
-                         "TI Time-reversible always stable predictor-corrector method for "// &
-                         "molecular dynamics of polarizable molecules", &
+                         "TI Time-reversible always stable predictor-corrector method for ", &
+                         "   molecular dynamics of polarizable molecules", &
                          "SO JOURNAL OF COMPUTATIONAL CHEMISTRY", &
                          "SN 0192-8651", &
                          "J9 J COMPUT CHEM", &
@@ -2016,6 +2018,26 @@ CONTAINS
                          "UT ISI:000244117400046", &
                          "ER"), &
                          DOI="10.1103/PhysRevLett.98.066401")
+
+      CALL add_reference(key=Rengaraj2020, ISI_record=s2a( &
+                         "AU Rengaraj, V", &
+                         "   Lass, M", &
+                         "   Plessl, C", &
+                         "   Kuhne, TD", &
+                         "TI Accurate Sampling with Noisy Forces from Approximate Computing", &
+                         "SO COMPUTATION", &
+                         "SN 2079-3197", &
+                         "J9 COMPUTATION", &
+                         "JI Computation", &
+                         "PD APR", &
+                         "PY 2020", &
+                         "VL 8", &
+                         "IS 2", &
+                         "AR 39", &
+                         "PG 11", &
+                         "UT ISI:000244117400046", &
+                         "ER"), &
+                         DOI="10.3390/computation8020039")
 
       CALL add_reference(key=Kunert2003, ISI_record=s2a( &
                          "AU Kunert, T", &
@@ -3714,6 +3736,57 @@ CONTAINS
                          "ER "), &
                          DOI="10.1002/9781118670712.ch8")
 
+      CALL add_reference(key=Schran2020a, ISI_record=s2a( &
+                         "PT J", &
+                         "AU Schran, C", &
+                         "   Behler, J", &
+                         "   Marx, D", &
+                         "TI Automated Fitting of Neural Network Potentials", &
+                         "   at Coupled Cluster Accuracy: Protonated Water Clusters", &
+                         "   as Testing Ground", &
+                         "SO Journal of Chemical Theory and Computation", &
+                         "PY 2020", &
+                         "VL 16", &
+                         "IS 1", &
+                         "ER"), &
+                         DOI="10.1021/acs.jctc.9b00805")
+
+      CALL add_reference(key=Schran2020b, ISI_record=s2a( &
+                         "PT J", &
+                         "AU Schran, C", &
+                         "   Brezina, K", &
+                         "   Marsalek, O", &
+                         "TI Committee neural network potentials control", &
+                         "   generalization errors and enable active learning", &
+                         "SO JOURNAL OF CHEMICAL PHYSICS", &
+                         "PY 2020", &
+                         "VL 153", &
+                         "IS 10", &
+                         "ER"), &
+                         DOI="10.1063/5.0016004")
+
+      CALL add_reference(key=Behler2007, ISI_record=s2a( &
+                         "AU Behler, J", &
+                         "   Parrinello, M", &
+                         "TI Generalized neural-network representation of high-dimensional potential-energy surfaces", &
+                         "SO PHYSICAL REVIEW LETTERS", &
+                         "PY 2007", &
+                         "VL 98", &
+                         "IS 14", &
+                         "AR 146401", &
+                         "ER"), &
+                         DOI="10.1103/PhysRevLett.98.146401")
+
+      CALL add_reference(key=Behler2011, ISI_record=s2a( &
+                         "AU Behler, J", &
+                         "TI Atom-centered symmetry functions for constructing high-dimensional neural network potentials ", &
+                         "SO JOURNAL OF CHEMICAL PHYSICS", &
+                         "PY 2011", &
+                         "VL 134", &
+                         "IS 7", &
+                         "ER"), &
+                         DOI="10.1063/1.3553717")
+
       CALL add_reference(key=Lu2004, ISI_record=s2a( &
                          "PT J", &
                          "AU Lu, WC", &
@@ -4027,6 +4100,36 @@ CONTAINS
                          "ER"), &
                          DOI="10.1021/acs.jctc.8b00957")
 
+      CALL add_reference(key=Clabaut2020, ISI_record=s2a( &
+                         "AU Clabaut, P", &
+                         "   Fleurat-Lessard, P", &
+                         "   Michel, C", &
+                         "   Steinmann, SN", &
+                         "AF Clabaut, P", &
+                         "   Fleurat-Lessard, P", &
+                         "   Michel, C", &
+                         "   Steinmann, SN", &
+                         "TI Ten Facets, One Force Field: The GAL19 Force Field for Water-Noble Metal Interfaces", &
+                         "SO Journal of Chemical Theory and Computation", &
+                         "SN None", &
+                         "PY 2020", &
+                         "VL None", &
+                         "DI 10.1021/acs.jctc.0c00091", &
+                         "ER"), &
+                         DOI="10.1021/acs.jctc.0c00091")
+
+      CALL add_reference(key=Clabaut2021, ISI_record=s2a( &
+                         "AU Clabaut, P", &
+                         "AF Clabaut, P", &
+                         "TI Ph.D. Solvation and adsorptions at the solid/water interface : Developments and applications", &
+                         "SO ", &
+                         "SN None", &
+                         "PY 2021", &
+                         "VL None", &
+                         "DI None", &
+                         "ER"), &
+                         DOI="None")
+
       CALL add_reference(key=Richters2018, ISI_record=s2a( &
                          "AU Richters, D", &
                          "   Lass, M", &
@@ -4215,77 +4318,6 @@ CONTAINS
                          "ER"), &
                          DOI="10.1103/PhysRevB.61.8433")
 
-      CALL add_reference(key=Paziani2006, ISI_record=s2a( &
-                         "AU Paziani, S", &
-                         "   Moroni, S", &
-                         "   Gori-Giorgi, P", &
-                         "   Bachelet, GB", &
-                         "AF Paziani, S", &
-                         "   Moroni, S", &
-                         "   Gori-Giorgi, P", &
-                         "   Bachelet, GB", &
-                         "TI Local-spin-density functional for multideterminant density functional", &
-                         "   theory", &
-                         "SO PHYSICAL REVIEW B", &
-                         "NR 62", &
-                         "TC 64", &
-                         "Z9 64", &
-                         "PU AMER PHYSICAL SOC", &
-                         "PI COLLEGE PK", &
-                         "PA ONE PHYSICS ELLIPSE, COLLEGE PK, MD 20740-3844 USA", &
-                         "SN 2469-9950", &
-                         "EI 2469-9969", &
-                         "J9 PHYS REV B", &
-                         "JI Phys. Rev. B", &
-                         "PD APR", &
-                         "PY 2006", &
-                         "VL 73", &
-                         "IS 15", &
-                         "AR 155111", &
-                         "DI 10.1103/PhysRevB.73.155111", &
-                         "PG 9", &
-                         "SC Materials Science; Physics", &
-                         "GA 037OA", &
-                         "UT WOS:000237155100035", &
-                         "ER"), &
-                         DOI="10.1103/PhysRevB.73.155111")
-
-      CALL add_reference(key=Toulouse2004, ISI_record=s2a( &
-                         "AU Toulouse, J", &
-                         "   Savin, A", &
-                         "   Flad, HJ", &
-                         "AF Toulouse, J", &
-                         "   Savin, A", &
-                         "   Flad, HJ", &
-                         "TI Short-range exchange-correlation energy of a uniform electron gas with", &
-                         "   modified electron-electron interaction", &
-                         "SO INTERNATIONAL JOURNAL OF QUANTUM CHEMISTRY", &
-                         "CT 43rd International Symposium on Theory and Computations in Molecular and", &
-                         "   Materials Sciences, Biology, and Pharmacology", &
-                         "RP Savin, A (reprint author), CNRS, Chim Theor Lab, 4 Pl Jussieu, F-75252 Paris, France.", &
-                         "NR 28", &
-                         "TC 90", &
-                         "Z9 90", &
-                         "PU WILEY-BLACKWELL", &
-                         "PI HOBOKEN", &
-                         "PA 111 RIVER ST, HOBOKEN 07030-5774, NJ USA", &
-                         "SN 0020-7608", &
-                         "EI 1097-461X", &
-                         "J9 INT J QUANTUM CHEM", &
-                         "JI Int. J. Quantum Chem.", &
-                         "PD DEC 20", &
-                         "PY 2004", &
-                         "VL 100", &
-                         "IS 6", &
-                         "BP 1047", &
-                         "EP 1056", &
-                         "DI 10.1002/qua.20259", &
-                         "PG 10", &
-                         "GA 866QS", &
-                         "UT WOS:000224788600025", &
-                         "ER"), &
-                         DOI="10.1002/qua.20259")
-
       CALL add_reference(key=Limpanuparb2011, ISI_record=s2a( &
                          "AU Limpanuparb, Taweetham", &
                          "   Gill, Peter M. W.", &
@@ -4355,8 +4387,9 @@ CONTAINS
                          "   Del Ben, Mauro", &
                          "   Hutter, Juerg", &
                          "TI GW in the Gaussian and plane waves scheme with application to linear acenes", &
-                         "JO J. Chem. Theory Comput.", &
-                         "SP 3623", &
+                         "SO JOURNAL OF CHEMICAL THEORY AND COMPUTATION", &
+                         "PD FEB", &
+                         "BP 3623", &
                          "EP 3635", &
                          "PY 2016", &
                          "VL 12", &
@@ -4364,7 +4397,7 @@ CONTAINS
                          "ER"), &
                          DOI="10.1021/acs.jctc.6b00380")
 
-      CALL add_reference(key=Wilhelm2016a, ISI_record=s2a( &
+      CALL add_reference(key=Wilhelm2016b, ISI_record=s2a( &
                          "PT J", &
                          "AU Wilhelm, J", &
                          "   Seewald, P", &
@@ -4376,8 +4409,9 @@ CONTAINS
                          "   Hutter, Juerg", &
                          "TI Large-Scale Cubic-Scaling Random Phase Approximation Correlation", &
                          "Energy Calculations Using a Gaussian Basis", &
-                         "JO J. Chem. Theory Comput.", &
-                         "SP 5851", &
+                         "SO JOURNAL OF CHEMICAL THEORY AND COMPUTATION", &
+                         "PD FEB", &
+                         "BP 5851", &
                          "EP 5859", &
                          "PY 2016", &
                          "VL 12", &
@@ -4385,22 +4419,23 @@ CONTAINS
                          "ER"), &
                          DOI="10.1021/acs.jctc.6b00840")
 
-      CALL add_reference(key=Wilhelm2016a, ISI_record=s2a( &
+      CALL add_reference(key=Wilhelm2017, ISI_record=s2a( &
                          "PT J", &
                          "AU Wilhelm, J", &
                          "   Hutter, J", &
                          "AF Wilhelm, Jan", &
                          "   Hutter, Juerg", &
                          "TI Periodic GW calculations in the Gaussian and plane-waves scheme", &
-                         "JO Phys. Rev. B", &
-                         "SP 235123", &
+                         "SO PHYSICAL REVIEW B", &
+                         "PD FEB", &
+                         "BP 235123", &
                          "PY 2017", &
                          "VL 95", &
                          "DI 10.1103/PhysRevB.95.235123", &
                          "ER"), &
                          DOI="10.1103/PhysRevB.95.235123")
 
-      CALL add_reference(key=Wilhelm2016a, ISI_record=s2a( &
+      CALL add_reference(key=Wilhelm2018, ISI_record=s2a( &
                          "PT J", &
                          "AU Wilhelm, J", &
                          "   Golze, D", &
@@ -4413,8 +4448,9 @@ CONTAINS
                          "   Hutter, Juerg", &
                          "   Pignedoli, Carlo A.", &
                          "TI Toward GW calculations on thousands of atoms", &
-                         "JO J. Phys. Chem. Lett.", &
-                         "SP 306", &
+                         "SO JOURNAL OF PHYSICAL CHEMISTRY LETTERS", &
+                         "PD FEB", &
+                         "BP 306", &
                          "EP 312", &
                          "PY 2018", &
                          "VL 9", &
@@ -4438,6 +4474,282 @@ CONTAINS
                          "PI New York, NY, USA", &
                          "ER"), &
                          DOI="10.1145/3218176.3218231")
+
+      CALL add_reference(key=cp2kqs2020, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Kuehne,Thomas D.", &
+                         "   Iannuzzi,Marcella", &
+                         "   Del Ben,Mauro", &
+                         "   Rybkin,Vladimir V.", &
+                         "   Seewald,Patrick", &
+                         "   Stein,Frederick", &
+                         "   Laino,Teodoro", &
+                         "   Khaliullin,Rustam Z.", &
+                         "   Schuett,Ole", &
+                         "   Schiffmann,Florian", &
+                         "   Golze,Dorothea", &
+                         "   Wilhelm,Jan", &
+                         "   Chulkov,Sergey", &
+                         "   Bani-Hashemian,Mohammad Hossein", &
+                         "   Weber,Valery", &
+                         "   Borstnik,Urban", &
+                         "   Taillefumier,Mathieu", &
+                         "   Jakobovits,Alice Shoshana", &
+                         "   Lazzaro,Alfio", &
+                         "   Pabst,Hans", &
+                         "   Mueller,Tiziano", &
+                         "   Schade,Robert", &
+                         "   Guidon,Manuel", &
+                         "   Andermatt,Samuel", &
+                         "   Holmberg,Nico", &
+                         "   Schenter,Gregory K.", &
+                         "   Hehn,Anna", &
+                         "   Bussy,Augustin", &
+                         "   Belleflamme,Fabian", &
+                         "   Tabacchi,Gloria", &
+                         "   Gloess,Andreas", &
+                         "   Lass,Michael", &
+                         "   Bethune,Iain", &
+                         "   Mundy,Christopher J.", &
+                         "   Plessl,Christian", &
+                         "   Watkins,Matt", &
+                         "   VandeVondele,Joost", &
+                         "   Krack,Matthias", &
+                         "   Hutter,Juerg", &
+                         "TI CP2K: An electronic structure and molecular dynamics software package - ", &
+                         "   Quickstep: Efficient and accurate electronic structure calculations", &
+                         "SO The Journal of Chemical Physics", &
+                         "JF The Journal of Chemical Physics", &
+                         "JO J. Chem. Phys.", &
+                         "SN 0021-9606", &
+                         "IS 19", &
+                         "PY 2020", &
+                         "VL 152", &
+                         "SP 194103", &
+                         "DI 10.1063/5.0007045", &
+                         "PB American Institute of Physics", &
+                         "ER"), &
+                         DOI="10.1063/5.0007045")
+
+      CALL add_reference(key=Rycroft2009, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Rycroft, Chris H", &
+                         "TI VORO++: A three-dimensional Voronoi cell library in C++", &
+                         "SO Chaos: An Interdisciplinary Journal of Nonlinear Science", &
+                         "JF Chaos: An Interdisciplinary Journal of Nonlinear Science", &
+                         "JO Chaos", &
+                         "SN 1054-1500", &
+                         "IS 4", &
+                         "PY 2009", &
+                         "VL 19", &
+                         "SP 041111", &
+                         "DI 10.1063/1.3215722", &
+                         "PB American Institute of Physics", &
+                         "ER"), &
+                         DOI="10.1063/1.3215722")
+
+      CALL add_reference(key=Thomas2015, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Thomas, Martin", &
+                         "   Brehm, Martin", &
+                         "   Kirchner, Barbara", &
+                         "TI Voronoi dipole moments for the simulation of bulk phase vibrational", &
+                         "   spectra", &
+                         "SO Physical Chemistry Chemical Physics", &
+                         "JF Physical Chemistry Chemical Physics", &
+                         "JO Phys. Chem. Chem. Phys.", &
+                         "SN 1463-9076", &
+                         "IS 5", &
+                         "PY 2015", &
+                         "VL 17", &
+                         "SP 3207", &
+                         "EP 3213", &
+                         "DI 10.1039/C4CP05272B", &
+                         "PB The Royal Society of Chemistry", &
+                         "ER"), &
+                         DOI="10.1039/C4CP05272B")
+
+      CALL add_reference(key=Brehm2018, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Brehm, Martin", &
+                         "   Thomas, Martin", &
+                         "TI An Efficient Lossless Compression Algorithm for Trajectories of Atom", &
+                         "   Positions and Volumetric Data", &
+                         "SO Journal of Chemical Information and Modeling", &
+                         "JF Journal of Chemical Information and Modeling", &
+                         "JO J. Chem. Inf. Model.", &
+                         "SN 1549-9596", &
+                         "IS 10", &
+                         "PY 2018", &
+                         "VL 58", &
+                         "SP 2092", &
+                         "EP 2107", &
+                         "DI 10.1021/acs.jcim.8b00501", &
+                         "PB American Chemical Society", &
+                         "ER"), &
+                         DOI="10.1021/acs.jcim.8b00501")
+
+      CALL add_reference(key=Brehm2020, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Brehm, Martin", &
+                         "   Thomas, Martin", &
+                         "   Gehrke, Sascha", &
+                         "   Kirchner, Barbara", &
+                         "TI TRAVIS - A free analyzer for trajectories from molecular simulation", &
+                         "SO The Journal of Chemical Physics", &
+                         "JF The Journal of Chemical Physics", &
+                         "JO J. Chem. Phys.", &
+                         "SN 0021-9606", &
+                         "IS 16", &
+                         "PY 2020", &
+                         "VL 152", &
+                         "SP 164105", &
+                         "DI 10.1063/5.0005078", &
+                         "PB American Institute of Physics", &
+                         "ER"), &
+                         DOI="10.1063/5.0005078")
+
+      CALL add_reference(key=Shigeta2001, ISI_record=s2a( &
+                         "AU Y. Shigeta", &
+                         "   A. M. Ferreira", &
+                         "   V. G. Zakrzewski", &
+                         "   J. V. Ortiz", &
+                         "TI Electron propagator calculations with Kohn–Sham reference states", &
+                         "SO International Journal of Quantum Chemistry", &
+                         "PY 2001", &
+                         "VL 85", &
+                         "IS 4-5", &
+                         "ER"), &
+                         DOI="10.1002/qua.1543")
+
+      CALL add_reference(key=Bussy2021a, ISI_record=s2a( &
+                         "TI Efficient and low-scaling linear-response time-dependent density ", &
+                         "   functional theory implementation for core-level spectroscopy of ", &
+                         "   large and periodic systems", &
+                         "AU Bussy, Augustin", &
+                         "   Hutter, Juerg", &
+                         "PY 2021", &
+                         "BP 4736", &
+                         "EP 4746", &
+                         "JF Physical Chemistry Chemical Physics", &
+                         "SO Phys. Chem. Chem. Phys.", &
+                         "VL 23", &
+                         "IS 8", &
+                         "PB The Royal Society of Chemistry", &
+                         "DI 10.1039/D0CP06164F ", &
+                         "ER"), &
+                         DOI="10.1039/D0CP06164F")
+
+      CALL add_reference(key=Bussy2021b, ISI_record=s2a( &
+                         "TI First-principles correction scheme for linear-response time-dependent ", &
+                         "   density functional theory calculations of core electronic states", &
+                         "AU Bussy, Augustin", &
+                         "   Hutter, Juerg", &
+                         "PY 2021", &
+                         "SP 034108", &
+                         "JF The Journal of Chemical Physics", &
+                         "SO J. Chem. Phys.", &
+                         "VL 155", &
+                         "IS 3", &
+                         "PB American Institute of Physics", &
+                         "DI 10.1063/5.0058124 ", &
+                         "ER"), &
+                         DOI="10.1063/5.0058124")
+
+      CALL add_reference(key=Heinecke2016, ISI_record=s2a( &
+                         "PT S", &
+                         "AU Heinecke, A", &
+                         "   Henry, G", &
+                         "   Hutchinson, M", &
+                         "   Pabst, H", &
+                         "TI LIBXSMM: Accelerating Small Matrix Multiplications", &
+                         "   by Runtime Code Generation", &
+                         "CT SC'16: International Conference for High Performance Computing,", &
+                         "   Networking, Storage, and Analysis", &
+                         "SO Proceedings of Intl. Supercomputing Conference", &
+                         "CL Salt Lake City, UT, USA", &
+                         "PU IEEE", &
+                         "EI 2167-4337", &
+                         "UT 16757864", &
+                         "PY 2016", &
+                         "BP 981", &
+                         "EP 991", &
+                         "DI 10.1109/SC.2016.83", &
+                         "ER"), &
+                         DOI="10.1109/SC.2016.83")
+
+      CALL add_reference(key=Brehm2021, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Brehm, Martin", &
+                         "   Thomas, Martin", &
+                         "TI Optimized Atomic Partial Charges and Radii Defined by Radical Voronoi", &
+                         "   Tessellation of Bulk Phase Simulations", &
+                         "SO Molecules", &
+                         "JF Molecules", &
+                         "JO Molecules", &
+                         "SN 1420-3049", &
+                         "IS 7", &
+                         "PY 2021", &
+                         "VL 26", &
+                         "SP 1875", &
+                         "DI 10.3390/molecules26071875", &
+                         "PB MDPI", &
+                         "ER"), &
+                         DOI="10.3390/molecules26071875")
+
+      CALL add_reference(key=Ditler2021, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Ditler, Edward", &
+                         "   Kumar, Chandan", &
+                         "   Luber, Sandra", &
+                         "TI Analytic calculation and analysis of atomic polar tensors", &
+                         "    for molecules and materials using the Gaussian and plane waves approach", &
+                         "SO The Journal of Chemical Physics", &
+                         "PY 2021", &
+                         "VL 154", &
+                         "AR 104121", &
+                         "DI 10.1063/5.0041056", &
+                         "ER"), &
+                         DOI="10.1063/5.0041056")
+
+      CALL add_reference(key=Mattiat2019, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Mattiat, Johann", &
+                         "   Luber, Sandra", &
+                         "TI Vibrational (resonance) Raman optical activity with real time time dependent", &
+                         "   density functional theory", &
+                         "SO The Journal of Chemical Physics", &
+                         "PY 2019", &
+                         "VL 151", &
+                         "AR 234110", &
+                         "DI 10.1063/1.5132294", &
+                         "ER"), &
+                         DOI="10.1063/1.5132294")
+
+      CALL add_reference(key=Mattiat2022, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Mattiat, Johann", &
+                         "   Luber, Sandra", &
+                         "TI Comparison of Length, Velocity, and Symmetric Gauges for the Calculation of", &
+                         "   Absorption and Electric Circular Dichroism Spectra with Real-Time Time-Dependent", &
+                         "   Density Functional Theory", &
+                         "SO The Journal of Chemical Theory and Computation", &
+                         "PY 2022", &
+                         "VL 18", &
+                         "BP 5513", &
+                         "EP 5526", &
+                         "DI 10.1021/acs.jctc.2c00644", &
+                         "ER"), &
+                         DOI="10.1021/acs.jctc.2c00644")
 
    END SUBROUTINE add_all_references
 

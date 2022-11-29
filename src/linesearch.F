@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -119,9 +121,6 @@ CONTAINS
    SUBROUTINE linesearch_create_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_create_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_section, printkey
 
@@ -197,9 +196,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: section
       CHARACTER(LEN=*)                                   :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_init', &
-         routineP = moduleN//':'//routineN
-
       TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL section_vals_val_get(section, "METHOD", i_val=this%method)
@@ -249,7 +245,7 @@ CONTAINS
       CASE (linesearch_method_none)
          ! nothing todo
       CASE DEFAULT
-         CPABORT("unkown method")
+         CPABORT("unknown method")
       END SELECT
 
    END SUBROUTINE linesearch_init_low
@@ -261,9 +257,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE linesearch_finalize(this)
       TYPE(linesearch_type), INTENT(INOUT)               :: this
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_finalize', &
-         routineP = moduleN//':'//routineN
 
       SELECT CASE (this%method)
       CASE (linesearch_method_adapt)
@@ -277,7 +270,7 @@ CONTAINS
       CASE (linesearch_method_none)
          ! nothing todo
       CASE DEFAULT
-         CPABORT("unkown method")
+         CPABORT("unknown method")
       END SELECT
 
       !TODO: should finish printkey, but don't have the section here
@@ -306,9 +299,6 @@ CONTAINS
       TYPE(linesearch_type), INTENT(INOUT)               :: this
       REAL(KIND=dp), INTENT(IN)                          :: energy, slope
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_step', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: is_done
       REAL(KIND=dp)                                      :: step_size
 
@@ -325,7 +315,7 @@ CONTAINS
          step_size = this%init_step_size ! take steps of fixed length
          is_done = .TRUE.
       CASE DEFAULT
-         CPABORT("unkown method")
+         CPABORT("unknown method")
       END SELECT
 
       this%step_size = step_size
@@ -351,9 +341,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: unit_nr
       CHARACTER(len=*), INTENT(IN)                       :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_2pnt', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: a, b, c, pred_energy, x2
 
       this%energies(this%count) = energy
@@ -373,7 +360,7 @@ CONTAINS
          IF (a < 0.0_dp) THEN
             IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| had to quench curvature"
             a = 1.0E-15_dp
-         ENDIF
+         END IF
 
          step_size = -b/(2.0_dp*a)
          pred_energy = a*step_size**2 + b*step_size + c
@@ -383,12 +370,12 @@ CONTAINS
 
          IF (pred_energy > this%energies(1) .OR. pred_energy > this%energies(2)) THEN
             CPABORT(label//"LS| predicted energy not below test points")
-         ENDIF
+         END IF
 
          IF (step_size > this%max_step_size) THEN
             step_size = this%max_step_size
             IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| limiting step_size to MAX_STEP_SIZE"
-         ENDIF
+         END IF
 
          this%last_step_size = step_size
          this%count = 1
@@ -429,7 +416,7 @@ CONTAINS
          IF (step_size < this%tiny_step_size) THEN
             IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| initial step size too small, using TINY_STEP_SIZE"
             step_size = this%tiny_step_size
-         ENDIF
+         END IF
          this%scan_steps(1) = 0.0_dp
          this%scan_steps(2) = step_size
          this%count = 2
@@ -468,12 +455,12 @@ CONTAINS
          IF (step_size < 0) THEN
             step_size = this%tiny_step_size
             IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| makeing a step of size TINY_STEP_SIZE"
-         ENDIF
+         END IF
 
          IF (step_size > this%max_step_size) THEN
             step_size = this%max_step_size
             IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| limiting step_size to MAX_STEP_SIZE"
-         ENDIF
+         END IF
 
          this%last_step_size = step_size
          this%count = 1
@@ -502,8 +489,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: unit_nr
       CHARACTER(len=*), INTENT(IN)                       :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_adapt', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: grow_factor = 2.0_dp, &
                                                             shrink_factor = 0.5_dp
 
@@ -530,7 +515,7 @@ CONTAINS
             this%right_x = this%last_step_size
             this%have_right = .TRUE.
             step_size = this%right_x*shrink_factor
-         ENDIF
+         END IF
 
       ELSE IF (.NOT. this%have_right) THEN
          IF (energy < this%middle_e) THEN
@@ -541,7 +526,7 @@ CONTAINS
             this%right_e = energy
             this%right_x = this%last_step_size
             this%have_right = .TRUE.
-         ENDIF
+         END IF
 
       ELSE IF (.NOT. this%have_middle) THEN
          IF (energy > this%left_e) THEN
@@ -552,12 +537,12 @@ CONTAINS
             this%middle_e = energy
             this%middle_x = this%last_step_size
             this%have_middle = .TRUE.
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (this%count > 3) THEN
          IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| Need extra step"
-      ENDIF
+      END IF
       IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| adapt: ", this%have_left, this%have_middle, this%have_right
       IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| adapt: scan_steps: ", this%left_x, this%middle_x, this%right_x
       IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| adapt: energies: ", this%left_e, this%middle_e, this%right_e
@@ -577,7 +562,7 @@ CONTAINS
             step_size = -b/(2.0_dp*a)
          ELSE
             step_size = 0.0_dp
-         ENDIF
+         END IF
 
          CPASSERT(step_size >= 0.0_dp)
          pred_energy = a*step_size**2 + b*step_size + c
@@ -619,8 +604,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: unit_nr
       CHARACTER(len=*), INTENT(IN)                       :: label
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'linesearch_gold', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER :: phi = (1.0_dp + SQRT(5.0_dp))/2.0_dp
 
       REAL(KIND=dp)                                      :: a, b, d
@@ -647,7 +630,7 @@ CONTAINS
             this%right_x = this%scan_steps
             this%have_right = .TRUE.
             step_size = this%right_x/phi
-         ENDIF
+         END IF
 
       ELSE IF (.NOT. this%have_right) THEN
          IF (energy < this%middle_e) THEN
@@ -658,7 +641,7 @@ CONTAINS
             this%right_e = energy
             this%right_x = this%scan_steps
             this%have_right = .TRUE.
-         ENDIF
+         END IF
 
       ELSE IF (.NOT. this%have_middle) THEN
          IF (energy > this%left_e) THEN
@@ -669,7 +652,7 @@ CONTAINS
             this%middle_e = energy
             this%middle_x = this%scan_steps
             this%have_middle = .TRUE.
-         ENDIF
+         END IF
 
       ELSE !up and running
          a = this%middle_x - this%left_x
@@ -681,7 +664,7 @@ CONTAINS
             ELSE
                this%right_e = this%middle_e
                this%right_x = this%middle_x
-            ENDIF
+            END IF
             this%middle_e = energy
             this%middle_x = this%scan_steps
          ELSE
@@ -691,9 +674,9 @@ CONTAINS
             ELSE
                this%left_e = energy
                this%left_x = this%scan_steps
-            ENDIF
-         ENDIF
-      ENDIF
+            END IF
+         END IF
+      END IF
 
       IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| gold: ", this%have_left, this%have_middle, this%have_right
       IF (unit_nr > 0) WRITE (unit_nr, *) label, "LS| gold: ", this%left_x, this%middle_x, this%right_x
@@ -728,7 +711,7 @@ CONTAINS
             this%left_x = 0.0
             this%middle_x = 0.0
             this%right_x = 0.0
-         ENDIF
+         END IF
 
       END IF
 

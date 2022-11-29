@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Rountines for optimizing load balance between processes in HFX calculations
+!> \brief Routines for optimizing load balance between processes in HFX calculations
 !> \par History
 !>      04.2008 created [Manuel Guidon]
 !>      11.2019 fixed initial value for potential_id (A. Bussy)
@@ -93,6 +95,8 @@ CONTAINS
       EtaInv = list2%ZetaInv
       Zeta_C = list2%zeta
       Zeta_D = list2%zetb
+      temp_CC = 0.0_dp
+      temp_DD = 0.0_dp
       DO i = 1, nimages1
          P = list1%image_list(i)%P
          R1 = list1%image_list(i)%R
@@ -156,7 +160,7 @@ CONTAINS
                   ALLOCATE (product_list(tmp_i4))
                   product_list(1:SIZE(tmp_product_list)) = tmp_product_list
                   DEALLOCATE (tmp_product_list)
-               ENDIF
+               END IF
 
                T = Rho*rpq2
                SELECT CASE (potential_parameter%potential_type)
@@ -227,7 +231,7 @@ CONTAINS
                      product_list(nproducts)%Fm(l) = product_list(nproducts)%Fm(l)* &
                                                      (potential_parameter%scale_coulomb + potential_parameter%scale_longrange) - &
                                                      Fm(l)*potential_parameter%scale_longrange
-                  ENDDO
+                  END DO
 
                   ! longrange
                   omega2 = potential_parameter%omega**2

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: r0, k(3), cs
       REAL(KIND=dp), INTENT(OUT)                         :: energy, fscalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_bonds', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: f12 = 1.0_dp/2.0_dp, &
                                                             f13 = 1.0_dp/3.0_dp, &
                                                             f14 = 1.0_dp/4.0_dp
@@ -145,7 +146,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: g1, g2, g3
       REAL(KIND=dp), INTENT(OUT)                         :: energy, fscalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_bends', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: f12 = 1.0_dp/2.0_dp
 
       INTEGER                                            :: i
@@ -356,8 +356,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: gt1, gt2, gt3, gt4
       REAL(KIND=dp), INTENT(OUT)                         :: energy, fscalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_torsions', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp)                                      :: cosphi, phi
 
       cosphi = DOT_PRODUCT(tm, tn)*ism*isn
@@ -417,8 +415,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: gt1, gt2, gt3, gt4
       REAL(KIND=dp), INTENT(OUT)                         :: energy, fscalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_imp_torsions', &
-         routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: f12 = 1.0_dp/2.0_dp
 
       REAL(KIND=dp)                                      :: cosphi, phi
@@ -486,7 +482,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: gt1, gt2, gt3, gt4
       REAL(KIND=dp), INTENT(OUT)                         :: energy, fscalar
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'force_opbends', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: f12 = 1.0_dp/2.0_dp
 
       REAL(KIND=dp)                                      :: b, C, cosphi, D, E, is41, phi
@@ -599,8 +594,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: f12, r12
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: pv_bond
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_pv_bond', routineP = moduleN//':'//routineN
-
       pv_bond(1, 1) = pv_bond(1, 1) + f12(1)*r12(1)
       pv_bond(1, 2) = pv_bond(1, 2) + f12(1)*r12(2)
       pv_bond(1, 3) = pv_bond(1, 3) + f12(1)*r12(3)
@@ -627,8 +620,6 @@ CONTAINS
    SUBROUTINE get_pv_bend(f1, f3, r12, r32, pv_bend)
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: f1, f3, r12, r32
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: pv_bend
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_pv_bend', routineP = moduleN//':'//routineN
 
       pv_bend(1, 1) = pv_bend(1, 1) + f1(1)*r12(1)
       pv_bend(1, 1) = pv_bend(1, 1) + f3(1)*r32(1)
@@ -668,8 +659,6 @@ CONTAINS
    SUBROUTINE get_pv_torsion(f1, f3, f4, r12, r32, r43, pv_torsion)
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: f1, f3, f4, r12, r32, r43
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: pv_torsion
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_pv_torsion', routineP = moduleN//':'//routineN
 
       pv_torsion(1, 1) = pv_torsion(1, 1) + f1(1)*r12(1)
       pv_torsion(1, 1) = pv_torsion(1, 1) + (f3(1) + f4(1))*r32(1)

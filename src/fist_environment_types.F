@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,15 +26,12 @@ MODULE fist_environment_types
    USE cp_result_types,                 ONLY: cp_result_type
    USE cp_subsys_types,                 ONLY: cp_subsys_get,&
                                               cp_subsys_release,&
-                                              cp_subsys_retain,&
                                               cp_subsys_set,&
                                               cp_subsys_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
    USE ewald_environment_types,         ONLY: ewald_env_release,&
-                                              ewald_env_retain,&
                                               ewald_environment_type
    USE ewald_pw_types,                  ONLY: ewald_pw_release,&
-                                              ewald_pw_retain,&
                                               ewald_pw_type
    USE exclusion_types,                 ONLY: exclusion_release,&
                                               exclusion_type
@@ -40,7 +39,6 @@ MODULE fist_environment_types
    USE fist_energy_types,               ONLY: deallocate_fist_energy,&
                                               fist_energy_type
    USE fist_nonbond_env_types,          ONLY: fist_nonbond_env_release,&
-                                              fist_nonbond_env_retain,&
                                               fist_nonbond_env_type
    USE input_section_types,             ONLY: section_vals_release,&
                                               section_vals_retain,&
@@ -60,7 +58,6 @@ MODULE fist_environment_types
    USE particle_types,                  ONLY: particle_type
    USE qmmm_types_low,                  ONLY: qmmm_env_mm_create,&
                                               qmmm_env_mm_release,&
-                                              qmmm_env_mm_retain,&
                                               qmmm_env_mm_type
 #include "./base/base_uses.f90"
 
@@ -74,7 +71,6 @@ MODULE fist_environment_types
 ! **************************************************************************************************
    TYPE fist_environment_type
       PRIVATE
-      INTEGER                                      :: id_nr, ref_count
       LOGICAL                                      :: qmmm
       LOGICAL                                      :: shell_model, shell_model_ad
       TYPE(qmmm_env_mm_type), POINTER              :: qmmm_env
@@ -90,17 +86,6 @@ MODULE fist_environment_types
       TYPE(fist_efield_type), POINTER              :: efield
    END TYPE fist_environment_type
 
-! **************************************************************************************************
-!> \brief to build arrays of pointers
-!> \param fist_env the pointer to the fist_env
-!> \par History
-!>      11/03
-!> \author CJM
-! **************************************************************************************************
-   TYPE fist_environment_p_type
-      TYPE(fist_environment_type), POINTER :: fist_env
-   END TYPE fist_environment_p_type
-
 ! *** Public data types ***
    PUBLIC :: fist_environment_type
 
@@ -108,11 +93,9 @@ MODULE fist_environment_types
    PUBLIC :: fist_env_get, &
              fist_env_set, &
              fist_env_create, &
-             fist_env_release, &
-             fist_env_retain
+             fist_env_release
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'fist_environment_types'
-   INTEGER, PRIVATE, SAVE :: last_fist_env_id_nr = 0
 
 !***
 
@@ -180,8 +163,6 @@ CONTAINS
       TYPE(exclusion_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: exclusions
       TYPE(fist_efield_type), OPTIONAL, POINTER          :: efield
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fist_env_get', routineP = moduleN//':'//routineN
 
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
@@ -255,13 +236,11 @@ CONTAINS
       fist_env%qmmm = .FALSE.
       fist_env%shell_model = .FALSE.
       fist_env%shell_model_ad = .FALSE.
+      ALLOCATE (fist_env%qmmm_env)
       CALL qmmm_env_mm_create(fist_env%qmmm_env)
       NULLIFY (fist_env%subsys)
       CALL cp_para_env_retain(para_env)
       fist_env%para_env => para_env
-      fist_env%ref_count = 1
-      last_fist_env_id_nr = last_fist_env_id_nr + 1
-      fist_env%id_nr = last_fist_env_id_nr
 
    END SUBROUTINE init_fist_env
 
@@ -297,7 +276,7 @@ CONTAINS
                            fist_nonbond_env, thermo, subsys, qmmm, qmmm_env, &
                            input, shell_model, shell_model_ad, exclusions, efield)
 
-      TYPE(fist_environment_type), POINTER               :: fist_env
+      TYPE(fist_environment_type), INTENT(INOUT)         :: fist_env
       TYPE(atomic_kind_type), OPTIONAL, POINTER          :: atomic_kind_set(:)
       TYPE(particle_type), OPTIONAL, POINTER             :: particle_set(:)
       TYPE(ewald_pw_type), OPTIONAL, POINTER             :: ewald_pw
@@ -317,41 +296,51 @@ CONTAINS
          POINTER                                         :: exclusions
       TYPE(fist_efield_type), OPTIONAL, POINTER          :: efield
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fist_env_set', routineP = moduleN//':'//routineN
-
       TYPE(atomic_kind_list_type), POINTER               :: atomic_kinds
       TYPE(molecule_kind_list_type), POINTER             :: molecule_kinds
       TYPE(molecule_list_type), POINTER                  :: molecules
       TYPE(particle_list_type), POINTER                  :: particles
 
-      CPASSERT(fist_env%ref_count > 0)
-
       IF (PRESENT(qmmm)) fist_env%qmmm = qmmm
       IF (PRESENT(qmmm_env)) THEN
-         CALL qmmm_env_mm_retain(qmmm_env)
-         CALL qmmm_env_mm_release(fist_env%qmmm_env)
+         IF (ASSOCIATED(fist_env%qmmm_env)) THEN
+            CALL qmmm_env_mm_release(fist_env%qmmm_env)
+            DEALLOCATE (fist_env%qmmm_env)
+         END IF
          fist_env%qmmm_env => qmmm_env
       END IF
       IF (PRESENT(ewald_env)) THEN
-         CALL ewald_env_retain(ewald_env)
-         CALL ewald_env_release(fist_env%ewald_env)
+         IF (ASSOCIATED(fist_env%ewald_env)) THEN
+         IF (.NOT. ASSOCIATED(fist_env%ewald_env, ewald_env)) THEN
+            CALL ewald_env_release(fist_env%ewald_env)
+            DEALLOCATE (fist_env%ewald_env)
+         END IF
+         END IF
          fist_env%ewald_env => ewald_env
-      ENDIF
+      END IF
       IF (PRESENT(ewald_pw)) THEN
-         CALL ewald_pw_retain(ewald_pw)
-         CALL ewald_pw_release(fist_env%ewald_pw)
+         IF (ASSOCIATED(fist_env%ewald_pw)) THEN
+            IF (.NOT. ASSOCIATED(fist_env%ewald_pw, ewald_pw)) THEN
+               CALL ewald_pw_release(fist_env%ewald_pw)
+               DEALLOCATE (fist_env%ewald_pw)
+            END IF
+         END IF
          fist_env%ewald_pw => ewald_pw
-      ENDIF
+      END IF
       IF (PRESENT(cell_ref)) THEN
          CALL cell_retain(cell_ref)
          CALL cell_release(fist_env%cell_ref)
          fist_env%cell_ref => cell_ref
       END IF
       IF (PRESENT(fist_nonbond_env)) THEN
-         CALL fist_nonbond_env_retain(fist_nonbond_env)
-         CALL fist_nonbond_env_release(fist_env%fist_nonbond_env)
+         IF (ASSOCIATED(fist_env%fist_nonbond_env)) THEN
+         IF (.NOT. ASSOCIATED(fist_env%fist_nonbond_env, fist_nonbond_env)) THEN
+            CALL fist_nonbond_env_release(fist_env%fist_nonbond_env)
+            DEALLOCATE (fist_env%fist_nonbond_env)
+         END IF
+         END IF
          fist_env%fist_nonbond_env => fist_nonbond_env
-      ENDIF
+      END IF
       IF (PRESENT(input)) THEN
          CALL section_vals_retain(input)
          CALL section_vals_release(fist_env%input)
@@ -359,8 +348,11 @@ CONTAINS
       END IF
       IF (PRESENT(thermo)) fist_env%thermo => thermo
       IF (PRESENT(subsys)) THEN
-         CALL cp_subsys_retain(subsys)
-         CALL cp_subsys_release(fist_env%subsys)
+         IF (ASSOCIATED(fist_env%subsys)) THEN
+         IF (.NOT. ASSOCIATED(fist_env%subsys, subsys)) THEN
+            CALL cp_subsys_release(fist_env%subsys)
+         END IF
+         END IF
          fist_env%subsys => subsys
       END IF
       IF (PRESENT(atomic_kind_set)) THEN
@@ -419,33 +411,11 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE fist_env_create(fist_env, para_env)
-      TYPE(fist_environment_type), POINTER               :: fist_env
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(fist_environment_type), INTENT(OUT)           :: fist_env
+      TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fist_env_create', &
-         routineP = moduleN//':'//routineN
-
-      ALLOCATE (fist_env)
       CALL init_fist_env(fist_env, para_env=para_env)
    END SUBROUTINE fist_env_create
-
-! **************************************************************************************************
-!> \brief retains the given fist_env (see doc/ReferenceCounting.html)
-!> \param fist_env the object to retain
-!> \par History
-!>      12.2002 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE fist_env_retain(fist_env)
-      TYPE(fist_environment_type), POINTER               :: fist_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fist_env_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(fist_env))
-      CPASSERT(fist_env%ref_count > 0)
-      fist_env%ref_count = fist_env%ref_count + 1
-   END SUBROUTINE fist_env_retain
 
 ! **************************************************************************************************
 !> \brief releases the given fist_env (see doc/ReferenceCounting.html)
@@ -455,35 +425,36 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE fist_env_release(fist_env)
-      TYPE(fist_environment_type), POINTER               :: fist_env
+      TYPE(fist_environment_type), INTENT(INOUT)         :: fist_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fist_env_release', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(fist_env)) THEN
-         CPASSERT(fist_env%ref_count > 0)
-         fist_env%ref_count = fist_env%ref_count - 1
-         IF (fist_env%ref_count < 1) THEN
-            CALL qmmm_env_mm_release(fist_env%qmmm_env)
-            CALL cell_release(fist_env%cell_ref)
-            CALL ewald_pw_release(fist_env%ewald_pw)
-            CALL ewald_env_release(fist_env%ewald_env)
-            CALL cp_para_env_release(fist_env%para_env)
-            CALL deallocate_fist_energy(fist_env%thermo)
-
-            CALL fist_nonbond_env_release(fist_env%fist_nonbond_env)
-            CALL cp_subsys_release(fist_env%subsys)
-            CALL section_vals_release(fist_env%input)
-            CALL exclusion_release(fist_env%exclusions)
-
-            IF (ASSOCIATED(fist_env%efield)) THEN
-               DEALLOCATE (fist_env%efield)
-            END IF
-
-            DEALLOCATE (fist_env)
-         END IF
+      IF (ASSOCIATED(fist_env%qmmm_env)) THEN
+         CALL qmmm_env_mm_release(fist_env%qmmm_env)
+         DEALLOCATE (fist_env%qmmm_env)
       END IF
-      NULLIFY (fist_env)
+      CALL cell_release(fist_env%cell_ref)
+      IF (ASSOCIATED(fist_env%ewald_pw)) THEN
+         CALL ewald_pw_release(fist_env%ewald_pw)
+         DEALLOCATE (fist_env%ewald_pw)
+      END IF
+      IF (ASSOCIATED(fist_env%ewald_env)) THEN
+         CALL ewald_env_release(fist_env%ewald_env)
+         DEALLOCATE (fist_env%ewald_env)
+      END IF
+      CALL cp_para_env_release(fist_env%para_env)
+      CALL deallocate_fist_energy(fist_env%thermo)
+
+      IF (ASSOCIATED(fist_env%fist_nonbond_env)) THEN
+         CALL fist_nonbond_env_release(fist_env%fist_nonbond_env)
+         DEALLOCATE (fist_env%fist_nonbond_env)
+      END IF
+      CALL cp_subsys_release(fist_env%subsys)
+      CALL section_vals_release(fist_env%input)
+      CALL exclusion_release(fist_env%exclusions)
+
+      IF (ASSOCIATED(fist_env%efield)) THEN
+         DEALLOCATE (fist_env%efield)
+      END IF
+
    END SUBROUTINE fist_env_release
 
 END MODULE fist_environment_types

@@ -1,5 +1,5 @@
 #
-# make -j 16 sopt popt ssmp psmp
+# make -j 16 ssmp psmp
 #
 # will now perform a parallel build of 4 cp2k executables
 #
@@ -10,17 +10,18 @@ ifeq ($(CP2KHOME),)
 CP2KHOME     := $(abspath $(shell pwd))
 export CP2KHOME
 endif
+
 ARCH         := local
-export VERSION=sopt
+export VERSION=ssmp
 
 MAKEFILE     := $(CP2KHOME)/Makefile
 ARCHDIR      := $(CP2KHOME)/arch
-DOXYGENDIR   := $(CP2KHOME)/doc/doxygen
 DATA_DIR     := $(CP2KHOME)/data
 MAINEXEDIR   := $(CP2KHOME)/exe
 MAINLIBDIR   := $(CP2KHOME)/lib
 MAINOBJDIR   := $(CP2KHOME)/obj
 MAINTSTDIR   := $(CP2KHOME)/regtesting
+PRECOMMITDIR := $(CP2KHOME)/obj/precommit
 PRETTYOBJDIR := $(CP2KHOME)/obj/prettified
 DOXIFYOBJDIR := $(CP2KHOME)/obj/doxified
 TOOLSRC      := $(CP2KHOME)/tools
@@ -30,9 +31,9 @@ REVISION     := $(shell $(CP2KHOME)/tools/build_utils/get_revision_number $(SRCD
 
 EXTSDIR      := exts
 EXTSHOME     := $(CP2KHOME)/$(EXTSDIR)
-EXTSPACKAGES := $(shell cd $(EXTSHOME) ; find * -maxdepth 0 -type d )
+EXTSPACKAGES := $(shell cd $(EXTSHOME) ; find * -maxdepth 0 -type d | grep -v build_ )
 
-PYTHON       := /usr/bin/env python
+PYTHON       := /usr/bin/env python3
 
 # Common Targets ============================================================
 default_target: all
@@ -49,57 +50,58 @@ ifneq ($(ONEVERSION),)
 MODDEPS = "lower"
 include $(ARCHDIR)/$(ARCH).$(ONEVERSION)
 LIBDIR  := $(MAINLIBDIR)/$(ARCH)/$(ONEVERSION)
+PKGCONFIGDIR  := $(LIBDIR)/pkgconfig
+PKGCONFIG  := $(PKGCONFIGDIR)/libcp2k.pc
 LIBEXTSDIR := $(LIBDIR)/$(EXTSDIR)
 OBJDIR  := $(MAINOBJDIR)/$(ARCH)/$(ONEVERSION)
 OBJEXTSDIR := $(OBJDIR)/$(EXTSDIR)
 OBJEXTSINCL := $(foreach dir,$(EXTSPACKAGES),-I'$(OBJEXTSDIR)/$(dir)')
 TSTDIR     := $(MAINTSTDIR)/$(ARCH)/$(ONEVERSION)
-ifeq ($(NVCC),)
-EXE_NAMES := $(basename $(notdir $(filter-out %.cu, $(ALL_EXE_FILES))))
-endif
 ifneq ($(LD_SHARED),)
- ARCHIVE_EXT := .so
+	ARCHIVE_EXT := .so
 else
- ARCHIVE_EXT := .a
+	ARCHIVE_EXT := .a
 endif
 include $(EXTSHOME)/Makefile.inc
 endif
 
 # Declare PHONY targets =====================================================
-.PHONY : $(VERSION) $(EXE_NAMES) \
-         dirs makedep default_target all \
-         toolversions extversions extclean libcp2k cp2k_shell exts python-bindings \
-         doxify doxifyclean \
-         pretty prettyclean doxygen/clean doxygen \
-         install clean realclean distclean mrproper help \
-         test testbg testclean testrealclean \
-         data \
-	 $(EXTSPACKAGES)
+.PHONY: $(VERSION) $(EXE_NAMES) \
+        dirs makedep default_target all \
+        toolversions exts extversions extclean \
+        libcp2k cp2k_shell pkgconfig python-bindings \
+        pre-commit pre-commit-clean \
+        pretty precommit precommitclean doxygenclean doxygen \
+        fpretty fprettyclean \
+        doxify doxifyclean \
+        install clean realclean distclean mrproper help \
+        test testbg testclean testrealclean \
+        data \
+        $(EXTSPACKAGES)
 
 # Discover files and directories ============================================
-ALL_SRC_DIRS := $(shell find $(SRCDIR) -type d ! -name preprettify | awk '{printf("%s:",$$1)}')
-ALL_PREPRETTY_DIRS = $(shell find $(SRCDIR) -type d -name preprettify)
+#
+# File type is derived from name. Only the following extensions are supported:
+#   .F    ->  Fortran
+#   .c    ->  C
+#   .h    ->  C header
+#   .cu   ->  CUDA or HIP kernel
 
-ALL_PKG_FILES  = $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "PACKAGE")
-OBJ_SRC_FILES  = $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" -name "*.F")
-OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" ! -path "*/python*" -name "*.c")
-OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" -name "*.cpp")
-OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" -name "*.cxx")
-OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" -name "*.cc")
-ifneq ($(NVCC),)
-OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . ! -path "*/preprettify/*" -name "*.cu")
+ALL_SRC_DIRS := $(shell find $(SRCDIR) -type d | awk '{printf("%s:",$$1)}')
+ALL_PKG_FILES  = $(shell find $(SRCDIR) -name "PACKAGE")
+OBJ_SRC_FILES  = $(shell cd $(SRCDIR); find . -name "*.F")
+OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . -name "*.c")
+
+ifneq ($(filter nvcc hipcc, $(notdir $(OFFLOAD_CC))),)
+OBJ_SRC_FILES += $(shell cd $(SRCDIR); find . -name "*.cu")
 endif
 
-# Included files used by Fypp preprocessor and standard includes
-INCLUDED_SRC_FILES = $(filter-out base_uses.f90, $(notdir $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.f90")))
+# Included files used by Fypp preprocessor
+INCLUDED_SRC_FILES = $(notdir $(shell find $(SRCDIR) -name "*.fypp"))
 
 # Include also source files which won't compile into an object file
 ALL_SRC_FILES  = $(strip $(subst $(NULL) .,$(NULL) $(SRCDIR),$(NULL) $(OBJ_SRC_FILES)))
-ALL_SRC_FILES += $(filter-out base_uses.f90, $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.f90"))
-ALL_SRC_FILES += $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.h")
-ALL_SRC_FILES += $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.hpp")
-ALL_SRC_FILES += $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.hxx")
-ALL_SRC_FILES += $(shell find $(SRCDIR) ! -path "*/preprettify/*" -name "*.hcc")
+ALL_SRC_FILES += $(shell find $(SRCDIR) -name "*.h")
 
 ALL_OBJECTS        = $(addsuffix .o, $(basename $(notdir $(OBJ_SRC_FILES))))
 ALL_EXE_OBJECTS    = $(addsuffix .o, $(EXE_NAMES))
@@ -119,8 +121,15 @@ $(EXE_NAMES) all toolversions extversions extclean libcp2k cp2k_shell exts $(EXT
 
 # stage 2: Store the version target in $(ONEVERSION),
 #          Call make recursively with $(ORIG_TARGET) as target.
-$(VERSION) :
+$(filter-out sopt, popt, $(VERSION)):
 	@+$(MAKE) --no-print-directory -f $(MAKEFILE) $(ORIG_TARGET) ORIG_TARGET="" VERSION="" ONEVERSION=$@
+
+sopt:
+	@+echo "Version sopt is now an alias for ssmp with OMP_NUM_THREADS=1."
+	@+$(MAKE) --no-print-directory -f $(MAKEFILE) $(ORIG_TARGET) ORIG_TARGET="" VERSION="" ONEVERSION="ssmp"
+popt:
+	@+echo "Version popt is now an alias for psmp with OMP_NUM_THREADS=1."
+	@+$(MAKE) --no-print-directory -f $(MAKEFILE) $(ORIG_TARGET) ORIG_TARGET="" VERSION="" ONEVERSION="psmp"
 
 else
 
@@ -133,25 +142,25 @@ $(EXE_NAMES): makedep | dirs exts
 all: makedep | dirs exts
 	@+$(MAKE) --no-print-directory -C $(OBJDIR) -f $(MAKEFILE) all INCLUDE_DEPS=true
 
-# foreground testing, compilation happens in do_regtest
-test: dirs
-	cd $(TSTDIR); $(TOOLSRC)/regtesting/do_regtest -quick -arch $(ARCH) -version $(ONEVERSION) -cp2kdir ../../../  $(TESTOPTS)
+# compilation for testing happens here
+test: dirs makedep all
+	@$(TOOLSRC)/regtesting/print_environment.sh $(ARCH) $(ONEVERSION)
+	@+$(MAKE) --no-print-directory -C $(TSTDIR) -f $(MAKEFILE) test INCLUDE_DEPS=true
 
-# background testing, compilation happens here
 testbg: dirs makedep all
 	@+$(MAKE) --no-print-directory -C $(TSTDIR) -f $(MAKEFILE) testbg INCLUDE_DEPS=true
 
-libcp2k: makedep | dirs exts
+libcp2k: pkgconfig makedep | dirs exts
 	@+$(MAKE) --no-print-directory -C $(OBJDIR) -f $(MAKEFILE) $(LIBDIR)/libcp2k$(ARCHIVE_EXT) INCLUDE_DEPS=true
 
 python-bindings: libcp2k
 	@cd $(SRCDIR)/start/python ; \
-		env CC='$(CC)' LDSHARED='$(LD) -shared' CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS) $(LDFLAGS_C) $(LIBS)' \
-			$(PYTHON) setup.py build_ext \
-				--build-temp="$(OBJDIR)/python" \
-				--build-lib="$(LIBDIR)/python" \
-				--library-dirs="$(LIBDIR)" \
-				--libraries="$(patsubst -l%,%,$(filter -l%,$(LIBS)))"
+        env CC='$(CC)' LDSHARED='$(LD) -shared' CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS) $(LDFLAGS_C) $(LIBS)' \
+        $(PYTHON) setup.py build_ext \
+        --build-temp="$(OBJDIR)/python" \
+        --build-lib="$(LIBDIR)/python" \
+        --library-dirs="$(LIBDIR)" \
+        --libraries="$(patsubst -l%,%,$(filter -l%,$(LIBS)))"
 
 exts: $(EXTSPACKAGES)
 
@@ -159,9 +168,21 @@ dirs:
 	@mkdir -p $(OBJDIR)
 	@mkdir -p $(OBJEXTSDIR)
 	@mkdir -p $(LIBDIR)
+	@mkdir -p $(PKGCONFIGDIR)
 	@mkdir -p $(LIBEXTSDIR)
 	@mkdir -p $(EXEDIR)
 	@mkdir -p $(TSTDIR)
+
+pkgconfig: dirs
+	@echo "Writing pkg-config $(PKGCONFIG)"
+	@echo "Name: libcp2k" > $(PKGCONFIG)
+	@echo "Description: CP2K as a library" >> $(PKGCONFIG)
+	@echo "URL: https://www.cp2k.org" >> $(PKGCONFIG)
+	@echo "Version: $(REVISION)" >> $(PKGCONFIG)
+	@echo "includedir=$(SRCDIR)/start" >> $(PKGCONFIG)
+	@echo "Cflags: -I\$${includedir}" >> $(PKGCONFIG)
+	@echo "libdir=$(LIBDIR)" >> $(PKGCONFIG)
+	@echo "Libs: -L\$${libdir} -Wl,-rpath=\$${libdir} -lcp2k $(LDFLAGS) $(LIBS)" >> $(PKGCONFIG)
 
 toolversions:
 ifneq ($(FC),)
@@ -184,15 +205,17 @@ else
 	$(CC) --version
 endif
 endif
-ifneq ($(NVCC),)
-	@echo "========== NVCC ($(ONEVERSION)) =========="
-	$(NVCC) --version
+ifneq ($(OFFLOAD_CC),)
+	@echo "========== OFFLOAD_CC ($(ONEVERSION)) =========="
+	$(OFFLOAD_CC) --version
 	@echo ""
 endif
 ifneq ($(AR),)
+ifeq (Linux,$(shell uname -s))
 	@echo "=========== AR ($(ONEVERSION)) ==========="
 	$(firstword $(AR)) V
 	@echo ""
+endif
 endif
 	@echo "========== Make ($(ONEVERSION)) =========="
 	$(MAKE) --version
@@ -207,19 +230,32 @@ $(ALL_OBJECTS): $(EXTSDEPS_MOD)
 $(ALL_EXE_OBJECTS): $(EXTSDEPS_LIB)
 
 # stage 4: Include $(OBJDIR)/all.dep, expand target all and libcp2k, and perform actual build.
+
+ifeq ("$(ONEVERSION)","psmp")
+all: $(foreach e, $(EXE_NAMES) cp2k_shell, $(EXEDIR)/$(e).$(ONEVERSION)) $(EXEDIR)/cp2k.popt
+else ifeq ("$(ONEVERSION)","ssmp")
+all: $(foreach e, $(EXE_NAMES) cp2k_shell, $(EXEDIR)/$(e).$(ONEVERSION)) $(EXEDIR)/cp2k.sopt
+else
 all: $(foreach e, $(EXE_NAMES) cp2k_shell, $(EXEDIR)/$(e).$(ONEVERSION))
+endif
 $(LIBDIR)/libcp2k$(ARCHIVE_EXT) : $(ALL_NONEXE_OBJECTS)
+
+# Create always a cp2k.[ps]opt soft link for each cp2k.[ps]smp executable
+$(EXEDIR)/cp2k.sopt: $(EXEDIR)/cp2k.ssmp
+	cd $(EXEDIR); ln -sf cp2k.ssmp cp2k.sopt
+$(EXEDIR)/cp2k.popt: $(EXEDIR)/cp2k.psmp
+	cd $(EXEDIR); ln -sf cp2k.psmp cp2k.popt
 
 $(EXEDIR)/cp2k_shell.$(ONEVERSION): $(EXEDIR)/cp2k.$(ONEVERSION)
 	cd $(EXEDIR); ln -sf cp2k.$(ONEVERSION) cp2k_shell.$(ONEVERSION)
 
+test:
+	@$(TOOLSRC)/regtesting/do_regtest.py $(ARCH) $(ONEVERSION) $(TESTOPTS)
+
 testbg:
 	@echo "testing: $(ONEVERSION) : full log in $(TSTDIR)/regtest.log "
-	@$(TOOLSRC)/regtesting/do_regtest -nobuild $(ARCH) -version $(ONEVERSION) -cp2kdir ../../../  $(TESTOPTS) >& $(TSTDIR)/regtest.log
-	@cat `grep 'regtesting location error_summary file:' $(TSTDIR)/regtest.log | awk '{print $$NF}'`
-	@cat `grep 'regtesting location summary file:' $(TSTDIR)/regtest.log | awk '{print $$NF}'`
-	@grep "Number of FAILED  tests 0" $(TSTDIR)/regtest.log >& /dev/null
-	@grep "Number of WRONG   tests 0" $(TSTDIR)/regtest.log >& /dev/null
+	@$(TOOLSRC)/regtesting/do_regtest.py $(ARCH) $(ONEVERSION) $(TESTOPTS) > $(TSTDIR)/regtest.log 2>&1
+	@grep -e "Summary:" -e "Status:" $(TSTDIR)/regtest.log
 
 endif
 endif
@@ -237,9 +273,9 @@ help:
 	@echo "=================== Binaries ===================="
 	@echo "all                         Builds all executables (default target)"
 	@for i in $(ALL_EXE_FILES); do \
-	basename  $$i | sed 's/^\(.*\)\..*/\1/' | awk '{printf "%-28s", $$1}'; \
-	grep "brief" $$i | head -n 1 | sed 's/^.*\\brief\s*//'; \
-	done
+        basename  $$i | sed 's/^\(.*\)\..*/\1/' | awk '{printf "%-28s", $$1}'; \
+        grep "brief" $$i | head -n 1 | sed 's/^.*\\brief\s*//'; \
+        done
 	@echo "libcp2k                     Builds CP2K as a single library archive"
 	@echo "cp2k_shell                  Creates symlink for backward compatibility"
 	@echo ""
@@ -276,8 +312,10 @@ clean:
 	rm -rf $(foreach v, $(VERSION), $(MAINLIBDIR)/$(ARCH)/$(v))
 OTHER_HELP += "clean : Remove intermediate object and mod files, but not the libraries and executables, for given ARCH and VERSION"
 
+# The Intel compiler creates a corresponding .dbg file for each executable when static linking of the Intel MPI library is requested (flag -static_mpi)
+# and also potential soft links (.popt and .sopt files) have to be cleaned
 execlean:
-	rm -rf $(foreach v, $(VERSION), $(EXEDIR)/*.$(v))
+	rm -rf $(foreach v, $(VERSION), $(EXEDIR)/*.$(v) $(EXEDIR)/*.$(v).dbg) $(EXEDIR)/cp2k.[ps]opt
 OTHER_HELP += "execlean : Remove the executables, for given ARCH and VERSION"
 
 #
@@ -300,19 +338,19 @@ OTHER_HELP += "testrealclean : Remove all LAST-* and TEST-* files for given ARCH
 #
 # Remove all files from previous builds
 #
-distclean: prettyclean doxifyclean testrealclean
+distclean: precommitclean fprettyclean doxifyclean testrealclean
 	rm -rf $(DOXYGENDIR) $(MAINEXEDIR) $(MAINOBJDIR) $(MAINLIBDIR) $(MAINTSTDIR)
 OTHER_HELP += "distclean : Remove all files from previous builds"
 
 # Prettyfier stuff ==========================================================
 vpath %.pretty $(PRETTYOBJDIR)
 
-pretty: $(addprefix $(PRETTYOBJDIR)/, $(ALL_OBJECTS:.o=.pretty)) $(addprefix $(PRETTYOBJDIR)/, $(INCLUDED_SRC_FILES:.f90=.pretty_included))
-TOOL_HELP += "pretty : Reformat all source files in a pretty way."
+fpretty: $(addprefix $(PRETTYOBJDIR)/, $(ALL_OBJECTS:.o=.pretty)) $(addprefix $(PRETTYOBJDIR)/, $(INCLUDED_SRC_FILES:.f90=.pretty_included))
+TOOL_HELP += "fpretty : Reformat all Fortran source files in a pretty way."
 
-prettyclean:
-	-rm -rf $(PRETTYOBJDIR) $(ALL_PREPRETTY_DIRS)
-TOOL_HELP += "prettyclean : Remove prettify marker files and preprettify directories"
+fprettyclean:
+	-rm -rf $(PRETTYOBJDIR)
+TOOL_HELP += "fprettyclean : Remove prettify marker files and preprettify directories"
 
 $(PRETTYOBJDIR)/%.pretty: %.F $(DOXIFYOBJDIR)/%.doxified
 	@mkdir -p $(PRETTYOBJDIR)
@@ -363,25 +401,39 @@ $(DOXIFYOBJDIR)/%.doxified: %.cpp
 	@touch $@
 
 # doxygen stuff =============================================================
-doxygen/clean:
-	-rm -rf $(DOXYGENDIR)
-TOOL_HELP += "doxygen/clean : Remove the generated doxygen documentation"
+doxygenclean:
+	-rm -rf $(CP2KHOME)/doxygen
+TOOL_HELP += "doxygenclean : Remove the generated doxygen documentation"
 
-# Automatic source code documentation using Doxygen
-# Prerequisites:
-# - stable doxygen release 1.5.4 (Oct. 27, 2007)
-# - graphviz (2.16.1)
-# - webdot (2.16)
-#
-doxygen: doxygen/clean
-	@mkdir -p $(DOXYGENDIR)
-	@mkdir -p $(DOXYGENDIR)/html
-	@echo "<html><body>Sorry, the Doxygen documentation is currently being updated. Please try again in a few minutes.</body></html>" > $(DOXYGENDIR)/html/index.html
-	cp $(ALL_SRC_FILES) $(DOXYGENDIR)
-	@for i in $(DOXYGENDIR)/*.F ; do mv $${i}  $${i%%.*}.f90; done ;
-	@sed -e "s/#revision#/$(REVISION)/" $(TOOLSRC)/doxify/Doxyfile.template >$(DOXYGENDIR)/Doxyfile
-	cd $(DOXYGENDIR); doxygen ./Doxyfile 2>&1 | tee ./html/doxygen.out
+doxygen: doxygenclean
+	$(TOOLSRC)/doxify/generate_doxygen.sh
 TOOL_HELP += "doxygen : Generate the doxygen documentation"
+
+# Precommit stuff ===========================================================
+pretty: precommit
+TOOL_HELP += "pretty : Alias for precommit."
+
+precommit:
+	$(TOOLSRC)/precommit/precommit.py --allow-modifications
+TOOL_HELP += "precommit : Run precommit checks."
+
+precommitclean:
+	-rm -rf $(PRECOMMITDIR)
+TOOL_HELP += "precommitclean : Remove temporary files from precommit checks."
+
+# pre-commit script for manual execution ====================================
+
+pre-commit:
+	@$(TOOLSRC)/pre-commit-install.sh
+	@$(CP2KHOME)/.pre-commit-env/bin/pre-commit run -a
+
+TOOL_HELP += "pre-commit : Install pre-commit tools, register git hooks and run a full pre-commit check"
+
+pre-commit-clean:
+	-@$(CP2KHOME)/.pre-commit-env/bin/pre-commit uninstall
+	-@$(CP2KHOME)/.pre-commit-env/bin/pre-commit clean
+	-rm -rf $(CP2KHOME)/.pre-commit-env
+TOOL_HELP += "pre-commit-clean : Uninstall git hooks, drop the pre-commit tool cache and remove its environment"
 
 # data stuff ================================================================
 data: data/POTENTIAL
@@ -398,9 +450,9 @@ MAKEDEPMODE = "normal"
 ifeq ($(HACKDEP),yes)
 MAKEDEPMODE = "hackdep"
 else
- ifneq ($(MC),)
- MAKEDEPMODE = "mod_compiler"
- endif
+	ifneq ($(MC),)
+	MAKEDEPMODE = "mod_compiler"
+	endif
 endif
 
 # this happens on stage 3
@@ -429,9 +481,6 @@ vpath %.h     $(ALL_SRC_DIRS)
 vpath %.f90   $(ALL_SRC_DIRS)
 vpath %.cu    $(ALL_SRC_DIRS)
 vpath %.c     $(ALL_SRC_DIRS)
-vpath %.cpp   $(ALL_SRC_DIRS)
-vpath %.cxx   $(ALL_SRC_DIRS)
-vpath %.cc    $(ALL_SRC_DIRS)
 
 #
 # Add additional dependency of cp2k_info.F to git-HEAD.
@@ -451,10 +500,10 @@ cp2k_info.o: $(GIT_REF)
 
 # Add some practical metadata about the build.
 FCFLAGS += -D__COMPILE_ARCH="\"$(ARCH)\""\
-           -D__COMPILE_DATE="\"$(shell date)\""\
-           -D__COMPILE_HOST="\"$(shell hostname)\""\
-           -D__COMPILE_REVISION="\"$(strip $(REVISION))\""\
-           -D__DATA_DIR="\"$(DATA_DIR)\""
+        -D__COMPILE_DATE="\"$(shell date)\""\
+        -D__COMPILE_HOST="\"$(shell hostname 2>/dev/null || hostnamectl --transient)\""\
+        -D__COMPILE_REVISION="\"$(strip $(REVISION))\""\
+        -D__DATA_DIR="\"$(DATA_DIR)\""
 
 # $(FCLOGPIPE) can be used to store compiler output, e.g. warnings, for each F-file separately.
 # This is used e.g. by the convention checker.
@@ -468,8 +517,18 @@ FYPPFLAGS ?= -n
 %.o: %.c
 	$(CC) -c $(CFLAGS) $<
 
+%.o: %.cu
+	$(OFFLOAD_CC) -c $(OFFLOAD_FLAGS) $<
+
+# Disable built-in rules for C++.
+%.o: %.cc
+	@echo "Error: C++ is not supported: $<"; false
+
 %.o: %.cpp
-	$(CXX) -c $(CXXFLAGS) $<
+	@echo "Error: C++ is not supported: $<"; false
+
+%.o: %.C
+	@echo "Error: C++ is not supported: $<"; false
 
 ifneq ($(LIBDIR),)
 $(LIBDIR)/%:
@@ -484,10 +543,6 @@ ifneq ($(RANLIB),)
 	@$(RANLIB) $@
 endif
 endif
-
-%.o: %.cu
-	$(NVCC) -c $(NVFLAGS) $<
-
 
 # module compiler magic =====================================================
 ifeq ($(MC),)

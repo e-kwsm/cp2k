@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,9 +47,6 @@ CONTAINS
    SUBROUTINE allocate_fist_energy(fist_energy)
       TYPE(fist_energy_type), POINTER                    :: fist_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'allocate_fist_energy', &
-         routineP = moduleN//':'//routineN
-
       IF (.NOT. ASSOCIATED(fist_energy)) THEN
          ALLOCATE (fist_energy)
       END IF
@@ -65,9 +64,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_fist_energy(fist_energy)
       TYPE(fist_energy_type), POINTER                    :: fist_energy
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'deallocate_fist_energy', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(fist_energy)) THEN
          DEALLOCATE (fist_energy)
@@ -88,9 +84,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_fist_energy(fist_energy)
       TYPE(fist_energy_type), POINTER                    :: fist_energy
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_fist_energy', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(fist_energy)) THEN
          fist_energy%kin = 0.0_dp

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -59,11 +61,8 @@ CONTAINS
 !> \author hforbert
 ! **************************************************************************************************
    SUBROUTINE helium_calc_energy(helium, pint_env)
-      TYPE(helium_solvent_type), POINTER                 :: helium
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_calc_energy', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
 
       INTEGER                                            :: b, bead, i, j, n
       INTEGER, DIMENSION(:), POINTER                     :: perm
@@ -135,7 +134,7 @@ CONTAINS
       END DO
       kin = 1.5_dp*n/helium%tau - 0.5*kin/(b*helium%tau**2*helium%hb2m)
 
-! TODO: move printing somwhere else ?
+! TODO: move printing somewhere else ?
 !   print *,"POT = ",(pot/n+helium%e_corr)*kelvin,"K"
 !   print *,"INTERAC = ",interac*kelvin,"K"
 !   print *,"RMIN= ",rmin*angstrom,"A"
@@ -156,7 +155,6 @@ CONTAINS
       ! Once vkin is properly implemented, switch to:
       ! helium%energy_inst(e_id_total) = (en+vkin)/n+helium%e_corr
 
-      RETURN
    END SUBROUTINE helium_calc_energy
 
 ! ***************************************************************************
@@ -168,10 +166,7 @@ CONTAINS
 ! **************************************************************************************************
    REAL(KIND=dp) FUNCTION helium_total_link_action(helium) RESULT(linkaction)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_link_action', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
 
       INTEGER                                            :: iatom, ibead
       INTEGER, DIMENSION(:), POINTER                     :: perm
@@ -197,8 +192,6 @@ CONTAINS
       END DO
       linkaction = linkaction/(2.0_dp*helium%tau*helium%hb2m)
 
-      RETURN
-
    END FUNCTION helium_total_link_action
 
 ! ***************************************************************************
@@ -210,10 +203,7 @@ CONTAINS
 ! **************************************************************************************************
    REAL(KIND=dp) FUNCTION helium_total_pair_action(helium) RESULT(pairaction)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_pair_action', &
-         routineP = moduleN//':'//routineN
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
 
       INTEGER                                            :: iatom, ibead, jatom, opatom, patom
       INTEGER, DIMENSION(:), POINTER                     :: perm
@@ -254,7 +244,7 @@ CONTAINS
             DO jatom = 1, helium%atoms
                IF (jatom == helium%worm_atom_idx) CYCLE
                opatom = helium%iperm(jatom)
-               ! substract pair action for closed link
+               ! subtract pair action for closed link
                r(:) = helium%pos(:, iatom, 1) - helium%pos(:, jatom, 1)
                rp(:) = helium%pos(:, patom, helium%beads) - helium%pos(:, opatom, helium%beads)
                pairaction = pairaction - helium_eval_expansion(helium, r, rp, work3)
@@ -269,7 +259,7 @@ CONTAINS
             ! go through all atoms
             DO jatom = 1, helium%atoms
                IF (jatom == helium%worm_atom_idx) CYCLE
-               ! substract pair action for closed link
+               ! subtract pair action for closed link
                r(:) = helium%pos(:, iatom, ibead) - helium%pos(:, jatom, ibead)
                rp(:) = helium%pos(:, iatom, ibead - 1) - helium%pos(:, jatom, ibead - 1)
                pairaction = pairaction - helium_eval_expansion(helium, r, rp, work3)
@@ -282,7 +272,6 @@ CONTAINS
       END IF
       DEALLOCATE (work3)
 
-      RETURN
    END FUNCTION helium_total_pair_action
 
 ! ***************************************************************************
@@ -295,11 +284,8 @@ CONTAINS
 ! **************************************************************************************************
    REAL(KIND=dp) FUNCTION helium_total_inter_action(pint_env, helium) RESULT(interaction)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      TYPE(helium_solvent_type), POINTER                 :: helium
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_total_inter_action', &
-         routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
 
       INTEGER                                            :: iatom, ibead
       REAL(KIND=dp)                                      :: e
@@ -334,7 +320,6 @@ CONTAINS
 
       interaction = interaction*helium%tau
 
-      RETURN
    END FUNCTION helium_total_inter_action
 
 ! ***************************************************************************
@@ -354,16 +339,13 @@ CONTAINS
    SUBROUTINE helium_bead_solute_e_f(pint_env, helium, helium_part_index, &
                                      helium_slice_index, helium_r_opt, energy, force)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       INTEGER, INTENT(IN)                                :: helium_part_index, helium_slice_index
       REAL(KIND=dp), DIMENSION(3), INTENT(IN), OPTIONAL  :: helium_r_opt
       REAL(KIND=dp), INTENT(OUT)                         :: energy
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL, POINTER                               :: force
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_bead_solute_e_f', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: hbeads, hi, qi, stride
       REAL(KIND=dp), DIMENSION(3)                        :: helium_r
@@ -422,7 +404,6 @@ CONTAINS
          END IF
       END IF
 
-      RETURN
    END SUBROUTINE helium_bead_solute_e_f
 
 ! ***************************************************************************
@@ -434,12 +415,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_solute_e_f(pint_env, helium, energy)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp), INTENT(OUT)                         :: energy
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_solute_e_f', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib, jb, jc
       REAL(KIND=dp)                                      :: my_energy
@@ -466,7 +444,6 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END SUBROUTINE helium_solute_e_f
 
 ! ***************************************************************************
@@ -478,8 +455,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_solute_e(pint_env, helium, energy)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), INTENT(OUT)                         :: energy
 
       INTEGER                                            :: ia, ib
@@ -494,7 +471,6 @@ CONTAINS
          END DO
       END DO
 
-      RETURN
    END SUBROUTINE helium_solute_e
 
 ! ***************************************************************************
@@ -508,11 +484,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_intpot_scan(pint_env, helium_env)
 
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       TYPE(helium_solvent_p_type), DIMENSION(:), POINTER :: helium_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_intpot_scan', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'helium_intpot_scan'
 
       INTEGER                                            :: handle, ic, ix, iy, iz, k, nbin
       LOGICAL                                            :: wrapped
@@ -567,7 +542,6 @@ CONTAINS
       END IF
 
       CALL timestop(handle)
-      RETURN
    END SUBROUTINE helium_intpot_scan
 
 ! ***************************************************************************
@@ -585,14 +559,11 @@ CONTAINS
    SUBROUTINE helium_intpot_model_water(solute_x, helium, helium_x, energy, force)
 
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: solute_x
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(IN)              :: helium
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: helium_x
       REAL(KIND=dp), INTENT(OUT)                         :: energy
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT), &
          OPTIONAL, POINTER                               :: force
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'helium_intpot_model_water', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ig
       REAL(KIND=dp)                                      :: d, d2, dd, ep, eps, s1, s2, sig
@@ -655,8 +626,6 @@ CONTAINS
       END DO ! i = 1, num_chlorine
       energy = energy + s1
 
-      RETURN
-
    END SUBROUTINE helium_intpot_model_water
 
 ! ***************************************************************************
@@ -664,7 +633,7 @@ CONTAINS
 !> \param r ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION helium_vij(r) RESULT(vij)
+   ELEMENTAL FUNCTION helium_vij(r) RESULT(vij)
 
       REAL(kind=dp), INTENT(IN)                          :: r
       REAL(kind=dp)                                      :: vij
@@ -681,7 +650,6 @@ CONTAINS
       x2 = 1.0_dp/(x*x)
       vij = 10.8_dp/kelvin*(544850.4_dp*EXP(-13.353384_dp*x) - f* &
                             ((0.1781_dp*x2 + 0.4253785_dp)*x2 + 1.3732412_dp)*x2*x2*x2)
-      RETURN
    END FUNCTION helium_vij
 
 #if 0
@@ -693,7 +661,7 @@ CONTAINS
 !> \param r ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION helium_d_vij(r) RESULT(dvij)
+   ELEMENTAL FUNCTION helium_d_vij(r) RESULT(dvij)
 
       REAL(kind=dp), INTENT(IN)                          :: r
       REAL(kind=dp)                                      :: dvij
@@ -717,7 +685,6 @@ CONTAINS
              (-13.353384_dp*544850.4_dp)*EXP(-13.353384_dp*x) - fp + &
              f*(((10.0_dp*0.1781_dp)*x2 + (8.0_dp*0.4253785_dp))*x2 + (6.0_dp*1.3732412_dp))* &
              x2*x2*x2/x)/(r*kelvin)
-      RETURN
    END FUNCTION helium_d_vij
 
 ! **************************************************************************************************
@@ -729,7 +696,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_atom_action(helium, n, i) RESULT(res)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: n, i
       REAL(KIND=dp)                                      :: res
 
@@ -785,7 +752,6 @@ CONTAINS
       s = s*0.5_dp
       res = s + t
       DEALLOCATE (work3)
-      RETURN
 
    END FUNCTION helium_atom_action
 
@@ -797,7 +763,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_link_action(helium, n) RESULT(res)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: n
       REAL(KIND=dp)                                      :: res
 
@@ -842,7 +808,6 @@ CONTAINS
       t = t/(2.0_dp*helium%tau*helium%hb2m)
       res = s + t
       DEALLOCATE (work3)
-      RETURN
 
    END FUNCTION helium_link_action
 
@@ -853,7 +818,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION helium_total_action(helium) RESULT(res)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       REAL(KIND=dp)                                      :: res
 
       INTEGER                                            :: i
@@ -864,7 +829,6 @@ CONTAINS
          s = s + helium_link_action(helium, i)
       END DO
       res = s
-      RETURN
 
    END FUNCTION helium_total_action
 
@@ -878,7 +842,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE helium_delta_pos(helium, part, ref_bead, delta_bead, d)
 
-      TYPE(helium_solvent_type), POINTER                 :: helium
+      TYPE(helium_solvent_type), INTENT(INOUT)           :: helium
       INTEGER, INTENT(IN)                                :: part, ref_bead, delta_bead
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT)           :: d
 
@@ -927,7 +891,6 @@ CONTAINS
             db = db + 1
          END DO
       END IF
-      RETURN
    END SUBROUTINE helium_delta_pos
 
 #endif

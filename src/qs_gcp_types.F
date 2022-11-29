@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -64,8 +66,6 @@ CONTAINS
    SUBROUTINE qs_gcp_release(gcp_env)
 
       TYPE(qs_gcp_type), POINTER                         :: gcp_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_gcp_release', routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(gcp_env)) THEN
 

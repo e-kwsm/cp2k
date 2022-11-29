@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -84,9 +86,6 @@ CONTAINS
       TYPE(tmc_move_type), POINTER                       :: move_types
       INTEGER                                            :: nr_temp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'move_types_create', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(move_types))
 
       ALLOCATE (move_types)
@@ -115,9 +114,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE move_types_release(move_types)
       TYPE(tmc_move_type), POINTER                       :: move_types
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'move_types_release', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(move_types))
 

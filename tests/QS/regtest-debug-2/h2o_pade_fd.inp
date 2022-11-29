@@ -14,22 +14,22 @@
     LSD
     &QS
       METHOD GPW
-      EPS_DEFAULT 1.e-14
+      EPS_DEFAULT 1.e-10
     &END QS
     &EFIELD
     &END
     &SCF
-      SCF_GUESS ATOMIC 
+      SCF_GUESS ATOMIC
       &OT
          PRECONDITIONER FULL_SINGLE_INVERSE
          MINIMIZER DIIS
       &END
       &OUTER_SCF
          MAX_SCF  10
-         EPS_SCF 1.0E-7
+         EPS_SCF 1.0E-6
       &END
       MAX_SCF  10
-      EPS_SCF 1.0E-7
+      EPS_SCF 1.0E-6
     &END SCF
     &XC
        &XC_FUNCTIONAL PADE
@@ -45,7 +45,7 @@
   &END DFT
   &SUBSYS
     &CELL
-      ABC [angstrom] 6.0 6.0 6.0
+      ABC [angstrom] 4.5 4.5 4.5
       PERIODIC NONE
     &END
     &COORD
@@ -81,5 +81,5 @@
    DE 0.002
    EPS_NO_ERROR_CHECK 1.e-4
 &END
- 
+
 

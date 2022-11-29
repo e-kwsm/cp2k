@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -30,8 +32,8 @@ MODULE thermostat_utils
         do_region_molecule, do_thermo_al, do_thermo_communication, do_thermo_csvr, do_thermo_gle, &
         do_thermo_no_communication, do_thermo_nose, isokin_ensemble, langevin_ensemble, &
         npe_f_ensemble, npe_i_ensemble, nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, &
-        npt_f_ensemble, npt_i_ensemble, nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble, &
-        reftraj_ensemble
+        npt_f_ensemble, npt_i_ensemble, npt_ia_ensemble, nve_ensemble, nvt_adiabatic_ensemble, &
+        nvt_ensemble, reftraj_ensemble
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
@@ -103,8 +105,6 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_nfree', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: natom, nconstraint_ext, nconstraint_int, &
                                                             nrestraints_int, rot_dof, &
                                                             roto_trasl_dof
@@ -162,9 +162,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: region
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'compute_degrees_of_freedom', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iw, natom, nconstraint_ext, &
                                                             nconstraint_int, nrestraints_int, &
                                                             rot_dof, roto_trasl_dof
@@ -198,21 +195,19 @@ CONTAINS
       iw = cp_print_key_unit_nr(logger, print_section, "PROGRAM_RUN_INFO", &
                                 extension=".log")
       IF (iw > 0) THEN
-         WRITE (iw, '( /, A )') ' Calculation of degrees of freedom'
-         WRITE (iw, '( T48, A, T71, I10 )') '       Number of atoms:', natom
-         WRITE (iw, '( T33, A, T71, I10 )') &
-            ' Number of Intramolecular constraints:', nconstraint_int
-         WRITE (iw, '( T33, A, T71, I10 )') &
-            ' Number of Intermolecular constraints:', nconstraint_ext
-         WRITE (iw, '( T34, A, T71, I10 )') &
-            ' Invariants(translation + rotations):', roto_trasl_dof
-         WRITE (iw, '( T48, A, T71, I10 )') '    Degrees of freedom:', simpar%nfree
-         WRITE (iw, '()')
-         WRITE (iw, '( /, A )') ' Restraints Information'
-         WRITE (iw, '( T33, A, T71, I10 )') &
-            '  Number of Intramolecular restraints:', nrestraints_int
-         WRITE (iw, '( T33, A, T71, I10 )') &
-            '  Number of Intermolecular restraints:', gci%nrestraint
+         WRITE (iw, '(/,T2,A)') &
+            'DOF| Calculation of degrees of freedom'
+         WRITE (iw, '(T2,A,T71,I10)') &
+            'DOF| Number of atoms', natom, &
+            'DOF| Number of intramolecular constraints', nconstraint_int, &
+            'DOF| Number of intermolecular constraints', nconstraint_ext, &
+            'DOF| Invariants (translations + rotations)', roto_trasl_dof, &
+            'DOF| Degrees of freedom', simpar%nfree
+         WRITE (iw, '(/,T2,A)') &
+            'DOF| Restraints information'
+         WRITE (iw, '(T2,A,T71,I10)') &
+            'DOF| Number of intramolecular restraints', nrestraints_int, &
+            'DOF| Number of intermolecular restraints', gci%nrestraint
       END IF
       CALL cp_print_key_finished_output(iw, logger, print_section, &
                                         "PROGRAM_RUN_INFO")
@@ -246,9 +241,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: shell
       TYPE(section_vals_type), POINTER                   :: region_sections
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_adiabatic_thermostat_info', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: dis_type, first_atom, i, ikind, imol, imol_global, ipart, itherm, katom, &
          last_atom, natom, natom_local, nkind, nmol_local, nmol_per_kind, nmolecule, nshell, &
@@ -435,9 +427,6 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_adiabatic_region_info', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: tmpstringlist
       INTEGER                                            :: first_atom, i, ig, ikind, ilist, imol, &
@@ -570,9 +559,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: region_sections
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_thermostat_info', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: dis_type, i, ikind, natom, nkind, &
                                                             nmol_local, nmolecule, nshell, number, &
                                                             sum_of_thermostats
@@ -598,7 +584,7 @@ CONTAINS
             reftraj_ensemble, langevin_ensemble)
          ! Do Nothing
       CASE (nve_ensemble, nvt_ensemble, nvt_adiabatic_ensemble, npt_i_ensemble, &
-            npt_f_ensemble, npe_i_ensemble, npe_f_ensemble)
+            npt_f_ensemble, npe_i_ensemble, npe_f_ensemble, npt_ia_ensemble)
          IF (ensemble == nve_ensemble) check = do_shell
          IF (check) THEN
             SELECT CASE (region)
@@ -715,9 +701,6 @@ CONTAINS
       TYPE(molecule_list_type), POINTER                  :: molecules
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(qmmm_env_type), POINTER                       :: qmmm_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_defined_region_info', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: tmpstringlist
@@ -863,9 +846,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ig
       INTEGER, INTENT(INOUT)                             :: sum_of_thermostats, nregions
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_thermostat_subsys', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: label1, label2
       INTEGER                                            :: first_atom, i, imolecule, ipart, &
                                                             last_atom, nrep, thermo1
@@ -944,8 +924,6 @@ CONTAINS
          INTENT(INOUT)                                   :: npt
       INTEGER, INTENT(IN)                                :: group
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ke_region_baro', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, ncoef
 
       map_info%v_scale = 1.0_dp
@@ -973,9 +951,6 @@ CONTAINS
       TYPE(map_info_type), POINTER                       :: map_info
       TYPE(npt_info_type), DIMENSION(:, :), &
          INTENT(INOUT)                                   :: npt
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'vel_rescale_baro', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j, ncoef
 
@@ -1010,9 +985,6 @@ CONTAINS
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
       INTEGER, INTENT(IN)                                :: group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ke_region_particles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, ii, ikind, imol, imol_local, &
                                                             ipart, last_atom, nmol_local
@@ -1079,9 +1051,6 @@ CONTAINS
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
       INTEGER, INTENT(IN)                                :: group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'momentum_region_particles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, ii, ikind, imol, imol_local, &
                                                             ipart, last_atom, nmol_local
@@ -1150,9 +1119,6 @@ CONTAINS
                                                             core_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :), shell_vel(:, :), &
                                                             core_vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'vel_rescale_particles', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: first_atom, ii, ikind, imol, imol_local, &
                                                             ipart, jj, last_atom, nmol_local, &
@@ -1257,9 +1223,6 @@ CONTAINS
                                                             shell_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: core_vel(:, :), shell_vel(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ke_region_shells', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ii, iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &
                                                             nparticle_local, shell_index
@@ -1338,9 +1301,6 @@ CONTAINS
                                                             core_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: shell_vel(:, :), core_vel(:, :), &
                                                             vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'vel_rescale_shells', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii, iparticle, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &
@@ -1421,9 +1381,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: array_kin, array_pot
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_nhc_energies', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: imap, l, n, number
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: akin, vpot
 
@@ -1457,7 +1414,7 @@ CONTAINS
             CPASSERT(SIZE(array_pot) == number)
          ELSE
             ALLOCATE (array_pot(number))
-         ENDIF
+         END IF
          array_pot = vpot
       END IF
       IF (PRESENT(array_kin)) THEN
@@ -1465,7 +1422,7 @@ CONTAINS
             CPASSERT(SIZE(array_kin) == number)
          ELSE
             ALLOCATE (array_kin(number))
-         ENDIF
+         END IF
          array_kin = akin
       END IF
       DEALLOCATE (akin)
@@ -1496,9 +1453,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: array_pot, array_kin
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_kin_energies', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: imap, n, number
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: akin
 
@@ -1524,7 +1478,7 @@ CONTAINS
             CPASSERT(SIZE(array_pot) == number)
          ELSE
             ALLOCATE (array_pot(number))
-         ENDIF
+         END IF
          array_pot = 0.0_dp
       END IF
       IF (PRESENT(array_kin)) THEN
@@ -1532,7 +1486,7 @@ CONTAINS
             CPASSERT(SIZE(array_kin) == number)
          ELSE
             ALLOCATE (array_kin(number))
-         ENDIF
+         END IF
          array_kin = akin
       END IF
       DEALLOCATE (akin)
@@ -1560,9 +1514,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), INTENT(OUT)                         :: temp_tot
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: array_temp
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_temperatures', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, imap, imap2, n, number
       REAL(KIND=dp)                                      :: fdeg_of_free
@@ -1600,7 +1551,7 @@ CONTAINS
             CPASSERT(SIZE(array_temp) == number)
          ELSE
             ALLOCATE (array_temp(number))
-         ENDIF
+         END IF
          DO i = 1, number
             array_temp(i) = akin(i)/deg_of_free(i)
             array_temp(i) = cp_unit_from_cp2k(array_temp(i), "K_temp")
@@ -1626,9 +1577,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: thermostat_pot, thermostat_kin
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: array_pot, array_kin
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_thermostat_energies', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: thermo_energy
@@ -1685,9 +1633,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: tot_temperature
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: array_temp
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_region_temperatures', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: dof, nkt
@@ -1770,9 +1715,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: itimes
       REAL(KIND=dp), INTENT(IN)                          :: time
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_thermostats_status', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(thermostats)) THEN
          IF (ASSOCIATED(thermostats%thermostat_part)) THEN
             CALL print_thermostat_status(thermostats%thermostat_part, para_env, my_pos, my_act, itimes, time)
@@ -1805,9 +1747,6 @@ CONTAINS
       CHARACTER(LEN=default_string_length)               :: my_pos, my_act
       INTEGER, INTENT(IN)                                :: itimes
       REAL(KIND=dp), INTENT(IN)                          :: time
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_thermostat_status', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, unit
       LOGICAL                                            :: new_file
@@ -1884,9 +1823,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: number
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'communication_thermo_low1', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, icheck, ncheck
       REAL(KIND=dp), DIMENSION(:), POINTER               :: work, work2
 
@@ -1928,9 +1864,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(INOUT)            :: array
       INTEGER, INTENT(IN)                                :: number1, number2
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'communication_thermo_low2', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, icheck, j, ncheck
       INTEGER, DIMENSION(:, :), POINTER                  :: work, work2

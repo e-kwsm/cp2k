@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,7 +24,6 @@ MODULE et_coupling
                                               cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -35,6 +36,7 @@ MODULE et_coupling
    USE kinds,                           ONLY: dp
    USE mathlib,                         ONLY: diamat_all
    USE message_passing,                 ONLY: mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -62,8 +64,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_et_coupling', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'calc_et_coupling'
 
       INTEGER                                            :: handle, i, iw, j, k, nao, ncol_local, &
                                                             nmo, nrow_local
@@ -76,7 +77,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: rest_MO
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: mo_mo_fm_pools
       TYPE(cp_fm_struct_type), POINTER                   :: mo_mo_fmstruct
-      TYPE(cp_fm_type), POINTER                          :: inverse_mat, SMO, Tinverse, tmp2
+      TYPE(cp_fm_type)                                   :: inverse_mat, SMO, Tinverse, tmp2
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
@@ -84,7 +85,7 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(section_vals_type), POINTER                   :: et_coupling_section
 
-      NULLIFY (tmp2, SMO, rest_MO, mo_mo_fmstruct, rest_MO, energy, matrix_s, dft_control, para_env)
+      NULLIFY (rest_MO, mo_mo_fmstruct, rest_MO, energy, matrix_s, dft_control, para_env)
 
       CALL timeset(routineN, handle)
 
@@ -108,12 +109,12 @@ CONTAINS
       DO i = 1, dft_control%nspins
          mo_mo_fmstruct => fm_pool_get_el_struct(mo_mo_fm_pools(i)%pool)
 
-         CALL get_mo_set(mo_set=qs_env%mos(i)%mo_set, &
+         CALL get_mo_set(mo_set=qs_env%mos(i), &
                          nao=nao, &
                          nmo=nmo)
 
          CALL cp_fm_create(matrix=tmp2, &
-                           matrix_struct=qs_env%mos(i)%mo_set%mo_coeff%matrix_struct, &
+                           matrix_struct=qs_env%mos(i)%mo_coeff%matrix_struct, &
                            name="ET_TMP"//TRIM(ADJUSTL(cp_to_string(2)))//"MATRIX")
          CALL cp_fm_create(matrix=inverse_mat, &
                            matrix_struct=mo_mo_fmstruct, &
@@ -125,7 +126,7 @@ CONTAINS
                            matrix_struct=mo_mo_fmstruct, &
                            name="ET_SMO"//TRIM(ADJUSTL(cp_to_string(1)))//"MATRIX")
          DO j = 1, 2
-            NULLIFY (rest_MO(j)%matrix)
+            ALLOCATE (rest_MO(j)%matrix)
             CALL cp_fm_create(matrix=rest_MO(j)%matrix, &
                               matrix_struct=mo_mo_fmstruct, &
                               name="ET_rest_MO"//TRIM(ADJUSTL(cp_to_string(j)))//"MATRIX")
@@ -136,9 +137,9 @@ CONTAINS
          CALL get_qs_env(qs_env, matrix_s=matrix_s)
          CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, qs_env%et_coupling%et_mo_coeff(i)%matrix, &
                                       tmp2, nmo, 1.0_dp, 0.0_dp)
-         CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                      qs_env%mos(i)%mo_set%mo_coeff, &
-                      tmp2, 0.0_dp, SMO)
+         CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                            qs_env%mos(i)%mo_coeff, &
+                            tmp2, 0.0_dp, SMO)
 
 !    calculate the MO-representation of the restraint matrix A
 
@@ -146,19 +147,19 @@ CONTAINS
                                       qs_env%et_coupling%et_mo_coeff(i)%matrix, &
                                       tmp2, nmo, 1.0_dp, 0.0_dp)
 
-         CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                      qs_env%mos(i)%mo_set%mo_coeff, &
-                      tmp2, 0.0_dp, rest_MO(1)%matrix)
+         CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                            qs_env%mos(i)%mo_coeff, &
+                            tmp2, 0.0_dp, rest_MO(1)%matrix)
 
 !    calculate the MO-representation of the restraint matrix D
 
          CALL cp_dbcsr_sm_fm_multiply(qs_env%et_coupling%rest_mat(2)%matrix, &
-                                      qs_env%mos(i)%mo_set%mo_coeff, &
+                                      qs_env%mos(i)%mo_coeff, &
                                       tmp2, nmo, 1.0_dp, 0.0_dp)
 
-         CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                      qs_env%et_coupling%et_mo_coeff(i)%matrix, &
-                      tmp2, 0.0_dp, rest_MO(2)%matrix)
+         CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                            qs_env%et_coupling%et_mo_coeff(i)%matrix, &
+                            tmp2, 0.0_dp, rest_MO(2)%matrix)
 
          CALL cp_fm_invert(SMO, inverse_mat, S_det(i))
 
@@ -188,8 +189,12 @@ CONTAINS
          CALL mp_sum(b(i), para_env%group)
 
          CALL cp_fm_release(tmp2)
-         CALL cp_fm_release(rest_MO(1)%matrix)
-         CALL cp_fm_release(rest_MO(2)%matrix)
+         DO j = 1, 2
+         IF (ASSOCIATED(rest_MO(j)%matrix)) THEN
+            CALL cp_fm_release(rest_MO(j)%matrix)
+            DEALLOCATE (rest_MO(j)%matrix)
+         END IF
+         END DO
          CALL cp_fm_release(SMO)
          CALL cp_fm_release(Tinverse)
          CALL cp_fm_release(inverse_mat)
@@ -208,8 +213,8 @@ CONTAINS
 
       IF (dft_control%qs_control%ddapc_restraint) THEN
          Waa = qs_env%et_coupling%order_p
-         Wbb = dft_control%qs_control%ddapc_restraint_control(1)%ddapc_restraint_control%ddapc_order_p
-         strength = dft_control%qs_control%ddapc_restraint_control(1)%ddapc_restraint_control%strength
+         Wbb = dft_control%qs_control%ddapc_restraint_control(1)%ddapc_order_p
+         strength = dft_control%qs_control%ddapc_restraint_control(1)%strength
       END IF
 
 !!   construct S and W   !!!
@@ -257,7 +262,7 @@ CONTAINS
          WRITE (iw, '(T3,A,T60,(3X,F12.6))') &
             'Diabatic electronic coupling matrix element(mHartree):', ABS(W_mat(1, 2)*1000.0_dp)
 
-      ENDIF
+      END IF
 
       CALL dbcsr_deallocate_matrix_set(qs_env%et_coupling%rest_mat)
 

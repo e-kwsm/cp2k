@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,9 +45,9 @@ CONTAINS
          DO j = -shell*perd(2), shell*perd(2)
             DO k = -shell*perd(3), shell*perd(3)
                IF ((i**2 + j**2 + k**2 == shell)) count_cells_perd = count_cells_perd + 1
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
    END FUNCTION count_cells_perd
 
 ! **************************************************************************************************
@@ -73,13 +75,13 @@ CONTAINS
                IF (found) THEN
                   m = (/i, j, k/)
                   EXIT outer
-               ENDIF
+               END IF
                IF (ALL(M .EQ. (/i, j, k/))) found = .TRUE.
-            ENDDO inner
-         ENDDO
-         ENDDO
+            END DO inner
+         END DO
+         END DO
          shell = shell + 1
-      ENDDO outer
+      END DO outer
    END SUBROUTINE next_image_cell_perd
 
 ! **************************************************************************************************

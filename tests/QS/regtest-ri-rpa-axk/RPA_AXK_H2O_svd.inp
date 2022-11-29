@@ -1,4 +1,4 @@
-&GLOBAL                                                                                           
+&GLOBAL
   PROJECT  RPA_AXK_H2O_svd
   PRINT_LEVEL MEDIUM
   RUN_TYPE ENERGY
@@ -61,7 +61,6 @@
         NUMBER_PROC  1
         &RI
           DO_SVD
-          EPS_SVD 1.0E-2
         &END RI
       &END
     &END XC

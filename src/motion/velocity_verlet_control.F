@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -15,7 +17,7 @@ MODULE velocity_verlet_control
    USE input_constants,                 ONLY: &
         isokin_ensemble, langevin_ensemble, npe_f_ensemble, npe_i_ensemble, &
         nph_uniaxial_damped_ensemble, nph_uniaxial_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble, reftraj_ensemble
+        npt_ia_ensemble, nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble, reftraj_ensemble
    USE integrator,                      ONLY: &
         isokin, langevin, nph_uniaxial, nph_uniaxial_damped, npt_f, npt_i, nve, nve_respa, nvt, &
         nvt_adiabatic, reftraj
@@ -45,8 +47,7 @@ CONTAINS
       TYPE(md_environment_type), POINTER                 :: md_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'velocity_verlet', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'velocity_verlet'
 
       INTEGER                                            :: handle
       TYPE(force_env_type), POINTER                      :: force_env
@@ -78,7 +79,7 @@ CONTAINS
          CALL nvt_adiabatic(md_env, globenv)
       CASE (isokin_ensemble)
          CALL isokin(md_env)
-      CASE (npt_i_ensemble)
+      CASE (npt_i_ensemble, npt_ia_ensemble, npe_i_ensemble)
          CALL npt_i(md_env, globenv)
       CASE (npt_f_ensemble)
          CALL npt_f(md_env, globenv)
@@ -92,8 +93,6 @@ CONTAINS
          CALL langevin(md_env)
       CASE (npe_f_ensemble)
          CALL npt_f(md_env, globenv)
-      CASE (npe_i_ensemble)
-         CALL npt_i(md_env, globenv)
       END SELECT
 
       CALL timestop(handle)

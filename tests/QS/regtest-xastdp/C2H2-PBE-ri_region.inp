@@ -36,17 +36,14 @@
       DIPOLE_FORM LENGTH
       GRID C 200 200
       N_EXCITED 12
-      
+
       &KERNEL
          RI_REGION 3.0
-         NPROCS_GRID 2
          &XC_FUNCTIONAL
-            &LIBXC
-               FUNCTIONAL GGA_X_PBE
-            &END LIBXC
-            &LIBXC
-               FUNCTIONAL GGA_C_PBE
-            &END LIBXC
+            &GGA_X_PBE
+            &END GGA_X_PBE
+            &GGA_C_PBE
+            &END GGA_C_PBE
          &END XC_FUNCTIONAL
       &END KERNEL
 
@@ -67,7 +64,7 @@
       PERIODIC NONE
     &END CELL
     &COORD
-      H  0.000000    0.000000    1.666650 
+      H  0.000000    0.000000    1.666650
       C  0.000000    0.000000    0.603250
       C  0.000000    0.000000   -0.603250
       H  0.000000    0.000000   -1.666650

@@ -32,17 +32,18 @@
     &SCF
       EPS_SCF 1.0E-5
       MAX_SCF 30
-      &OT OFF
-        MINIMIZER cg
+      SCF_GUESS atomic
+      &OT off
+        MINIMIZER CG
       &END OT
-      &OUTER_SCF OFF
+      &OUTER_SCF off
         EPS_SCF 1.0E-5
         MAX_SCF 10
       &END OUTER_SCF
       &PRINT
         &RESTART
-          &EACH 
-             GEO_OPT 1 
+          &EACH
+             GEO_OPT 1
              QS_SCF 30
           &END
           ADD_LAST NUMERIC
@@ -50,7 +51,6 @@
           BACKUP_COPIES 0
         &END RESTART
       &END PRINT
-      SCF_GUESS atomic
     &END SCF
     &XC
       &XC_FUNCTIONAL PADE

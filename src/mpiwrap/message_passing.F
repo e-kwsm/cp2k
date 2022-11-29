@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -49,7 +51,7 @@ MODULE message_passing
 ! USE mpi, ONLY: MPI_DOUBLE_PRECISION, MPI_DOUBLE_COMPLEX, MPI_REAL, MPI_COMPLEX, MPI_ANY_TAG,&
 !                MPI_ANY_SOURCE, MPI_COMM_NULL, MPI_REQUEST_NULL, MPI_WIN_NULL, MPI_STATUS_SIZE, MPI_STATUS_IGNORE, MPI_STATUSES_IGNORE, &
 !                MPI_ADDRESS_KIND, MPI_OFFSET_KIND, MPI_MODE_CREATE, MPI_MODE_RDONLY, MPI_MODE_WRONLY,&
-!                MPI_MODE_RDWR, MPI_MODE_EXCL, MPI_COMM_SELF, MPI_COMM_WORLD, MPI_THREAD_FUNNELED,&
+!                MPI_MODE_RDWR, MPI_MODE_EXCL, MPI_COMM_SELF, MPI_COMM_WORLD, MPI_THREAD_SERIALIZED,&
 !                MPI_ERRORS_RETURN, MPI_SUCCESS, MPI_MAX_PROCESSOR_NAME, MPI_MAX_ERROR_STRING, MPI_IDENT,&
 !                MPI_UNEQUAL, MPI_MAX, MPI_SUM, MPI_INFO_NULL, MPI_IN_PLACE, MPI_CONGRUENT, MPI_SIMILAR, MPI_MIN, MPI_SOURCE,&
 !                MPI_TAG, MPI_INTEGER8, MPI_INTEGER, MPI_MAXLOC, MPI_2INTEGER, MPI_MINLOC, MPI_LOGICAL, MPI_2DOUBLE_PRECISION,&
@@ -122,7 +124,7 @@ MODULE message_passing
    INTEGER, PARAMETER, PUBLIC :: mpi_character_size = 1
    INTEGER, PARAMETER, PUBLIC :: mpi_integer_size = 4
 
-   CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'message_passing'
+   CHARACTER(LEN=*), PARAMETER, PRIVATE :: moduleN = 'message_passing'
 
 #if defined(__parallel)
    ! internal reference counter used to debug communicator leaks
@@ -144,6 +146,7 @@ MODULE message_passing
    PUBLIC :: mp_comm_dup, mp_comm_split, mp_comm_split_direct
    PUBLIC :: cp2k_is_parallel
    PUBLIC :: mp_probe
+   PUBLIC :: mp_get_node_global_rank
 
    ! message passing
    PUBLIC :: mp_bcast, mp_sum, mp_sum_partial, mp_max, mp_maxloc, mp_minloc, mp_min, mp_prod, mp_sync
@@ -473,21 +476,21 @@ MODULE message_passing
    END INTERFACE
 
    INTERFACE mp_send
-      MODULE PROCEDURE mp_send_i, mp_send_iv, &
-         mp_send_l, mp_send_lv, &
-         mp_send_r, mp_send_rv, &
-         mp_send_d, mp_send_dv, &
-         mp_send_c, mp_send_cv, &
-         mp_send_z, mp_send_zv
+      MODULE PROCEDURE mp_send_i, mp_send_iv, mp_send_im2, mp_send_im3, &
+         mp_send_l, mp_send_lv, mp_send_lm2, mp_send_lm3, &
+         mp_send_r, mp_send_rv, mp_send_rm2, mp_send_rm3, &
+         mp_send_d, mp_send_dv, mp_send_dm2, mp_send_dm3, &
+         mp_send_c, mp_send_cv, mp_send_cm2, mp_send_cm3, &
+         mp_send_z, mp_send_zv, mp_send_zm2, mp_send_zm3
    END INTERFACE
 
    INTERFACE mp_recv
-      MODULE PROCEDURE mp_recv_i, mp_recv_iv, &
-         mp_recv_l, mp_recv_lv, &
-         mp_recv_r, mp_recv_rv, &
-         mp_recv_d, mp_recv_dv, &
-         mp_recv_c, mp_recv_cv, &
-         mp_recv_z, mp_recv_zv
+      MODULE PROCEDURE mp_recv_i, mp_recv_iv, mp_recv_im2, mp_recv_im3, &
+         mp_recv_l, mp_recv_lv, mp_recv_lm2, mp_recv_lm3, &
+         mp_recv_r, mp_recv_rv, mp_recv_rm2, mp_recv_rm3, &
+         mp_recv_d, mp_recv_dv, mp_recv_dm2, mp_recv_dm3, &
+         mp_recv_c, mp_recv_cv, mp_recv_cm2, mp_recv_cm3, &
+         mp_recv_z, mp_recv_zv, mp_recv_zm2, mp_recv_zm3
    END INTERFACE
 
    INTERFACE mp_sendrecv
@@ -674,7 +677,7 @@ MODULE message_passing
 ! **************************************************************************************************
    TYPE mp_perf_env_type
       !private
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       TYPE(mp_perf_type), DIMENSION(MAX_PERF) :: mp_perfs
    END TYPE mp_perf_env_type
 
@@ -706,7 +709,6 @@ MODULE message_passing
    INTEGER, PARAMETER :: reallen = 8
    INTEGER, PARAMETER :: loglen = BIT_SIZE(0)/8
    INTEGER, PARAMETER :: charlen = 1
-   INTEGER, SAVE, PRIVATE :: last_mp_perf_env_id = 0
 
    LOGICAL, PUBLIC, SAVE :: mp_collect_timings = .FALSE.
 
@@ -735,7 +737,7 @@ CONTAINS
 !$    no_threading_support = .TRUE.
 #else
       ! Does the right thing when using OpenMP: requests that the MPI
-      ! library supports funneled mode and verifies that the MPI library
+      ! library supports serialized mode and verifies that the MPI library
       ! provides that support.
       !
       ! Developers: Only the master thread will ever make calls to the
@@ -748,13 +750,13 @@ CONTAINS
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_init @ mp_world_init")
 !$    ELSE
 !$OMP MASTER
-!$       CALL mpi_init_thread(MPI_THREAD_FUNNELED, provided_tsl, ierr)
+!$       CALL mpi_init_thread(MPI_THREAD_SERIALIZED, provided_tsl, ierr)
 !$       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_init_thread @ mp_world_init")
-!$       IF (provided_tsl .LT. MPI_THREAD_FUNNELED) THEN
-!$          CALL mp_stop(0, "MPI library does not support the requested level of threading (MPI_THREAD_FUNNELED).")
-!$       ENDIF
+!$       IF (provided_tsl .LT. MPI_THREAD_SERIALIZED) THEN
+!$          CALL mp_stop(0, "MPI library does not support the requested level of threading (MPI_THREAD_SERIALIZED).")
+!$       END IF
 !$OMP END MASTER
-!$    ENDIF
+!$    END IF
 #if __MPI_VERSION > 2
       CALL mpi_comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_RETURN, ierr)
 #else
@@ -785,8 +787,7 @@ CONTAINS
       INTEGER, INTENT(out)                     :: mp_new_comm
       INTEGER, DIMENSION(:)                    :: ranks_order
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_reordering', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_reordering'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -797,7 +798,7 @@ CONTAINS
       ierr = 0
 #if defined(__parallel)
 
-      CALL mpi_comm_group(mp_comm, oldgroup, ierr); 
+      CALL mpi_comm_group(mp_comm, oldgroup, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_group @ mp_reordering")
       CALL mpi_group_incl(oldgroup, SIZE(ranks_order), ranks_order, newgroup, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_group_incl @ mp_reordering")
@@ -839,7 +840,7 @@ CONTAINS
          ! A bug, we're leaking or double-freeing communicators. Needs to be fixed where the leak happens.
          ! Memory leak checking might be helpful to locate the culprit
          CPABORT("mp_world_finalize: assert failed:  leaking communicators")
-      ENDIF
+      END IF
       CALL mpi_finalize(ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_finalize @ mp_world_finalize")
 #else
@@ -867,7 +868,7 @@ CONTAINS
       stack_pointer = stack_pointer + 1
       IF (stack_pointer > max_stack_size) THEN
          CPABORT("stack_pointer too large : message_passing @ add_mp_perf_env")
-      ENDIF
+      END IF
       NULLIFY (mp_perf_stack(stack_pointer)%mp_perf_env)
       IF (PRESENT(perf_env)) THEN
          mp_perf_stack(stack_pointer)%mp_perf_env => perf_env
@@ -891,9 +892,7 @@ CONTAINS
       ALLOCATE (perf_env, stat=stat)
       IF (stat /= 0) THEN
          CPABORT("allocation failed in mp_perf_env_create")
-      ENDIF
-      last_mp_perf_env_id = last_mp_perf_env_id + 1
-      perf_env%id_nr = last_mp_perf_env_id
+      END IF
       perf_env%ref_count = 1
       DO i = 1, MAX_PERF
          perf_env%mp_perfs(i)%name = sname(i)
@@ -955,10 +954,10 @@ CONTAINS
 
       IF (.NOT. ASSOCIATED(perf_env)) THEN
          CPABORT("unassociated perf_env : message_passing @ mp_perf_env_describe")
-      ENDIF
+      END IF
       IF (perf_env%ref_count < 1) THEN
          CPABORT("invalid perf_env%ref_count : message_passing @ mp_perf_env_describe")
-      ENDIF
+      END IF
 #if defined(__parallel)
       IF (iw > 0) THEN
          WRITE (iw, '( /, 1X, 79("-") )')
@@ -980,7 +979,7 @@ CONTAINS
                      ADJUSTL(perf_env%mp_perfs(i)%name), perf_env%mp_perfs(i)%count, &
                      vol
                END IF
-            ENDIF
+            END IF
 
          END DO
          WRITE (iw, '( 1X, 79("-"), / )')
@@ -996,7 +995,7 @@ CONTAINS
    SUBROUTINE rm_mp_perf_env()
       IF (stack_pointer < 1) THEN
          CPABORT("no perf_env in the stack : message_passing @ rm_mp_perf_env")
-      ENDIF
+      END IF
       CALL mp_perf_env_release(mp_perf_stack(stack_pointer)%mp_perf_env)
       stack_pointer = stack_pointer - 1
    END SUBROUTINE rm_mp_perf_env
@@ -1010,7 +1009,7 @@ CONTAINS
 
       IF (stack_pointer < 1) THEN
          CPABORT("no perf_env in the stack : message_passing @ get_mp_perf_env")
-      ENDIF
+      END IF
       res => mp_perf_stack(stack_pointer)%mp_perf_env
    END FUNCTION get_mp_perf_env
 
@@ -1116,7 +1115,7 @@ CONTAINS
    SUBROUTINE mp_sync(group)
       INTEGER, INTENT(IN)                                :: group
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sync', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sync'
 
       INTEGER                                            :: handle, ierr
 
@@ -1143,7 +1142,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: group
       INTEGER, INTENT(OUT)                               :: request
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isync', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isync'
 
       INTEGER                                            :: handle, ierr
 
@@ -1182,7 +1181,7 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: numtask, taskid
       INTEGER, INTENT(IN)                                :: groupid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_l', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_l'
 
       INTEGER                                            :: handle, ierr
 
@@ -1217,8 +1216,7 @@ CONTAINS
                                                   task_coor(2)
       INTEGER, INTENT(IN)                      :: groupid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_c', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_c'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -1257,7 +1255,7 @@ CONTAINS
       INTEGER, INTENT(OUT)                               :: dims(ndims), task_coor(ndims)
       LOGICAL, INTENT(out)                               :: periods(ndims)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_c2', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_c2'
 
       INTEGER                                            :: handle, ierr
 
@@ -1292,8 +1290,7 @@ CONTAINS
       INTEGER, INTENT(INOUT)                   :: dims(:)
       INTEGER, INTENT(OUT)                     :: pos(:), comm_cart
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_create', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_create'
 
       INTEGER                                  :: handle, ierr, nodes
 #if defined(__parallel)
@@ -1351,7 +1348,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: comm, rank
       INTEGER, DIMENSION(:), INTENT(OUT)                 :: coords
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_coords', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_coords'
 
       INTEGER                                            :: handle, ierr, m
 
@@ -1383,8 +1380,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: comm1, comm2
       INTEGER, INTENT(OUT)                               :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_compare', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_compare'
 
       INTEGER                                            :: handle, ierr, iout
 
@@ -1429,7 +1425,7 @@ CONTAINS
       LOGICAL, DIMENSION(:), INTENT(IN)                  :: rdim
       INTEGER, INTENT(OUT)                               :: sub_comm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_sub', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_sub'
 
       INTEGER                                            :: handle, ierr
 
@@ -1458,7 +1454,7 @@ CONTAINS
 
       INTEGER, INTENT(INOUT)                             :: comm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_free', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_free'
 
       INTEGER                                            :: handle, ierr
 
@@ -1487,7 +1483,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: comm1
       INTEGER, INTENT(OUT)                               :: comm2
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_dup', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_dup'
 
       INTEGER                                            :: handle, ierr
 
@@ -1517,8 +1513,7 @@ CONTAINS
       INTEGER, INTENT(IN)                      :: comm1, comm2
       INTEGER, DIMENSION(:), INTENT(OUT)       :: rank
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_rank_compare', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_rank_compare'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -1575,7 +1570,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nodes
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: dims
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_dims_create', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_dims_create'
 
       INTEGER                                            :: handle, ierr, ndim
 
@@ -1606,7 +1601,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: pos
       INTEGER, INTENT(OUT)                               :: rank
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_rank', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_rank'
 
       INTEGER                                            :: handle, ierr
 
@@ -1637,7 +1632,7 @@ CONTAINS
    SUBROUTINE mp_wait(request)
       INTEGER, INTENT(inout)                             :: request
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_wait', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_wait'
 
       INTEGER                                            :: handle, ierr
 
@@ -1668,8 +1663,7 @@ CONTAINS
    SUBROUTINE mp_waitall_1(requests)
       INTEGER, DIMENSION(:), INTENT(inout)     :: requests
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_1', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_1'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -1703,8 +1697,7 @@ CONTAINS
    SUBROUTINE mp_waitall_2(requests)
       INTEGER, DIMENSION(:, :), INTENT(inout)  :: requests
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_2', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_2'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -1764,8 +1757,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(inout)     :: requests
       INTEGER, INTENT(out)                     :: completed
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitany', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitany'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -1864,9 +1856,6 @@ CONTAINS
       INTEGER, INTENT(out), OPTIONAL           :: completed
       LOGICAL, INTENT(out), OPTIONAL           :: flag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_testany_1', &
-                                     routineP = moduleN//':'//routineN
-
       INTEGER                                  :: ierr
 #if defined(__parallel)
       INTEGER                                  :: completed_l, count
@@ -1903,9 +1892,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(inout)   :: requests
       INTEGER, INTENT(out), OPTIONAL           :: completed
       LOGICAL, INTENT(out), OPTIONAL           :: flag
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_testany_2', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: ierr
 #if defined(__parallel)
@@ -1957,7 +1943,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief the direct way to split a communicator each color is a sub_comm,
-!>        the rank order is accoring to the order in the orig comm
+!>        the rank order is according to the order in the orig comm
 !> \param comm ...
 !> \param sub_comm ...
 !> \param color ...
@@ -1970,8 +1956,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: color
       INTEGER, INTENT(in), OPTIONAL                      :: key
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_split_direct', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_split_direct'
 
       INTEGER                                            :: handle, ierr, my_key
 
@@ -2025,7 +2010,7 @@ CONTAINS
       INTEGER, DIMENSION(0:), OPTIONAL          :: group_partition
       INTEGER, OPTIONAL                        :: stride
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_split', &
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'mp_comm_split', &
                                      routineP = moduleN//':'//routineN
 
       INTEGER                                  :: handle, ierr, mepos, nnodes
@@ -2043,35 +2028,35 @@ CONTAINS
 
       IF (.NOT. PRESENT(subgroup_min_size) .AND. .NOT. PRESENT(n_subgroups)) THEN
          CPABORT(routineP//" missing arguments")
-      ENDIF
+      END IF
       IF (PRESENT(subgroup_min_size) .AND. PRESENT(n_subgroups)) THEN
          CPABORT(routineP//" too many arguments")
-      ENDIF
+      END IF
 
       CALL mp_environ(nnodes, mepos, comm)
 
       IF (UBOUND(group_distribution, 1) .NE. nnodes - 1) THEN
          CPABORT(routineP//" group_distribution wrong bounds")
-      ENDIF
+      END IF
 
 #if defined(__parallel)
       IF (PRESENT(subgroup_min_size)) THEN
          IF (subgroup_min_size < 0 .OR. subgroup_min_size > nnodes) THEN
             CPABORT(routineP//" subgroup_min_size too small or too large")
-         ENDIF
+         END IF
          ngroups = nnodes/subgroup_min_size
          my_subgroup_min_size = subgroup_min_size
       ELSE ! n_subgroups
          IF (n_subgroups <= 0) THEN
             CPABORT(routineP//" n_subgroups too small")
-         ENDIF
+         END IF
          IF (nnodes/n_subgroups > 0) THEN ! we have a least one cpu per group
             ngroups = n_subgroups
          ELSE ! well, only one group then
             ngroups = 1
-         ENDIF
+         END IF
          my_subgroup_min_size = nnodes/ngroups
-      ENDIF
+      END IF
 
       ! rank_permutation: is a permutation of ranks, so that groups are not necessarily continuous in rank of the master group
       ! while the order is not critical (we only color ranks), it can e.g. be used to make groups that have just 1 rank per node
@@ -2084,12 +2069,12 @@ CONTAINS
          DO irank = istride - 1, nnodes - 1, local_stride
             rank_permutation(k) = irank
             k = k + 1
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DO i = 0, nnodes - 1
          group_distribution(rank_permutation(i)) = MIN(i/my_subgroup_min_size, ngroups - 1)
-      ENDDO
+      END DO
       ! even the user gave a partition, see if we can use it to overwrite this choice
       IF (PRESENT(group_partition)) THEN
          IF (ALL(group_partition > 0) .AND. (SUM(group_partition) .EQ. nnodes) .AND. (ngroups == SIZE(group_partition))) THEN
@@ -2098,12 +2083,12 @@ CONTAINS
                DO j = 1, group_partition(i)
                   group_distribution(rank_permutation(k)) = i
                   k = k + 1
-               ENDDO
-            ENDDO
+               END DO
+            END DO
          ELSE
             ! just ignore silently as we have reasonable defaults. Probably a warning would not be to bad
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       color = group_distribution(mepos)
       CALL mpi_comm_split(comm, color, 0, sub_comm, ierr)
       debug_comm_count = debug_comm_count + 1
@@ -2122,6 +2107,44 @@ CONTAINS
    END SUBROUTINE mp_comm_split
 
 ! **************************************************************************************************
+!> \brief Get the local rank on the node according to the global communicator
+!> \return Node Rank id
+!> \author Alfio Lazzaro
+! **************************************************************************************************
+   FUNCTION mp_get_node_global_rank() &
+      RESULT(node_rank)
+
+      INTEGER                                            :: node_rank
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_get_node_global_rank'
+      INTEGER                                            :: handle, comm, ierr, rank
+
+      ierr = 0
+      rank = 0
+      comm = 0
+      CALL mp_timeset(routineN, handle)
+
+#if defined(__parallel)
+#if __MPI_VERSION > 2
+      CALL mpi_comm_rank(MPI_COMM_WORLD, rank, ierr)
+      IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
+      CALL mpi_comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank, MPI_INFO_NULL, comm, ierr)
+      IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
+      CALL mpi_comm_rank(comm, node_rank, ierr)
+      IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
+      CALL mpi_comm_free(comm, ierr)
+      IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
+#else
+      CPABORT("mp_get_node_global_rank requires MPI-3 standard")
+#endif
+#else
+      node_rank = 0
+#endif
+      CALL mp_timestop(handle)
+
+   END FUNCTION mp_get_node_global_rank
+
+! **************************************************************************************************
 !> \brief probes for an incoming message with any tag
 !> \param[inout] source the source of the possible incoming message,
 !>        if MP_ANY_SOURCE it is a blocking one and return value is the source
@@ -2137,8 +2160,7 @@ CONTAINS
       INTEGER, INTENT(IN)                      :: comm
       INTEGER, INTENT(OUT)                     :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_probe', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_probe'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2190,7 +2212,7 @@ CONTAINS
       LOGICAL                                            :: msg
       INTEGER                                            :: source, gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_b', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_b'
 
       INTEGER                                            :: handle, ierr, msglen
 
@@ -2220,7 +2242,7 @@ CONTAINS
       LOGICAL                                            :: msg(:)
       INTEGER                                            :: source, gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_bv', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_bv'
 
       INTEGER                                            :: handle, ierr, msglen
 
@@ -2259,8 +2281,7 @@ CONTAINS
       INTEGER, INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2318,8 +2339,7 @@ CONTAINS
       INTEGER, INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2377,8 +2397,7 @@ CONTAINS
       INTEGER, INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bm3', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bm3'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2436,8 +2455,7 @@ CONTAINS
       INTEGER, INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bm3', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bm3'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2485,8 +2503,7 @@ CONTAINS
       CHARACTER(LEN=*)                         :: msg
       INTEGER                                  :: source, gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_av', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_av'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2538,8 +2555,7 @@ CONTAINS
       CHARACTER(LEN=*)                         :: msg(:)
       INTEGER                                  :: source, gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_am', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_am'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2609,8 +2625,7 @@ CONTAINS
       REAL(kind=real_8), INTENT(INOUT)         :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_dv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_dv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2621,7 +2636,7 @@ CONTAINS
       ierr = 0
       IF ("d" .EQ. "l" .AND. real_8 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2655,8 +2670,7 @@ CONTAINS
       INTEGER(KIND=int_4), INTENT(INOUT)       :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_iv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_iv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2667,7 +2681,7 @@ CONTAINS
       ierr = 0
       IF ("i" .EQ. "l" .AND. int_4 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2699,8 +2713,7 @@ CONTAINS
       INTEGER(KIND=int_8), INTENT(INOUT)       :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_lv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_lv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2711,7 +2724,7 @@ CONTAINS
       ierr = 0
       IF ("l" .EQ. "l" .AND. int_8 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2743,8 +2756,7 @@ CONTAINS
       REAL(kind=real_4), INTENT(INOUT)         :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_rv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_rv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2755,7 +2767,7 @@ CONTAINS
       ierr = 0
       IF ("r" .EQ. "l" .AND. real_4 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2787,8 +2799,7 @@ CONTAINS
       REAL(kind=real_8), INTENT(INOUT)         :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_dv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_dv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2799,7 +2810,7 @@ CONTAINS
       ierr = 0
       IF ("d" .EQ. "l" .AND. real_8 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2831,8 +2842,7 @@ CONTAINS
       INTEGER(KIND=int_4), INTENT(INOUT)       :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_iv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_iv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2843,7 +2853,7 @@ CONTAINS
       ierr = 0
       IF ("i" .EQ. "l" .AND. int_4 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2875,8 +2885,7 @@ CONTAINS
       INTEGER(KIND=int_8), INTENT(INOUT)       :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_lv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_lv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2887,7 +2896,7 @@ CONTAINS
       ierr = 0
       IF ("l" .EQ. "l" .AND. int_8 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2919,8 +2928,7 @@ CONTAINS
       REAL(kind=real_4), INTENT(INOUT)         :: msg(:)
       INTEGER, INTENT(IN)                      :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_rv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_rv'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
@@ -2931,7 +2939,7 @@ CONTAINS
       ierr = 0
       IF ("r" .EQ. "l" .AND. real_4 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
-      ENDIF
+      END IF
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -2961,7 +2969,7 @@ CONTAINS
       LOGICAL, INTENT(INOUT)                             :: msg
       INTEGER, INTENT(IN)                                :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_b', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_b'
 
       INTEGER                                            :: handle, ierr, msglen
 
@@ -2990,7 +2998,7 @@ CONTAINS
       LOGICAL, DIMENSION(:), INTENT(INOUT)               :: msg
       INTEGER, INTENT(IN)                                :: gid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_bv', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_bv'
 
       INTEGER                                            :: handle, ierr, msglen
 
@@ -3001,7 +3009,7 @@ CONTAINS
       IF (msglen .GT. 0) THEN
          CALL mpi_allreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, gid, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
-      ENDIF
+      END IF
 #else
       MARK_USED(msg)
       MARK_USED(gid)
@@ -3023,7 +3031,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: gid
       INTEGER, INTENT(INOUT)                             :: request
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isum_bv', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isum_bv'
 
       INTEGER                                            :: handle, ierr, msglen
 
@@ -3037,7 +3045,7 @@ CONTAINS
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       ELSE
          request = mp_request_null
-      ENDIF
+      END IF
 #else
       MARK_USED(msg)
       MARK_USED(gid)
@@ -3063,8 +3071,7 @@ CONTAINS
       CHARACTER(len=*), INTENT(OUT)                      :: version
       INTEGER, INTENT(OUT)                               :: resultlen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_get_library_version', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_get_library_version'
 
       INTEGER                                            :: ierr
 
@@ -3277,8 +3284,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_chv'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
@@ -3305,8 +3311,7 @@ CONTAINS
       INTEGER, INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_ch', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
@@ -3335,8 +3340,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_chv'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
@@ -3363,8 +3367,7 @@ CONTAINS
       INTEGER, INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_ch', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
@@ -3394,8 +3397,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_chv'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
@@ -3422,8 +3424,7 @@ CONTAINS
       INTEGER, INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_ch', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
@@ -3452,8 +3453,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_chv'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
@@ -3480,8 +3480,7 @@ CONTAINS
       INTEGER, INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_ch', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
@@ -3506,7 +3505,7 @@ CONTAINS
       TYPE(mp_type_descriptor_type), INTENT(IN)          :: type_descriptor
       INTEGER, INTENT(OUT)                               :: type_size
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_size', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_size'
 
       INTEGER                                            :: ierr
 
@@ -3547,8 +3546,7 @@ CONTAINS
          INTENT(IN), OPTIONAL                   :: index_descriptor
       TYPE(mp_type_descriptor_type)            :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_make_struct', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_make_struct'
 
       INTEGER                                  :: i, ierr, n
 #if defined(__parallel)
@@ -3578,7 +3576,7 @@ CONTAINS
 #endif
          old_types(i) = subtypes(i)%type_handle
          lengths(i) = subtypes(i)%length
-      ENDDO
+      END DO
 #if defined(__parallel)
       CALL MPI_Type_create_struct(n, &
                                   lengths, displacements, old_types, &
@@ -3591,7 +3589,7 @@ CONTAINS
 #endif
       IF (PRESENT(vector_descriptor) .OR. PRESENT(index_descriptor)) THEN
          CPABORT(routineN//" Vectors and indices NYI")
-      ENDIF
+      END IF
    END FUNCTION mp_type_make_struct
 
 ! **************************************************************************************************
@@ -3601,7 +3599,7 @@ CONTAINS
    RECURSIVE SUBROUTINE mp_type_free_m(type_descriptor)
       TYPE(mp_type_descriptor_type), INTENT(inout)       :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_free_m', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_free_m'
 
       INTEGER                                            :: handle, i, ierr
 
@@ -3613,9 +3611,9 @@ CONTAINS
       IF (ASSOCIATED(type_descriptor%subtype)) THEN
          DO i = 1, SIZE(type_descriptor%subtype)
             CALL mp_type_free_m(type_descriptor%subtype(i))
-         ENDDO
+         END DO
          DEALLOCATE (type_descriptor%subtype)
-      ENDIF
+      END IF
 #if defined(__parallel)
       CALL MPI_Type_free(type_descriptor%type_handle, ierr)
       IF (ierr /= 0) &
@@ -3638,7 +3636,7 @@ CONTAINS
 
       DO i = 1, SIZE(type_descriptors)
          CALL mp_type_free(type_descriptors(i))
-      ENDDO
+      END DO
 
    END SUBROUTINE mp_type_free_v
 
@@ -3659,8 +3657,7 @@ CONTAINS
          DIMENSION(1:count), INTENT(in), TARGET :: displs
       TYPE(mp_file_descriptor_type)             :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_hindexed_make_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_hindexed_make_chv'
 
       INTEGER :: ierr, handle
 
@@ -3669,7 +3666,7 @@ CONTAINS
       type_descriptor%type_handle = 0
 
 #if defined(__parallel)
-      CALL MPI_Type_create_hindexed(count, lengths, displs, MPI_CHARACTER, &
+      CALL MPI_Type_create_hindexed(count, lengths, INT(displs, KIND=address_kind), MPI_CHARACTER, &
                                     type_descriptor%type_handle, ierr)
       IF (ierr /= 0) &
          CPABORT("MPI_Type_create_hindexed @ "//routineN)
@@ -3701,8 +3698,7 @@ CONTAINS
       INTEGER(kind=file_offset), INTENT(IN)    :: offset
       TYPE(mp_file_descriptor_type)            :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_set_view_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_set_view_chv'
 
       INTEGER                                   :: ierr, handle
 
@@ -3744,8 +3740,7 @@ CONTAINS
       TYPE(mp_file_descriptor_type), &
          INTENT(IN), OPTIONAL                   :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_all_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_all_chv'
 
       INTEGER                                   :: ierr, handle, i
 
@@ -3796,8 +3791,7 @@ CONTAINS
       TYPE(mp_file_descriptor_type), &
          INTENT(IN), OPTIONAL                   :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_all_chv', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_all_chv'
 
       INTEGER                                   :: ierr, handle, i
 
@@ -3838,8 +3832,7 @@ CONTAINS
    SUBROUTINE mp_file_type_free(type_descriptor)
       TYPE(mp_file_descriptor_type)             :: type_descriptor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_type_free', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_type_free'
 
       INTEGER                                   :: ierr, handle
 
@@ -3880,9 +3873,6 @@ CONTAINS
       LOGICAL, INTENT(INOUT)                             :: mpi_io, replace
       INTEGER, INTENT(OUT)                               :: amode
       CHARACTER(len=*), INTENT(IN)                       :: form, action, status, position
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_get_amode', &
-                                     routineP = moduleN//':'//routineN
 
       amode = -1
 #if defined(__parallel)
@@ -4016,8 +4006,7 @@ CONTAINS
       INTEGER, INTENT(out)                               :: request
       INTEGER, INTENT(in), OPTIONAL                      :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_custom', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_custom'
 
       INTEGER                                            :: ierr, my_tag
 
@@ -4056,8 +4045,7 @@ CONTAINS
       INTEGER, INTENT(out)                               :: request
       INTEGER, INTENT(in), OPTIONAL                      :: tag
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_custom', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_custom'
 
       INTEGER                                            :: ierr, my_tag
 
@@ -4089,7 +4077,7 @@ CONTAINS
    SUBROUTINE mp_win_free(win)
       INTEGER, INTENT(INOUT)                             :: win
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_free', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_free'
 
       INTEGER                                            :: handle, ierr
 
@@ -4116,8 +4104,7 @@ CONTAINS
    SUBROUTINE mp_win_flush_all(win)
       INTEGER, INTENT(IN)                                :: win
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_flush_all', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_flush_all'
 
       INTEGER                                            :: handle, ierr
 
@@ -4145,8 +4132,7 @@ CONTAINS
    SUBROUTINE mp_win_lock_all(win)
       INTEGER, INTENT(INOUT)                             :: win
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_lock_all', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_lock_all'
 
       INTEGER                                            :: handle, ierr
 
@@ -4177,8 +4163,7 @@ CONTAINS
    SUBROUTINE mp_win_unlock_all(win)
       INTEGER, INTENT(INOUT)                             :: win
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_unlock_all', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_unlock_all'
 
       INTEGER                                            :: handle, ierr
 
@@ -4202,8 +4187,6 @@ CONTAINS
       CALL mp_timestop(handle)
    END SUBROUTINE mp_win_unlock_all
 
-#:include 'message_passing.f90'
-
 ! **************************************************************************************************
 !> \brief Tests the MPI library
 !> \param comm the relevant, initialized communicator
@@ -4218,9 +4201,6 @@ CONTAINS
    SUBROUTINE mpi_perf_test(comm, npow, output_unit)
 
       INTEGER, INTENT(IN)                      :: comm, npow, output_unit
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'mpi_perf_test', &
-                                     routineP = moduleN//':'//routineN
 
 #if defined(__parallel)
 
@@ -4248,7 +4228,7 @@ CONTAINS
          WRITE (output_unit, *) "running messages with npow = ", npow
          WRITE (output_unit, *) "use MPI X in the input for larger (e.g. 6) of smaller (e.g. 3) messages"
          IF (MODULO(nprocs, 2) .NE. 0) WRITE (output_unit, *) "Testing only with an even number of tasks"
-      ENDIF
+      END IF
 
       IF (MODULO(nprocs, 2) .NE. 0) RETURN
 
@@ -4295,12 +4275,12 @@ CONTAINS
             t1 = MPI_WTIME()
             buffer2(1:ncount) = buffer1(1:ncount)
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       CALL MPI_BARRIER(comm, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ some in memory tests                   ---------------------
@@ -4309,7 +4289,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing in memory copies all cpus"
          WRITE (output_unit, *) "  is the memory bandwidth affected on an SMP machine ?"
-      ENDIF
+      END IF
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
@@ -4319,21 +4299,21 @@ CONTAINS
             t1 = MPI_WTIME()
             buffer2(1:ncount) = buffer1(1:ncount)
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       CALL MPI_BARRIER(comm, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ first test point to point communication ---------------------
       ! -------------------------------------------------------------------------------------------
       CALL MPI_BARRIER(comm, ierror)
       IF (ionode .AND. output_unit > 0) THEN
-         WRITE (output_unit, *) "Testing truely point to point communication (i with j only)"
+         WRITE (output_unit, *) "Testing truly point to point communication (i with j only)"
          WRITE (output_unit, *) "  is there some different connection between i j (e.g. shared memory comm)"
-      ENDIF
+      END IF
       ncount = 10**npow
       IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "For messages of ", ncount*8, " bytes"
       IF (ncount .GT. nbufmax) CPABORT("")
@@ -4343,22 +4323,22 @@ CONTAINS
             t1 = MPI_WTIME()
             IF (taskid .EQ. itask) THEN
                CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, jtask, itask*jtask, comm, ierror)
-            ENDIF
+            END IF
             IF (taskid .EQ. jtask) THEN
                CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, itask, itask*jtask, comm, MPI_STATUS_IGNORE, ierror)
-            ENDIF
+            END IF
             send_timings(itask, jtask) = MPI_WTIME() - t1 + threshold
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       send_timings2(:, :) = send_timings
       CALL MPI_REDUCE(send_timings2, send_timings, nprocs**2, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          DO itask = 0, nprocs - 1
             DO jtask = itask + 1, nprocs - 1
                WRITE (output_unit, '(I4,I4,F12.4,A)') itask, jtask, ncount*8.0E-6_dp/send_timings(itask, jtask), " MB/s"
-            ENDDO
-         ENDDO
-      ENDIF
+            END DO
+         END DO
+      END IF
       CALL MPI_BARRIER(comm, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ second test point to point communication -------------------
@@ -4367,7 +4347,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing all nearby point to point communication (0,1)(2,3)..."
          WRITE (output_unit, *) "    these could / should all be on the same shared memory node "
-      ENDIF
+      END IF
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
@@ -4379,14 +4359,14 @@ CONTAINS
                CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + 1, 0, comm, ierror)
             ELSE
                CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - 1, 0, comm, MPI_STATUS_IGNORE, ierror)
-            ENDIF
+            END IF
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       CALL MPI_BARRIER(comm, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ third test point to point communication -------------------
@@ -4395,7 +4375,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing all far point to point communication (0,nprocs/2),(1,nprocs/2+1),.."
          WRITE (output_unit, *) "    these could all be going over the network, and stress it a lot"
-      ENDIF
+      END IF
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
@@ -4408,14 +4388,14 @@ CONTAINS
                CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + nprocs/2, 0, comm, ierror)
             ELSE
                CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - nprocs/2, 0, comm, MPI_STATUS_IGNORE, ierror)
-            ENDIF
+            END IF
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ test root to all broadcast               -------------------
       ! -------------------------------------------------------------------------------------------
@@ -4423,7 +4403,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing root to all broadcast "
          WRITE (output_unit, *) "    using trees at least ? "
-      ENDIF
+      END IF
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
@@ -4433,12 +4413,12 @@ CONTAINS
             t1 = MPI_WTIME()
             CALL MPI_BCAST(buffer1, ncount, MPI_DOUBLE_PRECISION, 0, comm, ierror)
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ test mp_sum like behavior                -------------------
       ! -------------------------------------------------------------------------------------------
@@ -4453,12 +4433,12 @@ CONTAINS
             t1 = MPI_WTIME()
             CALL MPI_ALLREDUCE(buffer1, buffer2, ncount, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ test all to all communication            -------------------
       ! -------------------------------------------------------------------------------------------
@@ -4466,7 +4446,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Test all to all communication (mpi_alltoallv)"
          WRITE (output_unit, *) "    mpi/network getting confused ? "
-      ENDIF
+      END IF
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
@@ -4476,20 +4456,20 @@ CONTAINS
          DO j = 1, nprocs
             sdispl(j) = (j - 1)*(ncount/nprocs)
             rdispl(j) = (j - 1)*(ncount/nprocs)
-         ENDDO
+         END DO
          DO j = 1, 3**(npow - i)
             CALL MPI_BARRIER(comm, ierror)
             t1 = MPI_WTIME()
             CALL mpi_alltoallv(buffer1, scount, sdispl, MPI_DOUBLE_PRECISION, &
                                buffer2, rcount, rdispl, MPI_DOUBLE_PRECISION, comm, ierr)
             t2 = t2 + MPI_WTIME() - t1 + threshold
-         ENDDO
+         END DO
          CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*(ncount/nprocs)*nprocs, " Bytes ", &
                (3**(npow - i))*(ncount/nprocs)*nprocs*8.0E-6_dp/t1, " MB/s"
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ other stuff                            ---------------------
@@ -4497,7 +4477,7 @@ CONTAINS
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) " Clean tests completed "
          WRITE (output_unit, *) " Testing MPI_REDUCE scatter"
-      ENDIF
+      END IF
       rcount = Nloc
       DO itests = 1, 3
          IF (ionode .AND. output_unit > 0) &
@@ -4506,8 +4486,8 @@ CONTAINS
          DO j = 1, Nprocs
             DO i = 1, Nloc
                grid(i, j) = MODULO(i*j*taskid, itests)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          t1 = MPI_WTIME()
          CALL MPI_REDUCE_SCATTER(grid, lgrid, rcount, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
          t2 = MPI_WTIME() - t1 + threshold
@@ -4517,8 +4497,8 @@ CONTAINS
          DO j = 1, Nprocs
             DO i = 1, Nloc
                grid2(i, j) = MODULO(i*j*taskid, itests)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          left = MODULO(taskid - 1, Nprocs)
          right = MODULO(taskid + 1, Nprocs)
          t3 = MPI_WTIME()
@@ -4527,7 +4507,7 @@ CONTAINS
             lgrid2(:) = lgrid2 + grid(:, MODULO(taskid - i, Nprocs) + 1)
             IF (i .EQ. nprocs) EXIT
             CALL MPI_SENDRECV_REPLACE(lgrid2, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm, MPI_STATUS_IGNORE, ierr)
-         ENDDO
+         END DO
          t4 = MPI_WTIME() - t3 + threshold
          CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
          maxdiff = MAXVAL(ABS(lgrid2 - lgrid))
@@ -4538,8 +4518,8 @@ CONTAINS
          DO j = 1, Nprocs
             DO i = 1, Nloc
                grid3(i, j) = MODULO(i*j*taskid, itests)
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          t3 = MPI_WTIME()
          ! first sum the grid in pairs (0,1),(2,3) should be within an LPAR and fast XXXXXXXXX
          ! 0 will only need parts 0,2,4,... correctly summed
@@ -4551,15 +4531,15 @@ CONTAINS
                CALL MPI_SENDRECV(grid3(1, i + 1), nloc, MPI_DOUBLE_PRECISION, partner, 17, &
                                  lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 19, comm, MPI_STATUS_IGNORE, ierr)
                grid3(:, i) = grid3(:, i) + lgrid3(:)
-            ENDDO
+            END DO
          ELSE
             partner = taskid - 1
             DO i = 1, Nprocs, 2
                CALL MPI_SENDRECV(grid3(1, i), nloc, MPI_DOUBLE_PRECISION, partner, 19, &
                                  lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 17, comm, MPI_STATUS_IGNORE, ierr)
                grid3(:, i + 1) = grid3(:, i + 1) + lgrid3(:)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
          t4 = MPI_WTIME() - t3 + threshold
          ! now send a given buffer from 1 to 3 to 5 .. adding the right part of the data
          ! since we've summed an lgrid does only need to pass by even or odd tasks
@@ -4571,14 +4551,14 @@ CONTAINS
             lgrid3(:) = lgrid3 + grid3(:, MODULO(taskid - i - 1, Nprocs) + 1)
             IF (i .EQ. nprocs - 1) EXIT
             CALL MPI_SENDRECV_REPLACE(lgrid3, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm, MPI_STATUS_IGNORE, ierr)
-         ENDDO
+         END DO
          t5 = MPI_WTIME() - t3 + threshold
          CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
          CALL mpi_allreduce(t5, res2, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
          maxdiff = MAXVAL(ABS(lgrid3 - lgrid))
          CALL mpi_allreduce(maxdiff, res3, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
        IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "INVOLVED SHIFT        ", res + res2, "(", res, ",", res2, ")", res3
-      ENDDO
+      END DO
       DEALLOCATE (rcount)
       DEALLOCATE (scount)
       DEALLOCATE (sdispl)
@@ -4624,5 +4604,7 @@ CONTAINS
       IF (mp_collect_timings) &
          CALL timestop(handle)
    END SUBROUTINE mp_timestop
+
+   #:include 'message_passing.fypp'
 
 END MODULE message_passing

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -17,9 +19,10 @@ MODULE qs_active_space_types
    USE dbcsr_api,                       ONLY: dbcsr_csr_destroy,&
                                               dbcsr_csr_p_type,&
                                               dbcsr_p_type
-   USE kinds,                           ONLY: dp
+   USE kinds,                           ONLY: default_path_length,&
+                                              dp
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -69,10 +72,12 @@ MODULE qs_active_space_types
    END TYPE eri_type_eri_element_func
 
    TYPE active_space_type
-      INTEGER                       :: nactive
-      INTEGER                       :: ninactive
-      INTEGER, DIMENSION(2)         :: ninspin
-      INTEGER, DIMENSION(2)         :: nelectrons
+      INTEGER                       :: nelec_active
+      INTEGER, POINTER, DIMENSION(:, :):: active_orbitals
+      INTEGER, POINTER, DIMENSION(:, :):: inactive_orbitals
+      INTEGER                       :: nelec_inactive
+      INTEGER, DIMENSION(2)         :: nelec_inactive_spinwise
+      INTEGER, DIMENSION(2)         :: nelec_total
       INTEGER                       :: multiplicity
       INTEGER                       :: nspins
       LOGICAL                       :: molecule
@@ -81,10 +86,12 @@ MODULE qs_active_space_types
       REAL(KIND=dp)                 :: energy_ref
       REAL(KIND=dp)                 :: energy_inactive
       REAL(KIND=dp)                 :: energy_active
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER  :: mos_active
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER  :: mos_inactive
+      LOGICAL                       :: read_p_act
+      CHARACTER(LEN=default_path_length)                 :: p_act_filename
+      TYPE(mo_set_type), DIMENSION(:), POINTER  :: mos_active
+      TYPE(mo_set_type), DIMENSION(:), POINTER  :: mos_inactive
       TYPE(eri_type)                :: eri
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: p_ref
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: p_active
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: ks_sub
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: vxc_sub
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: h_sub
@@ -116,67 +123,72 @@ MODULE qs_active_space_types
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief ...
-!> \param active_space_env ...
+!> \brief Creates an active space environment type, nullifying all quantities.
+!> \param active_space_env the active space environment to be initialized
 ! **************************************************************************************************
    SUBROUTINE create_active_space_type(active_space_env)
       TYPE(active_space_type), POINTER                   :: active_space_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_active_space_type', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(active_space_env)) THEN
          CALL release_active_space_type(active_space_env)
       END IF
 
       ALLOCATE (active_space_env)
+      NULLIFY (active_space_env%active_orbitals, active_space_env%inactive_orbitals)
       NULLIFY (active_space_env%mos_active, active_space_env%mos_inactive)
-      NULLIFY (active_space_env%ks_sub, active_space_env%p_ref)
+      NULLIFY (active_space_env%ks_sub, active_space_env%p_active)
       NULLIFY (active_space_env%vxc_sub, active_space_env%h_sub)
       NULLIFY (active_space_env%fock_sub, active_space_env%pmat_inactive)
 
    END SUBROUTINE create_active_space_type
 
 ! **************************************************************************************************
-!> \brief ...
-!> \param active_space_env ...
+!> \brief Releases all quantities in the active space environment.
+!> \param active_space_env the active space environment to be released
 ! **************************************************************************************************
    SUBROUTINE release_active_space_type(active_space_env)
       TYPE(active_space_type), POINTER                   :: active_space_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_active_space_type', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: imo, isp
 
       IF (ASSOCIATED(active_space_env)) THEN
 
+         IF (ASSOCIATED(active_space_env%active_orbitals)) THEN
+            DEALLOCATE (active_space_env%active_orbitals)
+         END IF
+
+         IF (ASSOCIATED(active_space_env%inactive_orbitals)) THEN
+            DEALLOCATE (active_space_env%inactive_orbitals)
+         END IF
+
          IF (ASSOCIATED(active_space_env%mos_active)) THEN
             DO imo = 1, SIZE(active_space_env%mos_active)
-               CALL deallocate_mo_set(active_space_env%mos_active(imo)%mo_set)
+               CALL deallocate_mo_set(active_space_env%mos_active(imo))
             END DO
             DEALLOCATE (active_space_env%mos_active)
          END IF
 
          IF (ASSOCIATED(active_space_env%mos_inactive)) THEN
             DO imo = 1, SIZE(active_space_env%mos_inactive)
-               CALL deallocate_mo_set(active_space_env%mos_inactive(imo)%mo_set)
+               CALL deallocate_mo_set(active_space_env%mos_inactive(imo))
             END DO
             DEALLOCATE (active_space_env%mos_inactive)
          END IF
 
          CALL release_eri_type(active_space_env%eri)
 
-         IF (ASSOCIATED(active_space_env%p_ref)) THEN
-            DO isp = 1, SIZE(active_space_env%p_ref)
-               CALL cp_fm_release(active_space_env%p_ref(isp)%matrix)
+         IF (ASSOCIATED(active_space_env%p_active)) THEN
+            DO isp = 1, SIZE(active_space_env%p_active)
+               CALL cp_fm_release(active_space_env%p_active(isp)%matrix)
+               DEALLOCATE (active_space_env%p_active(isp)%matrix)
             END DO
-            DEALLOCATE (active_space_env%p_ref)
+            DEALLOCATE (active_space_env%p_active)
          END IF
 
          IF (ASSOCIATED(active_space_env%ks_sub)) THEN
             DO isp = 1, SIZE(active_space_env%ks_sub)
                CALL cp_fm_release(active_space_env%ks_sub(isp)%matrix)
+               DEALLOCATE (active_space_env%ks_sub(isp)%matrix)
             END DO
             DEALLOCATE (active_space_env%ks_sub)
          END IF
@@ -184,6 +196,7 @@ CONTAINS
          IF (ASSOCIATED(active_space_env%vxc_sub)) THEN
             DO isp = 1, SIZE(active_space_env%vxc_sub)
                CALL cp_fm_release(active_space_env%vxc_sub(isp)%matrix)
+               DEALLOCATE (active_space_env%vxc_sub(isp)%matrix)
             END DO
             DEALLOCATE (active_space_env%vxc_sub)
          END IF
@@ -191,6 +204,7 @@ CONTAINS
          IF (ASSOCIATED(active_space_env%h_sub)) THEN
             DO isp = 1, SIZE(active_space_env%h_sub)
                CALL cp_fm_release(active_space_env%h_sub(isp)%matrix)
+               DEALLOCATE (active_space_env%h_sub(isp)%matrix)
             END DO
             DEALLOCATE (active_space_env%h_sub)
          END IF
@@ -198,6 +212,7 @@ CONTAINS
          IF (ASSOCIATED(active_space_env%fock_sub)) THEN
             DO isp = 1, SIZE(active_space_env%fock_sub)
                CALL cp_fm_release(active_space_env%fock_sub(isp)%matrix)
+               DEALLOCATE (active_space_env%fock_sub(isp)%matrix)
             END DO
             DEALLOCATE (active_space_env%fock_sub)
          END IF
@@ -211,14 +226,11 @@ CONTAINS
    END SUBROUTINE release_active_space_type
 
 ! **************************************************************************************************
-!> \brief ...
-!> \param eri_env ...
+!> \brief Releases the ERI environment type.
+!> \param eri_env the ERI environment to be released
 ! **************************************************************************************************
    SUBROUTINE release_eri_type(eri_env)
       TYPE(eri_type)                                     :: eri_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_eri_type', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 
@@ -286,8 +298,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief calculates index range for processor in group mp_group
-!> \param nindex ...
-!> \param mp_group ...
+!> \param nindex the number of indices
+!> \param mp_group message-passing group ID
 !> \return a range tuple
 !> \par History
 !>      04.2016 created [JGH]
@@ -325,29 +337,45 @@ CONTAINS
 !> \brief Calls the provided function for each element in the ERI
 !> \param this object reference
 !> \param nspin The spin number
+!> \param active_orbitals the active orbital indices
 !> \param fobj The function object from which to call `func(i, j, k, l, val)`
+!> \param spin1 the first spin value
+!> \param spin2 the second spin value
 !> \par History
 !>      04.2016 created [JHU]
 !>      06.2016 factored out from qs_a_s_methods:fcidump [TMU]
 !> \note Calls MPI, must be executed on all ranks.
 ! **************************************************************************************************
-   SUBROUTINE eri_type_eri_foreach(this, nspin, fobj)
+   SUBROUTINE eri_type_eri_foreach(this, nspin, active_orbitals, fobj, spin1, spin2)
       USE message_passing, ONLY: mp_sum, mp_sync
       CLASS(eri_type), INTENT(in)              :: this
       CLASS(eri_type_eri_element_func)         :: fobj
-      INTEGER                                  :: i1, i12, i12l, i2, i3, i34, i34l, i4, &
-                                                  irange(2), irptr, nspin, nindex
+      INTEGER, DIMENSION(:, :), INTENT(IN)     :: active_orbitals
+      INTEGER, OPTIONAL                        :: spin1, spin2
+      INTEGER                                  :: i1, i12, i12l, i2, i3, i34, i34l, i4, m1, m2, m3, m4, &
+                                                  irange(2), irptr, nspin, nindex, nmo
       INTEGER, ALLOCATABLE, DIMENSION(:)       :: colind
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:) :: erival
       REAL(KIND=dp)                            :: erint
 
-      ASSOCIATE (eri=>this%eri(nspin)%csr_mat, norb=>this%norb)
+      IF (.NOT. PRESENT(spin1)) THEN
+         spin1 = nspin
+      END IF
+      IF (.NOT. PRESENT(spin2)) THEN
+         spin2 = nspin
+      END IF
+
+      ASSOCIATE (eri => this%eri(nspin)%csr_mat, norb => this%norb)
          nindex = (norb*(norb + 1))/2
          irange = get_irange_csr(nindex, eri%mp_group)
          ALLOCATE (erival(nindex), colind(nindex))
 
-         DO i1 = 1, norb
-            DO i2 = i1, norb
+         nmo = SIZE(active_orbitals, 1)
+
+         DO m1 = 1, nmo
+            i1 = active_orbitals(m1, spin1)
+            DO m2 = m1, nmo
+               i2 = active_orbitals(m2, spin1)
                i12 = csr_idx_to_combined(i1, i2, norb)
 
                IF (i12 >= irange(1) .AND. i12 <= irange(2)) THEN
@@ -372,8 +400,20 @@ CONTAINS
                   erint = erival(i34l)
                   CALL csr_idx_from_combined(i34, norb, i3, i4)
 
+                  DO m3 = 1, nmo
+                     IF (active_orbitals(m3, spin2) == i3) THEN
+                        EXIT
+                     END IF
+                  END DO
+
+                  DO m4 = 1, nmo
+                     IF (active_orbitals(m4, spin2) == i4) THEN
+                        EXIT
+                     END IF
+                  END DO
+
                   ! terminate the loop prematurely if the function returns false
-                  IF (.NOT. fobj%func(i1, i2, i3, i4, erint)) RETURN
+                  IF (.NOT. fobj%func(m1, m2, m3, m4, erint)) RETURN
                END DO
 
             END DO

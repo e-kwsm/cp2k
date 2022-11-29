@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -22,7 +24,6 @@ MODULE manybody_eam
                                               fist_nonbond_env_type,&
                                               pos_type
    USE kinds,                           ONLY: dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE message_passing,                 ONLY: mp_sum
    USE pair_potential_types,            ONLY: ea_type,&
                                               eam_pot_type,&
@@ -52,8 +53,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_nonbond', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'density_nonbond'
 
       INTEGER                                            :: atom_a, atom_b, handle, i, i_a, i_b, &
                                                             iend, igrp, ikind, ilist, ipair, &
@@ -100,12 +100,12 @@ CONTAINS
          IF (.NOT. ASSOCIATED(eam_data)) THEN
             ALLOCATE (eam_data(nparticle))
             CALL fist_nonbond_env_set(fist_nonbond_env, eam_data=eam_data)
-         ENDIF
+         END IF
          DO i = 1, nparticle
             eam_data(i)%rho = 0.0_dp
             eam_data(i)%f_embed = 0.0_dp
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       ! Only if EAM potential are present
       IF (do_eam) THEN
@@ -127,7 +127,7 @@ CONTAINS
                i = eam_kinds_index(ikind, jkind)
                IF (i == -1) CYCLE
                rab2_max = potparm%pot(ikind, jkind)%pot%rcutsq
-               CALL matvec_3x3(cell_v, cell%hmat, REAL(neighbor_kind_pair%cell_vector, KIND=dp))
+               cell_v = MATMUL(cell%hmat, REAL(neighbor_kind_pair%cell_vector, KIND=dp))
                DO ipair = istart, iend
                   atom_a = neighbor_kind_pair%list(1, ipair)
                   atom_b = neighbor_kind_pair%list(2, ipair)
@@ -178,8 +178,6 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: rho(:)
       REAL(dp), INTENT(IN)                               :: fac
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_rho_eam', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: index
       REAL(dp)                                           :: qq, rab, rhoi, rhoj
 
@@ -191,7 +189,7 @@ CONTAINS
          index = eam_b%npoints
       ELSEIF (index < 1) THEN
          index = 1
-      ENDIF
+      END IF
       qq = rab - eam_b%rval(index)
       rhoi = eam_b%rho(index) + qq*eam_b%rhop(index)
 
@@ -201,7 +199,7 @@ CONTAINS
          index = eam_a%npoints
       ELSEIF (index < 1) THEN
          index = 1
-      ENDIF
+      END IF
       qq = rab - eam_a%rval(index)
       rhoj = eam_a%rho(index) + qq*eam_a%rhop(index)
 
@@ -227,8 +225,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: atom_a, atom_b
       REAL(dp), INTENT(OUT)                              :: f_eam
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_force_eam', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: index
       REAL(KIND=dp)                                      :: denspi, denspj, fcp, qq, rab
 
@@ -240,7 +236,7 @@ CONTAINS
          index = eam_a%npoints
       ELSEIF (index < 1) THEN
          index = 1
-      ENDIF
+      END IF
       qq = rab - eam_a%rval(index)
       IF (index == eam_a%npoints) THEN
          denspi = eam_a%rhop(index) + qq*(eam_a%rhop(index) - eam_a%rhop(index - 1))/eam_a%drar
@@ -254,7 +250,7 @@ CONTAINS
          index = eam_b%npoints
       ELSEIF (index < 1) THEN
          index = 1
-      ENDIF
+      END IF
       qq = rab - eam_b%rval(index)
       IF (index == eam_b%npoints) THEN
          denspj = eam_b%rhop(index) + qq*(eam_b%rhop(index) - eam_b%rhop(index - 1))/eam_b%drar

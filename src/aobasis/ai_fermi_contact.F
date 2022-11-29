@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -77,8 +79,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ldfc
       REAL(KIND=dp), DIMENSION(ldfc, *), INTENT(INOUT)   :: fcab
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'fermi_contact', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, i, &
                                                             ipgf, j, jpgf, la, lb, ma, mb, na, nb
       REAL(KIND=dp)                                      :: dac2, dbc2, f0, fax, fay, faz, fbx, fby, &
@@ -105,11 +105,11 @@ CONTAINS
                DO j = nb + 1, nb + ncoset(lb_max)
                   DO i = na + 1, na + ncoset(la_max)
                      fcab(i, j) = 0.0_dp
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                nb = nb + ncoset(lb_max)
                CYCLE
-            ENDIF
+            END IF
 
             ! *** Calculate some prefactors ***
 
@@ -144,21 +144,21 @@ CONTAINS
 
                         fcab(ma, mb) = f0*fax*fay*faz
 
-                     ENDDO
-                  ENDDO
-                  ENDDO !la
+                     END DO
+                  END DO
+                  END DO !la
 
-               ENDDO
-            ENDDO
-            ENDDO !lb
+               END DO
+            END DO
+            END DO !lb
 
             nb = nb + ncoset(lb_max)
 
-         ENDDO
+         END DO
 
          na = na + ncoset(la_max)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE fermi_contact
 

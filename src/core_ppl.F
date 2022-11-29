@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief Calculation of the local pseudopotential contribution to the core Hamiltonian
@@ -11,6 +13,7 @@
 !>      - OpenMP added [Iain Bethune, Fiona Reid, 2013-11-13]
 !>      - Bug fix: correct orbital pointer range [07.2014,JGH]
 !>      - k-point aware [07.2015,JGH]
+!>      - Extended by the derivatives for DFPT [Sandra Luber, Edward Ditler, 2021]
 ! **************************************************************************************************
 MODULE core_ppl
 
@@ -80,10 +83,11 @@ CONTAINS
 !> \param nimages ...
 !> \param cell_to_index ...
 !> \param basis_type ...
+!> \param deltaR Weighting factors of the derivatives wrt. nuclear positions
 ! **************************************************************************************************
    SUBROUTINE build_core_ppl(matrix_h, matrix_p, force, virial, calculate_forces, use_virial, nder, &
                              qs_kind_set, atomic_kind_set, particle_set, sab_orb, sac_ppl, &
-                             nimages, cell_to_index, basis_type)
+                             nimages, cell_to_index, basis_type, deltaR)
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_h, matrix_p
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
@@ -97,10 +101,12 @@ CONTAINS
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_orb, sac_ppl
       INTEGER, INTENT(IN)                                :: nimages
-      INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
+      INTEGER, DIMENSION(:, :, :), OPTIONAL, POINTER     :: cell_to_index
       CHARACTER(LEN=*), INTENT(IN)                       :: basis_type
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
+         OPTIONAL                                        :: deltaR
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_core_ppl', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_core_ppl'
       INTEGER, PARAMETER                                 :: nexp_max = 30
 
       INTEGER :: atom_a, handle, i, iatom, icol, ikind, img, irow, iset, jatom, jkind, jset, &
@@ -114,21 +120,25 @@ CONTAINS
                                                             nct_lpot, npgfa, npgfb, nsgfa, nsgfb
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       INTEGER, DIMENSION(nexp_max)                       :: nct_ppl
-      LOGICAL                                            :: dokp, ecp_local, found, lpotextended
+      LOGICAL                                            :: do_dR, dokp, ecp_local, found, &
+                                                            lpotextended
       REAL(KIND=dp)                                      :: alpha, dab, dac, dbc, f0, ppl_radius
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: ppl_fwork, ppl_work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: qab, work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: hab2_w, ppl_fwork, ppl_work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: hab, pab
+      REAL(KIND=dp), ALLOCATABLE, &
+         DIMENSION(:, :, :, :, :)                        :: hab2
       REAL(KIND=dp), DIMENSION(1:10)                     :: aloc, bloc
       REAL(KIND=dp), DIMENSION(3)                        :: force_a, force_b, rab, rac, rbc
-      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_loc, pv_thread
+      REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_thread
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: ap_iterator
       TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
       TYPE(gth_potential_type), POINTER                  :: gth_potential
       REAL(KIND=dp), DIMENSION(nexp_max)                 :: alpha_ppl
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: cval_lpot, h_block, p_block, rpgfa, &
+      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: cval_lpot, h1_1block, h1_2block, &
+                                                            h1_3block, h_block, p_block, rpgfa, &
                                                             rpgfb, sphi_a, sphi_b, zeta, zetb
       REAL(KIND=dp), DIMENSION(:), POINTER               :: a_local, alpha_lpot, c_local, cexp_ppl, &
                                                             set_radius_a, set_radius_b
@@ -142,18 +152,23 @@ CONTAINS
 !$    INTEGER(KIND=int_8)                                :: iatom8
 !$    INTEGER, PARAMETER                                 :: nlock = 501
 
+      do_dR = PRESENT(deltaR)
       MARK_USED(int_8)
 
       IF (calculate_forces) THEN
          CALL timeset(routineN//"_forces", handle)
       ELSE
          CALL timeset(routineN, handle)
-      ENDIF
+      END IF
 
       nkind = SIZE(atomic_kind_set)
       natom = SIZE(particle_set)
 
       dokp = (nimages > 1)
+
+      IF (dokp) THEN
+         CPASSERT(PRESENT(cell_to_index) .AND. ASSOCIATED(cell_to_index))
+      END IF
 
       IF (calculate_forces) THEN
          IF (SIZE(matrix_p, 1) == 2) THEN
@@ -189,9 +204,6 @@ CONTAINS
          END IF
       END DO
 
-      IF (use_virial) THEN
-         pv_loc = virial%pv_virial
-      END IF
       pv_thread = 0.0_dp
 
       nthread = 1
@@ -205,13 +217,14 @@ CONTAINS
 !$OMP SHARED  (ap_iterator, basis_set_list, calculate_forces, use_virial, &
 !$OMP          matrix_h, matrix_p, atomic_kind_set, qs_kind_set, particle_set, &
 !$OMP          sab_orb, sac_ppl, nthread, ncoset, nkind, cell_to_index, &
-!$OMP          ldsab,  maxnset, maxder, &
+!$OMP          ldsab,  maxnset, maxder, do_dR, deltaR, &
 !$OMP          maxlgto, nder, maxco, dokp, locks, natom) &
 !$OMP PRIVATE (ikind, jkind, iatom, jatom, rab, basis_set_a, basis_set_b, &
 !$OMP          first_sgfa, la_max, la_min, npgfa, nsgfa, sphi_a, &
 !$OMP          zeta, first_sgfb, lb_max, lb_min, npgfb, nsetb, rpgfb, set_radius_b, sphi_b, &
 !$OMP          zetb, dab, irow, icol, h_block, found, iset, ncoa, &
-!$OMP          sgfa, jset, ncob, sgfb, nsgfb, p_block, work, pab, hab, kkind, nseta, &
+!$OMP          sgfa, jset, ncob, sgfb, nsgfb, p_block, work, pab, hab, hab2, hab2_w, qab, &
+!$OMP          h1_1block, h1_2block, h1_3block, kkind, nseta, &
 !$OMP          gth_potential, sgp_potential, alpha, cexp_ppl, lpotextended, &
 !$OMP          ppl_radius, nexp_lpot, nexp_ppl, alpha_ppl, alpha_lpot, nct_ppl, &
 !$OMP          nct_lpot, cval_ppl, cval_lpot, rac, dac, rbc, dbc, &
@@ -244,6 +257,13 @@ CONTAINS
 
 !$OMP DO SCHEDULE(GUIDED)
       DO slot = 1, sab_orb(1)%nl_size
+         !SL
+         IF (do_dR) THEN
+            ALLOCATE (hab2(ldsab, ldsab, 4, maxnset, maxnset))
+            ALLOCATE (hab2_w(ldsab, ldsab, 6))
+            ALLOCATE (qab(ldsab, ldsab))
+            ALLOCATE (ppl_fwork(ldai, ldai, maxder))
+         END IF
 
          ikind = sab_orb(1)%nlist_task(slot)%ikind
          jkind = sab_orb(1)%nlist_task(slot)%jkind
@@ -307,6 +327,18 @@ CONTAINS
             icol = iatom
          END IF
          NULLIFY (h_block)
+
+         IF (do_dR) THEN
+            NULLIFY (h1_1block, h1_2block, h1_3block)
+
+            CALL dbcsr_get_block_p(matrix=matrix_h(1, img)%matrix, &
+                                   row=irow, col=icol, BLOCK=h1_1block, found=found)
+            CALL dbcsr_get_block_p(matrix=matrix_h(2, img)%matrix, &
+                                   row=irow, col=icol, BLOCK=h1_2block, found=found)
+            CALL dbcsr_get_block_p(matrix=matrix_h(3, img)%matrix, &
+                                   row=irow, col=icol, BLOCK=h1_3block, found=found)
+         END IF
+
          CALL dbcsr_get_block_p(matrix_h(1, img)%matrix, irow, icol, h_block, found)
          CPASSERT(found)
          IF (calculate_forces) THEN
@@ -333,10 +365,11 @@ CONTAINS
                                                               TRANSPOSE(sphi_b(1:ncob, sgfb:sgfb + nsgfb(jset) - 1)))
                   END DO
                END DO
-            ENDIF
+            END IF
          END IF
 
          hab = 0._dp
+         IF (do_dr) hab2 = 0._dp
 
          ! loop over all kinds for pseudopotential atoms
          DO kkind = 1, nkind
@@ -442,7 +475,18 @@ CONTAINS
                            CALL virial_pair_force(pv_thread, f0, force_a, rac)
                            CALL virial_pair_force(pv_thread, f0, force_b, rbc)
                         END IF
-
+                     ELSEIF (do_dR) THEN
+                        hab2_w = 0._dp
+                        CALL ppl_integral( &
+                           la_max(iset), la_min(iset), npgfa(iset), &
+                           rpgfa(:, iset), zeta(:, iset), &
+                           lb_max(jset), lb_min(jset), npgfb(jset), &
+                           rpgfb(:, jset), zetb(:, jset), &
+                           nexp_ppl, alpha_ppl, nct_ppl, cval_ppl, ppl_radius, &
+                           rab, dab, rac, dac, rbc, dbc, &
+                           vab=hab(:, :, iset, jset), s=ppl_work, &
+                           hab2=hab2(:, :, :, iset, jset), hab2_work=hab2_w, fs=ppl_fwork, &
+                           deltaR=deltaR, iatom=iatom, jatom=jatom, katom=katom)
                      ELSE
                         CALL ppl_integral( &
                            la_max(iset), la_min(iset), npgfa(iset), &
@@ -458,6 +502,7 @@ CONTAINS
          END DO
 
          ! *** Contract PPL integrals
+         IF (.NOT. do_dR) THEN
          DO iset = 1, nseta
             ncoa = npgfa(iset)*ncoset(la_max(iset))
             sgfa = first_sgfa(1, iset)
@@ -484,7 +529,62 @@ CONTAINS
 
             END DO
          END DO
-      END DO
+         ELSE  ! do_dr == .true.
+         DO iset = 1, nseta
+            ncoa = npgfa(iset)*ncoset(la_max(iset))
+            sgfa = first_sgfa(1, iset)
+            DO jset = 1, nsetb
+               ncob = npgfb(jset)*ncoset(lb_max(jset))
+               sgfb = first_sgfb(1, jset)
+               work(1:ncoa, 1:nsgfb(jset)) = MATMUL(hab2(1:ncoa, 1:ncob, 1, iset, jset), &
+                                                    sphi_b(1:ncob, sgfb:sgfb + nsgfb(jset) - 1))
+
+!$OMP CRITICAL(h1_1block_critical)
+               IF (iatom <= jatom) THEN
+                  h1_1block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) = &
+                     h1_1block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) + &
+                     MATMUL(TRANSPOSE(sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1)), work(1:ncoa, 1:nsgfb(jset)))
+
+               ELSE
+                  h1_1block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) = &
+                     h1_1block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) + &
+                     MATMUL(TRANSPOSE(work(1:ncoa, 1:nsgfb(jset))), sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1))
+               END IF
+!$OMP END CRITICAL(h1_1block_critical)
+               work(1:ncoa, 1:nsgfb(jset)) = MATMUL(hab2(1:ncoa, 1:ncob, 2, iset, jset), &
+                                                    sphi_b(1:ncob, sgfb:sgfb + nsgfb(jset) - 1))
+
+!$OMP CRITICAL(h1_2block_critical)
+               IF (iatom <= jatom) THEN
+                  h1_2block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) = &
+                     h1_2block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) + &
+                     MATMUL(TRANSPOSE(sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1)), work(1:ncoa, 1:nsgfb(jset)))
+
+               ELSE
+                  h1_2block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) = &
+                     h1_2block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) + &
+                     MATMUL(TRANSPOSE(work(1:ncoa, 1:nsgfb(jset))), sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1))
+               END IF
+!$OMP END CRITICAL(h1_2block_critical)
+               work(1:ncoa, 1:nsgfb(jset)) = MATMUL(hab2(1:ncoa, 1:ncob, 3, iset, jset), &
+                                                    sphi_b(1:ncob, sgfb:sgfb + nsgfb(jset) - 1))
+!$OMP CRITICAL(h1_3block_critical)
+               IF (iatom <= jatom) THEN
+                  h1_3block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) = &
+                     h1_3block(sgfa:sgfa + nsgfa(iset) - 1, sgfb:sgfb + nsgfb(jset) - 1) + &
+                     MATMUL(TRANSPOSE(sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1)), work(1:ncoa, 1:nsgfb(jset)))
+
+               ELSE
+                  h1_3block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) = &
+                     h1_3block(sgfb:sgfb + nsgfb(jset) - 1, sgfa:sgfa + nsgfa(iset) - 1) + &
+                     MATMUL(TRANSPOSE(work(1:ncoa, 1:nsgfb(jset))), sphi_a(1:ncoa, sgfa:sgfa + nsgfa(iset) - 1))
+               END IF
+!$OMP END CRITICAL(h1_3block_critical)
+            END DO
+         END DO
+         END IF
+         IF (do_dR) DEALLOCATE (qab, hab2, ppl_fwork, hab2_w)
+      END DO ! slot
 
       DEALLOCATE (hab, work, ppl_work)
       IF (calculate_forces) THEN
@@ -535,8 +635,8 @@ CONTAINS
       END IF
 
       IF (calculate_forces .AND. use_virial) THEN
+         virial%pv_ppl = virial%pv_ppl + pv_thread
          virial%pv_virial = virial%pv_virial + pv_thread
-         virial%pv_ppl = virial%pv_virial - pv_loc
       END IF
 
       CALL timestop(handle)
@@ -572,8 +672,7 @@ CONTAINS
          POINTER                                         :: sac_ppl
       CHARACTER(LEN=*), INTENT(IN)                       :: basis_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_core_ppl_ri', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_core_ppl_ri'
       INTEGER, PARAMETER                                 :: nexp_max = 30
 
       INTEGER :: atom_a, handle, i, iatom, ikind, iset, katom, kkind, maxco, maxsgf, n_local, &
@@ -610,7 +709,7 @@ CONTAINS
          CALL timeset(routineN//"_forces", handle)
       ELSE
          CALL timeset(routineN, handle)
-      ENDIF
+      END IF
 
       nkind = SIZE(atomic_kind_set)
       natom = SIZE(particle_set)
@@ -799,8 +898,8 @@ CONTAINS
       DEALLOCATE (atom_of_kind, kind_of)
 
       IF (calculate_forces .AND. use_virial) THEN
+         virial%pv_ppl = virial%pv_ppl + pv_thread
          virial%pv_virial = virial%pv_virial + pv_thread
-         virial%pv_ppl = pv_thread
       END IF
 
       DEALLOCATE (basis_set_list)

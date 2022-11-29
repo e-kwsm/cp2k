@@ -1,11 +1,13 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief Calculation of integrals over Cartesian Gaussian-type functions for [a|(r-Ra)^(2m)|b]
-!>        Ra is the postion of center a
+!>        Ra is the position of center a
 !> \par Literature
 !>      S. Obara and A. Saika, J. Chem. Phys. 84, 3963 (1986)
 !> \par History
@@ -80,7 +82,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(INOUT)   :: dsab
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'operator_ra2m', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'operator_ra2m'
 
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, &
                                                             handle, i, ia, ib, ipgf, j, jpgf, k, &
@@ -171,17 +173,17 @@ CONTAINS
                         dumz = 2.0_dp*a*rr(az + 2*k + 1, bz, 3)
                         IF (az + 2*k > 0) dumz = dumz - REAL(az + 2*k, dp)*rr(az + 2*k - 1, bz, 3)
                         dsab(ia, ib, 3) = dsab(ia, ib, 3) + prefac*f0*rr(ax + 2*i, bx, 1)*rr(ay + 2*j, by, 2)*dumz
-                     ENDIF
-                  ENDDO
-                  ENDDO
-                  ENDDO
+                     END IF
+                  END DO
+                  END DO
+                  END DO
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
-            ENDDO
-            ENDDO
-            ENDDO !lb
+               END DO
+               END DO
+               END DO !la
+            END DO
+            END DO
+            END DO !lb
 
             mb = mb + nb
          END DO

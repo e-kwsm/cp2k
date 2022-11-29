@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -151,6 +153,10 @@ MODULE force_field_types
       CHARACTER(LEN=default_string_length), POINTER :: nonbond_a(:)
       REAL(KIND=dp), POINTER                        :: nonbond_eps(:)
       REAL(KIND=dp), POINTER                        :: nonbond_rmin2(:)
+      INTEGER, POINTER                               :: raw_torsion_id(:, :)
+      REAL(KIND=dp), POINTER                         :: raw_torsion_k(:)
+      REAL(KIND=dp), POINTER                         :: raw_torsion_m(:)
+      REAL(KIND=dp), POINTER                         :: raw_torsion_phi0(:)
    END TYPE amber_info_type
 
 ! **************************************************************************************************
@@ -222,8 +228,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_ff_type(ff_type)
       TYPE(force_field_type), INTENT(INOUT)              :: ff_type
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_ff_type', routineP = moduleN//':'//routineN
 
 !-----------------------------------------------------------------------------
 ! 1. Initialize
@@ -360,6 +364,10 @@ CONTAINS
       NULLIFY (amb_info%nonbond_a)
       NULLIFY (amb_info%nonbond_eps)
       NULLIFY (amb_info%nonbond_rmin2)
+      NULLIFY (amb_info%raw_torsion_id)
+      NULLIFY (amb_info%raw_torsion_k)
+      NULLIFY (amb_info%raw_torsion_m)
+      NULLIFY (amb_info%raw_torsion_phi0)
 
    END SUBROUTINE init_amber_info
 
@@ -440,9 +448,6 @@ CONTAINS
    SUBROUTINE deallocate_ff_type(ff_type)
       TYPE(force_field_type), INTENT(INOUT)              :: ff_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_ff_type', &
-         routineP = moduleN//':'//routineN
-
 !-----------------------------------------------------------------------------
 ! 1. DEALLOCATE things in ff_type%inp_info
 !-----------------------------------------------------------------------------
@@ -489,9 +494,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_gromos_info(gro_info)
       TYPE(gromos_info_type), POINTER                    :: gro_info
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_gromos_info', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(gro_info%solvent_k)) THEN
          DEALLOCATE (gro_info%solvent_k)
@@ -556,9 +558,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_chm_info(chm_info)
       TYPE(charmm_info_type), POINTER                    :: chm_info
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_chm_info', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(chm_info%bond_a)) THEN
          DEALLOCATE (chm_info%bond_a)
@@ -672,9 +671,6 @@ CONTAINS
    SUBROUTINE deallocate_amb_info(amb_info)
       TYPE(amber_info_type), POINTER                     :: amb_info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_amb_info', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(amb_info%bond_a)) THEN
          DEALLOCATE (amb_info%bond_a)
       END IF
@@ -732,6 +728,18 @@ CONTAINS
       IF (ASSOCIATED(amb_info%nonbond_rmin2)) THEN
          DEALLOCATE (amb_info%nonbond_rmin2)
       END IF
+      IF (ASSOCIATED(amb_info%raw_torsion_id)) THEN
+         DEALLOCATE (amb_info%raw_torsion_id)
+      END IF
+      IF (ASSOCIATED(amb_info%raw_torsion_k)) THEN
+         DEALLOCATE (amb_info%raw_torsion_k)
+      END IF
+      IF (ASSOCIATED(amb_info%raw_torsion_m)) THEN
+         DEALLOCATE (amb_info%raw_torsion_m)
+      END IF
+      IF (ASSOCIATED(amb_info%raw_torsion_phi0)) THEN
+         DEALLOCATE (amb_info%raw_torsion_phi0)
+      END IF
 
    END SUBROUTINE deallocate_amb_info
 
@@ -744,9 +752,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE deallocate_inp_info(inp_info)
       TYPE(input_info_type), POINTER                     :: inp_info
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_inp_info', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 

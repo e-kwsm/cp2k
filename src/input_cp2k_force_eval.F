@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,15 +20,16 @@ MODULE input_cp2k_force_eval
                                               medium_print_level
    USE cp_units,                        ONLY: cp_unit_to_cp2k
    USE input_constants,                 ONLY: &
-        do_eip, do_embed, do_fist, do_mixed, do_qmmm, do_qs, do_sirius, do_stress_analytical, &
-        do_stress_diagonal_anal, do_stress_diagonal_numer, do_stress_none, do_stress_numerical, &
-        numerical
+        do_eip, do_embed, do_fist, do_mixed, do_nnp, do_qmmm, do_qs, do_sirius, &
+        do_stress_analytical, do_stress_diagonal_anal, do_stress_diagonal_numer, do_stress_none, &
+        do_stress_numerical, numerical
    USE input_cp2k_dft,                  ONLY: create_bsse_section,&
                                               create_dft_section
    USE input_cp2k_eip,                  ONLY: create_eip_section
    USE input_cp2k_embed,                ONLY: create_embed_section
    USE input_cp2k_mixed,                ONLY: create_mix_section
    USE input_cp2k_mm,                   ONLY: create_mm_section
+   USE input_cp2k_nnp,                  ONLY: create_nnp_section
    USE input_cp2k_properties_dft,       ONLY: create_properties_section
    USE input_cp2k_pwdft,                ONLY: create_pwdft_section
    USE input_cp2k_qmmm,                 ONLY: create_qmmm_section
@@ -65,9 +68,6 @@ CONTAINS
    SUBROUTINE create_force_eval_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_force_eval_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -75,7 +75,7 @@ CONTAINS
       CALL section_create(section, __LOCATION__, name="force_eval", &
                           description="parameters needed to calculate energy and forces and"// &
                           " describe the system you want to analyze.", &
-                          n_keywords=1, n_subsections=9, repeats=.TRUE.)
+                          n_keywords=1, n_subsections=10, repeats=.TRUE.)
 
       NULLIFY (subsection)
       NULLIFY (keyword)
@@ -88,6 +88,7 @@ CONTAINS
                                           "QMMM", &
                                           "EIP", &
                                           "QUICKSTEP", &
+                                          "NNP", &
                                           "MIXED", &
                                           "EMBED"), &
                           enum_desc=s2a("Alias for QUICKSTEP", &
@@ -96,9 +97,10 @@ CONTAINS
                                         "Hybrid quantum classical", &
                                         "Empirical Interatomic Potential", &
                                         "Electronic structure methods (DFT, ...)", &
+                                        "Neural Network Potentials", &
                                         "Use a combination of two of the above", &
                                         "Perform an embedded calculation"), &
-                          enum_i_vals=(/do_qs, do_sirius, do_fist, do_qmmm, do_eip, do_qs, do_mixed, do_embed/), &
+                          enum_i_vals=(/do_qs, do_sirius, do_fist, do_qmmm, do_eip, do_qs, do_nnp, do_mixed, do_embed/), &
                           default_i_val=do_qs)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
@@ -148,6 +150,10 @@ CONTAINS
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
+      CALL create_nnp_section(subsection)
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
       CALL create_qmmm_section(subsection)
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
@@ -182,9 +188,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_ext_pot_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_ext_pot_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -254,9 +257,6 @@ CONTAINS
    SUBROUTINE create_rescale_force_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_rescale_force_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       CPASSERT(.NOT. ASSOCIATED(section))
@@ -285,9 +285,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_f_env_print_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_f_env_print_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
@@ -342,7 +339,7 @@ CONTAINS
       CALL section_release(print_key)
 
       CALL cp_print_key_section_create(print_key, __LOCATION__, "DISTRIBUTION2D", &
-                                       description="Controls the printing of the distribution of matrix blocks,...", &
+                                       description="Controls the printing of the distribution of matrix blocks, ...", &
                                        print_level=high_print_level, filename="__STD_OUT__")
       CALL section_add_subsection(section, print_key)
       CALL section_release(print_key)
@@ -357,12 +354,11 @@ CONTAINS
                                        description="Controls the printing of the stress tensor", &
                                        print_level=high_print_level, filename="__STD_OUT__")
       CALL keyword_create(keyword, __LOCATION__, &
-                          name="NDIGITS", &
-                          description="Specifies the number of digits used "// &
-                          "for the printing of the stress tensor", &
-                          usage="NDIGITS 6", &
-                          default_i_val=8, &
-                          repeats=.FALSE.)
+                          name="COMPONENTS", &
+                          description="Print all GPW/GAPW components contributing to the stress tensor", &
+                          usage="COMPONENTS", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(print_key, keyword)
       CALL keyword_release(keyword)
       CALL section_add_subsection(section, print_key)

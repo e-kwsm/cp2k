@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -69,9 +71,6 @@ CONTAINS
    SUBROUTINE release_csym_type(csym)
       TYPE(csym_type)                                    :: csym
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_csym_type', &
-         routineP = moduleN//':'//routineN
-
       IF (ALLOCATED(csym%rotations)) THEN
          DEALLOCATE (csym%rotations)
       END IF
@@ -119,7 +118,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: delta
       INTEGER, INTENT(IN), OPTIONAL                      :: iounit
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'crys_sym_gen', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'crys_sym_gen'
 
       INTEGER                                            :: handle, ierr, major, micro, minor, nat, &
                                                             nop, tra_mat(3, 3)
@@ -166,9 +165,6 @@ CONTAINS
          CALL cp_warn(__LOCATION__, "Symmetry library SPGLIB not available")
          spglib = .FALSE.
       ELSE
-         IF (major /= 1 .OR. minor /= 9 .OR. micro /= 9) THEN
-            CALL cp_warn(__LOCATION__, "Version of Symmetry Library SPGLIB not tested")
-         END IF
          spglib = .TRUE.
          CALL cite_reference(Togo2018)
          ierr = spg_get_international(csym%international_symbol, TRANSPOSE(hmat), scoor, types, nat, delta)
@@ -215,7 +211,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: shift(3)
       LOGICAL, INTENT(IN), OPTIONAL                      :: full_grid
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_gen', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'kpoint_gen'
 
       INTEGER                                            :: handle, i, ik, is_shift(3), &
                                                             is_time_reversal, j, nkp, nkpts
@@ -288,7 +284,7 @@ CONTAINS
                xkp(:, i) = REAL(is_shift + 2*ixkp(:, i), KIND=dp)/REAL(2*nk(:), KIND=dp)
                j = iwkp(i) + 1
                wkp(j) = wkp(j) + 1.0_dp
-            ENDDO
+            END DO
             csym%kplink(1, 1:nkpts) = iwkp(1:nkpts) + 1
             DEALLOCATE (ixkp, iwkp)
          END IF
@@ -477,9 +473,6 @@ CONTAINS
       TYPE(csym_type)                                    :: csym
       INTEGER, INTENT(IN)                                :: ir
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'apply_rotation_coord', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, ib, natom
       REAL(KIND=dp)                                      :: diff
       REAL(KIND=dp), DIMENSION(3)                        :: rb, ri, ro, tr
@@ -515,9 +508,6 @@ CONTAINS
    SUBROUTINE print_crys_symmetry(csym)
       TYPE(csym_type)                                    :: csym
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_crys_symmetry', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, iunit, j, plevel
 
       iunit = csym%punit
@@ -550,9 +540,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE print_kp_symmetry(csym)
       TYPE(csym_type), INTENT(IN)                        :: csym
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_kp_symmetry', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iunit, plevel
 

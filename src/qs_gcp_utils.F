@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -111,8 +113,6 @@ CONTAINS
       TYPE(qs_gcp_type), POINTER                         :: gcp_env
       TYPE(section_vals_type), POINTER                   :: xc_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_gcp_env_set', routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length), &
          DIMENSION(:), POINTER                           :: tmpstringlist
       INTEGER                                            :: i_rep, n_rep
@@ -161,7 +161,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_gcp_type), POINTER                         :: gcp_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_gcp_init', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: epsc = 1.e-6_dp
 
       CHARACTER(LEN=10)                                  :: aname
@@ -171,7 +170,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: ea
       REAL(KIND=dp), DIMENSION(10)                       :: al, cl
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
@@ -204,28 +202,30 @@ CONTAINS
          END DO
          ! eamiss from data file
          IF (gcp_env%parameter_file_name /= "---") THEN
-            CALL get_qs_env(qs_env, para_env=para_env)
-            DO ikind = 1, nkind
-               qs_kind => qs_kind_set(ikind)
-               CALL get_qs_kind(qs_kind, element_symbol=element_symbol)
-               CALL get_ptable_info(element_symbol, number=za)
-               !
-               NULLIFY (parser)
-               CALL parser_create(parser, gcp_env%parameter_file_name, para_env=para_env)
-               ea = 0.0_dp
-               DO
-                  at_end = .FALSE.
-                  CALL parser_get_next_line(parser, 1, at_end)
-                  IF (at_end) EXIT
-                  CALL parser_get_object(parser, aname)
-                  IF (TRIM(aname) == element_symbol) THEN
-                     CALL parser_get_object(parser, ea)
-                     EXIT
-                  END IF
+            BLOCK
+               TYPE(cp_parser_type) :: parser
+               CALL get_qs_env(qs_env, para_env=para_env)
+               DO ikind = 1, nkind
+                  qs_kind => qs_kind_set(ikind)
+                  CALL get_qs_kind(qs_kind, element_symbol=element_symbol)
+                  CALL get_ptable_info(element_symbol, number=za)
+                  !
+                  CALL parser_create(parser, gcp_env%parameter_file_name, para_env=para_env)
+                  ea = 0.0_dp
+                  DO
+                     at_end = .FALSE.
+                     CALL parser_get_next_line(parser, 1, at_end)
+                     IF (at_end) EXIT
+                     CALL parser_get_object(parser, aname)
+                     IF (TRIM(aname) == element_symbol) THEN
+                        CALL parser_get_object(parser, ea)
+                        EXIT
+                     END IF
+                  END DO
+                  CALL parser_release(parser)
+                  gcp_env%gcp_kind(ikind)%eamiss = ea
                END DO
-               CALL parser_release(parser)
-               gcp_env%gcp_kind(ikind)%eamiss = ea
-            END DO
+            END BLOCK
          END IF
          !
          ! eamiss from input

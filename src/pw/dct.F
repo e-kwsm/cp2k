@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief the type I Discrete Cosine Transfrom (DCT-I)
+!> \brief the type I Discrete Cosine Transform (DCT-I)
 !> \par History
 !>       07.2014 created [Hossein Bani-Hashemian]
 !>       11.2015 dealt with periodic grids [Hossein Bani-Hashemian]
@@ -91,7 +93,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: neumann_directions
       TYPE(dct_type), INTENT(INOUT)                      :: dct_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dct_type_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'dct_type_init'
 
       INTEGER                                            :: handle, maxn_sendrecv
 
@@ -137,8 +139,7 @@ CONTAINS
 
       TYPE(dct_type), INTENT(INOUT)                      :: dct_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dct_type_release', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'dct_type_release'
 
       INTEGER                                            :: handle
 
@@ -172,8 +173,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: neumann_directions
       TYPE(pw_grid_type), INTENT(INOUT), POINTER         :: dct_pw_grid
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_dct_pw_grids', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'setup_dct_pw_grids'
 
       INTEGER                                            :: blocked, handle, maxn_sendrecv, &
                                                             srcs_shrink
@@ -258,7 +258,7 @@ CONTAINS
 !> \param srcs_expand list of the source processes (pw_expand)
 !> \param flipg_stat flipping status for the received data chunks (pw_expand)
 !> \param dests_shrink list of the destination processes (pw_shrink)
-!> \param srcs_shrink list of the source proceses (pw_shrink)
+!> \param srcs_shrink list of the source processes (pw_shrink)
 !> \par History
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
@@ -272,8 +272,7 @@ CONTAINS
                                                             dests_shrink
       INTEGER, INTENT(OUT)                               :: srcs_shrink
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_dests_srcs_pid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_dests_srcs_pid'
 
       INTEGER                                            :: group_size, handle, i, j, k, &
                                                             maxn_sendrecv, rs_dim1, rs_dim2, &
@@ -527,10 +526,9 @@ CONTAINS
       INTEGER, DIMENSION(:, :, :), INTENT(IN), POINTER   :: recv_msgs_bnds
       INTEGER, DIMENSION(:), INTENT(IN), POINTER         :: dests_expand, srcs_expand, flipg_stat
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds_shftd
-      TYPE(pw_type), INTENT(IN), POINTER                 :: pw_in
-      TYPE(pw_type), INTENT(INOUT), POINTER              :: pw_expanded
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_expanded
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pw_expand', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'pw_expand'
 
       INTEGER :: group_size, handle, i, ind, lb1, lb1_loc, lb1_new, lb2, lb2_loc, lb2_new, lb3, &
          lb3_loc, lb3_new, loc, maxn_sendrecv, rs_group, rs_mpo, ub1, ub1_loc, ub1_new, ub2, &
@@ -697,10 +695,10 @@ CONTAINS
 !>
 !> \param neumann_directions directions in which dct should be performed
 !> \param dests_shrink list of the destination processes
-!> \param srcs_shrink list of the source proceses
+!> \param srcs_shrink list of the source processes
 !> \param bounds_local_shftd local bounds of the original grid after shifting
 !> \param pw_in the original plane wave data
-!> \param pw_shrinked the shrinked plane wave data
+!> \param pw_shrinked the shrunk plane wave data
 !> \par History
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
@@ -712,10 +710,9 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN), POINTER         :: dests_shrink
       INTEGER, INTENT(IN)                                :: srcs_shrink
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds_local_shftd
-      TYPE(pw_type), INTENT(IN), POINTER                 :: pw_in
-      TYPE(pw_type), INTENT(INOUT), POINTER              :: pw_shrinked
+      TYPE(pw_type), INTENT(IN)                          :: pw_in, pw_shrinked
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'pw_shrink', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'pw_shrink'
 
       COMPLEX(dp), DIMENSION(:, :, :), POINTER           :: cc3d
       INTEGER :: group_size, handle, i, in_space, in_use, lb1_orig, lb1_xpnd, lb2_orig, lb2_xpnd, &
@@ -746,7 +743,7 @@ CONTAINS
          maxn_sendrecv = 1
       END SELECT
 
-! cosine transform is a real transform. The cosine transfrom of a 3D data must be real and 3D.
+! cosine transform is a real transform. The cosine transform of a 3D data must be real and 3D.
       NULLIFY (cr3d, cc3d)
       lb1_xpnd = bounds_local_xpnd(1, 1)
       ub1_xpnd = bounds_local_xpnd(2, 1)
@@ -835,7 +832,7 @@ CONTAINS
       REAL(dp), DIMENSION(:, :, :), INTENT(OUT), POINTER :: cr3d_out
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'flipud', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'flipud'
 
       INTEGER :: handle, i, lb1, lb1_glbl, lb1_new, lb2, lb2_glbl, lb2_new, lb3, lb3_glbl, &
          lb3_new, ub1, ub1_glbl, ub1_new, ub2, ub2_glbl, ub2_new, ub3, ub3_glbl, ub3_new
@@ -889,7 +886,7 @@ CONTAINS
       REAL(dp), DIMENSION(:, :, :), INTENT(OUT), POINTER :: cr3d_out
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fliplr', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'fliplr'
 
       INTEGER :: handle, i, lb1, lb1_glbl, lb1_new, lb2, lb2_glbl, lb2_new, lb3, lb3_glbl, &
          lb3_new, ub1, ub1_glbl, ub1_new, ub2, ub2_glbl, ub2_new, ub3, ub3_glbl, ub3_new
@@ -943,7 +940,7 @@ CONTAINS
       REAL(dp), DIMENSION(:, :, :), INTENT(OUT), POINTER :: cr3d_out
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'flipbf', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'flipbf'
 
       INTEGER :: handle, i, lb1, lb1_glbl, lb1_new, lb2, lb2_glbl, lb2_new, lb3, lb3_glbl, &
          lb3_new, ub1, ub1_glbl, ub1_new, ub2, ub2_glbl, ub2_new, ub3, ub3_glbl, ub3_new
@@ -997,7 +994,7 @@ CONTAINS
       REAL(dp), DIMENSION(:, :, :), INTENT(OUT), POINTER :: cr3d_out
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bounds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rot180', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rot180'
 
       INTEGER :: handle, i, lb1, lb1_glbl, lb1_new, lb2, lb2_glbl, lb2_new, lb3, lb3_glbl, &
          lb3_new, ub1, ub1_glbl, ub1_new, ub2, ub2_glbl, ub2_new, ub3, ub3_glbl, ub3_new
@@ -1064,8 +1061,7 @@ CONTAINS
          POINTER                                         :: recv_msgs_bnds
       INTEGER, DIMENSION(2, 3), INTENT(OUT)              :: bounds_new, bounds_local_new
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'expansion_bounds', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'expansion_bounds'
 
       INTEGER                                            :: group_size, handle, i, lb1_new, lb2_new, &
                                                             lb3_new, loc, maxn_sendrecv, rs_group, &
@@ -1106,6 +1102,9 @@ CONTAINS
       CASE (neumannZ)
          maxn_sendrecv = 1
          shf_yesno = (/0, 0, 1/)
+      CASE DEFAULT
+         CPABORT("Unknown neumann direction")
+         shf_yesno = (/0, 0, 0/)
       END SELECT
 
       ALLOCATE (pcs_bnds(2, 3, maxn_sendrecv))
@@ -1214,17 +1213,10 @@ CONTAINS
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
 ! **************************************************************************************************
-   FUNCTION flipud_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
+   PURE FUNCTION flipud_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
 
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bndsl_in, bounds
       INTEGER, DIMENSION(2, 3)                           :: bndsl_out
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'flipud_bounds_local', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle
-
-      CALL timeset(routineN, handle)
 
       bndsl_out(1, 1) = 2*(bounds(2, 1) + 1) - bndsl_in(2, 1)
       bndsl_out(2, 1) = 2*(bounds(2, 1) + 1) - bndsl_in(1, 1)
@@ -1236,8 +1228,6 @@ CONTAINS
 
       bndsl_out(1, 3) = bndsl_in(1, 3)
       bndsl_out(2, 3) = bndsl_in(2, 3)
-
-      CALL timestop(handle)
 
    END FUNCTION flipud_bounds_local
 
@@ -1250,17 +1240,10 @@ CONTAINS
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
 ! **************************************************************************************************
-   FUNCTION fliplr_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
+   PURE FUNCTION fliplr_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
 
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bndsl_in, bounds
       INTEGER, DIMENSION(2, 3)                           :: bndsl_out
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'fliplr_bounds_local', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle
-
-      CALL timeset(routineN, handle)
 
       bndsl_out(1, 1) = bndsl_in(1, 1)
       bndsl_out(2, 1) = bndsl_in(2, 1)
@@ -1273,8 +1256,6 @@ CONTAINS
       bndsl_out(1, 3) = bndsl_in(1, 3)
       bndsl_out(2, 3) = bndsl_in(2, 3)
 
-      CALL timestop(handle)
-
    END FUNCTION fliplr_bounds_local
 
 ! **************************************************************************************************
@@ -1286,17 +1267,10 @@ CONTAINS
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
 ! **************************************************************************************************
-   FUNCTION flipbf_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
+   PURE FUNCTION flipbf_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
 
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bndsl_in, bounds
       INTEGER, DIMENSION(2, 3)                           :: bndsl_out
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'flipbf_bounds_local', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle
-
-      CALL timeset(routineN, handle)
 
       bndsl_out(1, 1) = bndsl_in(1, 1)
       bndsl_out(2, 1) = bndsl_in(2, 1)
@@ -1309,8 +1283,6 @@ CONTAINS
       IF (bndsl_out(1, 3) .EQ. bounds(2, 3) + 2) bndsl_out(1, 3) = bndsl_out(1, 3) - 1
       IF (bndsl_out(2, 3) .EQ. 2*(bounds(2, 3) + 1) - bounds(1, 3)) bndsl_out(2, 3) = bndsl_out(2, 3) - 1
 
-      CALL timestop(handle)
-
    END FUNCTION flipbf_bounds_local
 
 ! **************************************************************************************************
@@ -1322,17 +1294,10 @@ CONTAINS
 !>       07.2014 created [Hossein Bani-Hashemian]
 !> \author Mohammad Hossein Bani-Hashemian
 ! **************************************************************************************************
-   FUNCTION rot180_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
+   PURE FUNCTION rot180_bounds_local(bndsl_in, bounds) RESULT(bndsl_out)
 
       INTEGER, DIMENSION(2, 3), INTENT(IN)               :: bndsl_in, bounds
       INTEGER, DIMENSION(2, 3)                           :: bndsl_out
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rot180_bounds_local', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle
-
-      CALL timeset(routineN, handle)
 
       bndsl_out(1, 1) = 2*(bounds(2, 1) + 1) - bndsl_in(2, 1)
       bndsl_out(2, 1) = 2*(bounds(2, 1) + 1) - bndsl_in(1, 1)
@@ -1346,8 +1311,6 @@ CONTAINS
 
       bndsl_out(1, 3) = bndsl_in(1, 3)
       bndsl_out(2, 3) = bndsl_in(2, 3)
-
-      CALL timestop(handle)
 
    END FUNCTION rot180_bounds_local
 

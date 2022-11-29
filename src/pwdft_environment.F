@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -40,7 +42,6 @@ MODULE pwdft_environment
                                               write_qs_kind_set
    USE qs_subsys_methods,               ONLY: qs_subsys_create
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
-                                              qs_subsys_release,&
                                               qs_subsys_set,&
                                               qs_subsys_type
    USE sirius_interface,                ONLY: cp_sirius_create_env,&
@@ -83,7 +84,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
       LOGICAL, INTENT(IN)                                :: use_motion_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pwdft_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pwdft_init'
 
       INTEGER                                            :: handle, iw, natom
       LOGICAL                                            :: use_ref_cell
@@ -119,6 +120,7 @@ CONTAINS
       CALL pwdft_env_set(pwdft_env=pwdft_env, para_env=para_env)
 
       NULLIFY (qs_subsys)
+      ALLOCATE (qs_subsys)
       CALL qs_subsys_create(qs_subsys, para_env, &
                             force_env_section=force_env_section, &
                             subsys_section=subsys_section, &
@@ -147,9 +149,7 @@ CONTAINS
       CALL distribution_1d_release(local_molecules)
 
       CALL pwdft_env_set(pwdft_env=pwdft_env, qs_subsys=qs_subsys)
-      CALL qs_subsys_release(qs_subsys)
 
-      CALL pwdft_env_get(pwdft_env=pwdft_env, qs_subsys=qs_subsys)
       CALL qs_subsys_get(qs_subsys, cell=my_cell, cell_ref=my_cell_ref, use_ref_cell=use_ref_cell)
 
       NULLIFY (logger)
@@ -185,16 +185,11 @@ CONTAINS
       ! Print symmetry information
       CALL write_symmetry(particle_set, my_cell, subsys_section)
 
-      IF (iw > 0) THEN
-         WRITE (iw, '(A,A,A)') " ==================================", " SIRIUS INIT ", &
-            "================================="
-      END IF
       ! Sirius initialization
       CALL cp_sirius_create_env(pwdft_env)
 
       IF (iw > 0) THEN
-         WRITE (iw, '(A,A,A)') " =========================", " SIRIUS INIT FINISHED ", &
-            "================================="
+         WRITE (iw, '(A)') "SIRIUS| INIT: FINISHED"
       END IF
       IF (iw > 0) CALL m_flush(iw)
 
@@ -215,8 +210,7 @@ CONTAINS
       TYPE(pwdft_environment_type), POINTER              :: pwdft_env
       LOGICAL, INTENT(IN)                                :: calculate_forces, calculate_stress
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pwdft_calc_energy_force', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pwdft_calc_energy_force'
 
       INTEGER                                            :: handle, iatom, iw, natom
       REAL(KIND=dp), DIMENSION(1:3, 1:3)                 :: stress
@@ -236,16 +230,10 @@ CONTAINS
       iw = cp_logger_get_default_io_unit(logger)
 
       ! update context for new positions/cell
-      IF (iw > 0) THEN
-         WRITE (iw, '(A,A,A)') " =============================", " SIRIUS UPDATE CONTEXT", &
-            "============================"
-      END IF
       ! Sirius initialization
       CALL cp_sirius_update_context(pwdft_env)
-
       IF (iw > 0) THEN
-         WRITE (iw, '(A,A,A)') " ====================", " SIRIUS UPDATE CONTEXT FINISHED", &
-            "============================"
+         WRITE (iw, '(A)') "SIRIUS| UPDATE CONTEXT : FINISHED"
       END IF
       IF (iw > 0) CALL m_flush(iw)
 

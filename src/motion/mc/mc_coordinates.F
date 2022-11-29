@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -73,8 +75,7 @@ CONTAINS
          OPTIONAL                                        :: cell_length
       INTEGER, INTENT(IN), OPTIONAL                      :: molecule_number
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_for_overlap', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'check_for_overlap'
 
       INTEGER                                            :: handle, imol, iunit, jmol, jstart, &
                                                             junit, nend, nstart, nunit, nunits_i, &
@@ -108,7 +109,7 @@ CONTAINS
          box_length(1:3) = cell_length(1:3)
       ELSE
          box_length(1:3) = abc(1:3)
-      ENDIF
+      END IF
 
 ! put the coordinates into an easier matrix to manipulate
       junit = 0
@@ -117,8 +118,8 @@ CONTAINS
          DO iunit = 1, nunit
             junit = junit + 1
             r(1:3, iunit, imol) = particles%els(junit)%r(1:3)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
 ! now let's find the LJ energy between all the oxygens and
 ! the charge interactions
@@ -131,7 +132,7 @@ CONTAINS
       ELSE
          nstart = 1
          nend = SUM(nchains(:))
-      ENDIF
+      END IF
       DO imol = nstart, nend
          IF (lall) jstart = imol + 1
          nunits_i = nunits(mol_type(imol))
@@ -160,12 +161,12 @@ CONTAINS
 
                      CALL timestop(handle)
                      RETURN
-                  ENDIF
+                  END IF
 
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+               END DO
+            END DO
+         END DO
+      END DO
 
       DEALLOCATE (r)
 
@@ -176,7 +177,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief calculates the center of mass of a given molecule
-!> \param coordinates the coordiantes of the atoms in the molecule
+!> \param coordinates the coordinates of the atoms in the molecule
 !> \param natom the number of atoms in the molecule
 !> \param center_of_mass the coordinates of the center of mass
 !> \param mass the mass of the atoms in the molecule
@@ -192,8 +193,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(1:3), INTENT(OUT)         :: center_of_mass
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: mass
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_center_of_mass', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_center_of_mass'
 
       INTEGER                                            :: handle, i, iatom
       REAL(KIND=dp)                                      :: total_mass
@@ -209,8 +209,8 @@ CONTAINS
          DO i = 1, 3
             center_of_mass(i) = center_of_mass(i) + &
                                 mass(iatom)*coordinates(i, iatom)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       center_of_mass(1:3) = center_of_mass(1:3)/total_mass
 
@@ -222,7 +222,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief folds all the coordinates into the center simulation box using
 !>      a center of mass cutoff
-!> \param coordinates the coordiantes of the atoms in the system
+!> \param coordinates the coordinates of the atoms in the system
 !> \param nchains_tot the total number of molecules in the box
 !> \param mol_type an array that indicates the type of every molecule in the box
 !> \param mass the mass of every atom for all molecule types
@@ -241,8 +241,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nunits
       REAL(KIND=dp), DIMENSION(1:3), INTENT(IN)          :: box_length
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mc_coordinate_fold', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'mc_coordinate_fold'
 
       INTEGER                                            :: end_atom, handle, iatom, imolecule, &
                                                             jatom, molecule_type, natoms, &
@@ -270,9 +269,9 @@ CONTAINS
                                     box_length(2)*FLOOR(center_of_mass(2)/box_length(2))
             coordinates(3, jatom) = coordinates(3, jatom) - &
                                     box_length(3)*FLOOR(center_of_mass(3)/box_length(2))
-         ENDDO
+         END DO
 
-      ENDDO
+      END DO
 
 ! end the timing
       CALL timestop(handle)
@@ -298,7 +297,7 @@ CONTAINS
 !> \param mass the mass for every interaction site of every molecule type
 !> \param loverlap the flag that indicates if all of the configs have an
 !>                  atomic overlap
-!> \param choosen_energy the energy of the choosen config
+!> \param choosen_energy the energy of the chosen config
 !> \param old_energy the energy that we subtract from all of the trial
 !>        energies to prevent numerical overflows
 !> \param ionode indicates if we're on the main CPU
@@ -350,8 +349,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: move_type
       INTEGER, INTENT(IN), OPTIONAL                      :: target_atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'generate_cbmc_swap_config', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'generate_cbmc_swap_config'
 
       INTEGER                                            :: atom_number, choosen, end_atom, handle, &
                                                             i, iatom, imolecule, imove, &
@@ -383,8 +381,8 @@ CONTAINS
          IF (.NOT. PRESENT(rmin) .OR. .NOT. PRESENT(rmax) .OR. &
              .NOT. PRESENT(move_type) .OR. .NOT. PRESENT(target_atom)) THEN
             CPABORT('AVBMC swap move is missing information!')
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       ALLOCATE (r_old(1:3, 1:natoms_tot))
       ALLOCATE (r(1:3, 1:natoms_tot, 1:nswapmoves))
@@ -405,13 +403,13 @@ CONTAINS
       DO imove = 1, nswapmoves
          DO iatom = 1, natoms_tot
             r(1:3, iatom, imove) = particles%els(iatom)%r(1:3)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
 ! save the remove coordinates
       DO iatom = 1, natoms_tot
          r_old(1:3, iatom) = r(1:3, iatom, 1)
-      ENDDO
+      END DO
 
 ! figure out the numbers of the first and last atoms in the molecule
       end_atom = start_atom + nunits_mol - 1
@@ -422,9 +420,9 @@ CONTAINS
          IF (atom_number == start_atom) THEN
             molecule_number = imolecule
             EXIT
-         ENDIF
+         END IF
          atom_number = atom_number + nunits(mol_type(imolecule))
-      ENDDO
+      END DO
       IF (molecule_number == 0) CALL cp_abort(__LOCATION__, &
                                               'CBMC swap move cannot find which molecule number it needs')
 
@@ -438,11 +436,11 @@ CONTAINS
                WRITE (*, *) start_atom, end_atom, natoms_tot
                DO iatom = 1, natoms_tot
                   WRITE (*, *) r(1:3, iatom, 1)
-               ENDDO
-            ENDIF
+               END DO
+            END IF
             CPABORT('CBMC swap move found an overlap in the old config')
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       DO imove = 1, nswapmoves
 
@@ -457,14 +455,14 @@ CONTAINS
 
                DO i = 1, 3
                   diff(i) = r_insert(i) - r_old(i, start_atom + avbmc_atom - 1)
-               ENDDO
+               END DO
 
             ELSE
 ! find a new insertion point somewhere in the box
                DO i = 1, 3
                   rand = rng_stream%next()
                   r_insert(i) = rand*abc(i)
-               ENDDO
+               END DO
 
 ! find the center of mass of the insertion molecule
                CALL get_center_of_mass(r(:, start_atom:end_atom, imove), nunits_mol, &
@@ -474,13 +472,13 @@ CONTAINS
 
                DO i = 1, 3
                   diff(i) = r_insert(i) - center_of_mass(i)
-               ENDDO
+               END DO
 
-            ENDIF
+            END IF
 
             DO iatom = start_atom, end_atom
                r(1:3, iatom, imove) = r(1:3, iatom, imove) + diff(1:3)
-            ENDDO
+            END DO
 
 ! rotate the molecule...this routine is only made for serial use
             CALL rotate_molecule(r(:, start_atom:end_atom, imove), mass(:), &
@@ -489,24 +487,24 @@ CONTAINS
             IF (imove == 1 .AND. lremove) THEN
                DO iatom = 1, natoms_tot
                   r(1:3, iatom, 1) = r_old(1:3, iatom)
-               ENDDO
-            ENDIF
+               END DO
+            END IF
 
-         ENDIF
+         END IF
 
          CALL mp_bcast(r(:, :, imove), source, group)
 
 ! calculate the energy and boltzman weight of the config
          DO iatom = start_atom, end_atom
             particles%els(iatom)%r(1:3) = r(1:3, iatom, imove)
-         ENDDO
+         END DO
 
          CALL check_for_overlap(force_env, nchains, nunits, loverlap_array(imove), &
                                 mol_type, molecule_number=molecule_number)
          IF (loverlap_array(imove)) THEN
             boltz_weights(imove) = 0.0_dp
             CYCLE
-         ENDIF
+         END IF
 
          CALL force_env_calc_energy_force(force_env, calc_force=.FALSE.)
          CALL force_env_get(force_env, &
@@ -521,9 +519,9 @@ CONTAINS
             boltz_weights(imove) = min_val
          ELSE
             boltz_weights(imove) = EXP(exponent)
-         ENDIF
+         END IF
 
-      ENDDO
+      END DO
 
 ! now we need to pick a configuration based on the Rosenbluth weight,
 ! which is just the sum of the Boltzmann weights
@@ -539,17 +537,17 @@ CONTAINS
             WRITE (*, *)
             DO iatom = 1, natoms_tot
                WRITE (*, *) r(1:3, iatom, 1)*angstrom
-            ENDDO
-         ENDIF
+            END DO
+         END IF
          CPABORT('CBMC swap move found a bad old weight')
-      ENDIF
+      END IF
       all_overlaps = .TRUE.
       total_running_weight = 0.0E0_dp
       choosen = 0
       IF (ionode) THEN
          rand = rng_stream%next()
 !         CALL random_number(rand)
-      ENDIF
+      END IF
       CALL mp_bcast(rand, source, group)
       DO imove = 1, nswapmoves
          IF (loverlap_array(imove)) CYCLE
@@ -558,8 +556,8 @@ CONTAINS
          IF (total_running_weight .GE. rand*rosenbluth_weight) THEN
             choosen = imove
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       IF (all_overlaps) THEN
          loverlap = .TRUE.
@@ -573,10 +571,10 @@ CONTAINS
                WRITE (*, *) loverlap_array(1:nswapmoves)
                DO iatom = 1, natoms_tot
                   WRITE (*, *) r(1:3, iatom, 1)
-               ENDDO
-            ENDIF
+               END DO
+            END IF
             CPABORT('CBMC swap move found all overlaps for the remove config')
-         ENDIF
+         END IF
 
          DEALLOCATE (r_old)
          DEALLOCATE (r)
@@ -585,9 +583,9 @@ CONTAINS
          DEALLOCATE (loverlap_array)
          CALL timestop(handle)
          RETURN
-      ENDIF
+      END IF
 
-! make sure a configuration was choosen
+! make sure a configuration was chosen
       IF (choosen == 0) &
          CPABORT('CBMC swap move failed to select config')
 
@@ -600,7 +598,7 @@ CONTAINS
 ! copy the coordinates to the force environment
       DO iatom = 1, natoms_tot
          particles%els(iatom)%r(1:3) = r(1:3, iatom, choosen)
-      ENDDO
+      END DO
 
       DEALLOCATE (r_old)
       DEALLOCATE (r)
@@ -632,8 +630,7 @@ CONTAINS
          INTENT(INOUT)                                   :: r
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rotate_molecule', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rotate_molecule'
 
       INTEGER                                            :: handle, iunit
       REAL(KIND=dp)                                      :: cosdg, dgamma, rand, rx, rxnew, ry, &
@@ -667,7 +664,7 @@ CONTAINS
          r(2, iunit) = rynew + center_of_mass(2)
          r(3, iunit) = rznew + center_of_mass(3)
 
-      ENDDO
+      END DO
 
 ! ***    ROTATE UNITS OF I AROUND y-AXIS ***
 
@@ -680,7 +677,7 @@ CONTAINS
          r(1, iunit) = rxnew + center_of_mass(1)
          r(3, iunit) = rznew + center_of_mass(3)
 
-      ENDDO
+      END DO
 
 ! ***    ROTATE UNITS OF I AROUND z-AXIS ***
 
@@ -693,7 +690,7 @@ CONTAINS
          r(1, iunit) = rxnew + center_of_mass(1)
          r(2, iunit) = rynew + center_of_mass(2)
 
-      ENDDO
+      END DO
 
 ! end the timing
       CALL timestop(handle)
@@ -704,10 +701,10 @@ CONTAINS
 !> \brief selects a molecule at random to perform a MC move on...you can specify
 !>      the box the molecule should be in, its type, both, or neither
 !> \param mc_molecule_info the structure that contains some global molecule data
-!> \param start_atom the number of the first atom in the choosen molecule in relation
+!> \param start_atom the number of the first atom in the chosen molecule in relation
 !>        to the force_env it's in
-!> \param box_number the box the choosen molecule is in
-!> \param molecule_type the type of molecule the choosen molecule is
+!> \param box_number the box the chosen molecule is in
+!> \param molecule_type the type of molecule the chosen molecule is
 !> \param rng_stream the stream we pull random numbers from
 !> \param box if present, tells the routine which box to grab a molecule from
 !> \param molecule_type_old if present, tells the routine which molecule type to select from
@@ -721,8 +718,7 @@ CONTAINS
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
       INTEGER, INTENT(IN), OPTIONAL                      :: box, molecule_type_old
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'find_mc_test_molecule', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'find_mc_test_molecule'
 
       INTEGER                                            :: handle, ibox, imol_type, imolecule, &
                                                             jbox, molecule_number, nchains_tot, &
@@ -752,17 +748,17 @@ CONTAINS
          start_mol = 1
          DO jbox = 1, box - 1
             start_mol = start_mol + SUM(nchains(:, jbox))
-         ENDDO
+         END DO
 
 ! adjust to take into account molecules of other types in the box
          DO imol_type = 1, molecule_type_old - 1
             molecule_number = molecule_number + nchains(imol_type, box)
-         ENDDO
+         END DO
 
          start_atom = 1
          DO imolecule = 1, molecule_number - 1
             start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
-         ENDDO
+         END DO
 
       ELSEIF (PRESENT(box)) THEN
 ! any molecule in box...need to find molecule type and start atom
@@ -772,7 +768,7 @@ CONTAINS
          start_mol = 1
          DO jbox = 1, box - 1
             start_mol = start_mol + SUM(nchains(:, jbox))
-         ENDDO
+         END DO
 
          molecule_type = mol_type(start_mol + molecule_number - 1)
 
@@ -780,7 +776,7 @@ CONTAINS
          start_atom = 1
          DO imolecule = 1, molecule_number - 1
             start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
-         ENDDO
+         END DO
 
       ELSEIF (PRESENT(molecule_type_old)) THEN
 ! any molecule of type molecule_type_old...need to find box number and start atom
@@ -793,30 +789,30 @@ CONTAINS
             IF (molecule_number .LE. nchains(molecule_type_old, ibox)) THEN
                box_number = ibox
                EXIT
-            ENDIF
+            END IF
             molecule_number = molecule_number - nchains(molecule_type_old, ibox)
-         ENDDO
+         END DO
 
          start_mol = 1
          DO jbox = 1, box_number - 1
             start_mol = start_mol + SUM(nchains(:, jbox))
-         ENDDO
+         END DO
 
 ! now find the starting atom number
          DO imol_type = 1, molecule_type_old - 1
             molecule_number = molecule_number + nchains(imol_type, box_number)
-         ENDDO
+         END DO
          start_atom = 1
          DO imolecule = 1, molecule_number - 1
             start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
-         ENDDO
+         END DO
 
       ELSE
 ! no restrictions...need to find all pieces of data
          nchains_tot = 0
          DO ibox = 1, SIZE(nchains(1, :))
             nchains_tot = nchains_tot + SUM(nchains(:, ibox))
-         ENDDO
+         END DO
          rand = rng_stream%next()
          molecule_number = CEILING(rand*REAL(nchains_tot, KIND=dp))
 
@@ -827,21 +823,21 @@ CONTAINS
             IF (molecule_number .LE. SUM(nchains(:, ibox))) THEN
                box_number = ibox
                EXIT
-            ENDIF
+            END IF
             molecule_number = molecule_number - SUM(nchains(:, ibox))
-         ENDDO
+         END DO
 
 ! now find the starting atom number
          start_mol = 1
          DO jbox = 1, box_number - 1
             start_mol = start_mol + SUM(nchains(:, jbox))
-         ENDDO
+         END DO
          start_atom = 1
          DO imolecule = 1, molecule_number - 1
             start_atom = start_atom + nunits(mol_type(start_mol + imolecule - 1))
-         ENDDO
+         END DO
 
-      ENDIF
+      END IF
 
 ! make sure things are good
       IF (PRESENT(box)) box_number = box
@@ -897,7 +893,7 @@ CONTAINS
          DO iside = 1, 3
             IF (cell(iside) .LT. low_value) low_value = cell(iside)
             IF (cell(iside) .GT. high_value) high_value = cell(iside)
-         ENDDO
+         END DO
          DO iside = 1, 3
 ! now we see if the value is a high value or a low value...it can only be
 ! one of the two
@@ -909,9 +905,9 @@ CONTAINS
 ! high value, we can only decrease the cell size
                discrete_array(iside, 1) = 0
                discrete_array(iside, 2) = 1
-            ENDIF
-         ENDDO
-      ENDIF
+            END IF
+         END DO
+      END IF
 
    END SUBROUTINE create_discrete_array
 
@@ -957,8 +953,8 @@ CONTAINS
                r_insert(2) = 2.0_dp*eta_2*SQRT(1.0_dp - eta_sq)
                r_insert(3) = 1.0_dp - 2.0_dp*eta_sq
                EXIT
-            ENDIF
-         ENDDO
+            END IF
+         END DO
 
 ! now scale that vector to be within the "in" region
          rand = rng_stream%next()
@@ -973,7 +969,7 @@ CONTAINS
             DO i = 1, 3
                rand = rng_stream%next()
                r_insert(i) = rand*abc(i)
-            ENDDO
+            END DO
 
 ! make sure it's not in the "in" region
             RIJ(1) = r_insert(1) - r_target(1) - abc(1)* &
@@ -987,10 +983,10 @@ CONTAINS
 
             IF (dist .LT. rmin**2 .OR. dist .GT. rmax**2) THEN
                EXIT
-            ENDIF
+            END IF
 
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
    END SUBROUTINE generate_avbmc_insertion
 
@@ -1021,7 +1017,7 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(IN)                  :: nchains, nunits, mol_type
       INTEGER, INTENT(INOUT)                             :: total_clus
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cluster_search', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cluster_search'
 
       INTEGER                                            :: counter, handle, imol, iunit, jmol, &
                                                             junit, nend, nstart, nunit, nunits_i, &
@@ -1059,12 +1055,12 @@ CONTAINS
          DO iunit = 1, nunit
             junit = junit + 1
             r(1:3, iunit, imol) = particles%els(junit)%r(1:3)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       counter = 0
 
-! Allocating the size of matrix and decison matrix
+! Allocating the size of matrix and decision matrix
       ALLOCATE (clusmat(nend), decision(nend))
 
 !Initialize

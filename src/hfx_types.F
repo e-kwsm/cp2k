@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,12 +16,9 @@ MODULE hfx_types
    USE atomic_kind_types,               ONLY: atomic_kind_type,&
                                               get_atomic_kind,&
                                               get_atomic_kind_set
-   USE auto_basis,                      ONLY: create_ri_aux_basis_set
-   USE basis_set_container_types,       ONLY: add_basis_set_to_container
    USE basis_set_types,                 ONLY: get_gto_basis_set,&
                                               gto_basis_set_p_type,&
-                                              gto_basis_set_type,&
-                                              init_orb_basis_set
+                                              gto_basis_set_type
    USE bibliography,                    ONLY: cite_reference,&
                                               guidon2008,&
                                               guidon2009
@@ -34,26 +33,27 @@ MODULE hfx_types
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
-                                              cp_print_key_unit_nr
+                                              cp_print_key_unit_nr,&
+                                              debug_print_level
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_units,                        ONLY: cp_unit_from_cp2k
-   USE dbcsr_tensor_api,                ONLY: &
-        dbcsr_t_batched_contract_finalize, dbcsr_t_destroy, dbcsr_t_distribution_destroy, &
-        dbcsr_t_distribution_new, dbcsr_t_distribution_type, dbcsr_t_mp_dims_create, &
-        dbcsr_t_pgrid_create, dbcsr_t_pgrid_destroy, dbcsr_t_pgrid_type, dbcsr_t_type
+   USE dbt_api,                         ONLY: &
+        dbt_create, dbt_default_distvec, dbt_destroy, dbt_distribution_destroy, &
+        dbt_distribution_new, dbt_distribution_type, dbt_mp_dims_create, dbt_pgrid_create, &
+        dbt_pgrid_destroy, dbt_pgrid_type, dbt_type
    USE hfx_helpers,                     ONLY: count_cells_perd,&
                                               next_image_cell_perd
    USE input_constants,                 ONLY: &
         do_hfx_auto_shells, do_potential_coulomb, do_potential_gaussian, do_potential_id, &
         do_potential_long, do_potential_mix_cl, do_potential_mix_cl_trunc, do_potential_mix_lg, &
-        do_potential_short, do_potential_truncated, hfx_do_eval_energy, hfx_do_eval_forces, &
-        hfx_ri_do_2c_diag, hfx_ri_do_2c_iter
+        do_potential_short, do_potential_truncated, hfx_ri_do_2c_diag, hfx_ri_do_2c_iter
    USE input_cp2k_hfx,                  ONLY: ri_mo,&
                                               ri_pmat
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_type,&
-                                              section_vals_val_get
+                                              section_vals_val_get,&
+                                              section_vals_val_set
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp,&
@@ -74,14 +74,13 @@ MODULE hfx_types
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE qs_integral_utils,               ONLY: basis_set_list_setup
-   USE qs_interactions,                 ONLY: init_interaction_radii_orb_basis
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               get_qs_kind_set,&
                                               qs_kind_type
-   USE qs_loc_types,                    ONLY: qs_loc_env_new_type
+   USE qs_loc_types,                    ONLY: qs_loc_env_type
    USE qs_tensors_types,                ONLY: &
-        create_2c_tensor, create_3c_tensor, cyclic_tensor_dist, distribution_3d_create, &
-        distribution_3d_destroy, distribution_3d_type, libcusmm_maxblocksize, pgf_block_sizes, &
+        create_2c_tensor, create_3c_tensor, create_tensor_batches, default_block_size, &
+        distribution_3d_create, distribution_3d_destroy, distribution_3d_type, pgf_block_sizes, &
         split_block_sizes
    USE string_utilities,                ONLY: compress
    USE t_c_g0,                          ONLY: free_C0
@@ -107,7 +106,8 @@ MODULE hfx_types
              hfx_pgf_product_list, hfx_block_range_type, &
              alloc_containers, dealloc_containers, hfx_task_list_type, init_t_c_g0_lmax, &
              hfx_create_neighbor_cells, hfx_create_basis_types, hfx_release_basis_types, &
-             hfx_ri_type
+             hfx_ri_type, hfx_compression_type, block_ind_type, hfx_ri_init, hfx_ri_release, &
+             compare_hfx_sections
 
 #define CACHE_SIZE 1024
 #define BITS_MAX_VAL 6
@@ -150,7 +150,7 @@ MODULE hfx_types
       REAL(dp)                                 :: eps_schwarz !! threshold
       REAL(dp)                                 :: eps_schwarz_forces !! threshold
       LOGICAL                                  :: do_p_screening_forces !! screen on P^2 ?
-      LOGICAL                                  :: do_initial_p_screening !! screen on inital guess?
+      LOGICAL                                  :: do_initial_p_screening !! screen on initial guess?
    END TYPE
 
 ! **************************************************************************************************
@@ -236,13 +236,6 @@ MODULE hfx_types
       TYPE(pair_list_element_type), DIMENSION(max_atom_block**2) :: elements
       INTEGER :: n_element
    END TYPE pair_list_type
-
-! **************************************************************************************************
-   TYPE hfx_compression_type
-      INTEGER(int_8), DIMENSION(:), POINTER    :: compressed_data
-      INTEGER(int_8)                           :: element_pointer
-      INTEGER                                  :: bit_pointer
-   END TYPE
 
 ! **************************************************************************************************
    TYPE hfx_cache_type
@@ -355,12 +348,32 @@ MODULE hfx_types
       INTEGER(int_8)                           :: cost
    END TYPE
 
+   TYPE :: hfx_compression_type
+      TYPE(hfx_container_type), DIMENSION(:), &
+         POINTER        :: maxval_container
+      TYPE(hfx_cache_type), DIMENSION(:), &
+         POINTER            :: maxval_cache
+      TYPE(hfx_container_type), DIMENSION(:, :), &
+         POINTER        :: integral_containers
+      TYPE(hfx_cache_type), DIMENSION(:, :), &
+         POINTER            :: integral_caches
+      TYPE(hfx_container_type), POINTER :: maxval_container_disk
+      TYPE(hfx_cache_type)     :: maxval_cache_disk
+      TYPE(hfx_cache_type)      :: integral_caches_disk(64)
+      TYPE(hfx_container_type), POINTER, &
+         DIMENSION(:)  :: integral_containers_disk
+   END TYPE
+
+   TYPE :: block_ind_type
+      INTEGER, DIMENSION(:, :), ALLOCATABLE :: ind
+   END TYPE
+
    TYPE hfx_ri_type
       ! input parameters (see input_cp2k_hfx)
-      REAL(KIND=dp) :: filter_eps, filter_eps_2c, filter_eps_3c, filter_eps_mo, &
+      REAL(KIND=dp) :: filter_eps, filter_eps_2c, filter_eps_storage, filter_eps_mo, &
                        eps_lanczos, eps_pgf_orb, eps_eigval
       INTEGER :: t2c_sqrt_order, max_iter_lanczos, flavor, unit_nr_dbcsr, unit_nr, &
-                 min_bsize, min_bsize_MO, t2c_method, nelectron_total
+                 min_bsize, max_bsize_MO, t2c_method, nelectron_total, input_flavor
       LOGICAL :: check_2c_inv, calc_condnum
 
       TYPE(libint_potential_type) :: ri_metric
@@ -368,59 +381,54 @@ MODULE hfx_types
       ! input parameters from hfx
       TYPE(libint_potential_type) :: hfx_pot ! interaction potential
       REAL(KIND=dp) :: eps_schwarz ! integral screening threshold
+      REAL(KIND=dp) :: eps_schwarz_forces ! integral derivatives screening threshold
 
       LOGICAL :: same_op ! whether RI operator is same as HF potential
 
       ! default process grid used for 3c tensors
-      TYPE(dbcsr_t_pgrid_type), POINTER :: pgrid => NULL()
-      TYPE(dbcsr_t_pgrid_type), POINTER :: pgrid_2d => NULL()
+      TYPE(dbt_pgrid_type), POINTER :: pgrid => NULL()
+      TYPE(dbt_pgrid_type), POINTER :: pgrid_2d => NULL()
 
       ! distributions for (RI | AO AO) 3c integral tensor (non split)
       TYPE(distribution_3d_type) :: dist_3d
-      TYPE(dbcsr_t_distribution_type) :: dist
+      TYPE(dbt_distribution_type) :: dist
 
       ! MO localization
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env => NULL()
+      TYPE(qs_loc_env_type), POINTER                 :: qs_loc_env => NULL()
       TYPE(section_vals_type), POINTER                   :: loc_subsection => NULL(), print_loc_subsection => NULL()
       LOGICAL                                            :: do_loc
 
-      INTEGER, DIMENSION(:), ALLOCATABLE :: dist1_AO_1, dist1_AO_2, dist1_RI
-      INTEGER, DIMENSION(:), ALLOCATABLE :: dist2_AO_1, dist2_AO_2, dist2_RI
-      INTEGER, DIMENSION(:), ALLOCATABLE :: dist3_AO_1, dist3_AO_2, dist3_RI
-      INTEGER, DIMENSION(:), ALLOCATABLE :: dist4_AO_1, dist4_AO_2, dist4_RI
-
       ! block sizes for RI and AO tensor dimensions (split)
-      INTEGER, DIMENSION(:), ALLOCATABLE :: bsizes_RI, bsizes_AO, bsizes_RI_split, bsizes_AO_split, bsizes_RI_fit, bsizes_AO_fit
+      INTEGER, DIMENSION(:), ALLOCATABLE :: bsizes_RI, bsizes_AO, bsizes_RI_split, bsizes_AO_split, &
+                                            bsizes_RI_fit, bsizes_AO_fit
 
-      ! Note: changed static DIMENSION(1,1) of dbcsr_t_type to allocatables as workaround for gfortran 8.3.0,
+      ! Note: changed static DIMENSION(1,1) of dbt_type to allocatables as workaround for gfortran 8.3.0,
       ! with static dimension gfortran gets stuck during compilation
 
-      ! 2c tensor in (RI | RI) format for contraction
-      TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE    :: t_2c_int
+      ! 2c tensors in (RI | RI) format for forces
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE    :: t_2c_inv
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE    :: t_2c_pot
 
-      ! 3c integral tensor in default format
-      TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int
+      ! 2c tensor in (RI | RI) format for contraction
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE    :: t_2c_int
 
       ! 3c integral tensor in (AO RI | AO) format for contraction
-      TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_1
-      TYPE(dbcsr_t_pgrid_type), POINTER                :: pgrid_1 => NULL()
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_1
+      TYPE(block_ind_type), DIMENSION(:, :), ALLOCATABLE :: blk_indices
+      TYPE(dbt_pgrid_type), POINTER                :: pgrid_1 => NULL()
 
-      ! 3c integral tensor in ( AO | RI AO) format for contraction
-      TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_2
-      TYPE(dbcsr_t_pgrid_type), POINTER                :: pgrid_2 => NULL()
+      ! 3c integral tensor in ( AO | RI AO) (MO) or (AO RI | AO) (RHO) format for contraction
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_2
+      TYPE(dbt_pgrid_type), POINTER                :: pgrid_2 => NULL()
 
       ! 3c integral tensor in ( RI | AO AO ) format for contraction
-      TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_3
-      TYPE(dbcsr_t_pgrid_type), POINTER                :: pgrid_3 => NULL()
+      TYPE(dbt_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_3
 
       ! 3c integral tensor in (RI | MO AO ) format for contraction
-      TYPE(dbcsr_t_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_int_mo
-      TYPE(dbcsr_t_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_RI
-      TYPE(dbcsr_t_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_KS
-      TYPE(dbcsr_t_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_KS_copy
-      ! 3c integral tensor in ( RI AO | AO ) format for contraction
-      !TYPE(dbcsr_t_type), DIMENSION(:, :), ALLOCATABLE :: t_3c_int_ctr_4
-      !TYPE(dbcsr_t_pgrid_type), POINTER                :: pgrid_4 => NULL()
+      TYPE(dbt_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_int_mo
+      TYPE(dbt_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_RI
+      TYPE(dbt_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_KS
+      TYPE(dbt_type), DIMENSION(:, :, :), ALLOCATABLE :: t_3c_ctr_KS_copy
 
       ! optional: sections for output handling
       ! alternatively set unit_nr_dbcsr (for logging tensor operations) and unit_nr (for general
@@ -431,15 +439,19 @@ MODULE hfx_types
       CHARACTER(len=default_string_length) :: orb_basis_type, ri_basis_type
 
       ! memory reduction factor
-      INTEGER :: n_mem
+      INTEGER :: n_mem_input, n_mem, n_mem_RI, n_mem_flavor_switch
 
-      ! relevant non-zero RI-AO pairs
-      INTEGER, DIMENSION(:, :), ALLOCATABLE :: nonzero_pairs
-      INTEGER, DIMENSION(:), ALLOCATABLE :: nonzero_rows
+      ! offsets for memory batches
+      INTEGER, DIMENSION(:), ALLOCATABLE :: starts_array_mem_block, ends_array_mem_block
+      INTEGER, DIMENSION(:), ALLOCATABLE :: starts_array_mem, ends_array_mem
+
+      INTEGER, DIMENSION(:), ALLOCATABLE :: starts_array_RI_mem_block, ends_array_RI_mem_block
+      INTEGER, DIMENSION(:), ALLOCATABLE :: starts_array_RI_mem, ends_array_RI_mem
 
       INTEGER(int_8) :: dbcsr_nflop
       REAL(dp)       :: dbcsr_time
       INTEGER        :: num_pe
+      TYPE(hfx_compression_type), DIMENSION(:, :), ALLOCATABLE :: store_3c
 
    END TYPE
 
@@ -485,28 +497,9 @@ MODULE hfx_types
       TYPE(hfx_periodic_type)                  :: periodic_parameter
       TYPE(hfx_load_balance_type)              :: load_balance_parameter
       TYPE(hfx_general_type)                   :: general_parameter
-      TYPE(hfx_container_type), DIMENSION(:), &
-         POINTER        :: maxval_container
-      TYPE(hfx_cache_type), DIMENSION(:), &
-         POINTER            :: maxval_cache
-      TYPE(hfx_container_type), DIMENSION(:, :), &
-         POINTER        :: integral_containers
-      TYPE(hfx_cache_type), DIMENSION(:, :), &
-         POINTER            :: integral_caches
-      TYPE(hfx_container_type), DIMENSION(:), &
-         POINTER        :: maxval_container_forces
-      TYPE(hfx_cache_type), DIMENSION(:), &
-         POINTER            :: maxval_cache_forces
-      TYPE(hfx_container_type), DIMENSION(:, :), &
-         POINTER        :: integral_containers_forces
-      TYPE(hfx_cache_type), DIMENSION(:, :), &
-         POINTER            :: integral_caches_forces
 
-      TYPE(hfx_container_type), POINTER        :: maxval_container_disk
-      TYPE(hfx_cache_type)                     :: maxval_cache_disk
-      TYPE(hfx_container_type), POINTER, &
-         DIMENSION(:)  :: integral_containers_disk
-      TYPE(hfx_cache_type)                     :: integral_caches_disk(64)
+      TYPE(hfx_compression_type) :: store_ints
+      TYPE(hfx_compression_type) :: store_forces
 
       TYPE(hfx_cell_type), DIMENSION(:), &
          POINTER                       :: neighbor_cells
@@ -566,7 +559,6 @@ CONTAINS
 !> \param dft_control ...
 !> \param cell ...
 !> \param do_exx ...
-!> \param do_ot ...
 !> \param nelectron_total ...
 !> \par History
 !>      09.2007 created [Manuel Guidon]
@@ -576,7 +568,7 @@ CONTAINS
 !>        unknown at invocation time
 ! **************************************************************************************************
    SUBROUTINE hfx_create(x_data, para_env, hfx_section, atomic_kind_set, qs_kind_set, &
-                         particle_set, dft_control, cell, do_exx, do_ot, nelectron_total)
+                         particle_set, dft_control, cell, do_exx, nelectron_total)
       TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
       TYPE(cp_para_env_type)                             :: para_env
       TYPE(section_vals_type), POINTER                   :: hfx_section
@@ -585,10 +577,10 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(cell_type), POINTER                           :: cell
-      LOGICAL, OPTIONAL                                  :: do_exx, do_ot
+      LOGICAL, OPTIONAL                                  :: do_exx
       INTEGER, OPTIONAL                                  :: nelectron_total
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_create', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_create'
 
       CHARACTER(LEN=512)                                 :: error_msg
       CHARACTER(LEN=default_path_length)                 :: char_val
@@ -717,7 +709,7 @@ CONTAINS
                ! this gives a reasonable number of blocks for binning, yet typically results in blocking.
                int_val = CEILING(0.1_dp*natom/ &
                                  REAL(actual_x_data%load_balance_parameter%nbins*n_threads*para_env%num_pe, KIND=dp)**(0.25_dp))
-            ENDIF
+            END IF
             ! at least 1 atom per block, and avoid overly large blocks
             actual_x_data%load_balance_parameter%block_size = MIN(max_atom_block, MAX(1, int_val))
 
@@ -923,41 +915,42 @@ CONTAINS
             CALL cp_libint_set_contrdepth(actual_x_data%lib, 1)
             CALL cp_libint_set_contrdepth(actual_x_data%lib_deriv, 1)
 
-            CALL alloc_containers(actual_x_data, 1, hfx_do_eval_energy)
-            CALL alloc_containers(actual_x_data, 1, hfx_do_eval_forces)
+            CALL alloc_containers(actual_x_data%store_ints, 1)
+            CALL alloc_containers(actual_x_data%store_forces, 1)
 
-            actual_x_data%maxval_cache_disk%element_counter = 1
-            ALLOCATE (actual_x_data%maxval_container_disk)
-            ALLOCATE (actual_x_data%maxval_container_disk%first)
-            actual_x_data%maxval_container_disk%first%prev => NULL()
-            actual_x_data%maxval_container_disk%first%next => NULL()
-            actual_x_data%maxval_container_disk%current => actual_x_data%maxval_container_disk%first
-            actual_x_data%maxval_container_disk%current%data = 0
-            actual_x_data%maxval_container_disk%element_counter = 1
-            actual_x_data%maxval_container_disk%file_counter = 1
-            actual_x_data%maxval_container_disk%desc = 'Max_'
-            actual_x_data%maxval_container_disk%unit = -1
-            WRITE (actual_x_data%maxval_container_disk%filename, '(A,I0,A,A,A)') &
+            actual_x_data%store_ints%maxval_cache_disk%element_counter = 1
+            ALLOCATE (actual_x_data%store_ints%maxval_container_disk)
+            ALLOCATE (actual_x_data%store_ints%maxval_container_disk%first)
+            actual_x_data%store_ints%maxval_container_disk%first%prev => NULL()
+            actual_x_data%store_ints%maxval_container_disk%first%next => NULL()
+            actual_x_data%store_ints%maxval_container_disk%current => actual_x_data%store_ints%maxval_container_disk%first
+            actual_x_data%store_ints%maxval_container_disk%current%data = 0
+            actual_x_data%store_ints%maxval_container_disk%element_counter = 1
+            actual_x_data%store_ints%maxval_container_disk%file_counter = 1
+            actual_x_data%store_ints%maxval_container_disk%desc = 'Max_'
+            actual_x_data%store_ints%maxval_container_disk%unit = -1
+            WRITE (actual_x_data%store_ints%maxval_container_disk%filename, '(A,I0,A,A,A)') &
                TRIM(actual_x_data%memory_parameter%storage_location), &
-               storage_id, "_", actual_x_data%maxval_container_disk%desc, "6"
-            CALL compress(actual_x_data%maxval_container_disk%filename, .TRUE.)
-            ALLOCATE (actual_x_data%integral_containers_disk(64))
+               storage_id, "_", actual_x_data%store_ints%maxval_container_disk%desc, "6"
+            CALL compress(actual_x_data%store_ints%maxval_container_disk%filename, .TRUE.)
+            ALLOCATE (actual_x_data%store_ints%integral_containers_disk(64))
             DO i = 1, 64
-               actual_x_data%integral_caches_disk(i)%element_counter = 1
-               actual_x_data%integral_caches_disk(i)%data = 0
-               ALLOCATE (actual_x_data%integral_containers_disk(i)%first)
-               actual_x_data%integral_containers_disk(i)%first%prev => NULL()
-               actual_x_data%integral_containers_disk(i)%first%next => NULL()
-               actual_x_data%integral_containers_disk(i)%current => actual_x_data%integral_containers_disk(i)%first
-               actual_x_data%integral_containers_disk(i)%current%data = 0
-               actual_x_data%integral_containers_disk(i)%element_counter = 1
-               actual_x_data%integral_containers_disk(i)%file_counter = 1
-               actual_x_data%integral_containers_disk(i)%desc = 'Int_'
-               actual_x_data%integral_containers_disk(i)%unit = -1
-               WRITE (actual_x_data%integral_containers_disk(i)%filename, '(A,I0,A,A,I0)') &
+               actual_x_data%store_ints%integral_caches_disk(i)%element_counter = 1
+               actual_x_data%store_ints%integral_caches_disk(i)%data = 0
+               ALLOCATE (actual_x_data%store_ints%integral_containers_disk(i)%first)
+               actual_x_data%store_ints%integral_containers_disk(i)%first%prev => NULL()
+               actual_x_data%store_ints%integral_containers_disk(i)%first%next => NULL()
+               actual_x_data%store_ints%integral_containers_disk(i)%current => &
+                  actual_x_data%store_ints%integral_containers_disk(i)%first
+               actual_x_data%store_ints%integral_containers_disk(i)%current%data = 0
+               actual_x_data%store_ints%integral_containers_disk(i)%element_counter = 1
+               actual_x_data%store_ints%integral_containers_disk(i)%file_counter = 1
+               actual_x_data%store_ints%integral_containers_disk(i)%desc = 'Int_'
+               actual_x_data%store_ints%integral_containers_disk(i)%unit = -1
+               WRITE (actual_x_data%store_ints%integral_containers_disk(i)%filename, '(A,I0,A,A,I0)') &
                   TRIM(actual_x_data%memory_parameter%storage_location), &
-                  storage_id, "_", actual_x_data%integral_containers_disk(i)%desc, i
-               CALL compress(actual_x_data%integral_containers_disk(i)%filename, .TRUE.)
+                  storage_id, "_", actual_x_data%store_ints%integral_containers_disk(i)%desc, i
+               CALL compress(actual_x_data%store_ints%integral_containers_disk(i)%filename, .TRUE.)
             END DO
 
             actual_x_data%b_first_load_balance_energy = .TRUE.
@@ -965,15 +958,14 @@ CONTAINS
 
             hf_sub_section => section_vals_get_subs_vals(hfx_section, "RI", i_rep_section=irep)
             IF (actual_x_data%do_hfx_ri) THEN
-               CPASSERT(PRESENT(do_ot))
                CPASSERT(PRESENT(nelectron_total))
                ALLOCATE (actual_x_data%ri_data)
                CALL hfx_ri_init_read_input_from_hfx(actual_x_data%ri_data, actual_x_data, hfx_section, &
                                                     hf_sub_section, qs_kind_set, &
-                                                    particle_set, atomic_kind_set, dft_control, para_env, irep, do_ot, &
-                                                    nelectron_total)
+                                                    particle_set, atomic_kind_set, dft_control, para_env, irep, &
+                                                    nelectron_total, my_do_exx)
 
-            ENDIF
+            END IF
          END DO
       END DO
 
@@ -996,11 +988,12 @@ CONTAINS
 !> \param dft_control ...
 !> \param para_env ...
 !> \param irep ...
-!> \param do_ot ...
 !> \param nelectron_total ...
+!> \param do_exx ...
 ! **************************************************************************************************
    SUBROUTINE hfx_ri_init_read_input_from_hfx(ri_data, x_data, hfx_section, ri_section, qs_kind_set, &
-                                              particle_set, atomic_kind_set, dft_control, para_env, irep, do_ot, nelectron_total)
+                                              particle_set, atomic_kind_set, dft_control, para_env, irep, &
+                                              nelectron_total, do_exx)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
       TYPE(hfx_type), INTENT(INOUT)                      :: x_data
       TYPE(section_vals_type), POINTER                   :: hfx_section, ri_section
@@ -1009,12 +1002,10 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(cp_para_env_type)                             :: para_env
-      INTEGER, INTENT(IN)                                :: irep
-      LOGICAL, INTENT(IN)                                :: do_ot
-      INTEGER, INTENT(IN)                                :: nelectron_total
+      INTEGER, INTENT(IN)                                :: irep, nelectron_total
+      LOGICAL, INTENT(IN)                                :: do_exx
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_init_read_input_from_hfx', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_init_read_input_from_hfx'
 
       CHARACTER(LEN=512)                                 :: error_msg
       CHARACTER(LEN=default_path_length)                 :: char_val, t_c_filename
@@ -1027,7 +1018,7 @@ CONTAINS
 
       NULLIFY (hf_sub_section)
 
-      ASSOCIATE (hfx_pot=>ri_data%hfx_pot)
+      ASSOCIATE (hfx_pot => ri_data%hfx_pot)
          hfx_pot%potential_type = x_data%potential_parameter%potential_type
          hfx_pot%omega = x_data%potential_parameter%omega
          hfx_pot%cutoff_radius = x_data%potential_parameter%cutoff_radius
@@ -1035,9 +1026,10 @@ CONTAINS
       ri_data%ri_section => ri_section
       ri_data%hfx_section => hfx_section
       ri_data%eps_schwarz = x_data%screening_parameter%eps_schwarz
+      ri_data%eps_schwarz_forces = x_data%screening_parameter%eps_schwarz_forces
 
       logger => cp_get_default_logger()
-      unit_nr_dbcsr = cp_print_key_unit_nr(logger, ri_data%ri_section, "RI_INFO", &
+      unit_nr_dbcsr = cp_print_key_unit_nr(logger, ri_data%ri_section, "PRINT%RI_INFO", &
                                            extension=".dbcsrLog")
 
       unit_nr = cp_print_key_unit_nr(logger, ri_data%hfx_section, "HF_INFO", &
@@ -1055,22 +1047,21 @@ CONTAINS
          t_c_filename = char_val
       END IF
 
-      IF (dft_control%do_admm) THEN
+      IF (dft_control%do_admm .AND. (.NOT. do_exx)) THEN
          orb_basis_type = "AUX_FIT"
       ELSE
          orb_basis_type = "ORB"
-      ENDIF
+      END IF
 
       ri_basis_type = "RI_HFX"
 
       CALL hfx_ri_init_read_input(ri_data, ri_section, qs_kind_set, particle_set, atomic_kind_set, &
-                                  orb_basis_type, ri_basis_type, dft_control%auto_basis_ri_hfx, &
-                                  para_env, unit_nr, unit_nr_dbcsr, nelectron_total, &
-                                  t_c_filename=t_c_filename)
+                                  orb_basis_type, ri_basis_type, para_env, unit_nr, unit_nr_dbcsr, &
+                                  nelectron_total, t_c_filename=t_c_filename)
 
-      IF (ri_data%flavor == ri_mo .AND. .NOT. do_ot) THEN
-         CPABORT("RI_FLAVOR MO is not consistent with density mixing. Either use OT or RI_FLAVOR RHO.")
-      ENDIF
+      IF (dft_control%smear .AND. ri_data%flavor == ri_mo) THEN
+         CPABORT("RI_FLAVOR MO is not consistent with smearing. Please use RI_FLAVOR RHO.")
+      END IF
 
       CALL timestop(handle)
    END SUBROUTINE
@@ -1084,7 +1075,6 @@ CONTAINS
 !> \param atomic_kind_set ...
 !> \param orb_basis_type ...
 !> \param ri_basis_type ...
-!> \param auto_basis_cntrl ...
 !> \param para_env ...
 !> \param unit_nr unit number of general output
 !> \param unit_nr_dbcsr unit number for logging DBCSR tensor operations
@@ -1092,7 +1082,7 @@ CONTAINS
 !> \param t_c_filename ...
 ! **************************************************************************************************
    SUBROUTINE hfx_ri_init_read_input(ri_data, ri_section, qs_kind_set, &
-                                     particle_set, atomic_kind_set, orb_basis_type, ri_basis_type, auto_basis_cntrl, para_env, &
+                                     particle_set, atomic_kind_set, orb_basis_type, ri_basis_type, para_env, &
                                      unit_nr, unit_nr_dbcsr, nelectron_total, t_c_filename)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
       TYPE(section_vals_type), POINTER                   :: ri_section
@@ -1100,39 +1090,40 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       CHARACTER(LEN=*), INTENT(IN)                       :: orb_basis_type, ri_basis_type
-      INTEGER, INTENT(IN)                                :: auto_basis_cntrl
       TYPE(cp_para_env_type)                             :: para_env
       INTEGER, INTENT(IN)                                :: unit_nr, unit_nr_dbcsr, nelectron_total
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: t_c_filename
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_init_read_input', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_init_read_input'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: explicit
+      REAL(dp)                                           :: eps_storage_scaling
+      TYPE(section_vals_type), POINTER                   :: prog_run_info
 
       CALL timeset(routineN, handle)
 
       CALL section_vals_val_get(ri_section, "EPS_FILTER", r_val=ri_data%filter_eps)
       CALL section_vals_val_get(ri_section, "EPS_FILTER_2C", r_val=ri_data%filter_eps_2c)
-      CALL section_vals_val_get(ri_section, "EPS_FILTER_3C", r_val=ri_data%filter_eps_3c)
+      CALL section_vals_val_get(ri_section, "EPS_STORAGE_SCALING", r_val=eps_storage_scaling)
+      ri_data%filter_eps_storage = ri_data%filter_eps*eps_storage_scaling
       CALL section_vals_val_get(ri_section, "EPS_FILTER_MO", r_val=ri_data%filter_eps_mo)
 
-      ASSOCIATE (ri_metric=>ri_data%ri_metric, hfx_pot=>ri_data%hfx_pot)
+      ASSOCIATE (ri_metric => ri_data%ri_metric, hfx_pot => ri_data%hfx_pot)
          CALL section_vals_val_get(ri_section, "RI_METRIC", i_val=ri_metric%potential_type, explicit=explicit)
          IF (.NOT. explicit .OR. ri_metric%potential_type == 0) THEN
             ri_metric%potential_type = hfx_pot%potential_type
-         ENDIF
+         END IF
 
          CALL section_vals_val_get(ri_section, "OMEGA", r_val=ri_metric%omega, explicit=explicit)
          IF (.NOT. explicit) THEN
             ri_metric%omega = hfx_pot%omega
-         ENDIF
+         END IF
 
          CALL section_vals_val_get(ri_section, "CUTOFF_RADIUS", r_val=ri_metric%cutoff_radius, explicit=explicit)
          IF (.NOT. explicit) THEN
             ri_metric%cutoff_radius = hfx_pot%cutoff_radius
-         ENDIF
+         END IF
       END ASSOCIATE
 
       CALL section_vals_val_get(ri_section, "2C_MATRIX_FUNCTIONS", i_val=ri_data%t2c_method)
@@ -1145,27 +1136,34 @@ CONTAINS
       CALL section_vals_val_get(ri_section, "RI_FLAVOR", i_val=ri_data%flavor)
       CALL section_vals_val_get(ri_section, "EPS_PGF_ORB", r_val=ri_data%eps_pgf_orb)
       CALL section_vals_val_get(ri_section, "MIN_BLOCK_SIZE", i_val=ri_data%min_bsize)
-      CALL section_vals_val_get(ri_section, "MIN_BLOCK_SIZE_MO", i_val=ri_data%min_bsize_MO)
-      CALL section_vals_val_get(ri_section, "MEMORY_CUT", i_val=ri_data%n_mem)
+      CALL section_vals_val_get(ri_section, "MAX_BLOCK_SIZE_MO", i_val=ri_data%max_bsize_MO)
+      CALL section_vals_val_get(ri_section, "MEMORY_CUT", i_val=ri_data%n_mem_input)
+      CALL section_vals_val_get(ri_section, "FLAVOR_SWITCH_MEMORY_CUT", i_val=ri_data%n_mem_flavor_switch)
 
       ri_data%orb_basis_type = orb_basis_type
       ri_data%ri_basis_type = ri_basis_type
       ri_data%nelectron_total = nelectron_total
+      ri_data%input_flavor = ri_data%flavor
 
       IF (PRESENT(t_c_filename)) THEN
          ri_data%ri_metric%filename = t_c_filename
          ri_data%hfx_pot%filename = t_c_filename
-      ENDIF
+      END IF
 
       ri_data%unit_nr_dbcsr = unit_nr_dbcsr
       ri_data%unit_nr = unit_nr
+      ri_data%dbcsr_nflop = 0
+      ri_data%dbcsr_time = 0.0_dp
 
       ri_data%loc_subsection => section_vals_get_subs_vals(ri_section, "LOCALIZE")
       ri_data%print_loc_subsection => section_vals_get_subs_vals(ri_data%loc_subsection, "PRINT")
+      prog_run_info => section_vals_get_subs_vals(ri_data%print_loc_subsection, "PROGRAM_RUN_INFO")
+      CALL section_vals_val_set(prog_run_info, keyword_name="_SECTION_PARAMETERS_", &
+                                i_val=debug_print_level) !keep output clean
 
       CALL section_vals_val_get(ri_data%loc_subsection, "_SECTION_PARAMETERS_", l_val=ri_data%do_loc)
 
-      CALL hfx_ri_init(ri_data, qs_kind_set, particle_set, atomic_kind_set, para_env, auto_basis_cntrl)
+      CALL hfx_ri_init(ri_data, qs_kind_set, particle_set, atomic_kind_set, para_env)
 
       CALL timestop(handle)
 
@@ -1178,21 +1176,20 @@ CONTAINS
 !> \param particle_set ...
 !> \param atomic_kind_set ...
 !> \param para_env ...
-!> \param basis_cntrl ...
 ! **************************************************************************************************
-   SUBROUTINE hfx_ri_init(ri_data, qs_kind_set, particle_set, atomic_kind_set, para_env, basis_cntrl)
+   SUBROUTINE hfx_ri_init(ri_data, qs_kind_set, particle_set, atomic_kind_set, para_env)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_para_env_type)                             :: para_env
-      INTEGER, INTENT(IN)                                :: basis_cntrl
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_init', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_ri_init'
 
-      INTEGER                                            :: handle, ikind, iproc, MO_dim, &
+      INTEGER                                            :: handle, i_mem, iproc, j_mem, MO_dim, &
                                                             mp_comm_3d, natom, nkind, nproc
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dist1, dist2, dist_AO_1, dist_AO_2, &
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: bsizes_AO_store, bsizes_RI_store, dist1, &
+                                                            dist2, dist3, dist_AO_1, dist_AO_2, &
                                                             dist_RI
       INTEGER, DIMENSION(2)                              :: pdims_2d
       INTEGER, DIMENSION(3)                              :: pcoord, pdims
@@ -1200,52 +1197,36 @@ CONTAINS
       TYPE(distribution_3d_type)                         :: dist_3d
       TYPE(gto_basis_set_p_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: basis_set_AO, basis_set_RI
-      TYPE(gto_basis_set_type), POINTER                  :: ri_aux_basis_set
-      TYPE(qs_kind_type), POINTER                        :: qs_kind
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (ri_aux_basis_set, qs_kind)
+      ! initialize libint
+      CALL cp_libint_static_init()
 
       natom = SIZE(particle_set)
       nkind = SIZE(qs_kind_set, 1)
+      CALL mp_environ(nproc, iproc, para_env%group)
 
-      ! initialise RI basis
-      DO ikind = 1, nkind
-         NULLIFY (ri_aux_basis_set)
-         qs_kind => qs_kind_set(ikind)
-         CALL get_qs_kind(qs_kind=qs_kind, basis_set=ri_aux_basis_set, &
-                          basis_type=ri_data%ri_basis_type)
-         IF (.NOT. (ASSOCIATED(ri_aux_basis_set))) THEN
-            ! Generate a default basis
-            CALL create_ri_aux_basis_set(ri_aux_basis_set, qs_kind, basis_cntrl, ri_data%orb_basis_type)
-
-            CALL add_basis_set_to_container(qs_kind%basis_sets, ri_aux_basis_set, ri_data%ri_basis_type)
-         END IF
-         CALL init_orb_basis_set(ri_aux_basis_set)
-         CALL init_interaction_radii_orb_basis(ri_aux_basis_set, ri_data%eps_pgf_orb)
-      END DO
-
-      ASSOCIATE (ri_metric=>ri_data%ri_metric, hfx_pot=>ri_data%hfx_pot)
+      ASSOCIATE (ri_metric => ri_data%ri_metric, hfx_pot => ri_data%hfx_pot)
          IF (ri_metric%potential_type == do_potential_short) THEN
             CALL erfc_cutoff(ri_data%eps_schwarz, ri_metric%omega, ri_metric%cutoff_radius)
-         ENDIF
+         END IF
 
          IF (hfx_pot%potential_type == do_potential_short) THEN
             ! need a more accurate threshold for determining 2-center integral operator range
             ! because stability of matrix inversion/sqrt is sensitive to this
             CALL erfc_cutoff(ri_data%filter_eps_2c, hfx_pot%omega, hfx_pot%cutoff_radius)
-         ENDIF
+         END IF
          ! determine whether RI metric is same operator as used in HFX
          same_op = ri_metric%potential_type == hfx_pot%potential_type
 
          IF (same_op .AND. hfx_pot%potential_type == do_potential_truncated) THEN
             same_op = ABS(ri_metric%cutoff_radius - hfx_pot%cutoff_radius) < 1.0E-16_dp
-         ENDIF
+         END IF
 
          IF (same_op .AND. hfx_pot%potential_type == do_potential_short) THEN
             same_op = ABS(ri_metric%omega - hfx_pot%omega) < 1.0E-16_dp
-         ENDIF
+         END IF
       END ASSOCIATE
 
       ri_data%same_op = same_op
@@ -1264,44 +1245,89 @@ CONTAINS
       ALLOCATE (dist_RI(natom))
       ALLOCATE (dist_AO_1(natom))
       ALLOCATE (dist_AO_2(natom))
-      CALL cyclic_tensor_dist(natom, pdims(1), ri_data%bsizes_RI, dist_RI)
-      CALL cyclic_tensor_dist(natom, pdims(2), ri_data%bsizes_AO, dist_AO_1)
-      CALL cyclic_tensor_dist(natom, pdims(3), ri_data%bsizes_AO, dist_AO_2)
+      CALL dbt_default_distvec(natom, pdims(1), ri_data%bsizes_RI, dist_RI)
+      CALL dbt_default_distvec(natom, pdims(2), ri_data%bsizes_AO, dist_AO_1)
+      CALL dbt_default_distvec(natom, pdims(3), ri_data%bsizes_AO, dist_AO_2)
       CALL distribution_3d_create(dist_3d, dist_RI, dist_ao_1, dist_ao_2, nkind, particle_set, &
                                   mp_comm_3d, own_comm=.TRUE.)
 
       ALLOCATE (ri_data%pgrid)
-      CALL dbcsr_t_pgrid_create(para_env%group, pdims, ri_data%pgrid)
+      CALL dbt_pgrid_create(para_env%group, pdims, ri_data%pgrid)
 
       ALLOCATE (ri_data%pgrid_2d)
       pdims_2d = 0
-      CALL dbcsr_t_pgrid_create(para_env%group, pdims_2d, ri_data%pgrid_2d)
+      CALL dbt_pgrid_create(para_env%group, pdims_2d, ri_data%pgrid_2d)
 
       ri_data%dist_3d = dist_3d
 
-      CALL dbcsr_t_distribution_new(ri_data%dist, ri_data%pgrid, &
-                                    dist_RI, dist_AO_1, dist_AO_2)
+      CALL dbt_distribution_new(ri_data%dist, ri_data%pgrid, &
+                                dist_RI, dist_AO_1, dist_AO_2)
 
       DEALLOCATE (dist_AO_1, dist_AO_2, dist_RI)
 
-      ! initialize tensors expressed in basis representation
+      ri_data%num_pe = para_env%num_pe
 
+      ! initialize tensors expressed in basis representation
       CALL pgf_block_sizes(atomic_kind_set, basis_set_AO, ri_data%min_bsize, ri_data%bsizes_AO_split)
       CALL pgf_block_sizes(atomic_kind_set, basis_set_RI, ri_data%min_bsize, ri_data%bsizes_RI_split)
 
-      CALL split_block_sizes(ri_data%bsizes_AO, ri_data%bsizes_AO_fit, libcusmm_maxblocksize)
-      CALL split_block_sizes(ri_data%bsizes_RI, ri_data%bsizes_RI_fit, libcusmm_maxblocksize)
+      CALL pgf_block_sizes(atomic_kind_set, basis_set_AO, 1, bsizes_AO_store)
+      CALL pgf_block_sizes(atomic_kind_set, basis_set_RI, 1, bsizes_RI_store)
+
+      CALL split_block_sizes([SUM(ri_data%bsizes_AO)], ri_data%bsizes_AO_fit, default_block_size)
+      CALL split_block_sizes([SUM(ri_data%bsizes_RI)], ri_data%bsizes_RI_fit, default_block_size)
 
       IF (ri_data%flavor == ri_pmat) THEN
+
+         !2 batching loops in RHO flavor SCF calculations => need to take the square root of MEMORY_CUT
+         ri_data%n_mem = ri_data%n_mem_input
+         ri_data%n_mem_RI = ri_data%n_mem_input
+
+         CALL create_tensor_batches(ri_data%bsizes_AO_split, ri_data%n_mem, ri_data%starts_array_mem, &
+                                    ri_data%ends_array_mem, ri_data%starts_array_mem_block, &
+                                    ri_data%ends_array_mem_block)
+
+         CALL create_tensor_batches(ri_data%bsizes_RI_split, ri_data%n_mem_RI, &
+                                    ri_data%starts_array_RI_mem, ri_data%ends_array_RI_mem, &
+                                    ri_data%starts_array_RI_mem_block, ri_data%ends_array_RI_mem_block)
+
+         ALLOCATE (ri_data%pgrid_1)
+         ALLOCATE (ri_data%pgrid_2)
+         pdims = 0
+
+         CALL dbt_mp_dims_create(nproc, pdims, [SIZE(ri_data%bsizes_AO_split), SIZE(ri_data%bsizes_RI_split), &
+                                                SIZE(ri_data%bsizes_AO_split)])
+
+         CALL dbt_pgrid_create(para_env%group, pdims, ri_data%pgrid_1)
+
+         pdims = pdims([2, 1, 3])
+         CALL dbt_pgrid_create(para_env%group, pdims, ri_data%pgrid_2)
+
          ALLOCATE (ri_data%t_3c_int_ctr_1(1, 1))
-         CALL create_3c_tensor(ri_data%t_3c_int_ctr_1(1, 1), ri_data%dist1_ao_1, ri_data%dist1_ri, ri_data%dist1_ao_2, &
-                               ri_data%pgrid, ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, ri_data%bsizes_AO_split, &
-                               [1, 2], [3], name="(AO RI | AO)")
+         CALL create_3c_tensor(ri_data%t_3c_int_ctr_1(1, 1), dist1, dist2, dist3, &
+                               ri_data%pgrid_1, ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, &
+                               ri_data%bsizes_AO_split, [1, 2], [3], name="(AO RI | AO)")
+         DEALLOCATE (dist1, dist2, dist3)
+
+         ALLOCATE (ri_data%blk_indices(ri_data%n_mem, ri_data%n_mem_RI))
+         ALLOCATE (ri_data%store_3c(ri_data%n_mem, ri_data%n_mem_RI))
+         DO i_mem = 1, ri_data%n_mem
+         DO j_mem = 1, ri_data%n_mem_RI
+            CALL alloc_containers(ri_data%store_3c(i_mem, j_mem), 1)
+         END DO
+         END DO
+
+         ALLOCATE (ri_data%t_3c_int_ctr_2(1, 1))
+         CALL create_3c_tensor(ri_data%t_3c_int_ctr_2(1, 1), dist1, dist2, dist3, &
+                               ri_data%pgrid_1, ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, &
+                               ri_data%bsizes_AO_split, [1, 2], [3], name="(AO RI | AO)")
+         DEALLOCATE (dist1, dist2, dist3)
 
          ALLOCATE (ri_data%t_3c_int_ctr_3(1, 1))
-         CALL create_3c_tensor(ri_data%t_3c_int_ctr_3(1, 1), ri_data%dist3_RI, ri_data%dist3_AO_1, ri_data%dist3_AO_2, &
-                               ri_data%pgrid, ri_data%bsizes_RI_split, ri_data%bsizes_AO_split, ri_data%bsizes_AO_split, &
-                               [1], [2, 3], name="(RI | AO AO)")
+         CALL create_3c_tensor(ri_data%t_3c_int_ctr_3(1, 1), dist1, dist2, dist3, &
+                               ri_data%pgrid_2, ri_data%bsizes_RI_split, ri_data%bsizes_AO_split, &
+                               ri_data%bsizes_AO_split, [1], [2, 3], name="(RI | AO AO)")
+         DEALLOCATE (dist1, dist2, dist3)
 
          ALLOCATE (ri_data%t_2c_int(1, 1))
          CALL create_2c_tensor(ri_data%t_2c_int(1, 1), dist1, dist2, ri_data%pgrid_2d, &
@@ -1310,16 +1336,14 @@ CONTAINS
          DEALLOCATE (dist1, dist2)
 
       ELSEIF (ri_data%flavor == ri_mo) THEN
-         ALLOCATE (ri_data%t_3c_int(1, 1))
          ALLOCATE (ri_data%t_2c_int(2, 1))
 
          CALL create_2c_tensor(ri_data%t_2c_int(1, 1), dist1, dist2, ri_data%pgrid_2d, &
                                ri_data%bsizes_RI_fit, ri_data%bsizes_RI_fit, &
                                name="(RI | RI)")
+         CALL dbt_create(ri_data%t_2c_int(1, 1), ri_data%t_2c_int(2, 1))
 
          DEALLOCATE (dist1, dist2)
-
-         CALL mp_environ(nproc, iproc, para_env%group)
 
          ALLOCATE (ri_data%t_3c_int_ctr_1(1, 1))
 
@@ -1327,33 +1351,48 @@ CONTAINS
          ALLOCATE (ri_data%pgrid_2)
          pdims = 0
 
+         ri_data%n_mem = ri_data%n_mem_input**2
          IF (ri_data%n_mem > ri_data%nelectron_total/2) ri_data%n_mem = MAX(ri_data%nelectron_total/2, 1)
          ! Size of dimension corresponding to MOs is nelectron/2 and divided by the memory factor
          ! we are using ceiling of that division to make sure that no MO dimension (after memory cut)
          ! is larger than this (it is however not a problem for load balancing if actual MO dimension
          ! is slightly smaller)
          MO_dim = MAX((ri_data%nelectron_total/2 - 1)/ri_data%n_mem + 1, 1)
+         MO_dim = (MO_dim - 1)/ri_data%max_bsize_MO + 1
 
-         pdims = [1, nproc, 1]
-         CALL dbcsr_t_mp_dims_create(nproc, pdims, [MO_dim, SIZE(ri_data%bsizes_RI_split), MO_dim])
+         pdims = 0
+         CALL dbt_mp_dims_create(nproc, pdims, [SIZE(ri_data%bsizes_AO_split), SIZE(ri_data%bsizes_RI_split), MO_dim])
 
-         CALL dbcsr_t_pgrid_create(para_env%group, pdims, ri_data%pgrid_1)
-         CALL dbcsr_t_pgrid_create(para_env%group, pdims, ri_data%pgrid_2)
+         CALL dbt_pgrid_create(para_env%group, pdims, ri_data%pgrid_1)
 
-         CALL create_3c_tensor(ri_data%t_3c_int_ctr_1(1, 1), ri_data%dist1_ao_1, ri_data%dist1_ri, ri_data%dist1_ao_2, &
-                               ri_data%pgrid_1, ri_data%bsizes_AO, ri_data%bsizes_RI_split, ri_data%bsizes_AO, &
+         pdims = pdims([3, 2, 1])
+         CALL dbt_pgrid_create(para_env%group, pdims, ri_data%pgrid_2)
+
+         CALL create_3c_tensor(ri_data%t_3c_int_ctr_1(1, 1), dist1, dist2, dist3, &
+                               ri_data%pgrid_1, ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, ri_data%bsizes_AO_split, &
                                [1, 2], [3], name="(AO RI | AO)")
+         DEALLOCATE (dist1, dist2, dist3)
 
          ALLOCATE (ri_data%t_3c_int_ctr_2(1, 1))
-         CALL create_3c_tensor(ri_data%t_3c_int_ctr_2(1, 1), ri_data%dist2_ao_1, ri_data%dist2_ri, ri_data%dist2_ao_2, &
-                               ri_data%pgrid_2, ri_data%bsizes_AO, ri_data%bsizes_RI_split, ri_data%bsizes_AO, &
+         CALL create_3c_tensor(ri_data%t_3c_int_ctr_2(1, 1), dist1, dist2, dist3, &
+                               ri_data%pgrid_2, ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, ri_data%bsizes_AO_split, &
                                [1], [2, 3], name="(AO | RI AO)")
+         DEALLOCATE (dist1, dist2, dist3)
 
-      ENDIF
+      END IF
 
-      ri_data%dbcsr_nflop = 0
-      ri_data%dbcsr_time = 0.0_dp
-      ri_data%num_pe = para_env%num_pe
+      !For forces
+      ALLOCATE (ri_data%t_2c_inv(1, 1))
+      CALL create_2c_tensor(ri_data%t_2c_inv(1, 1), dist1, dist2, ri_data%pgrid_2d, &
+                            ri_data%bsizes_RI_split, ri_data%bsizes_RI_split, &
+                            name="(RI | RI)")
+      DEALLOCATE (dist1, dist2)
+
+      ALLOCATE (ri_data%t_2c_pot(1, 1))
+      CALL create_2c_tensor(ri_data%t_2c_pot(1, 1), dist1, dist2, ri_data%pgrid_2d, &
+                            ri_data%bsizes_RI_split, ri_data%bsizes_RI_split, &
+                            name="(RI | RI)")
+      DEALLOCATE (dist1, dist2)
 
       CALL timestop(handle)
 
@@ -1368,8 +1407,8 @@ CONTAINS
 
       REAL(dp)                                           :: my_flop_rate
 
-      ASSOCIATE (unit_nr=>ri_data%unit_nr, dbcsr_nflop=>ri_data%dbcsr_nflop, &
-                 dbcsr_time=>ri_data%dbcsr_time, num_pe=>ri_data%num_pe)
+      ASSOCIATE (unit_nr => ri_data%unit_nr, dbcsr_nflop => ri_data%dbcsr_nflop, &
+                 dbcsr_time => ri_data%dbcsr_time, num_pe => ri_data%num_pe)
          my_flop_rate = REAL(dbcsr_nflop, dp)/(1.0E09_dp*ri_data%dbcsr_time)
          IF (unit_nr > 0) WRITE (UNIT=unit_nr, FMT="(/T2,A,T73,ES8.2)") &
             "RI-HFX PERFORMANCE| DBCSR total number of flops:", REAL(dbcsr_nflop*num_pe, dp)
@@ -1383,42 +1422,45 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 !> \param ri_data ...
+!> \param write_stats ...
 ! **************************************************************************************************
-   SUBROUTINE hfx_ri_release(ri_data)
+   SUBROUTINE hfx_ri_release(ri_data, write_stats)
       TYPE(hfx_ri_type), INTENT(INOUT)                   :: ri_data
+      LOGICAL, OPTIONAL                                  :: write_stats
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_release', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_ri_release'
 
-      INTEGER                                            :: handle, ispin
-      TYPE(cp_logger_type), POINTER                      :: logger
+      INTEGER                                            :: handle, i_mem, ispin, j_mem, unused
+      LOGICAL                                            :: my_write_stats
 
       CALL timeset(routineN, handle)
 
-      CALL hfx_ri_write_stats(ri_data)
+      ! cleanup libint
+      CALL cp_libint_static_cleanup()
+
+      my_write_stats = .TRUE.
+      IF (PRESENT(write_stats)) my_write_stats = write_stats
+      IF (my_write_stats) CALL hfx_ri_write_stats(ri_data)
 
       IF (ASSOCIATED(ri_data%pgrid)) THEN
-         CALL dbcsr_t_pgrid_destroy(ri_data%pgrid)
+         CALL dbt_pgrid_destroy(ri_data%pgrid)
          DEALLOCATE (ri_data%pgrid)
-      ENDIF
+      END IF
       IF (ASSOCIATED(ri_data%pgrid_1)) THEN
-         CALL dbcsr_t_pgrid_destroy(ri_data%pgrid_1)
+         CALL dbt_pgrid_destroy(ri_data%pgrid_1)
          DEALLOCATE (ri_data%pgrid_1)
-      ENDIF
+      END IF
       IF (ASSOCIATED(ri_data%pgrid_2)) THEN
-         CALL dbcsr_t_pgrid_destroy(ri_data%pgrid_2)
+         CALL dbt_pgrid_destroy(ri_data%pgrid_2)
          DEALLOCATE (ri_data%pgrid_2)
-      ENDIF
-      IF (ASSOCIATED(ri_data%pgrid_3)) THEN
-         CALL dbcsr_t_pgrid_destroy(ri_data%pgrid_3)
-         DEALLOCATE (ri_data%pgrid_3)
-      ENDIF
+      END IF
       IF (ASSOCIATED(ri_data%pgrid_2d)) THEN
-         CALL dbcsr_t_pgrid_destroy(ri_data%pgrid_2d)
+         CALL dbt_pgrid_destroy(ri_data%pgrid_2d)
          DEALLOCATE (ri_data%pgrid_2d)
-      ENDIF
+      END IF
 
       CALL distribution_3d_destroy(ri_data%dist_3d)
-      CALL dbcsr_t_distribution_destroy(ri_data%dist)
+      CALL dbt_distribution_destroy(ri_data%dist)
 
       DEALLOCATE (ri_data%bsizes_RI)
       DEALLOCATE (ri_data%bsizes_AO)
@@ -1428,47 +1470,52 @@ CONTAINS
       DEALLOCATE (ri_data%bsizes_RI_fit)
 
       IF (ri_data%flavor == ri_pmat) THEN
-         CALL dbcsr_t_destroy(ri_data%t_3c_int_ctr_1(1, 1))
+         DO i_mem = 1, ri_data%n_mem
+         DO j_mem = 1, ri_data%n_mem_RI
+            CALL dealloc_containers(ri_data%store_3c(i_mem, j_mem), unused)
+         END DO
+         END DO
+         CALL dbt_destroy(ri_data%t_3c_int_ctr_1(1, 1))
          DEALLOCATE (ri_data%t_3c_int_ctr_1)
-         DEALLOCATE (ri_data%dist1_RI, ri_data%dist1_AO_1, ri_data%dist1_AO_2)
-         DEALLOCATE (ri_data%dist3_RI, ri_data%dist3_AO_1, ri_data%dist3_AO_2)
-         CALL dbcsr_t_destroy(ri_data%t_3c_int_ctr_3(1, 1))
+         CALL dbt_destroy(ri_data%t_3c_int_ctr_2(1, 1))
+         DEALLOCATE (ri_data%t_3c_int_ctr_2)
+         CALL dbt_destroy(ri_data%t_3c_int_ctr_3(1, 1))
          DEALLOCATE (ri_data%t_3c_int_ctr_3)
-         CALL dbcsr_t_destroy(ri_data%t_2c_int(1, 1))
+         CALL dbt_destroy(ri_data%t_2c_int(1, 1))
          DEALLOCATE (ri_data%t_2c_int)
-         DEALLOCATE (ri_data%nonzero_pairs)
-         DEALLOCATE (ri_data%nonzero_rows)
+         DEALLOCATE (ri_data%starts_array_mem_block, ri_data%ends_array_mem_block, &
+                     ri_data%starts_array_mem, ri_data%ends_array_mem)
+         DEALLOCATE (ri_data%starts_array_RI_mem_block, ri_data%ends_array_RI_mem_block, &
+                     ri_data%starts_array_RI_mem, ri_data%ends_array_RI_mem)
+
+         DEALLOCATE (ri_data%blk_indices)
+         DEALLOCATE (ri_data%store_3c)
       ELSEIF (ri_data%flavor == ri_mo) THEN
-         CALL dbcsr_t_destroy(ri_data%t_3c_int_ctr_1(1, 1))
-         CALL dbcsr_t_destroy(ri_data%t_3c_int_ctr_2(1, 1))
+         CALL dbt_destroy(ri_data%t_3c_int_ctr_1(1, 1))
+         CALL dbt_destroy(ri_data%t_3c_int_ctr_2(1, 1))
          DEALLOCATE (ri_data%t_3c_int_ctr_1)
          DEALLOCATE (ri_data%t_3c_int_ctr_2)
 
          DO ispin = 1, SIZE(ri_data%t_3c_int_mo, 1)
-            CALL dbcsr_t_destroy(ri_data%t_3c_int_mo(ispin, 1, 1))
-            CALL dbcsr_t_destroy(ri_data%t_3c_ctr_RI(ispin, 1, 1))
-            CALL dbcsr_t_destroy(ri_data%t_3c_ctr_KS(ispin, 1, 1))
-            CALL dbcsr_t_destroy(ri_data%t_3c_ctr_KS_copy(ispin, 1, 1))
-            CALL dbcsr_t_batched_contract_finalize(ri_data%t_2c_int(ispin, 1))
-            CALL dbcsr_t_destroy(ri_data%t_2c_int(ispin, 1))
-         ENDDO
+            CALL dbt_destroy(ri_data%t_3c_int_mo(ispin, 1, 1))
+            CALL dbt_destroy(ri_data%t_3c_ctr_RI(ispin, 1, 1))
+            CALL dbt_destroy(ri_data%t_3c_ctr_KS(ispin, 1, 1))
+            CALL dbt_destroy(ri_data%t_3c_ctr_KS_copy(ispin, 1, 1))
+         END DO
+         DO ispin = 1, 2
+            CALL dbt_destroy(ri_data%t_2c_int(ispin, 1))
+         END DO
          DEALLOCATE (ri_data%t_2c_int)
          DEALLOCATE (ri_data%t_3c_int_mo)
          DEALLOCATE (ri_data%t_3c_ctr_RI)
          DEALLOCATE (ri_data%t_3c_ctr_KS)
          DEALLOCATE (ri_data%t_3c_ctr_KS_copy)
-      ENDIF
+      END IF
 
-      IF (ASSOCIATED(ri_data%ri_section)) THEN
-         logger => cp_get_default_logger()
-         CALL cp_print_key_finished_output(ri_data%unit_nr_dbcsr, logger, ri_data%ri_section, &
-                                           "RI_INFO")
-      ENDIF
-      IF (ASSOCIATED(ri_data%hfx_section)) THEN
-         logger => cp_get_default_logger()
-         CALL cp_print_key_finished_output(ri_data%unit_nr, logger, ri_data%hfx_section, &
-                                           "HF_INFO")
-      ENDIF
+      CALL dbt_destroy(ri_data%t_2c_inv(1, 1))
+      DEALLOCATE (ri_data%t_2c_inv)
+      CALL dbt_destroy(ri_data%t_2c_pot(1, 1))
+      DEALLOCATE (ri_data%t_2c_pot)
 
       CALL timestop(handle)
    END SUBROUTINE
@@ -1488,8 +1535,7 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       LOGICAL, INTENT(IN)                                :: do_admm
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_create_basis_types', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_create_basis_types'
 
       INTEGER :: co_counter, handle, i, ikind, ipgf, iset, j, k, la, max_am_kind, max_coeff, &
          max_nsgfl, max_pgf, max_pgf_kind, max_set, nkind, nl_count, nset, nseta, offset_a, &
@@ -1621,8 +1667,7 @@ CONTAINS
    SUBROUTINE hfx_release_basis_types(basis_parameter)
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: basis_parameter
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_release_basis_types', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_release_basis_types'
 
       INTEGER                                            :: handle, i
 
@@ -1659,9 +1704,6 @@ CONTAINS
       TYPE(cp_para_env_type), OPTIONAL                   :: para_env
       INTEGER, INTENT(IN), OPTIONAL                      :: irep
       LOGICAL, INTENT(IN)                                :: skip_disk, skip_in_core_forces
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parse_memory_section', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=512)                                 :: error_msg
       CHARACTER(LEN=default_path_length)                 :: char_val, filename, orig_wd
@@ -1749,9 +1791,8 @@ CONTAINS
    SUBROUTINE hfx_release(x_data)
       TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_release', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, i_thread, irep, n_rep_hf, n_threads
+      TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(hfx_type), POINTER                            :: actual_x_data
 
 !! There might be 2 hf sections
@@ -1817,29 +1858,29 @@ CONTAINS
             CALL cp_libint_static_cleanup()
 
             !! Deallocate containers
-            CALL dealloc_containers(actual_x_data, hfx_do_eval_energy)
-            CALL dealloc_containers(actual_x_data, hfx_do_eval_forces)
+            CALL dealloc_containers(actual_x_data%store_ints, actual_x_data%memory_parameter%actual_memory_usage)
+            CALL dealloc_containers(actual_x_data%store_forces, actual_x_data%memory_parameter%actual_memory_usage)
 
             !! Deallocate containers
-            CALL hfx_init_container(actual_x_data%maxval_container_disk, &
+            CALL hfx_init_container(actual_x_data%store_ints%maxval_container_disk, &
                                     actual_x_data%memory_parameter%actual_memory_usage_disk, &
                                     .FALSE.)
             IF (actual_x_data%memory_parameter%do_disk_storage) THEN
-               CALL close_file(unit_number=actual_x_data%maxval_container_disk%unit, file_status="DELETE")
+               CALL close_file(unit_number=actual_x_data%store_ints%maxval_container_disk%unit, file_status="DELETE")
             END IF
-            DEALLOCATE (actual_x_data%maxval_container_disk%first)
-            DEALLOCATE (actual_x_data%maxval_container_disk)
+            DEALLOCATE (actual_x_data%store_ints%maxval_container_disk%first)
+            DEALLOCATE (actual_x_data%store_ints%maxval_container_disk)
 
             DO i = 1, 64
-               CALL hfx_init_container(actual_x_data%integral_containers_disk(i), &
+               CALL hfx_init_container(actual_x_data%store_ints%integral_containers_disk(i), &
                                        actual_x_data%memory_parameter%actual_memory_usage_disk, &
                                        .FALSE.)
                IF (actual_x_data%memory_parameter%do_disk_storage) THEN
-                  CALL close_file(unit_number=actual_x_data%integral_containers_disk(i)%unit, file_status="DELETE")
+                  CALL close_file(unit_number=actual_x_data%store_ints%integral_containers_disk(i)%unit, file_status="DELETE")
                END IF
-               DEALLOCATE (actual_x_data%integral_containers_disk(i)%first)
+               DEALLOCATE (actual_x_data%store_ints%integral_containers_disk(i)%first)
             END DO
-            DEALLOCATE (actual_x_data%integral_containers_disk)
+            DEALLOCATE (actual_x_data%store_ints%integral_containers_disk)
 
             ! ** screening functions
             IF (actual_x_data%screen_funct_is_initialized) THEN
@@ -1861,8 +1902,18 @@ CONTAINS
 
             IF (actual_x_data%do_hfx_ri) THEN
                CALL hfx_ri_release(actual_x_data%ri_data)
+               IF (ASSOCIATED(actual_x_data%ri_data%ri_section)) THEN
+                  logger => cp_get_default_logger()
+                  CALL cp_print_key_finished_output(actual_x_data%ri_data%unit_nr_dbcsr, logger, actual_x_data%ri_data%ri_section, &
+                                                    "PRINT%RI_INFO")
+               END IF
+               IF (ASSOCIATED(actual_x_data%ri_data%hfx_section)) THEN
+                  logger => cp_get_default_logger()
+                  CALL cp_print_key_finished_output(actual_x_data%ri_data%unit_nr, logger, actual_x_data%ri_data%hfx_section, &
+                                                    "HF_INFO")
+               END IF
                DEALLOCATE (actual_x_data%ri_data)
-            ENDIF
+            END IF
          END DO
 
       END DO
@@ -1887,13 +1938,10 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       INTEGER, INTENT(IN)                                :: i_thread
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_create_neighbor_cells', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=512)                                 :: error_msg
       CHARACTER(LEN=64)                                  :: char_nshells
       INTEGER :: i, idx, ikind, ipgf, iset, ishell, j, jkind, jpgf, jset, jshell, k, kshell, l, &
-         m(3), max_shell, nseta, nsetb, total_number_of_cells, ub, ub_max
+         m(3), max_shell, nseta, nsetb, perd(3), total_number_of_cells, ub, ub_max
       INTEGER, DIMENSION(:), POINTER                     :: la_max, lb_max, npgfa, npgfb
       LOGICAL                                            :: image_cell_found, nothing_more_to_add
       REAL(dp) :: cross_product(3), dist_min, distance(14), l_min, normal(3, 6), P(3, 14), &
@@ -2022,9 +2070,11 @@ CONTAINS
 
             DEALLOCATE (tmp_neighbor_cells)
 
-            DO ishell = -max_shell, max_shell
-            DO jshell = -max_shell, max_shell
-            DO kshell = -max_shell, max_shell
+            perd(1:3) = x_data%periodic_parameter%perd(1:3)
+
+            DO ishell = -max_shell*perd(1), max_shell*perd(1)
+            DO jshell = -max_shell*perd(2), max_shell*perd(2)
+            DO kshell = -max_shell*perd(3), max_shell*perd(3)
                IF (MAX(ABS(ishell), ABS(jshell), ABS(kshell)) /= max_shell) CYCLE
                idx = 0
                DO j = 0, 1
@@ -2214,7 +2264,7 @@ CONTAINS
                x_data%neighbor_cells(i)%cell = REAL(m, dp)
                CALL next_image_cell_perd(m, x_data%periodic_parameter%perd)
                i = i + 1
-            ENDDO
+            END DO
          END IF
       CASE DEFAULT
          total_number_of_cells = 0
@@ -2232,7 +2282,7 @@ CONTAINS
             x_data%neighbor_cells(i)%cell = REAL(m, dp)
             CALL next_image_cell_perd(m, x_data%periodic_parameter%perd)
             i = i + 1
-         ENDDO
+         END DO
       END SELECT
 
       ! ** Transform into real coord
@@ -2345,9 +2395,6 @@ CONTAINS
       INTEGER                                            :: memory_usage
       LOGICAL                                            :: do_disk_storage
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_init_container', &
-         routineP = moduleN//':'//routineN
-
       TYPE(hfx_container_node), POINTER                  :: current, next
 
 !! DEALLOCATE memory
@@ -2392,9 +2439,6 @@ CONTAINS
       TYPE(hfx_distribution), DIMENSION(:), POINTER      :: ptr_to_distr
       TYPE(hfx_type), POINTER                            :: x_data
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_set_distr_energy', &
-         routineP = moduleN//':'//routineN
-
       DEALLOCATE (x_data%distribution_energy)
 
       ALLOCATE (x_data%distribution_energy(SIZE(ptr_to_distr)))
@@ -2414,9 +2458,6 @@ CONTAINS
    SUBROUTINE hfx_set_distr_forces(ptr_to_distr, x_data)
       TYPE(hfx_distribution), DIMENSION(:), POINTER      :: ptr_to_distr
       TYPE(hfx_type), POINTER                            :: x_data
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_set_distr_forces', &
-         routineP = moduleN//':'//routineN
 
       DEALLOCATE (x_data%distribution_forces)
 
@@ -2503,7 +2544,7 @@ CONTAINS
             WRITE (UNIT=iw, FMT="((T3,A,T77,A),/)") &
                "HFX_INFO| Number of periodic cells considered:     ", "NONE"
          END IF
-      ENDIF
+      END IF
    END SUBROUTINE hfx_print_std_info
 
 ! **************************************************************************************************
@@ -2530,7 +2571,7 @@ CONTAINS
 
       IF (iw > 0) THEN
 
-         ASSOCIATE (ri_metric=>ri_data%ri_metric, hfx_pot=>ri_data%hfx_pot)
+         ASSOCIATE (ri_metric => ri_data%ri_metric, hfx_pot => ri_data%hfx_pot)
             SELECT CASE (ri_metric%potential_type)
             CASE (do_potential_coulomb)
                WRITE (UNIT=iw, FMT="(/T3,A,T74,A)") &
@@ -2550,10 +2591,10 @@ CONTAINS
                   "HFX_RI_INFO| Omega:     ", ri_metric%omega
             CASE (do_potential_id)
                WRITE (UNIT=iw, FMT="(T3,A,T73,A)") &
-                  "HFX_RI_INFO| RI metric: ", "IDENTITY"
+                  "HFX_RI_INFO| RI metric: ", "OVERLAP"
             CASE (do_potential_truncated)
                WRITE (UNIT=iw, FMT="(T3,A,T72,A)") &
-                  "HFX_RI_INFO| RI metric: ", "TRUNCATED"
+                  "HFX_RI_INFO| RI metric: ", "TRUNCATED COULOMB"
                rc_ang = cp_unit_from_cp2k(ri_metric%cutoff_radius, "angstrom")
                WRITE (iw, '(T3,A,T61,F20.10)') &
                   "HFX_RI_INFO| Cutoff Radius [angstrom]:     ", rc_ang
@@ -2589,20 +2630,22 @@ CONTAINS
          WRITE (UNIT=iw, FMT="(T3, A, T73, ES8.1)") &
             "HFX_RI_INFO| EPS_FILTER 2-center", ri_data%filter_eps_2c
          WRITE (UNIT=iw, FMT="(T3, A, T73, ES8.1)") &
-            "HFX_RI_INFO| EPS_FILTER 3-center", ri_data%filter_eps_3c
+            "HFX_RI_INFO| EPS_FILTER storage", ri_data%filter_eps_storage
          WRITE (UNIT=iw, FMT="(T3, A, T73, ES8.1)") &
             "HFX_RI_INFO| EPS_FILTER MO", ri_data%filter_eps_mo
          WRITE (UNIT=iw, FMT="(T3, A, T73, ES8.1)") &
             "HFX_RI_INFO| EPS_PGF_ORB", ri_data%eps_pgf_orb
          WRITE (UNIT=iw, FMT="((T3, A, T73, ES8.1))") &
             "HFX_RI_INFO| EPS_SCHWARZ:     ", ri_data%eps_schwarz
+         WRITE (UNIT=iw, FMT="((T3, A, T73, ES8.1))") &
+            "HFX_RI_INFO| EPS_SCHWARZ_FORCES:     ", ri_data%eps_schwarz_forces
          WRITE (UNIT=iw, FMT="(T3, A, T78, I3)") &
             "HFX_RI_INFO| Minimum block size", ri_data%min_bsize
          WRITE (UNIT=iw, FMT="(T3, A, T78, I3)") &
-            "HFX_RI_INFO| MO block size", ri_data%min_bsize_MO
+            "HFX_RI_INFO| MO block size", ri_data%max_bsize_MO
          WRITE (UNIT=iw, FMT="(T3, A, T79, I2)") &
-            "HFX_RI_INFO| Memory reduction factor", ri_data%n_mem
-      ENDIF
+            "HFX_RI_INFO| Memory reduction factor", ri_data%n_mem_input
+      END IF
 
    END SUBROUTINE
 
@@ -2695,7 +2738,7 @@ CONTAINS
          CALL hfx_print_ri_info(x_data%ri_data, hfx_section)
       ELSE
          CALL hfx_print_std_info(x_data, hfx_section)
-      ENDIF
+      END IF
 
       CALL cp_print_key_finished_output(iw, logger, hfx_section, &
                                         "HF_INFO")
@@ -2703,142 +2746,252 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief ...
-!> \param x_data ...
-!> \param eval_type ...
+!> \param DATA ...
+!> \param memory_usage ...
 ! **************************************************************************************************
-   SUBROUTINE dealloc_containers(x_data, eval_type)
-      TYPE(hfx_type), POINTER                            :: x_data
-      INTEGER, INTENT(IN)                                :: eval_type
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dealloc_containers', &
-         routineP = moduleN//':'//routineN
+   SUBROUTINE dealloc_containers(DATA, memory_usage)
+      TYPE(hfx_compression_type)                         :: data
+      INTEGER                                            :: memory_usage
 
       INTEGER                                            :: bin, i
 
-      SELECT CASE (eval_type)
-      CASE (hfx_do_eval_energy)
-         DO bin = 1, SIZE(x_data%maxval_container)
-            CALL hfx_init_container(x_data%maxval_container(bin), x_data%memory_parameter%actual_memory_usage, &
+      DO bin = 1, SIZE(data%maxval_container)
+         CALL hfx_init_container(data%maxval_container(bin), memory_usage, &
+                                 .FALSE.)
+         DEALLOCATE (data%maxval_container(bin)%first)
+      END DO
+      DEALLOCATE (data%maxval_container)
+      DEALLOCATE (data%maxval_cache)
+
+      DO bin = 1, SIZE(data%integral_containers, 2)
+         DO i = 1, 64
+            CALL hfx_init_container(data%integral_containers(i, bin), memory_usage, &
                                     .FALSE.)
-            DEALLOCATE (x_data%maxval_container(bin)%first)
+            DEALLOCATE (data%integral_containers(i, bin)%first)
          END DO
-         DEALLOCATE (x_data%maxval_container)
-         DEALLOCATE (x_data%maxval_cache)
+      END DO
+      DEALLOCATE (data%integral_containers)
 
-         DO bin = 1, SIZE(x_data%integral_containers, 2)
-            DO i = 1, 64
-               CALL hfx_init_container(x_data%integral_containers(i, bin), x_data%memory_parameter%actual_memory_usage, &
-                                       .FALSE.)
-               DEALLOCATE (x_data%integral_containers(i, bin)%first)
-            END DO
-         END DO
-         DEALLOCATE (x_data%integral_containers)
-
-         DEALLOCATE (x_data%integral_caches)
-      CASE (hfx_do_eval_forces)
-         DO bin = 1, SIZE(x_data%maxval_container_forces)
-            CALL hfx_init_container(x_data%maxval_container_forces(bin), x_data%memory_parameter%actual_memory_usage, &
-                                    .FALSE.)
-            DEALLOCATE (x_data%maxval_container_forces(bin)%first)
-         END DO
-         DEALLOCATE (x_data%maxval_container_forces)
-         DEALLOCATE (x_data%maxval_cache_forces)
-
-         DO bin = 1, SIZE(x_data%integral_containers_forces, 2)
-            DO i = 1, 64
-               CALL hfx_init_container(x_data%integral_containers_forces(i, bin), x_data%memory_parameter%actual_memory_usage, &
-                                       .FALSE.)
-               DEALLOCATE (x_data%integral_containers_forces(i, bin)%first)
-            END DO
-         END DO
-         DEALLOCATE (x_data%integral_containers_forces)
-
-         DEALLOCATE (x_data%integral_caches_forces)
-
-      END SELECT
+      DEALLOCATE (data%integral_caches)
 
    END SUBROUTINE dealloc_containers
 
 ! **************************************************************************************************
 !> \brief ...
-!> \param x_data ...
+!> \param DATA ...
 !> \param bin_size ...
-!> \param eval_type ...
 ! **************************************************************************************************
-   SUBROUTINE alloc_containers(x_data, bin_size, eval_type)
-      TYPE(hfx_type), POINTER                            :: x_data
-      INTEGER, INTENT(IN)                                :: bin_size, eval_type
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'alloc_containers', &
-         routineP = moduleN//':'//routineN
+   SUBROUTINE alloc_containers(DATA, bin_size)
+      TYPE(hfx_compression_type)                         :: data
+      INTEGER, INTENT(IN)                                :: bin_size
 
       INTEGER                                            :: bin, i
 
-      SELECT CASE (eval_type)
-      CASE (hfx_do_eval_energy)
-         ALLOCATE (x_data%maxval_cache(bin_size))
-         DO bin = 1, bin_size
-            x_data%maxval_cache(bin)%element_counter = 1
-         END DO
-         ALLOCATE (x_data%maxval_container(bin_size))
-         DO bin = 1, bin_size
-            ALLOCATE (x_data%maxval_container(bin)%first)
-            x_data%maxval_container(bin)%first%prev => NULL()
-            x_data%maxval_container(bin)%first%next => NULL()
-            x_data%maxval_container(bin)%current => x_data%maxval_container(bin)%first
-            x_data%maxval_container(bin)%current%data = 0
-            x_data%maxval_container(bin)%element_counter = 1
-         END DO
+      ALLOCATE (data%maxval_cache(bin_size))
+      DO bin = 1, bin_size
+         data%maxval_cache(bin)%element_counter = 1
+      END DO
+      ALLOCATE (data%maxval_container(bin_size))
+      DO bin = 1, bin_size
+         ALLOCATE (data%maxval_container(bin)%first)
+         data%maxval_container(bin)%first%prev => NULL()
+         data%maxval_container(bin)%first%next => NULL()
+         data%maxval_container(bin)%current => data%maxval_container(bin)%first
+         data%maxval_container(bin)%current%data = 0
+         data%maxval_container(bin)%element_counter = 1
+      END DO
 
-         ALLOCATE (x_data%integral_containers(64, bin_size))
-         ALLOCATE (x_data%integral_caches(64, bin_size))
+      ALLOCATE (data%integral_containers(64, bin_size))
+      ALLOCATE (data%integral_caches(64, bin_size))
 
-         DO bin = 1, bin_size
-            DO i = 1, 64
-               x_data%integral_caches(i, bin)%element_counter = 1
-               x_data%integral_caches(i, bin)%data = 0
-               ALLOCATE (x_data%integral_containers(i, bin)%first)
-               x_data%integral_containers(i, bin)%first%prev => NULL()
-               x_data%integral_containers(i, bin)%first%next => NULL()
-               x_data%integral_containers(i, bin)%current => x_data%integral_containers(i, bin)%first
-               x_data%integral_containers(i, bin)%current%data = 0
-               x_data%integral_containers(i, bin)%element_counter = 1
-            END DO
+      DO bin = 1, bin_size
+         DO i = 1, 64
+            data%integral_caches(i, bin)%element_counter = 1
+            data%integral_caches(i, bin)%data = 0
+            ALLOCATE (data%integral_containers(i, bin)%first)
+            data%integral_containers(i, bin)%first%prev => NULL()
+            data%integral_containers(i, bin)%first%next => NULL()
+            data%integral_containers(i, bin)%current => data%integral_containers(i, bin)%first
+            data%integral_containers(i, bin)%current%data = 0
+            data%integral_containers(i, bin)%element_counter = 1
          END DO
-      CASE (hfx_do_eval_forces)
-         ALLOCATE (x_data%maxval_cache_forces(bin_size))
-         DO bin = 1, bin_size
-            x_data%maxval_cache_forces(bin)%element_counter = 1
-         END DO
-         ALLOCATE (x_data%maxval_container_forces(bin_size))
-         DO bin = 1, bin_size
-            ALLOCATE (x_data%maxval_container_forces(bin)%first)
-            x_data%maxval_container_forces(bin)%first%prev => NULL()
-            x_data%maxval_container_forces(bin)%first%next => NULL()
-            x_data%maxval_container_forces(bin)%current => x_data%maxval_container_forces(bin)%first
-            x_data%maxval_container_forces(bin)%current%data = 0
-            x_data%maxval_container_forces(bin)%element_counter = 1
-         END DO
-
-         ALLOCATE (x_data%integral_containers_forces(64, bin_size))
-         ALLOCATE (x_data%integral_caches_forces(64, bin_size))
-
-         DO bin = 1, bin_size
-            DO i = 1, 64
-               x_data%integral_caches_forces(i, bin)%element_counter = 1
-               x_data%integral_caches_forces(i, bin)%data = 0
-               ALLOCATE (x_data%integral_containers_forces(i, bin)%first)
-               x_data%integral_containers_forces(i, bin)%first%prev => NULL()
-               x_data%integral_containers_forces(i, bin)%first%next => NULL()
-               x_data%integral_containers_forces(i, bin)%current => x_data%integral_containers_forces(i, bin)%first
-               x_data%integral_containers_forces(i, bin)%current%data = 0
-               x_data%integral_containers_forces(i, bin)%element_counter = 1
-            END DO
-         END DO
-
-      END SELECT
+      END DO
 
    END SUBROUTINE alloc_containers
+
+! **************************************************************************************************
+!> \brief Compares the non-technical parts of two HFX input section and check whether they are the same
+!>        Ignore things that would not change results (MEMORY, LOAD_BALANCE)
+!> \param hfx_section1 ...
+!> \param hfx_section2 ...
+!> \param is_identical ...
+!> \param same_except_frac ...
+!> \return ...
+! **************************************************************************************************
+   SUBROUTINE compare_hfx_sections(hfx_section1, hfx_section2, is_identical, same_except_frac)
+
+      TYPE(section_vals_type), POINTER                   :: hfx_section1, hfx_section2
+      LOGICAL, INTENT(OUT)                               :: is_identical
+      LOGICAL, INTENT(OUT), OPTIONAL                     :: same_except_frac
+
+      CHARACTER(LEN=default_path_length)                 :: cval1, cval2
+      INTEGER                                            :: irep, ival1, ival2, n_rep_hf1, n_rep_hf2
+      LOGICAL                                            :: lval1, lval2
+      REAL(dp)                                           :: rval1, rval2
+      TYPE(section_vals_type), POINTER                   :: hfx_sub_section1, hfx_sub_section2
+
+      is_identical = .TRUE.
+      IF (PRESENT(same_except_frac)) same_except_frac = .FALSE.
+
+      CALL section_vals_get(hfx_section1, n_repetition=n_rep_hf1)
+      CALL section_vals_get(hfx_section2, n_repetition=n_rep_hf2)
+      is_identical = n_rep_hf1 == n_rep_hf2
+      IF (.NOT. is_identical) RETURN
+
+      DO irep = 1, n_rep_hf1
+         CALL section_vals_val_get(hfx_section1, "PW_HFX", l_val=lval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_section2, "PW_HFX", l_val=lval2, i_rep_section=irep)
+         IF (lval1 .NEQV. lval2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_section1, "PW_HFX_BLOCKSIZE", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_section2, "PW_HFX_BLOCKSIZE", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_section1, "TREAT_LSD_IN_CORE", l_val=lval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_section2, "TREAT_LSD_IN_CORE", l_val=lval2, i_rep_section=irep)
+         IF (lval1 .NEQV. lval2) is_identical = .FALSE.
+
+         hfx_sub_section1 => section_vals_get_subs_vals(hfx_section1, "INTERACTION_POTENTIAL", i_rep_section=irep)
+         hfx_sub_section2 => section_vals_get_subs_vals(hfx_section2, "INTERACTION_POTENTIAL", i_rep_section=irep)
+
+         CALL section_vals_val_get(hfx_sub_section1, "OMEGA", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "OMEGA", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "POTENTIAL_TYPE", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "POTENTIAL_TYPE", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+         IF (.NOT. is_identical) RETURN
+
+         IF (ival1 == do_potential_truncated .OR. ival1 == do_potential_mix_cl_trunc) THEN
+            CALL section_vals_val_get(hfx_sub_section1, "CUTOFF_RADIUS", r_val=rval1, i_rep_section=irep)
+            CALL section_vals_val_get(hfx_sub_section2, "CUTOFF_RADIUS", r_val=rval2, i_rep_section=irep)
+            IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+            CALL section_vals_val_get(hfx_sub_section1, "T_C_G_DATA", c_val=cval1, i_rep_section=irep)
+            CALL section_vals_val_get(hfx_sub_section2, "T_C_G_DATA", c_val=cval2, i_rep_section=irep)
+            IF (cval1 .NE. cval2) is_identical = .FALSE.
+         END IF
+
+         CALL section_vals_val_get(hfx_sub_section1, "SCALE_COULOMB", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "SCALE_COULOMB", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "SCALE_GAUSSIAN", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "SCALE_GAUSSIAN", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "SCALE_LONGRANGE", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "SCALE_LONGRANGE", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         hfx_sub_section1 => section_vals_get_subs_vals(hfx_section1, "PERIODIC", i_rep_section=irep)
+         hfx_sub_section2 => section_vals_get_subs_vals(hfx_section2, "PERIODIC", i_rep_section=irep)
+
+         CALL section_vals_val_get(hfx_sub_section1, "NUMBER_OF_SHELLS", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "NUMBER_OF_SHELLS", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         hfx_sub_section1 => section_vals_get_subs_vals(hfx_section1, "RI", i_rep_section=irep)
+         hfx_sub_section2 => section_vals_get_subs_vals(hfx_section2, "RI", i_rep_section=irep)
+
+         CALL section_vals_val_get(hfx_sub_section1, "_SECTION_PARAMETERS_", l_val=lval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "_SECTION_PARAMETERS_", l_val=lval2, i_rep_section=irep)
+         IF (lval1 .NEQV. lval2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "CUTOFF_RADIUS", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "CUTOFF_RADIUS", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_EIGVAL", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_EIGVAL", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_FILTER", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_FILTER", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_FILTER_2C", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_FILTER_2C", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_FILTER_MO", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_FILTER_MO", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_PGF_ORB", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_PGF_ORB", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "MAX_BLOCK_SIZE_MO", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "MAX_BLOCK_SIZE_MO", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "MIN_BLOCK_SIZE", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "MIN_BLOCK_SIZE", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "OMEGA", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "OMEGA", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "RI_FLAVOR", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "RI_FLAVOR", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "RI_METRIC", i_val=ival1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "RI_METRIC", i_val=ival2, i_rep_section=irep)
+         IF (ival1 .NE. ival2) is_identical = .FALSE.
+
+         hfx_sub_section1 => section_vals_get_subs_vals(hfx_section1, "SCREENING", i_rep_section=irep)
+         hfx_sub_section2 => section_vals_get_subs_vals(hfx_section2, "SCREENING", i_rep_section=irep)
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_SCHWARZ", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_SCHWARZ", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "EPS_SCHWARZ_FORCES", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "EPS_SCHWARZ_FORCES", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "P_SCREEN_CORRECTION_FACTOR", r_val=rval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "P_SCREEN_CORRECTION_FACTOR", r_val=rval2, i_rep_section=irep)
+         IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "SCREEN_ON_INITIAL_P", l_val=lval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "SCREEN_ON_INITIAL_P", l_val=lval2, i_rep_section=irep)
+         IF (lval1 .NEQV. lval2) is_identical = .FALSE.
+
+         CALL section_vals_val_get(hfx_sub_section1, "SCREEN_P_FORCES", l_val=lval1, i_rep_section=irep)
+         CALL section_vals_val_get(hfx_sub_section2, "SCREEN_P_FORCES", l_val=lval2, i_rep_section=irep)
+         IF (lval1 .NEQV. lval2) is_identical = .FALSE.
+
+      END DO
+
+      !Test of the fraction
+      IF (is_identical) THEN
+         DO irep = 1, n_rep_hf1
+            CALL section_vals_val_get(hfx_section1, "FRACTION", r_val=rval1, i_rep_section=irep)
+            CALL section_vals_val_get(hfx_section2, "FRACTION", r_val=rval2, i_rep_section=irep)
+            IF (ABS(rval1 - rval2) > EPSILON(1.0_dp)) is_identical = .FALSE.
+         END DO
+
+         IF (PRESENT(same_except_frac)) THEN
+            IF (.NOT. is_identical) same_except_frac = .TRUE.
+         END IF
+      END IF
+
+   END SUBROUTINE compare_hfx_sections
 
 END MODULE hfx_types
 

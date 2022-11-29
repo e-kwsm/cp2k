@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,7 +46,6 @@ MODULE fist_neighbor_lists
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE memory_utilities,                ONLY: reallocate
    USE particle_types,                  ONLY: particle_type
    USE qmmm_ff_fist,                    ONLY: qmmm_ff_precond_only_qm
@@ -113,8 +114,7 @@ CONTAINS
       LOGICAL, DIMENSION(:, :), OPTIONAL, POINTER        :: full_nl
       TYPE(exclusion_type), DIMENSION(:), OPTIONAL       :: exclusions
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_fist_neighbor_lists', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_fist_neighbor_lists'
 
       CHARACTER(LEN=default_string_length)               :: kind_name, print_key_path, unit_str
       INTEGER                                            :: atom_a, handle, iatom_local, ikind, iw, &
@@ -146,7 +146,7 @@ CONTAINS
       ! for the local particles are needed, which would imply a huge memory savings for fist
       IF (PRESENT(exclusions)) THEN
          CPASSERT(present_local_particles)
-      ENDIF
+      END IF
 
       ! Allocate work storage
       nkind = SIZE(atomic_kind_set)
@@ -288,8 +288,7 @@ CONTAINS
       LOGICAL, DIMENSION(:, :), POINTER                  :: full_nl
       TYPE(exclusion_type), DIMENSION(:), OPTIONAL       :: exclusions
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_neighbor_lists', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_neighbor_lists'
 
       INTEGER :: a_i, a_j, a_k, atom_a, atom_b, b_i, b_j, b_k, b_pi, b_pj, b_pk, bg_i, bg_j, bg_k, &
          handle, i, i1, iatom_local, icell, icellmap, id_kind, ii, ii_start, ij, ij_start, ik, &
@@ -373,11 +372,11 @@ CONTAINS
                      neighbor_kind_pair%cell_vector(1) = icell
                      neighbor_kind_pair%cell_vector(2) = jcell
                      neighbor_kind_pair%cell_vector(3) = kcell
-                  ENDIF
-               ENDDO
-            ENDDO
-         ENDDO
-      ENDDO
+                  END IF
+               END DO
+            END DO
+         END DO
+      END DO
       ! Mapping the spherical interaction between subcells
       ALLOCATE (sphcub(-isubcell(1):isubcell(1), &
                        -isubcell(2):isubcell(2), &
@@ -671,7 +670,7 @@ CONTAINS
       conv = cp_unit_from_cp2k(1.0_dp, TRIM(unit_str))
       DO iab = 1, SIZE(nonbonded%neighbor_kind_pairs)
          neighbor_kind_pair => nonbonded%neighbor_kind_pairs(iab)
-         CALL matvec_3x3(cell_v, cell%hmat, REAL(neighbor_kind_pair%cell_vector, KIND=dp))
+         cell_v = MATMUL(cell%hmat, REAL(neighbor_kind_pair%cell_vector, KIND=dp))
          DO ilist = 1, neighbor_kind_pair%npairs
             nneighbor = nneighbor + 1
             IF (output_unit > 0) THEN
@@ -732,8 +731,7 @@ CONTAINS
       TYPE(fist_neighbor_type), POINTER                  :: nonbonded
       INTEGER, INTENT(IN)                                :: nkinds
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'sort_neighbor_lists', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'sort_neighbor_lists'
 
       INTEGER                                            :: handle, iab, id_kind, ikind, ipair, &
                                                             jkind, max_alloc_size, npairs, nscale, &

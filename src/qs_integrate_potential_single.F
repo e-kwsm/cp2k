@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -44,8 +46,7 @@ MODULE qs_integrate_potential_single
    USE gaussian_gridlevels,             ONLY: gaussian_gridlevel,&
                                               gridlevel_info_type
    USE grid_api,                        ONLY: integrate_pgf_product
-   USE kinds,                           ONLY: dp,&
-                                              int_8
+   USE kinds,                           ONLY: dp
    USE lri_environment_types,           ONLY: lri_kind_type
    USE memory_utilities,                ONLY: reallocate
    USE message_passing,                 ONLY: mp_sum
@@ -54,17 +55,15 @@ MODULE qs_integrate_potential_single
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_force_types,                  ONLY: qs_force_type
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               qs_kind_type
-   USE realspace_grid_types,            ONLY: pw2rs,&
-                                              realspace_grid_p_type,&
+   USE realspace_grid_types,            ONLY: map_gaussian_here,&
+                                              pw2rs,&
                                               realspace_grid_type,&
-                                              rs_grid_release,&
-                                              rs_grid_retain,&
                                               rs_grid_zero,&
                                               rs_pw_transfer
    USE rs_pw_interface,                 ONLY: potential_pw2rs
@@ -97,11 +96,10 @@ CONTAINS
 !> \param qs_env ...
 ! **************************************************************************************************
    SUBROUTINE integrate_ppl_rspace(rho_rspace, qs_env)
-      TYPE(pw_p_type), INTENT(INOUT)                     :: rho_rspace
+      TYPE(pw_type), INTENT(IN)                          :: rho_rspace
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_ppl_rspace', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_ppl_rspace'
 
       INTEGER                                            :: atom_a, handle, iatom, ikind, j, lppl, &
                                                             n, natom_of_kind, ni, npme
@@ -129,9 +127,8 @@ CONTAINS
 
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v)
-      CALL rs_grid_retain(rs_v)
 
-      CALL rs_pw_transfer(rs_v, rho_rspace%pw, pw2rs)
+      CALL rs_pw_transfer(rs_v, rho_rspace, pw2rs)
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
@@ -223,11 +220,11 @@ CONTAINS
                IF (MODULO(iatom, rs_v%desc%group_size) == rs_v%desc%my_pos) THEN
                   npme = npme + 1
                   cores(npme) = iatom
-               ENDIF
+               END IF
             ELSE
                npme = npme + 1
                cores(npme) = iatom
-            ENDIF
+            END IF
          END DO
 
          DO j = 1, npme
@@ -252,18 +249,18 @@ CONTAINS
 
             CALL integrate_pgf_product(ni, alpha, 0, &
                                        0, 0.0_dp, 0, ra, (/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                       rs_v, cell, pw_env%cube_info(1), hab, pab=pab, o1=0, o2=0, &
+                                       rs_v, hab, pab=pab, o1=0, o2=0, &
                                        radius=radius, &
                                        calculate_forces=.TRUE., force_a=force_a, &
                                        force_b=force_b, use_virial=use_virial, my_virial_a=my_virial_a, &
-                                       my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+                                       my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0)
 
             force(ikind)%gth_ppl(:, iatom) = &
-               force(ikind)%gth_ppl(:, iatom) + force_a(:)*rho_rspace%pw%pw_grid%dvol
+               force(ikind)%gth_ppl(:, iatom) + force_a(:)*rho_rspace%pw_grid%dvol
 
             IF (use_virial) THEN
-               virial%pv_virial = virial%pv_virial + my_virial_a*rho_rspace%pw%pw_grid%dvol
-               virial%pv_ppl = virial%pv_ppl + my_virial_a*rho_rspace%pw%pw_grid%dvol
+               virial%pv_ppl = virial%pv_ppl + my_virial_a*rho_rspace%pw_grid%dvol
+               virial%pv_virial = virial%pv_virial + my_virial_a*rho_rspace%pw_grid%dvol
                CPABORT("Virial not debuged for CORE_PPL")
             END IF
          END DO
@@ -271,8 +268,6 @@ CONTAINS
          DEALLOCATE (hab, pab)
 
       END DO
-
-      CALL rs_grid_release(rs_v)
 
       DEALLOCATE (cores)
 
@@ -286,11 +281,10 @@ CONTAINS
 !> \param qs_env ...
 ! **************************************************************************************************
    SUBROUTINE integrate_rho_nlcc(rho_rspace, qs_env)
-      TYPE(pw_p_type), INTENT(INOUT)                     :: rho_rspace
+      TYPE(pw_type), INTENT(IN)                          :: rho_rspace
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_rho_nlcc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_rho_nlcc'
 
       INTEGER                                            :: atom_a, handle, iatom, iexp_nlcc, ikind, &
                                                             ithread, j, n, natom, nc, nexp_nlcc, &
@@ -319,9 +313,8 @@ CONTAINS
 
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v)
-      CALL rs_grid_retain(rs_v)
 
-      CALL rs_pw_transfer(rs_v, rho_rspace%pw, pw2rs)
+      CALL rs_pw_transfer(rs_v, rho_rspace, pw2rs)
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
@@ -424,11 +417,11 @@ CONTAINS
                   IF (MODULO(iatom, rs_v%desc%group_size) == rs_v%desc%my_pos) THEN
                      npme = npme + 1
                      cores(npme) = iatom
-                  ENDIF
+                  END IF
                ELSE
                   npme = npme + 1
                   cores(npme) = iatom
-               ENDIF
+               END IF
             END DO
 
             DO j = 1, npme
@@ -453,18 +446,18 @@ CONTAINS
 
                CALL integrate_pgf_product(ni, 1/(2*alpha**2), 0, &
                                           0, 0.0_dp, 0, ra, (/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                          rs_v, cell, pw_env%cube_info(1), hab, pab=pab, o1=0, o2=0, &
+                                          rs_v, hab, pab=pab, o1=0, o2=0, &
                                           radius=radius, &
                                           calculate_forces=.TRUE., force_a=force_a, &
                                           force_b=force_b, use_virial=use_virial, my_virial_a=my_virial_a, &
-                                          my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+                                          my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0)
 
                force(ikind)%gth_nlcc(:, iatom) = &
-                  force(ikind)%gth_nlcc(:, iatom) + force_a(:)*rho_rspace%pw%pw_grid%dvol
+                  force(ikind)%gth_nlcc(:, iatom) + force_a(:)*rho_rspace%pw_grid%dvol
 
                IF (use_virial) THEN
-                  virial%pv_virial = virial%pv_virial + my_virial_a*rho_rspace%pw%pw_grid%dvol
-                  virial%pv_exc = virial%pv_exc + my_virial_a*rho_rspace%pw%pw_grid%dvol
+                  virial%pv_nlcc = virial%pv_nlcc + my_virial_a*rho_rspace%pw_grid%dvol
+                  virial%pv_virial = virial%pv_virial + my_virial_a*rho_rspace%pw_grid%dvol
                END IF
             END DO
 
@@ -473,8 +466,6 @@ CONTAINS
          END DO
 
       END DO
-
-      CALL rs_grid_release(rs_v)
 
       DEALLOCATE (cores)
 
@@ -489,11 +480,10 @@ CONTAINS
 !> \param qs_env ...
 ! **************************************************************************************************
    SUBROUTINE integrate_v_core_rspace(v_rspace, qs_env)
-      TYPE(pw_p_type), INTENT(INOUT)                     :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_core_rspace', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_core_rspace'
 
       INTEGER                                            :: atom_a, handle, iatom, ikind, j, natom, &
                                                             natom_of_kind, npme
@@ -534,9 +524,8 @@ CONTAINS
 
          CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
          CALL pw_env_get(pw_env=pw_env, auxbas_rs_grid=rs_v)
-         CALL rs_grid_retain(rs_v)
 
-         CALL rs_pw_transfer(rs_v, v_rspace%pw, pw2rs)
+         CALL rs_pw_transfer(rs_v, v_rspace, pw2rs)
 
          CALL get_qs_env(qs_env=qs_env, &
                          atomic_kind_set=atomic_kind_set, &
@@ -566,7 +555,7 @@ CONTAINS
                              alpha_core_charge=alpha_core_charge, &
                              ccore_charge=ccore_charge)
 
-            IF (paw_atom) CYCLE
+            IF (dft_control%qs_control%gapw .AND. paw_atom) CYCLE
 
             pab(1, 1) = -ccore_charge
             IF (alpha_core_charge == 0.0_dp .OR. pab(1, 1) == 0.0_dp) CYCLE
@@ -583,11 +572,11 @@ CONTAINS
                   IF (MODULO(iatom, rs_v%desc%group_size) == rs_v%desc%my_pos) THEN
                      npme = npme + 1
                      cores(npme) = iatom
-                  ENDIF
+                  END IF
                ELSE
                   npme = npme + 1
                   cores(npme) = iatom
-               ENDIF
+               END IF
             END DO
 
             DO j = 1, npme
@@ -611,18 +600,18 @@ CONTAINS
 
                CALL integrate_pgf_product(0, alpha_core_charge, 0, &
                                           0, 0.0_dp, 0, ra, (/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                          rs_v, cell, pw_env%cube_info(1), hab, pab=pab, o1=0, o2=0, &
+                                          rs_v, hab, pab=pab, o1=0, o2=0, &
                                           radius=radius, &
                                           calculate_forces=.TRUE., force_a=force_a, &
                                           force_b=force_b, use_virial=use_virial, my_virial_a=my_virial_a, &
-                                          my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0_int_8)
+                                          my_virial_b=my_virial_b, use_subpatch=.TRUE., subpatch_pattern=0)
 
                IF (ASSOCIATED(force)) THEN
                   force(ikind)%rho_core(:, iatom) = force(ikind)%rho_core(:, iatom) + force_a(:)
                END IF
                IF (use_virial) THEN
+                  virial%pv_ehartree = virial%pv_ehartree + my_virial_a
                   virial%pv_virial = virial%pv_virial + my_virial_a
-                  virial%pv_hartree = virial%pv_hartree + my_virial_a
                END IF
                IF (ASSOCIATED(atprop)) THEN
                   atprop%ateb(atom_a) = atprop%ateb(atom_a) + 0.5_dp*hab(1, 1)*pab(1, 1)
@@ -631,8 +620,6 @@ CONTAINS
             END DO
 
          END DO
-
-         CALL rs_grid_release(rs_v)
 
          DEALLOCATE (hab, pab, cores)
 
@@ -655,19 +642,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE integrate_v_rspace_one_center(v_rspace, qs_env, int_res, &
                                             calculate_forces, basis_type, atomlist)
-      TYPE(pw_p_type), INTENT(IN)                        :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(lri_kind_type), DIMENSION(:), POINTER         :: int_res
       LOGICAL, INTENT(IN)                                :: calculate_forces
       CHARACTER(len=*), INTENT(IN)                       :: basis_type
       INTEGER, DIMENSION(:), OPTIONAL                    :: atomlist
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_rspace_one_center', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_rspace_one_center'
 
-      INTEGER :: atom_a, dir, group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, m1, &
-         maxco, maxsgf_set, my_pos, na1, natom_of_kind, ncoa, nkind, nseta, offset, sgfa
-      INTEGER, DIMENSION(3)                              :: lb, location, tp, ub
+      INTEGER :: atom_a, group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, m1, maxco, &
+         maxsgf_set, my_pos, na1, natom_of_kind, ncoa, nkind, nseta, offset, sgfa
       INTEGER, DIMENSION(:), POINTER                     :: atom_list, la_max, la_min, npgfa, &
                                                             nsgf_seta
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa
@@ -687,7 +672,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: rs_v
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_v
       TYPE(realspace_grid_type), POINTER                 :: rs_grid
       TYPE(virial_type), POINTER                         :: virial
 
@@ -703,8 +688,7 @@ CONTAINS
 
       CALL pw_env_get(pw_env, rs_grids=rs_v)
       DO i = 1, SIZE(rs_v)
-         CALL rs_grid_retain(rs_v(i)%rs_grid)
-         CALL rs_grid_zero(rs_v(i)%rs_grid)
+         CALL rs_grid_zero(rs_v(i))
       END DO
 
       gridlevel_info => pw_env%gridlevel_info
@@ -726,8 +710,8 @@ CONTAINS
       eps_rho_rspace = dft_control%qs_control%eps_rho_rspace
 
       offset = 0
-      my_pos = v_rspace%pw%pw_grid%para%my_pos
-      group_size = v_rspace%pw%pw_grid%para%group_size
+      my_pos = v_rspace%pw_grid%para%my_pos
+      group_size = v_rspace%pw_grid%para%group_size
 
       DO ikind = 1, nkind
 
@@ -771,31 +755,8 @@ CONTAINS
                map_it = .FALSE.
                DO ipgf = 1, npgfa(iset)
                   igrid_level = gaussian_gridlevel(gridlevel_info, zeta(ipgf, iset))
-                  rs_grid => rs_v(igrid_level)%rs_grid
-                  IF (.NOT. ALL(rs_grid%desc%perd == 1)) THEN
-                     DO dir = 1, 3
-                        ! bounds of local grid (i.e. removing the 'wings'), if periodic
-                        tp(dir) = FLOOR(DOT_PRODUCT(cell%h_inv(dir, :), ra)*rs_grid%desc%npts(dir))
-                        tp(dir) = MODULO(tp(dir), rs_grid%desc%npts(dir))
-                        IF (rs_grid%desc%perd(dir) .NE. 1) THEN
-                           lb(dir) = rs_grid%lb_local(dir) + rs_grid%desc%border
-                           ub(dir) = rs_grid%ub_local(dir) - rs_grid%desc%border
-                        ELSE
-                           lb(dir) = rs_grid%lb_local(dir)
-                           ub(dir) = rs_grid%ub_local(dir)
-                        ENDIF
-                        ! distributed grid, only map if it is local to the grid
-                        location(dir) = tp(dir) + rs_grid%desc%lb(dir)
-                     ENDDO
-                     IF (lb(1) <= location(1) .AND. location(1) <= ub(1) .AND. &
-                         lb(2) <= location(2) .AND. location(2) <= ub(2) .AND. &
-                         lb(3) <= location(3) .AND. location(3) <= ub(3)) THEN
-                        map_it(ipgf) = .TRUE.
-                     ENDIF
-                  ELSE
-                     ! not distributed, just a round-robin distribution over the full set of CPUs
-                     IF (MODULO(offset, group_size) == my_pos) map_it(ipgf) = .TRUE.
-                  ENDIF
+                  rs_grid => rs_v(igrid_level)
+                  map_it(ipgf) = map_gaussian_here(rs_grid, cell%h_inv, ra, offset, group_size, my_pos)
                END DO
                offset = offset + 1
                !
@@ -815,12 +776,12 @@ CONTAINS
                                 SIZE(sphi_a, 1), work_f(1, 1), SIZE(work_f, 1), 0.0_dp, pab(1, 1), &
                                 SIZE(pab, 1))
                      DEALLOCATE (work_f)
-                  ENDIF
+                  END IF
 
                   DO ipgf = 1, npgfa(iset)
                      na1 = (ipgf - 1)*ncoset(la_max(iset))
                      igrid_level = gaussian_gridlevel(gridlevel_info, zeta(ipgf, iset))
-                     rs_grid => rs_v(igrid_level)%rs_grid
+                     rs_grid => rs_v(igrid_level)
 
                      radius = exp_radius_very_extended(la_min=la_min(iset), la_max=la_max(iset), &
                                                        lb_min=0, lb_max=0, ra=ra, rb=ra, rp=ra, &
@@ -833,8 +794,7 @@ CONTAINS
                                                       zeta=zeta(ipgf, iset), la_min=la_min(iset), &
                                                       lb_max=0, zetb=0.0_dp, lb_min=0, &
                                                       ra=ra, rab=(/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                                      rsgrid=rs_grid, cell=cell, &
-                                                      cube_info=pw_env%cube_info(igrid_level), &
+                                                      rsgrid=rs_grid, &
                                                       hab=hab, o1=na1, o2=0, radius=radius, &
                                                       calculate_forces=calculate_forces)
                         ELSE
@@ -842,16 +802,15 @@ CONTAINS
                                                       zeta=zeta(ipgf, iset), la_min=la_min(iset), &
                                                       lb_max=0, zetb=0.0_dp, lb_min=0, &
                                                       ra=ra, rab=(/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                                      rsgrid=rs_grid, cell=cell, &
-                                                      cube_info=pw_env%cube_info(igrid_level), &
+                                                      rsgrid=rs_grid, &
                                                       hab=hab, pab=pab, o1=na1, o2=0, radius=radius, &
                                                       calculate_forces=calculate_forces, &
                                                       force_a=force_a, force_b=force_b, &
                                                       use_virial=use_virial, &
                                                       my_virial_a=my_virial_a, my_virial_b=my_virial_b)
-                        ENDIF
-                     ENDIF
-                  ENDDO
+                        END IF
+                     END IF
+                  END DO
                   ! contract hab
                   CALL dgemm("T", "N", nsgf_seta(iset), 1, ncoa, 1.0_dp, sphi_a(1, sgfa), &
                              SIZE(sphi_a, 1), hab(1, 1), SIZE(hab, 1), 0.0_dp, work_i(1, 1), SIZE(work_i, 1))
@@ -860,24 +819,21 @@ CONTAINS
                      int_res(ikind)%v_int(iatom, sgfa:sgfa - 1 + nsgf_seta(iset)) + work_i(1:nsgf_seta(iset), 1)
                   DEALLOCATE (work_i)
                END IF
-            ENDDO
+            END DO
             !
             IF (calculate_forces) THEN
                int_res(ikind)%v_dfdr(iatom, :) = int_res(ikind)%v_dfdr(iatom, :) + force_a(:)
                IF (use_virial) THEN
+                  virial%pv_lrigpw = virial%pv_lrigpw + my_virial_a
                   virial%pv_virial = virial%pv_virial + my_virial_a
-               ENDIF
-            ENDIF
+               END IF
+            END IF
 
             DEALLOCATE (map_it)
 
          END DO
 
          DEALLOCATE (hab, pab)
-      END DO
-
-      DO i = 1, SIZE(rs_v)
-         CALL rs_grid_release(rs_v(i)%rs_grid)
       END DO
 
       CALL timestop(handle)
@@ -896,19 +852,17 @@ CONTAINS
 !> \author JGH
 ! **************************************************************************************************
    SUBROUTINE integrate_v_rspace_diagonal(v_rspace, ksmat, pmat, qs_env, calculate_forces, basis_type)
-      TYPE(pw_p_type), INTENT(IN)                        :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(dbcsr_type), INTENT(INOUT)                    :: ksmat, pmat
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
       CHARACTER(len=*), INTENT(IN)                       :: basis_type
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_rspace_diagonal', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_rspace_diagonal'
 
-      INTEGER :: atom_a, dir, group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, jpgf, &
-         jset, m1, maxco, maxsgf_set, my_pos, na1, na2, natom_of_kind, nb1, nb2, ncoa, ncob, &
-         nkind, nseta, nsgfa, offset, sgfa, sgfb
-      INTEGER, DIMENSION(3)                              :: lb, location, tp, ub
+      INTEGER :: atom_a, group_size, handle, iatom, igrid_level, ikind, ipgf, iset, jpgf, jset, &
+         m1, maxco, maxsgf_set, my_pos, na1, na2, natom_of_kind, nb1, nb2, ncoa, ncob, nkind, &
+         nseta, nsgfa, offset, sgfa, sgfb
       INTEGER, DIMENSION(:), POINTER                     :: atom_list, la_max, la_min, npgfa, &
                                                             nsgf_seta
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa
@@ -930,7 +884,7 @@ CONTAINS
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: rs_v
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_v
       TYPE(realspace_grid_type), POINTER                 :: rs_grid
       TYPE(virial_type), POINTER                         :: virial
 
@@ -938,9 +892,6 @@ CONTAINS
 
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env, rs_grids=rs_v)
-      DO i = 1, SIZE(rs_v)
-         CALL rs_grid_retain(rs_v(i)%rs_grid)
-      END DO
       CALL potential_pw2rs(rs_v, v_rspace, pw_env)
 
       gridlevel_info => pw_env%gridlevel_info
@@ -960,8 +911,8 @@ CONTAINS
       use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
 
       offset = 0
-      my_pos = v_rspace%pw%pw_grid%para%my_pos
-      group_size = v_rspace%pw%pw_grid%para%group_size
+      my_pos = v_rspace%pw_grid%para%my_pos
+      group_size = v_rspace%pw_grid%para%group_size
 
       DO ikind = 1, nkind
 
@@ -993,7 +944,7 @@ CONTAINS
                IF (use_virial) THEN
                   my_virial_a = 0.0_dp
                   my_virial_b = 0.0_dp
-               ENDIF
+               END IF
             END IF
             m1 = MAXVAL(npgfa(1:nseta))
             ALLOCATE (map_it2(m1, m1))
@@ -1009,31 +960,8 @@ CONTAINS
                      DO jpgf = 1, npgfa(jset)
                         zetp = zeta(ipgf, iset) + zeta(jpgf, jset)
                         igrid_level = gaussian_gridlevel(gridlevel_info, zetp)
-                        rs_grid => rs_v(igrid_level)%rs_grid
-                        IF (.NOT. ALL(rs_grid%desc%perd == 1)) THEN
-                           DO dir = 1, 3
-                              ! bounds of local grid (i.e. removing the 'wings'), if periodic
-                              tp(dir) = FLOOR(DOT_PRODUCT(cell%h_inv(dir, :), ra)*rs_grid%desc%npts(dir))
-                              tp(dir) = MODULO(tp(dir), rs_grid%desc%npts(dir))
-                              IF (rs_grid%desc%perd(dir) .NE. 1) THEN
-                                 lb(dir) = rs_grid%lb_local(dir) + rs_grid%desc%border
-                                 ub(dir) = rs_grid%ub_local(dir) - rs_grid%desc%border
-                              ELSE
-                                 lb(dir) = rs_grid%lb_local(dir)
-                                 ub(dir) = rs_grid%ub_local(dir)
-                              ENDIF
-                              ! distributed grid, only map if it is local to the grid
-                              location(dir) = tp(dir) + rs_grid%desc%lb(dir)
-                           ENDDO
-                           IF (lb(1) <= location(1) .AND. location(1) <= ub(1) .AND. &
-                               lb(2) <= location(2) .AND. location(2) <= ub(2) .AND. &
-                               lb(3) <= location(3) .AND. location(3) <= ub(3)) THEN
-                              map_it2(ipgf, jpgf) = .TRUE.
-                           ENDIF
-                        ELSE
-                           ! not distributed, just a round-robin distribution over the full set of CPUs
-                           IF (MODULO(offset, group_size) == my_pos) map_it2(ipgf, jpgf) = .TRUE.
-                        ENDIF
+                        rs_grid => rs_v(igrid_level)
+                        map_it2(ipgf, jpgf) = map_gaussian_here(rs_grid, cell%h_inv, ra, offset, group_size, my_pos)
                      END DO
                   END DO
                   offset = offset + 1
@@ -1059,7 +987,7 @@ CONTAINS
                            nb2 = jpgf*ncoset(la_max(jset))
                            zetp = zeta(ipgf, iset) + zeta(jpgf, jset)
                            igrid_level = gaussian_gridlevel(gridlevel_info, zetp)
-                           rs_grid => rs_v(igrid_level)%rs_grid
+                           rs_grid => rs_v(igrid_level)
 
                            radius = exp_radius_very_extended(la_min=la_min(iset), la_max=la_max(iset), &
                                                              lb_min=la_min(jset), lb_max=la_max(jset), &
@@ -1073,8 +1001,7 @@ CONTAINS
                                     la_max(iset), zeta(ipgf, iset), la_min(iset), &
                                     la_max(jset), zeta(jpgf, jset), la_min(jset), &
                                     ra=ra, rab=(/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                    rsgrid=rs_v(igrid_level)%rs_grid, cell=cell, &
-                                    cube_info=pw_env%cube_info(igrid_level), &
+                                    rsgrid=rs_v(igrid_level), &
                                     hab=hab, pab=pab, o1=na1, o2=nb1, &
                                     radius=radius, &
                                     calculate_forces=.TRUE., &
@@ -1085,15 +1012,14 @@ CONTAINS
                                     la_max(iset), zeta(ipgf, iset), la_min(iset), &
                                     la_max(jset), zeta(jpgf, jset), la_min(jset), &
                                     ra=ra, rab=(/0.0_dp, 0.0_dp, 0.0_dp/), &
-                                    rsgrid=rs_v(igrid_level)%rs_grid, cell=cell, &
-                                    cube_info=pw_env%cube_info(igrid_level), &
+                                    rsgrid=rs_v(igrid_level), &
                                     hab=hab, o1=na1, o2=nb1, &
                                     radius=radius, &
                                     calculate_forces=.FALSE.)
-                              ENDIF
-                           ENDIF
-                        ENDDO
-                     ENDDO
+                              END IF
+                           END IF
+                        END DO
+                     END DO
                      ! contract hab
                      CALL dgemm("N", "N", ncoa, nsgf_seta(jset), ncob, &
                                 1.0_dp, hab(1, 1), SIZE(hab, 1), &
@@ -1104,8 +1030,8 @@ CONTAINS
                                 work(1, 1), SIZE(work, 1), &
                                 1.0_dp, hmat(sgfa, sgfb), SIZE(hmat, 1))
                   END IF
-               ENDDO
-            ENDDO
+               END DO
+            END DO
             DEALLOCATE (map_it2)
             ! update KS matrix
             CALL mp_sum(hmat, para_env%group)
@@ -1117,17 +1043,14 @@ CONTAINS
                force(ikind)%rho_elec(:, iatom) = force(ikind)%rho_elec(:, iatom) + 2.0_dp*force_a(:)
                IF (use_virial) THEN
                   IF (use_virial .AND. calculate_forces) THEN
+                     virial%pv_lrigpw = virial%pv_lrigpw + 2.0_dp*my_virial_a
                      virial%pv_virial = virial%pv_virial + 2.0_dp*my_virial_a
                   END IF
                END IF
-            ENDIF
+            END IF
          END DO
          DEALLOCATE (hab, work, hmat)
          IF (calculate_forces) DEALLOCATE (pab, pblk)
-      END DO
-
-      DO i = 1, SIZE(rs_v)
-         CALL rs_grid_release(rs_v(i)%rs_grid)
       END DO
 
       CALL timestop(handle)

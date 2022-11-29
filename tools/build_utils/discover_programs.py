@@ -1,7 +1,8 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
-import re, sys, os
+import os
+import re
+import sys
 from os import path
 
 # pre-compiled regular expressions
@@ -40,22 +41,22 @@ def main():
 
 # ============================================================================
 def is_fortran_program(fn):
-    f = open(fn)
+    f = open(fn, encoding="utf8")
     s = path.getsize(fn)
     f.seek(max(0, s - 100))
     tail = f.read()
     f.close()
     m = re_program.search(tail.lower())
-    return m != None
+    return m is not None
 
 
 # ============================================================================
 def has_main_function(fn):
-    f = open(fn)
+    f = open(fn, encoding="utf8")
     content = f.read()
     f.close()
     m = re_main.search(content)
-    return m != None
+    return m is not None
 
 
 # ===============================================================================

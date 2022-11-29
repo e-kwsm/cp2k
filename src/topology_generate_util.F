@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -36,7 +38,6 @@ MODULE topology_generate_util
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE memory_utilities,                ONLY: reallocate
    USE particle_types,                  ONLY: allocate_particle_set,&
                                               deallocate_particle_set,&
@@ -95,8 +96,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: natom, natom_prev, nbond_prev
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: id_molname
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_molname', &
-         routineP = moduleN//':'//routineN
       CHARACTER(LEN=default_string_length), PARAMETER    :: basename = "MOL"
 
       CHARACTER(LEN=default_string_length)               :: molname
@@ -110,7 +109,7 @@ CONTAINS
       ALLOCATE (atom_bond_list(natom))
       DO I = 1, natom
          ALLOCATE (atom_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%bond_a)) N = SIZE(conn_info%bond_a) - nbond_prev
       CALL reorder_structure(atom_bond_list, conn_info%bond_a(nbond_prev + 1:) - natom_prev, &
@@ -128,7 +127,7 @@ CONTAINS
       END DO
       DO I = 1, natom
          DEALLOCATE (atom_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (atom_bond_list)
 
    END SUBROUTINE topology_generate_molname
@@ -147,9 +146,6 @@ CONTAINS
       TYPE(array1_list_type), DIMENSION(:)               :: atom_bond_list
       CHARACTER(LEN=default_string_length), INTENT(IN)   :: molname
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: id_molname
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'generate_molname_low', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: j, k
 
@@ -188,8 +184,7 @@ CONTAINS
       TYPE(qmmm_env_mm_type), OPTIONAL, POINTER          :: qmmm_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_molecule', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_molecule'
       INTEGER, PARAMETER                                 :: nblock = 100
 
       INTEGER :: atom_in_kind, atom_in_mol, first, handle, handle2, i, iatm, iatom, iend, ifirst, &
@@ -293,14 +288,14 @@ CONTAINS
       ALLOCATE (atom_bond_list(natom))
       DO I = 1, natom
          ALLOCATE (atom_bond_list(I)%array1(0))
-      ENDDO
+      END DO
       N = 0
       IF (ASSOCIATED(conn_info%bond_a)) N = SIZE(conn_info%bond_a)
       CALL reorder_structure(atom_bond_list, conn_info%bond_a, conn_info%bond_b, N)
       CALL find_molecule(atom_bond_list, atom_info%map_mol_num, atom_info%id_molname)
       DO I = 1, natom
          DEALLOCATE (atom_bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (atom_bond_list)
       IF (iw > 0) WRITE (iw, '(/,T2,A)') "End of molecule generation"
 
@@ -570,8 +565,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_bond', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_bond'
 
       CHARACTER(LEN=2)                                   :: upper_sym_1
       INTEGER :: cbond, handle, handle2, i, iatm1, iatm2, iatom, ibond, idim, iw, j, jatom, k, &
@@ -716,7 +710,7 @@ CONTAINS
       DO I = 1, natom
          ALLOCATE (bond_list(I)%array1(0))
          ALLOCATE (bond_list(I)%array2(0))
-      ENDDO
+      END DO
       CALL reorder_structure(bond_list, bond_a, bond_b, map_nb, SIZE(bond_a))
       DEALLOCATE (bond_a)
       DEALLOCATE (bond_b)
@@ -748,7 +742,7 @@ CONTAINS
                k = bond_list(iatm1)%array2(j)
                ksign = SIGN(1.0_dp, REAL(k, KIND=dp))
                k = ABS(k)
-               CALL matvec_3x3(cell_v, topology%cell%hmat, &
+               cell_v = MATMUL(topology%cell%hmat, &
                                REAL(nonbonded%neighbor_kind_pairs(k)%cell_vector, KIND=dp))
                dr = pbc_coord(:, iatm1) - pbc_coord(:, iatm2) - ksign*cell_v
                r2 = DOT_PRODUCT(dr, dr)
@@ -796,7 +790,7 @@ CONTAINS
                k = bond_list(iatm1)%array2(j)
                ksign = SIGN(1.0_dp, REAL(k, KIND=dp))
                k = ABS(k)
-               CALL matvec_3x3(cell_v, topology%cell%hmat, &
+               cell_v = MATMUL(topology%cell%hmat, &
                                REAL(nonbonded%neighbor_kind_pairs(k)%cell_vector, KIND=dp))
                dr = pbc_coord(:, iatm1) - pbc_coord(:, iatm2) - ksign*cell_v
                r2 = DOT_PRODUCT(dr, dr)
@@ -875,7 +869,7 @@ CONTAINS
       DO I = 1, natom
          DEALLOCATE (bond_list(I)%array1)
          DEALLOCATE (bond_list(I)%array2)
-      ENDDO
+      END DO
       DEALLOCATE (bond_list)
       DEALLOCATE (pbc_coord)
       DEALLOCATE (radius)
@@ -938,8 +932,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL                                            :: conn_ok
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_generate_mol', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'check_generate_mol'
 
       CHARACTER(LEN=10)                                  :: ctmp1, ctmp2, ctmp3
       INTEGER                                            :: handle, i, idim, itype, j, mol_natom, &
@@ -956,7 +949,7 @@ CONTAINS
       ALLOCATE (bond_list(natom))
       DO I = 1, natom
          ALLOCATE (bond_list(I)%array1(0))
-      ENDDO
+      END DO
       CALL reorder_structure(bond_list, bond_a, bond_b, SIZE(bond_a))
       ALLOCATE (mol_map(natom))
       ALLOCATE (mol_map_o(natom))
@@ -1056,7 +1049,7 @@ CONTAINS
       DEALLOCATE (wrk)
       DO I = 1, natom
          DEALLOCATE (bond_list(I)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (bond_list)
       CALL timestop(handle)
    END FUNCTION check_generate_mol
@@ -1084,9 +1077,6 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       INTEGER, INTENT(IN)                                :: output_unit
       LOGICAL, INTENT(IN), OPTIONAL                      :: is_impr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'connectivity_external_control', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=8)                                   :: fmt
       INTEGER                                            :: do_action, do_it, i, j, k, n_rep, &
@@ -1367,7 +1357,7 @@ CONTAINS
       ! if nothing there stay within bounds
       IF (istart <= ndim) THEN
          IF (Ilist1(istart) > tmp(1) .AND. (istart /= 1)) istart = istart - 1
-      ENDIF
+      END IF
       DO iend = istart, ndim
          IF (Ilist1(iend) /= tmp(1)) EXIT
       END DO
@@ -1497,8 +1487,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_bend', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_bend'
 
       INTEGER                                            :: handle, handle2, i, iw, natom, nbond, &
                                                             nsize, ntheta, output_unit
@@ -1533,7 +1522,7 @@ CONTAINS
          ALLOCATE (bond_list(natom))
          DO I = 1, natom
             ALLOCATE (bond_list(I)%array1(0))
-         ENDDO
+         END DO
          CALL reorder_structure(bond_list, conn_info%bond_a, conn_info%bond_b, nbond)
          ! All the dirty job is handled by this routine.. for bends it_levl is equal 3
          CALL timeset(routineN//"_1", handle2)
@@ -1547,7 +1536,7 @@ CONTAINS
          CALL timestop(handle2)
          DO I = 1, natom
             DEALLOCATE (bond_list(I)%array1)
-         ENDDO
+         END DO
          DEALLOCATE (bond_list)
          IF (output_unit > 0) THEN
             WRITE (output_unit, '(T2,"GENERATE|",1X,A,T71,I10)') " Preliminary Number of Bends generated:", &
@@ -1604,9 +1593,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(INOUT), OPTIONAL     :: Ilist
       INTEGER, INTENT(IN), OPTIONAL                      :: it_levl
       INTEGER, INTENT(INOUT)                             :: nvar
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'match_iterative_path', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ind, j, my_levl, natom
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: my_list
@@ -1738,8 +1724,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_ub', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_ub'
 
       INTEGER                                            :: handle, itheta, iw, ntheta, output_unit
       TYPE(connectivity_info_type), POINTER              :: conn_info
@@ -1782,8 +1767,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_dihe', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_dihe'
 
       INTEGER                                            :: handle, i, iw, natom, nbond, nphi, &
                                                             nsize, output_unit
@@ -1812,7 +1796,7 @@ CONTAINS
          ALLOCATE (bond_list(natom))
          DO I = 1, natom
             ALLOCATE (bond_list(I)%array1(0))
-         ENDDO
+         END DO
          CALL reorder_structure(bond_list, conn_info%bond_a, conn_info%bond_b, nbond)
          ! All the dirty job is handled by this routine.. for torsions it_levl is equal 4
          CALL match_iterative_path(Iarray1=bond_list, &
@@ -1826,7 +1810,7 @@ CONTAINS
                                    Oarray4=conn_info%phi_d)
          DO I = 1, natom
             DEALLOCATE (bond_list(I)%array1)
-         ENDDO
+         END DO
          DEALLOCATE (bond_list)
          IF (output_unit > 0) THEN
             WRITE (output_unit, '(T2,"GENERATE|",1X,A,T71,I10)') " Preliminary Number of Torsions generated:", &
@@ -1868,8 +1852,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_impr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_impr'
 
       CHARACTER(LEN=2)                                   :: atm_symbol
       INTEGER                                            :: handle, i, ind, iw, j, natom, nbond, &
@@ -1902,7 +1885,7 @@ CONTAINS
          ALLOCATE (bond_list(natom))
          DO I = 1, natom
             ALLOCATE (bond_list(I)%array1(0))
-         ENDDO
+         END DO
          CALL reorder_structure(bond_list, conn_info%bond_a, conn_info%bond_b, nbond)
          DO I = 1, natom
             ! Count all atoms with three bonds
@@ -1938,7 +1921,7 @@ CONTAINS
          END DO
          DO I = 1, natom
             DEALLOCATE (bond_list(I)%array1)
-         ENDDO
+         END DO
          DEALLOCATE (bond_list)
          ! External defined impropers (useful for complex connectivity)
          impr_section => section_vals_get_subs_vals(subsys_section, "TOPOLOGY%GENERATE%IMPROPER")
@@ -1976,8 +1959,7 @@ CONTAINS
       TYPE(topology_parameters_type), INTENT(INOUT)      :: topology
       TYPE(section_vals_type), POINTER                   :: subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_onfo', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_generate_onfo'
 
       INTEGER                                            :: atom_a, atom_b, handle, i, ionfo, iw, &
                                                             natom, nbond, nphi, ntheta, output_unit
@@ -1999,7 +1981,7 @@ CONTAINS
       ALLOCATE (bond_list(natom))
       DO i = 1, natom
          ALLOCATE (bond_list(i)%array1(0))
-      ENDDO
+      END DO
       nbond = SIZE(conn_info%bond_a)
       CALL reorder_structure(bond_list, conn_info%bond_a, conn_info%bond_b, nbond)
 
@@ -2007,7 +1989,7 @@ CONTAINS
       ALLOCATE (theta_list(natom))
       DO i = 1, natom
          ALLOCATE (theta_list(i)%array1(0))
-      ENDDO
+      END DO
       ntheta = SIZE(conn_info%theta_a)
       CALL reorder_structure(theta_list, conn_info%theta_a, conn_info%theta_c, ntheta)
 
@@ -2015,7 +1997,7 @@ CONTAINS
       ALLOCATE (phi_list(natom))
       DO i = 1, natom
          ALLOCATE (phi_list(i)%array1(0))
-      ENDDO
+      END DO
       nphi = SIZE(conn_info%phi_a)
       CALL reorder_structure(phi_list, conn_info%phi_a, conn_info%phi_d, nphi)
 
@@ -2048,17 +2030,17 @@ CONTAINS
       ! Deallocate bond_list
       DO i = 1, natom
          DEALLOCATE (bond_list(i)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (bond_list)
       ! Deallocate theta_list
       DO i = 1, natom
          DEALLOCATE (theta_list(i)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (theta_list)
       ! Deallocate phi_list
       DO i = 1, natom
          DEALLOCATE (phi_list(i)%array1)
-      ENDDO
+      END DO
       DEALLOCATE (phi_list)
 
       ! Final output

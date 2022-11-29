@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,7 +44,7 @@ MODULE swarm_worker
       INTEGER                                  :: iw = -1
       INTEGER                                  :: behavior = -1
       TYPE(glbopt_worker_type), POINTER        :: glbopt => Null()
-      !possbily more behaviors...
+      !possibly more behaviors...
    END TYPE swarm_worker_type
 
 CONTAINS
@@ -65,9 +67,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: root_section
       CHARACTER(LEN=*), INTENT(IN)                       :: input_path
       INTEGER, INTENT(in)                                :: worker_id
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'swarm_worker_init', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_logger_type), POINTER                      :: logger
 
@@ -105,9 +104,6 @@ CONTAINS
       TYPE(swarm_message_type), INTENT(OUT)              :: report
       LOGICAL, INTENT(INOUT)                             :: should_stop
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'swarm_worker_execute', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: command
 
       CALL swarm_message_get(cmd, "command", command)
@@ -125,7 +121,7 @@ CONTAINS
          CASE DEFAULT
             CPABORT("got unknown behavior")
          END SELECT
-      ENDIF
+      END IF
 
       IF (.NOT. swarm_message_haskey(report, "status")) &
          CALL swarm_message_add(report, "status", "ok")
@@ -139,9 +135,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE swarm_worker_finalize(worker)
       TYPE(swarm_worker_type), INTENT(INOUT)             :: worker
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'swarm_worker_finalize', &
-         routineP = moduleN//':'//routineN
 
       SELECT CASE (worker%behavior)
       CASE (swarm_do_glbopt)

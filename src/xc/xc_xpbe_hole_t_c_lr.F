@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,7 +20,12 @@ MODULE xc_xpbe_hole_t_c_lr
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: euler,&
                                               pi
-   USE mathlib,                         ONLY: expint
+   USE xc_derivative_desc,              ONLY: deriv_norm_drho,&
+                                              deriv_norm_drhoa,&
+                                              deriv_norm_drhob,&
+                                              deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -133,7 +140,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param order degree of the derivative that should be evalated,
+!> \param order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param params input parameters (scaling,cutoff)
@@ -144,32 +151,25 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xpbe_hole_t_c_lr_lda_eval(rho_set, deriv_set, order, params)
 
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: order
       TYPE(section_vals_type), POINTER                   :: params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lda_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lda_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho, R, sx
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_ndrho, e_rho, norm_drho, &
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_ndrho, e_rho, norm_drho, &
                                                             rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
       CALL section_vals_val_get(params, "SCALE_X", r_val=sx)
       CALL section_vals_val_get(params, "CUTOFF_RADIUS", r_val=R)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           norm_drho=norm_drho, local_bounds=bo, rho_cutoff=epsilon_rho)
@@ -182,20 +182,20 @@ CONTAINS
       e_ndrho => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrho)
       END IF
       IF (order > 1 .OR. order < -1) THEN
-         CPABORT("derivatives bigger than 2 not implemented")
+         CPABORT("derivatives bigger than 1 not implemented")
       END IF
 
       IF (R == 0.0_dp) THEN
@@ -244,9 +244,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: rho, norm_drho, e_0, e_rho, e_ndrho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lda_calc', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       REAL(dp)                                           :: my_ndrho, my_rho
       REAL(KIND=dp)                                      :: ss, ss2, sscale, t1, t2, t3, t4, t6, t7, &
@@ -293,7 +290,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param order degree of the derivative that should be evalated,
+!> \param order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param params input parameters (scaling,cutoff)
@@ -304,33 +301,26 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xpbe_hole_t_c_lr_lsd_eval(rho_set, deriv_set, order, params)
 
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: order
       TYPE(section_vals_type), POINTER                   :: params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lsd_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lsd_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho, R, sx
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_ndrhoa, e_ndrhob, e_rhoa, &
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_ndrhoa, e_ndrhob, e_rhoa, &
                                                             e_rhob, norm_drhoa, norm_drhob, rhoa, &
                                                             rhob
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
       CALL section_vals_val_get(params, "SCALE_X", r_val=sx)
       CALL section_vals_val_get(params, "CUTOFF_RADIUS", r_val=R)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rhoa=rhoa, rhob=rhob, &
                           norm_drhoa=norm_drhoa, norm_drhob=norm_drhob, local_bounds=bo, rho_cutoff=epsilon_rho)
@@ -345,26 +335,26 @@ CONTAINS
       e_ndrhob => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhob)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(norm_drhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_norm_drhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_ndrhob)
       END IF
       IF (order > 1 .OR. order < -1) THEN
-         CPABORT("derivatives bigger than 2 not implemented")
+         CPABORT("derivatives bigger than 1 not implemented")
       END IF
 
       IF (R == 0.0_dp) THEN
@@ -415,9 +405,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: rho, norm_drho, e_0, e_rho, e_ndrho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xpbe_hole_t_c_lr_lsd_calc', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       REAL(dp)                                           :: my_ndrho, my_rho
       REAL(KIND=dp)                                      :: e_tmp, ss, ss2, sscale, t1, t2, t3, t4, &
@@ -426,9 +413,9 @@ CONTAINS
 !$OMP     DO
 
       DO ip = 1, npoints
-         my_rho = 2.0_dp*MAX(rho(ip), 0.0_dp)
+         my_rho = MAX(2.0_dp*rho(ip), 0.0_dp)
          IF (my_rho > epsilon_rho) THEN
-            my_ndrho = 2.0_dp*MAX(norm_drho(ip), 0.0_dp)
+            my_ndrho = MAX(2.0_dp*norm_drho(ip), 0.0_dp)
 
             ! *** Do some precalculation in order to catch the correct branch afterwards
             sscale = 1.0_dp
@@ -478,8 +465,8 @@ CONTAINS
 !>      01.2009 created [Manuel Guidon]
 !> \author Manuel Guidon
 ! **************************************************************************************************
-   SUBROUTINE xpbe_hole_t_c_lr_lda_calc_1(e_0, e_rho, e_ndrho, &
-                                          rho, ndrho, sscale, sx, R, order)
+   ELEMENTAL SUBROUTINE xpbe_hole_t_c_lr_lda_calc_1(e_0, e_rho, e_ndrho, &
+                                                    rho, ndrho, sscale, sx, R, order)
       REAL(KIND=dp), INTENT(INOUT)                       :: e_0, e_rho, e_ndrho
       REAL(KIND=dp), INTENT(IN)                          :: rho, ndrho, sscale, sx, R
       INTEGER, INTENT(IN)                                :: order
@@ -845,8 +832,8 @@ CONTAINS
 !>      01.2009 created [Manuel Guidon]
 !> \author Manuel Guidon
 ! **************************************************************************************************
-   SUBROUTINE xpbe_hole_t_c_lr_lda_calc_2(e_0, e_rho, e_ndrho, &
-                                          rho, ndrho, sscale, sx, R, order)
+   ELEMENTAL SUBROUTINE xpbe_hole_t_c_lr_lda_calc_2(e_0, e_rho, e_ndrho, &
+                                                    rho, ndrho, sscale, sx, R, order)
       REAL(KIND=dp), INTENT(INOUT)                       :: e_0, e_rho, e_ndrho
       REAL(KIND=dp), INTENT(IN)                          :: rho, ndrho, sscale, sx, R
       INTEGER, INTENT(IN)                                :: order
@@ -1114,7 +1101,7 @@ CONTAINS
 !>     - red calculates the reduced gradient in a save way (i.e. using a fixed
 !>       cutoff EPS_RHO)
 ! **************************************************************************************************
-   FUNCTION exei(P, Q)
+   ELEMENTAL FUNCTION exei(P, Q)
       REAL(dp), INTENT(IN)                               :: P, Q
       REAL(dp)                                           :: exei
 
@@ -1165,7 +1152,7 @@ CONTAINS
 !> \param dQrho ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION dexeirho(P, Q, dPrho, dQrho)
+   ELEMENTAL FUNCTION dexeirho(P, Q, dPrho, dQrho)
       REAL(dp), INTENT(IN)                               :: P, Q, dPrho, dQrho
       REAL(dp)                                           :: dexeirho
 
@@ -1180,7 +1167,7 @@ CONTAINS
 !> \param dQndrho ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION dexeindrho(P, Q, dPndrho, dQndrho)
+   ELEMENTAL FUNCTION dexeindrho(P, Q, dPndrho, dQndrho)
       REAL(dp), INTENT(IN)                               :: P, Q, dPndrho, dQndrho
       REAL(dp)                                           :: dexeindrho
 
@@ -1193,7 +1180,7 @@ CONTAINS
 !> \param ndrho ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION red(rho, ndrho)
+   ELEMENTAL FUNCTION red(rho, ndrho)
       REAL(dp), INTENT(IN)                               :: rho, ndrho
       REAL(dp)                                           :: red
 
@@ -1208,7 +1195,7 @@ CONTAINS
 !> \param ndrho ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION dsdrho(rho, ndrho)
+   ELEMENTAL FUNCTION dsdrho(rho, ndrho)
       REAL(dp), INTENT(IN)                               :: rho, ndrho
       REAL(dp)                                           :: dsdrho
 
@@ -1222,7 +1209,7 @@ CONTAINS
 !> \param rho ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION dsdndrho(rho)
+   ELEMENTAL FUNCTION dsdndrho(rho)
       REAL(dp), INTENT(IN)                               :: rho
       REAL(dp)                                           :: dsdndrho
 
@@ -1230,6 +1217,79 @@ CONTAINS
       dsdndrho = dsdndrho/(pi**(2.0_dp/3.0_dp))
       dsdndrho = dsdndrho*MAX(1.0_dp/rho**(4.0_dp/3.0_dp), EPS_RHO)
    END FUNCTION dsdndrho
+
+! **************************************************************************************************
+!> \brief computes the exponential integral
+!>      En(x) = Int(exp(-x*t)/t^n,t=1..infinity)  x>0, n=0,1,..
+!>      Note: Ei(-x) = -E1(x)
+!> \param n ...
+!> \param x ...
+!> \return ...
+!> \par History
+!>      05.2007 Created
+!> \author Manuel Guidon (adapted from Numerical recipies, cleaner version of mathlib)
+! **************************************************************************************************
+   ELEMENTAL FUNCTION expint(n, x)
+      INTEGER, INTENT(IN)                                :: n
+      REAL(dp), INTENT(IN)                               :: x
+      REAL(dp)                                           :: expint
+
+      INTEGER, PARAMETER                                 :: maxit = 100
+      REAL(dp), PARAMETER :: eps = 6.e-14_dp, euler = 0.5772156649015328606065120_dp, &
+         fpmin = TINY(0.0_dp)
+
+      INTEGER                                            :: i, ii, nm1
+      REAL(dp)                                           :: a, b, c, d, del, fact, h, psi
+
+      nm1 = n - 1
+
+      IF (n .LT. 0 .OR. x .LT. 0.0_dp .OR. (x .EQ. 0.0_dp .AND. (n .EQ. 0 .OR. n .EQ. 1))) THEN
+         expint = HUGE(1.0_dp)
+      ELSE IF (n .EQ. 0) THEN !Special case.
+         expint = EXP(-x)/x
+      ELSE IF (x .EQ. 0.0_dp) THEN !Another special case.
+         expint = 1.0_dp/nm1
+      ELSE IF (x .GT. 1.0_dp) THEN !Lentz's algorithm (5.2).
+         b = x + n
+         c = 1.0_dp/FPMIN
+         d = 1.0_dp/b
+         h = d
+         DO i = 1, MAXIT
+            a = -i*(nm1 + i)
+            b = b + 2.0_dp
+            d = 1.0_dp/(a*d + b)
+            c = b + a/c
+            del = c*d
+            h = h*del
+            IF (ABS(del - 1.0_dp) .LT. EPS .OR. i == MAXIT) THEN
+               expint = h*EXP(-x)
+               RETURN
+            END IF
+         END DO
+      ELSE !Evaluate series.
+         IF (nm1 .NE. 0) THEN !Set first term.
+            expint = 1.0_dp/nm1
+         ELSE
+            expint = -LOG(x) - euler
+         END IF
+         fact = 1.0_dp
+         DO i = 1, MAXIT
+            fact = -fact*x/i
+            IF (i .NE. nm1) THEN
+               del = -fact/(i - nm1)
+            ELSE
+               psi = -euler !Compute I(n).
+               DO ii = 1, nm1
+                  psi = psi + 1.0_dp/ii
+               END DO
+               del = fact*(-LOG(x) + psi)
+            END IF
+            expint = expint + del
+            IF (ABS(del) .LT. ABS(expint)*EPS) RETURN
+         END DO
+      END IF
+      RETURN
+   END FUNCTION expint
 
 END MODULE xc_xpbe_hole_t_c_lr
 

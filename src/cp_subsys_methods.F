@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -62,8 +64,8 @@ MODULE cp_subsys_methods
                                               init_topology,&
                                               topology_parameters_type
    USE topology_util,                   ONLY: check_subsys_element
-   USE virial_types,                    ONLY: virial_create,&
-                                              virial_set
+   USE virial_types,                    ONLY: virial_set,&
+                                              zero_virial
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -103,9 +105,6 @@ CONTAINS
       TYPE(exclusion_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: exclusions
       LOGICAL, INTENT(IN), OPTIONAL                      :: elkind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_subsys_create', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: stress_tensor
       INTEGER, DIMENSION(:), POINTER                     :: seed_vals
@@ -201,7 +200,8 @@ CONTAINS
          pv_diagonal = .TRUE.
       END SELECT
 
-      CALL virial_create(subsys%virial)
+      ALLOCATE (subsys%virial)
+      CALL zero_virial(subsys%virial)
       CALL virial_set(virial=subsys%virial, &
                       pv_availability=pv_availability, &
                       pv_numer=pv_numerical, &
@@ -232,9 +232,6 @@ CONTAINS
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: colvar_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_subsys_read_colvar', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ig, ncol
 
       CALL section_vals_get(colvar_section, n_repetition=ncol)
@@ -242,7 +239,7 @@ CONTAINS
       DO ig = 1, ncol
          NULLIFY (subsys%colvar_p(ig)%colvar)
          CALL colvar_read(subsys%colvar_p(ig)%colvar, ig, colvar_section, subsys%para_env)
-      ENDDO
+      END DO
    END SUBROUTINE cp_subsys_read_colvar
 
 ! **************************************************************************************************
@@ -278,9 +275,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
       LOGICAL, INTENT(in), OPTIONAL                      :: ignore_outside_box
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_small_subsys', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: my_element, strtmp1
       INTEGER                                            :: iat, id_, nat
@@ -399,7 +393,8 @@ CONTAINS
       CALL molecule_list_release(mols)
       CALL molecule_kind_list_release(mol_kinds)
 
-      CALL virial_create(small_subsys%virial)
+      ALLOCATE (small_subsys%virial)
+      CALL zero_virial(small_subsys%virial)
       CALL atprop_create(small_subsys%atprop)
       CALL cp_result_create(small_subsys%results)
    END SUBROUTINE create_small_subsys

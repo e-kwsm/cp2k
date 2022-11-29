@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -31,10 +33,11 @@ MODULE molden_utils
    USE orbital_transformation_matrices, ONLY: orbtramat
    USE particle_types,                  ONLY: particle_type
    USE periodic_table,                  ONLY: get_ptable_info
+   USE physcon,                         ONLY: massunit
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               get_qs_kind_set,&
                                               qs_kind_type
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -59,16 +62,15 @@ CONTAINS
 !> \author MattW, IainB
 ! **************************************************************************************************
    SUBROUTINE write_mos_molden(mos, qs_kind_set, particle_set, print_section)
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: print_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_mos_molden', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'write_mos_molden'
       CHARACTER(LEN=molden_lmax+1), PARAMETER            :: angmom = "spdfg"
 
-      CHARACTER(LEN=15)                                  :: fmtstr1
+      CHARACTER(LEN=15)                                  :: fmtstr1, fmtstr2
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER :: gto_kind, handle, i, iatom, icgf, icol, ikind, ipgf, irow, irow_in, iset, isgf, &
          ishell, ispin, iw, lshell, ncgf, ncol_global, ndigits, nrow_global, nset, nsgf, z
@@ -94,23 +96,23 @@ CONTAINS
          print_warn = .TRUE.
 
          CALL section_vals_val_get(print_section, "NDIGITS", i_val=ndigits)
-         IF (ndigits < 1) ndigits = 3
-         IF (ndigits > 92) ndigits = 92
+         ndigits = MIN(MAX(3, ndigits), 30)
          WRITE (UNIT=fmtstr1, FMT='("(I6,1X,ES",I0,".",I0,")")') ndigits + 7, ndigits
+         WRITE (UNIT=fmtstr2, FMT='("((T51,2F",I0,".",I0,"))")') ndigits + 10, ndigits
 
          CALL section_vals_val_get(print_section, "GTO_KIND", i_val=gto_kind)
 
-         IF (mos(1)%mo_set%use_mo_coeff_b) THEN
+         IF (mos(1)%use_mo_coeff_b) THEN
             ! we are using the dbcsr mo_coeff
             ! we copy it to the fm anyway
             DO ispin = 1, SIZE(mos)
-               IF (.NOT. ASSOCIATED(mos(ispin)%mo_set%mo_coeff_b)) THEN
+               IF (.NOT. ASSOCIATED(mos(ispin)%mo_coeff_b)) THEN
                   CPASSERT(.FALSE.)
-               ENDIF
-               CALL copy_dbcsr_to_fm(mos(ispin)%mo_set%mo_coeff_b, &
-                                     mos(ispin)%mo_set%mo_coeff) !fm->dbcsr
-            ENDDO
-         ENDIF
+               END IF
+               CALL copy_dbcsr_to_fm(mos(ispin)%mo_coeff_b, &
+                                     mos(ispin)%mo_coeff) !fm->dbcsr
+            END DO
+         END IF
 
          IF (iw > 0) THEN
             WRITE (iw, '(T2,A)') "[Molden Format]"
@@ -144,16 +146,14 @@ CONTAINS
                      DO ishell = 1, nshell(iset)
                         lshell = l(ishell, iset)
                         IF (lshell <= molden_lmax) THEN
-                           WRITE (UNIT=iw, &
-                                  FMT="(T25,A2,4X,I4,4X,F4.2)") &
-                              angmom(lshell + 1:lshell + 1), npgf(iset), 1.0
+                           WRITE (UNIT=iw, FMT='(T25,A2,4X,I4,4X,F4.2)') &
+                              angmom(lshell + 1:lshell + 1), npgf(iset), 1.0_dp
                            ! MOLDEN expects the contraction coefficient of spherical NOT CARTESIAN NORMALISED
                            ! functions. So we undo the normalisation factors included in the gccs
                            ! Reverse engineered from basis_set_types, normalise_gcc_orb
                            prefac = 2_dp**lshell*(2/pi)**0.75_dp
                            expzet = 0.25_dp*(2*lshell + 3.0_dp)
-                           WRITE (UNIT=iw, &
-                                  FMT="((T51,2F15.6))") &
+                           WRITE (UNIT=iw, FMT=fmtstr2) &
                               (zet(ipgf, iset), gcc(ipgf, ishell, iset)/(prefac*zet(ipgf, iset)**expzet), &
                                ipgf=1, npgf(iset))
                         ELSE
@@ -226,11 +226,11 @@ CONTAINS
          END IF
 
          DO ispin = 1, SIZE(mos)
-            CALL cp_fm_get_info(mos(ispin)%mo_set%mo_coeff, &
+            CALL cp_fm_get_info(mos(ispin)%mo_coeff, &
                                 nrow_global=nrow_global, &
                                 ncol_global=ncol_global)
             ALLOCATE (smatrix(nrow_global, ncol_global))
-            CALL cp_fm_get_submatrix(mos(ispin)%mo_set%mo_coeff, smatrix)
+            CALL cp_fm_get_submatrix(mos(ispin)%mo_coeff, smatrix)
 
             IF (iw > 0) THEN
                IF (gto_kind == gto_cartesian) THEN
@@ -257,8 +257,8 @@ CONTAINS
                         DO iset = 1, nset
                            DO ishell = 1, nshell(iset)
                               lshell = l(ishell, iset)
-                              CALL dgemm("T", "N", nco(lshell), mos(ispin)%mo_set%nmo, nso(lshell), 1.0_dp, &
-                                         orbtramat(lshell)%s2c, nso(lshell), &
+                              CALL dgemm("T", "N", nco(lshell), mos(ispin)%nmo, nso(lshell), 1.0_dp, &
+                                         orbtramat(lshell)%c2s, nso(lshell), &
                                          smatrix(isgf, 1), nsgf, 0.0_dp, &
                                          cmatrix(icgf, 1), ncgf)
                               icgf = icgf + nco(lshell)
@@ -269,7 +269,7 @@ CONTAINS
                   END DO ! iatom
                END IF
 
-               DO icol = 1, mos(ispin)%mo_set%nmo
+               DO icol = 1, mos(ispin)%nmo
                   ! index of the first basis function for the given atom, set, and shell
                   irow = 1
 
@@ -278,13 +278,13 @@ CONTAINS
                   ! cannot be exported, so we need to renumber atomic orbitals
                   irow_in = 1
 
-                  WRITE (iw, '(A,ES20.10)') 'Ene=', mos(ispin)%mo_set%eigenvalues(icol)
+                  WRITE (iw, '(A,ES20.10)') 'Ene=', mos(ispin)%eigenvalues(icol)
                   IF (ispin < 2) THEN
                      WRITE (iw, '(A)') 'Spin= Alpha'
                   ELSE
                      WRITE (iw, '(A)') 'Spin= Beta'
                   END IF
-                  WRITE (iw, '(A,F12.7)') 'Occup=', mos(ispin)%mo_set%occupation_numbers(icol)
+                  WRITE (iw, '(A,F12.7)') 'Occup=', mos(ispin)%occupation_numbers(icol)
 
                   DO iatom = 1, SIZE(particle_set)
                      NULLIFY (orb_basis_set)
@@ -406,12 +406,12 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: list
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_vibrations_molden', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_vibrations_molden'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       INTEGER                                            :: handle, i, iw, j, k, l, z
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: my_list
+      REAL(KIND=dp)                                      :: fint
 
       CALL timeset(routineN, handle)
 
@@ -474,9 +474,11 @@ CONTAINS
             END IF
          END DO
          IF (calc_intens) THEN
+            fint = massunit
+            ! intensity units are a.u./amu
             WRITE (iw, '(T2,A)') "[INT]"
             DO i = 1, SIZE(intensities)
-               IF ((.NOT. dump_only_positive) .OR. (freq(i) >= 0._dp)) WRITE (iw, '(3X,F18.6)') intensities(i)
+               IF ((.NOT. dump_only_positive) .OR. (freq(i) >= 0._dp)) WRITE (iw, '(3X,F18.6)') fint*intensities(i)**2
             END DO
          END IF
          DEALLOCATE (my_list)

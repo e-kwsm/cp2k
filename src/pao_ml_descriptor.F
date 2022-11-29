@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,7 +41,7 @@ MODULE pao_ml_descriptor
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief Calulates a descriptor for chemical environment of given atom
+!> \brief Calculates a descriptor for chemical environment of given atom
 !> \param pao ...
 !> \param particle_set ...
 !> \param qs_kind_set ...
@@ -75,14 +77,14 @@ CONTAINS
       CASE (pao_ml_desc_r12)
          CALL calc_descriptor_r12(particle_set, qs_kind_set, cell, iatom, descriptor, descr_grad, forces)
       CASE DEFAULT
-         CPABORT("PAO: unkown descriptor")
+         CPABORT("PAO: unknown descriptor")
       END SELECT
 
       CALL timestop(handle)
    END SUBROUTINE pao_ml_calc_descriptor
 
 ! **************************************************************************************************
-!> \brief Calulates a descriptor based on the eigenvalues of V_neighbors
+!> \brief Calculates a descriptor based on the eigenvalues of V_neighbors
 !> \param particle_set ...
 !> \param qs_kind_set ...
 !> \param cell ...
@@ -141,7 +143,7 @@ CONTAINS
             weight = pao_descriptors(idesc)%weight
             beta = pao_descriptors(idesc)%beta
             CALL pao_calc_gaussian(basis_set, block_V=block_V, Rab=Rab, lpot=0, beta=beta, weight=weight)
-         ENDDO
+         END DO
 
          ! diagonalize block_V
          V_evecs(:, :) = block_V(:, :)
@@ -158,7 +160,7 @@ CONTAINS
             DO k = 1, N
                w = descr_grad((idesc - 1)*N + k)
                block_M(:, :) = block_M(:, :) + w*MATMUL(V_evecs(:, k:k), TRANSPOSE(V_evecs(:, k:k)))
-            ENDDO
+            END DO
             DO jatom = 1, natoms
                IF (jatom == iatom) CYCLE
                Ra = particle_set(iatom)%r
@@ -173,17 +175,17 @@ CONTAINS
                DO i = 1, 3
                   forces(iatom, i) = forces(iatom, i) - SUM(block_M*block_D(:, :, i))
                   forces(jatom, i) = forces(jatom, i) + SUM(block_M*block_D(:, :, i))
-               ENDDO
-            ENDDO
-         ENDIF
+               END DO
+            END DO
+         END IF
 
-      ENDDO
+      END DO
 
       CALL timestop(handle)
    END SUBROUTINE calc_descriptor_pot
 
 ! **************************************************************************************************
-!> \brief Calulates a descriptor based on the eigenvalues of local overlap matrix
+!> \brief Calculates a descriptor based on the eigenvalues of local overlap matrix
 !> \param particle_set ...
 !> \param qs_kind_set ...
 !> \param cell ...
@@ -228,7 +230,7 @@ CONTAINS
       screening_radius = 0.0_dp
       DO idesc = 1, ndesc
          screening_radius = MAX(screening_radius, ipao_descriptors(idesc)%screening_radius)
-      ENDDO
+      END DO
 
       ! estimate maximum number of neighbors within screening
       screening_volume = fourpi/3.0_dp*screening_radius**3
@@ -246,15 +248,15 @@ CONTAINS
          Rj = particle_set(jatom)%r
          Rij = pbc(Ri, Rj, cell)
          neighbor_dist(jatom) = SQRT(SUM(Rij**2))
-      ENDDO
+      END DO
       CALL sort(neighbor_dist, natoms, neighbor_order)
       CPASSERT(neighbor_order(1) == iatom) !central atom should be closesd to itself
 
-      ! check if N was choosen large enough
+      ! check if N was chosen large enough
       IF (natoms > N) THEN
          IF (neighbor_dist(N + 1) < screening_radius) &
             CPABORT("PAO heuristic for descriptor size broke down")
-      ENDIF
+      END IF
 
       DO idesc = 1, ndesc
          sbeta = ipao_descriptors(idesc)%screening
@@ -294,8 +296,8 @@ CONTAINS
             integral = EXP(exponent)*rootpi/SQRT(beta_sum)
             normalization = SQRT(jbeta*kbeta)/rootpi**2
             block_S(j, k) = jweight*kweight*normalization*integral
-         ENDDO
-         ENDDO
+         END DO
+         END DO
 
          ! diagonalize V_block
          S_evecs(:, :) = block_S(:, :)
@@ -312,7 +314,7 @@ CONTAINS
             DO k = 1, N
                w = descr_grad((idesc - 1)*N + k)
                block_M(:, :) = block_M(:, :) + w*MATMUL(S_evecs(:, k:k), TRANSPOSE(S_evecs(:, k:k)))
-            ENDDO
+            END DO
 
             DO j = 1, MIN(natoms, N)
             DO k = 1, MIN(natoms, N)
@@ -352,16 +354,16 @@ CONTAINS
                forces(katom, :) = forces(katom, :) + sbeta*kbeta*Rik*w
                forces(jatom, :) = forces(jatom, :) - jbeta*kbeta*Rjk*w
                forces(katom, :) = forces(katom, :) + jbeta*kbeta*Rjk*w
-            ENDDO
-            ENDDO
-         ENDIF
-      ENDDO
+            END DO
+            END DO
+         END IF
+      END DO
 
       CALL timestop(handle)
    END SUBROUTINE calc_descriptor_overlap
 
 ! **************************************************************************************************
-!> \brief Calulates a descriptor based on distance between two atoms
+!> \brief Calculates a descriptor based on distance between two atoms
 !> \param particle_set ...
 !> \param qs_kind_set ...
 !> \param cell ...
@@ -394,14 +396,14 @@ CONTAINS
       IF (PRESENT(descriptor)) THEN
          ALLOCATE (descriptor(1))
          descriptor(1) = SQRT(SUM(R12**2))
-      ENDIF
+      END IF
 
       IF (PRESENT(forces)) THEN
          CPASSERT(PRESENT(descr_grad))
          G = R12/SQRT(SUM(R12**2))*descr_grad(1)
          forces(1, :) = forces(1, :) + G
          forces(2, :) = forces(2, :) - G
-      ENDIF
+      END IF
    END SUBROUTINE calc_descriptor_r12
 
 END MODULE pao_ml_descriptor

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -75,7 +77,7 @@ CONTAINS
          ! so that maxsteps*ngroup is (likely) not overflowing
          farming_env%max_steps = 65535
          NULLIFY (farming_env%Job)
-      ENDIF
+      END IF
    END SUBROUTINE
 
 ! **************************************************************************************************
@@ -125,11 +127,11 @@ CONTAINS
          IF (ASSOCIATED(farming_env%job)) THEN
             DO I = 1, SIZE(farming_env%job, 1)
                CALL deallocate_job_type(farming_env%job(I))
-            ENDDO
+            END DO
             DEALLOCATE (farming_env%job)
-         ENDIF
+         END IF
          IF (ASSOCIATED(farming_env%group_partition)) DEALLOCATE (farming_env%group_partition)
          DEALLOCATE (farming_env) ! and the type itself
-      ENDIF
+      END IF
    END SUBROUTINE deallocate_farming_env
 END MODULE farming_types

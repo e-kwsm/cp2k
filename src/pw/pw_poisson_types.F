@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -67,9 +69,6 @@ MODULE pw_poisson_types
              pw_green_release
    PUBLIC :: pw_poisson_parameter_type
 
-   INTEGER, SAVE, PRIVATE :: last_greens_fn_id_nr = 0
-   INTEGER, SAVE, PRIVATE :: last_poisson_id = 0
-
    INTEGER, PARAMETER, PUBLIC               :: pw_poisson_none = 0, &
                                                pw_poisson_periodic = 1, &
                                                pw_poisson_analytic = 2, &
@@ -127,7 +126,7 @@ MODULE pw_poisson_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE pw_poisson_type
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       INTEGER :: pw_level
       INTEGER :: method
       INTEGER :: used_grid
@@ -150,8 +149,6 @@ MODULE pw_poisson_types
    TYPE greens_fn_type
       INTEGER :: method
       INTEGER :: special_dimension
-      INTEGER :: id_nr
-      INTEGER :: ref_count
       REAL(KIND=dp) :: radius
       REAL(KIND=dp) :: MT_alpha
       REAL(KIND=dp) :: MT_rel_cutoff
@@ -165,7 +162,7 @@ MODULE pw_poisson_types
       LOGICAL :: sr_screening
       REAL(KIND=dp) :: sr_alpha
       REAL(KIND=dp) :: sr_rc
-      TYPE(pw_type), POINTER :: influence_fn
+      TYPE(pw_type) :: influence_fn
       TYPE(pw_type), POINTER :: dct_influence_fn
       TYPE(pw_type), POINTER :: screen_fn
       TYPE(pw_type), POINTER :: p3m_charge
@@ -186,34 +183,26 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_green_create(green, poisson_params, cell_hmat, pw_pool, &
                               mt_super_ref_pw_grid, dct_pw_grid)
-      TYPE(greens_fn_type), POINTER                      :: green
+      TYPE(greens_fn_type), INTENT(OUT)                  :: green
       TYPE(pw_poisson_parameter_type), INTENT(IN)        :: poisson_params
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: cell_hmat
       TYPE(pw_pool_type), POINTER                        :: pw_pool
       TYPE(pw_grid_type), POINTER                        :: mt_super_ref_pw_grid, dct_pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_green_create', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: dim, i, ig, iz, n, nz
       REAL(KIND=dp)                                      :: g2, g3d, gg, gxy, gz, j0g, j1g, k0g, &
                                                             k1g, rlength, zlength
       REAL(KIND=dp), DIMENSION(3)                        :: abc
-      TYPE(pw_grid_type), POINTER                        :: dct_grid, grid
+      TYPE(pw_grid_type), POINTER                        :: dct_grid
       TYPE(pw_pool_type), POINTER                        :: pw_pool_xpndd
-      TYPE(pw_type), POINTER                             :: dct_gf, gf
+      TYPE(pw_type), POINTER                             :: dct_gf
 
-      CPASSERT(.NOT. (ASSOCIATED(green)))
-      ALLOCATE (green)
       green%p3m = .FALSE.
       green%special_dimension = 0
       green%radius = 0.0_dp
       green%slab_size = 0.0_dp
       green%alpha = 0.0_dp
       green%method = PERIODIC3D
-      last_greens_fn_id_nr = last_greens_fn_id_nr + 1
-      green%id_nr = last_greens_fn_id_nr
-      green%ref_count = 1
       green%MT_alpha = 1.0_dp
       green%MT_rel_cutoff = 1.0_dp
       green%p3m = .FALSE.
@@ -223,7 +212,7 @@ CONTAINS
       green%sr_alpha = 1.0_dp
       green%sr_rc = 0.0_dp
 
-      NULLIFY (green%influence_fn, green%p3m_charge)
+      NULLIFY (green%p3m_charge)
       NULLIFY (green%p3m_coeff, green%p3m_bm2)
       NULLIFY (green%dct_influence_fn)
       NULLIFY (green%screen_fn)
@@ -313,6 +302,8 @@ CONTAINS
             n = green%p3m_order
             ALLOCATE (green%p3m_coeff(-(n - 1):n - 1, 0:n - 1))
             CALL spme_coeff_calculate(n, green%p3m_coeff)
+            NULLIFY (green%p3m_charge)
+            ALLOCATE (green%p3m_charge)
             CALL pw_pool_create_pw(pw_pool, green%p3m_charge, use_data=REALDATA1D, &
                                    in_space=RECIPROCALSPACE)
             CALL influence_factor(green)
@@ -331,6 +322,8 @@ CONTAINS
             IF ((poisson_params%ps_implicit_params%boundary_condition .EQ. MIXED_BC) .OR. &
                 (poisson_params%ps_implicit_params%boundary_condition .EQ. NEUMANN_BC)) THEN
                CALL pw_pool_create(pw_pool_xpndd, pw_grid=dct_pw_grid)
+               NULLIFY (green%dct_influence_fn)
+               ALLOCATE (green%dct_influence_fn)
                CALL pw_pool_create_pw(pw_pool_xpndd, green%dct_influence_fn, &
                                       use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
                CALL pw_pool_release(pw_pool_xpndd)
@@ -342,117 +335,101 @@ CONTAINS
       END SELECT
 
       ! initialize influence function
-      gf => green%influence_fn
-      grid => green%influence_fn%pw_grid
-      SELECT CASE (green%method)
-      CASE (PERIODIC3D, MULTIPOLE0D)
+      ASSOCIATE (gf => green%influence_fn, grid => green%influence_fn%pw_grid)
+         SELECT CASE (green%method)
+         CASE (PERIODIC3D, MULTIPOLE0D)
 
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            g2 = grid%gsq(ig)
-            gf%cc(ig) = fourpi/g2
-         END DO
-         IF (grid%have_g0) gf%cc(1) = 0.0_dp
-
-      CASE (ANALYTIC2D)
-
-         iz = green%special_dimension ! iz is the direction with NO PBC
-         zlength = green%slab_size ! zlength is the thickness of the cell
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            nz = grid%g_hat(iz, ig)
-            g2 = grid%gsq(ig)
-            g3d = fourpi/g2
-            gg = 0.5_dp*SQRT(g2)
-            gf%cc(ig) = g3d*(1.0_dp - (-1.0_dp)**nz*EXP(-gg*zlength))
-         END DO
-         IF (grid%have_g0) gf%cc(1) = 0.0_dp
-
-      CASE (ANALYTIC1D)
-         ! see 'ab initio molecular dynamics' table 3.1
-         ! iz is the direction of the PBC ( can be 1,2,3 -> x,y,z )
-         iz = green%special_dimension
-         ! rlength is the radius of the tube
-         rlength = green%radius
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            g2 = grid%gsq(ig)
-            g3d = fourpi/g2
-            gxy = SQRT(MAX(0.0_dp, g2 - grid%g(iz, ig)*grid%g(iz, ig)))
-            gz = ABS(grid%g(iz, ig))
-            j0g = BESSEL_J0(rlength*gxy)
-            j1g = BESSEL_J1(rlength*gxy)
-            IF (gz > 0) THEN
-               k0g = bessk0(rlength*gz)
-               k1g = bessk1(rlength*gz)
-            ELSE
-               k0g = 0
-               k1g = 0
-            ENDIF
-            gf%cc(ig) = g3d*(1.0_dp + rlength* &
-                             (gxy*j1g*k0g - gz*j0g*k1g))
-         END DO
-         IF (grid%have_g0) gf%cc(1) = 0.0_dp
-
-      CASE (ANALYTIC0D)
-
-         rlength = green%radius ! rlength is the radius of the sphere
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            g2 = grid%gsq(ig)
-            gg = SQRT(g2)
-            g3d = fourpi/g2
-            gf%cc(ig) = g3d*(1.0_dp - COS(rlength*gg))
-         END DO
-         IF (grid%have_g0) &
-            gf%cc(1) = 0.5_dp*fourpi*rlength*rlength
-
-      CASE (MT2D, MT1D, MT0D)
-
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            g2 = grid%gsq(ig)
-            g3d = fourpi/g2
-            gf%cc(ig) = g3d+green%screen_fn%cc(ig)
-         END DO
-         IF (grid%have_g0) &
-            gf%cc(1) = green%screen_fn%cc(1)
-
-      CASE (PS_IMPLICIT)
-
-         DO ig = grid%first_gne0, grid%ngpts_cut_local
-            g2 = grid%gsq(ig)
-            gf%cc(ig) = fourpi/g2
-         END DO
-         IF (grid%have_g0) gf%cc(1) = 0.0_dp
-
-         IF (ASSOCIATED(green%dct_influence_fn)) THEN
-            dct_gf => green%dct_influence_fn
-            dct_grid => green%dct_influence_fn%pw_grid
-
-            DO ig = dct_grid%first_gne0, dct_grid%ngpts_cut_local
-               g2 = dct_grid%gsq(ig)
-               dct_gf%cc(ig) = fourpi/g2
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               g2 = grid%gsq(ig)
+               gf%cc(ig) = fourpi/g2
             END DO
-            IF (dct_grid%have_g0) dct_gf%cc(1) = 0.0_dp
-         END IF
+            IF (grid%have_g0) gf%cc(1) = 0.0_dp
 
-      CASE DEFAULT
-         CPABORT("")
-      END SELECT
+         CASE (ANALYTIC2D)
+
+            iz = green%special_dimension ! iz is the direction with NO PBC
+            zlength = green%slab_size ! zlength is the thickness of the cell
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               nz = grid%g_hat(iz, ig)
+               g2 = grid%gsq(ig)
+               g3d = fourpi/g2
+               gg = 0.5_dp*SQRT(g2)
+               gf%cc(ig) = g3d*(1.0_dp - (-1.0_dp)**nz*EXP(-gg*zlength))
+            END DO
+            IF (grid%have_g0) gf%cc(1) = 0.0_dp
+
+         CASE (ANALYTIC1D)
+            ! see 'ab initio molecular dynamics' table 3.1
+            ! iz is the direction of the PBC ( can be 1,2,3 -> x,y,z )
+            iz = green%special_dimension
+            ! rlength is the radius of the tube
+            rlength = green%radius
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               g2 = grid%gsq(ig)
+               g3d = fourpi/g2
+               gxy = SQRT(MAX(0.0_dp, g2 - grid%g(iz, ig)*grid%g(iz, ig)))
+               gz = ABS(grid%g(iz, ig))
+               j0g = BESSEL_J0(rlength*gxy)
+               j1g = BESSEL_J1(rlength*gxy)
+               IF (gz > 0) THEN
+                  k0g = bessk0(rlength*gz)
+                  k1g = bessk1(rlength*gz)
+               ELSE
+                  k0g = 0
+                  k1g = 0
+               END IF
+               gf%cc(ig) = g3d*(1.0_dp + rlength* &
+                                (gxy*j1g*k0g - gz*j0g*k1g))
+            END DO
+            IF (grid%have_g0) gf%cc(1) = 0.0_dp
+
+         CASE (ANALYTIC0D)
+
+            rlength = green%radius ! rlength is the radius of the sphere
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               g2 = grid%gsq(ig)
+               gg = SQRT(g2)
+               g3d = fourpi/g2
+               gf%cc(ig) = g3d*(1.0_dp - COS(rlength*gg))
+            END DO
+            IF (grid%have_g0) &
+               gf%cc(1) = 0.5_dp*fourpi*rlength*rlength
+
+         CASE (MT2D, MT1D, MT0D)
+
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               g2 = grid%gsq(ig)
+               g3d = fourpi/g2
+               gf%cc(ig) = g3d + green%screen_fn%cc(ig)
+            END DO
+            IF (grid%have_g0) &
+               gf%cc(1) = green%screen_fn%cc(1)
+
+         CASE (PS_IMPLICIT)
+
+            DO ig = grid%first_gne0, grid%ngpts_cut_local
+               g2 = grid%gsq(ig)
+               gf%cc(ig) = fourpi/g2
+            END DO
+            IF (grid%have_g0) gf%cc(1) = 0.0_dp
+
+            IF (ASSOCIATED(green%dct_influence_fn)) THEN
+               dct_gf => green%dct_influence_fn
+               dct_grid => green%dct_influence_fn%pw_grid
+
+               DO ig = dct_grid%first_gne0, dct_grid%ngpts_cut_local
+                  g2 = dct_grid%gsq(ig)
+                  dct_gf%cc(ig) = fourpi/g2
+               END DO
+               IF (dct_grid%have_g0) dct_gf%cc(1) = 0.0_dp
+            END IF
+
+         CASE DEFAULT
+            CPABORT("")
+         END SELECT
+      END ASSOCIATE
 
    END SUBROUTINE pw_green_create
-
-! **************************************************************************************************
-!> \brief retains the type
-!> \param gftype ...
-!> \author Teodoro Laino
-! **************************************************************************************************
-   SUBROUTINE pw_green_retain(gftype)
-      TYPE(greens_fn_type), POINTER                      :: gftype
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_green_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(gftype))
-      CPASSERT(gftype%ref_count > 0)
-      gftype%ref_count = gftype%ref_count + 1
-   END SUBROUTINE pw_green_retain
 
 ! **************************************************************************************************
 !> \brief destroys the type (deallocates data)
@@ -464,43 +441,46 @@ CONTAINS
 !>      Teodoro Laino
 ! **************************************************************************************************
    SUBROUTINE pw_green_release(gftype, pw_pool)
-      TYPE(greens_fn_type), POINTER                      :: gftype
+      TYPE(greens_fn_type), INTENT(INOUT)                :: gftype
       TYPE(pw_pool_type), OPTIONAL, POINTER              :: pw_pool
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_green_release', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: can_give_back
 
-      IF (ASSOCIATED(gftype)) THEN
-         CPASSERT(gftype%ref_count > 0)
-         gftype%ref_count = gftype%ref_count - 1
-         IF (gftype%ref_count == 0) THEN
-            can_give_back = PRESENT(pw_pool)
-            IF (can_give_back) can_give_back = ASSOCIATED(pw_pool)
-            IF (can_give_back) THEN
-               CALL pw_pool_give_back_pw(pw_pool, gftype%influence_fn, &
-                                         accept_non_compatible=.TRUE.)
-               CALL pw_pool_give_back_pw(pw_pool, gftype%dct_influence_fn, &
-                                         accept_non_compatible=.TRUE.)
-               CALL pw_pool_give_back_pw(pw_pool, gftype%screen_fn, &
-                                         accept_non_compatible=.TRUE.)
-               CALL pw_pool_give_back_pw(pw_pool, gftype%p3m_charge, &
-                                         accept_non_compatible=.TRUE.)
-            ELSE
-               CALL pw_release(gftype%influence_fn)
-               CALL pw_release(gftype%dct_influence_fn)
-               CALL pw_release(gftype%screen_fn)
-               CALL pw_release(gftype%p3m_charge)
-            END IF
-            IF (ASSOCIATED(gftype%p3m_bm2)) &
-               DEALLOCATE (gftype%p3m_bm2)
-            IF (ASSOCIATED(gftype%p3m_coeff)) &
-               DEALLOCATE (gftype%p3m_coeff)
-            DEALLOCATE (gftype)
+      can_give_back = PRESENT(pw_pool)
+      IF (can_give_back) can_give_back = ASSOCIATED(pw_pool)
+      IF (can_give_back) THEN
+         CALL pw_pool_give_back_pw(pw_pool, gftype%influence_fn)
+         IF (ASSOCIATED(gftype%dct_influence_fn)) THEN
+            CALL pw_pool_give_back_pw(pw_pool, gftype%dct_influence_fn)
+            DEALLOCATE (gftype%dct_influence_fn)
+         END IF
+         IF (ASSOCIATED(gftype%screen_fn)) THEN
+            CALL pw_pool_give_back_pw(pw_pool, gftype%screen_fn)
+            DEALLOCATE (gftype%screen_fn)
+         END IF
+         IF (ASSOCIATED(gftype%p3m_charge)) THEN
+            CALL pw_pool_give_back_pw(pw_pool, gftype%p3m_charge)
+            DEALLOCATE (gftype%p3m_charge)
+         END IF
+      ELSE
+         CALL pw_release(gftype%influence_fn)
+         IF (ASSOCIATED(gftype%dct_influence_fn)) THEN
+            CALL pw_release(gftype%dct_influence_fn)
+            DEALLOCATE (gftype%dct_influence_fn)
+         END IF
+         IF (ASSOCIATED(gftype%screen_fn)) THEN
+            CALL pw_release(gftype%screen_fn)
+            DEALLOCATE (gftype%screen_fn)
+         END IF
+         IF (ASSOCIATED(gftype%p3m_charge)) THEN
+            CALL pw_release(gftype%p3m_charge)
+            DEALLOCATE (gftype%p3m_charge)
          END IF
       END IF
-      NULLIFY (gftype)
+      IF (ASSOCIATED(gftype%p3m_bm2)) &
+         DEALLOCATE (gftype%p3m_bm2)
+      IF (ASSOCIATED(gftype%p3m_coeff)) &
+         DEALLOCATE (gftype%p3m_coeff)
    END SUBROUTINE pw_green_release
 
 ! **************************************************************************************************
@@ -512,10 +492,7 @@ CONTAINS
 !> \author DH (29-Mar-2001)
 ! **************************************************************************************************
    SUBROUTINE influence_factor(gftype)
-      TYPE(greens_fn_type), POINTER                      :: gftype
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'influence_factor', &
-         routineP = moduleN//':'//routineN
+      TYPE(greens_fn_type), INTENT(INOUT)                :: gftype
 
       COMPLEX(KIND=dp)                                   :: b_m, exp_m, sum_m
       INTEGER                                            :: dim, j, k, l, n, pt
@@ -524,8 +501,6 @@ CONTAINS
       REAL(KIND=dp)                                      :: l_arg, prod_arg, val
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: m_assign
 
-      CPASSERT(ASSOCIATED(gftype))
-      CPASSERT(gftype%ref_count > 0)
       n = gftype%p3m_order
 
       ! calculate the assignment function values
@@ -578,7 +553,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calc_p3m_charge(gf)
 
-      TYPE(greens_fn_type), POINTER                      :: gf
+      TYPE(greens_fn_type), INTENT(IN)                   :: gf
 
       INTEGER                                            :: ig, l, m, n
       REAL(KIND=dp)                                      :: arg, novol
@@ -618,13 +593,8 @@ CONTAINS
 
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_create', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(poisson_env))
       ALLOCATE (poisson_env)
-      last_poisson_id = last_poisson_id + 1
-      poisson_env%id_nr = last_poisson_id
       poisson_env%ref_count = 1
       poisson_env%method = pw_poisson_none
       poisson_env%rebuild = .TRUE.
@@ -648,9 +618,6 @@ CONTAINS
    SUBROUTINE pw_poisson_retain(poisson_env)
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(poisson_env))
       CPASSERT(poisson_env%ref_count > 0)
       poisson_env%ref_count = poisson_env%ref_count + 1
@@ -667,9 +634,6 @@ CONTAINS
 
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_poisson_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(poisson_env)) THEN
          CPASSERT(poisson_env%ref_count > 0)
          poisson_env%ref_count = poisson_env%ref_count - 1
@@ -678,13 +642,19 @@ CONTAINS
                CALL pw_pools_dealloc(poisson_env%pw_pools)
             END IF
 
-            CALL pw_green_release(poisson_env%green_fft)
+            IF (ASSOCIATED(poisson_env%green_fft)) THEN
+               CALL pw_green_release(poisson_env%green_fft)
+               DEALLOCATE (poisson_env%green_fft)
+            END IF
             CALL pw_grid_release(poisson_env%mt_super_ref_pw_grid)
             CALL ps_wavelet_release(poisson_env%wavelet)
             CALL ps_implicit_release(poisson_env%implicit_env, &
                                      poisson_env%parameters%ps_implicit_params)
             CALL pw_grid_release(poisson_env%dct_pw_grid)
-            CALL rs_grid_release(poisson_env%diel_rs_grid)
+            IF (ASSOCIATED(poisson_env%diel_rs_grid)) THEN
+               CALL rs_grid_release(poisson_env%diel_rs_grid)
+               DEALLOCATE (poisson_env%diel_rs_grid)
+            END IF
             DEALLOCATE (poisson_env)
 
          END IF

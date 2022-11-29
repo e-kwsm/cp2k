@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,10 +49,10 @@ CONTAINS
             R = MATMUL(hmat, sxyz)
             R_sq = R(1)**2 + R(2)**2 + R(3)**2
             IF (R_sq < R_m .OR. R_m < EPSILON(R_m)) R_m = R_sq
-         ENDIF
-      ENDDO
-      ENDDO
-      ENDDO
+         END IF
+      END DO
+      END DO
+      END DO
       R_m = SQRT(R_m)
 
    END FUNCTION R_abs_min
@@ -82,10 +84,10 @@ CONTAINS
             G = MATMUL(H, gxyz)
             G_sq = G(1)**2 + G(2)**2 + G(3)**2
             IF (G_sq < G_m .OR. G_m < EPSILON(G_m)) G_m = G_sq
-         ENDIF
-      ENDDO
-      ENDDO
-      ENDDO
+         END IF
+      END DO
+      END DO
+      END DO
       G_m = SQRT(G_m)
 
    END FUNCTION G_abs_min

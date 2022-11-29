@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -122,16 +124,13 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: compatibility
       TYPE(section_vals_type), POINTER                   :: qmmm_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'read_mm_potential', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=240)                                 :: line
       CHARACTER(LEN=default_string_length)               :: Ftarget, mm_potential_file_name, Units
       INTEGER                                            :: IRad, istart, Ival, j, Nog, Nval, &
                                                             output_unit
       LOGICAL                                            :: Found, Found_Radius
       REAL(KIND=dp)                                      :: fconv, my_radius, Radius
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       output_unit = cp_logger_get_default_io_unit()
       Nval = SIZE(qmmm_gaussian_fns)
@@ -139,7 +138,6 @@ CONTAINS
       CALL section_vals_val_get(qmmm_section, "MM_POTENTIAL_FILE_NAME", &
                                 c_val=mm_potential_file_name)
 
-      NULLIFY (parser)
       CALL parser_create(parser, mm_potential_file_name, para_env=para_env)
 
       search_loop: DO
@@ -234,9 +232,6 @@ CONTAINS
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: qmmm_gaussian_fns
       LOGICAL, INTENT(IN)                                :: compatibility
       INTEGER, INTENT(IN)                                :: num_geep_gauss
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_mm_potential_erf', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: IRad, istart, Nog, Nval
       REAL(KIND=dp)                                      :: my_radius, radius, rc
@@ -671,9 +666,6 @@ CONTAINS
                                      num_geep_gauss)
       TYPE(qmmm_gaussian_p_type), DIMENSION(:), POINTER  :: qmmm_gaussian_fns
       INTEGER, INTENT(IN)                                :: num_geep_gauss
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_mm_potential_swave', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: IRad, istart, Nog, Nval
       REAL(KIND=dp)                                      :: radius, rc

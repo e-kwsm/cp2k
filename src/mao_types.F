@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -36,9 +38,6 @@ CONTAINS
    SUBROUTINE create_mao_type(mao_env)
       TYPE(mao_type), POINTER                            :: mao_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_mao_type', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(mao_env)) THEN
          CALL release_mao_type(mao_env)
       END IF
@@ -53,9 +52,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE release_mao_type(mao_env)
       TYPE(mao_type), POINTER                            :: mao_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_mao_type', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(mao_env)) THEN
          DEALLOCATE (mao_env)

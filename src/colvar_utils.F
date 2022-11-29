@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -70,8 +72,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: only_intra_colvar, unique
       INTEGER                                            :: ntot
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'number_of_colvar', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'number_of_colvar'
 
       INTEGER                                            :: handle, ikind, imol
       LOGICAL                                            :: my_unique, skip_inter_colvar
@@ -133,8 +134,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: targets
       TYPE(force_env_type), POINTER                      :: force_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_colvars_target', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_colvars_target'
 
       INTEGER                                            :: handle, i, ikind, ind, nkind
       TYPE(cell_type), POINTER                           :: cell
@@ -173,7 +173,7 @@ CONTAINS
                ind = colv_list(i)%inp_seq_num
                colv_list(i)%expected_value = targets(ind)
             END DO
-         ENDIF
+         END IF
       END IF
       CALL timestop(handle)
 
@@ -198,7 +198,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: MassI
       REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: Amatrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_colvar', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'eval_colvar'
 
       INTEGER                                            :: handle, i, ikind, imol, n_tot, natom, &
                                                             nkind, nmol_per_kind, offset
@@ -259,7 +259,7 @@ CONTAINS
                IF (ncolv%ntot /= 0) THEN
                   CALL eval_colv_int(molecule, particle_set, coords, cell, cvalues, &
                                      Bmatrix, offset, n_tot, map)
-               ENDIF
+               END IF
             END DO
          END DO MOL
          CALL mp_sum(n_tot, force_env%para_env%group)
@@ -272,7 +272,7 @@ CONTAINS
          IF (gci%ncolv%ntot /= 0) THEN
             CALL eval_colv_ext(gci, particle_set, coords, cell, cvalues, &
                                Bmatrix, offset, n_tot, map)
-         ENDIF
+         END IF
       END IF
       CPASSERT(n_tot == SIZE(cvalues))
       ! Sort values of Collective Variables according the order of the input
@@ -383,8 +383,6 @@ CONTAINS
       INTEGER, INTENT(INOUT)                             :: n_tot
       INTEGER, DIMENSION(:), POINTER                     :: map
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_colv_int', routineP = moduleN//':'//routineN
-
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
       TYPE(local_colvar_constraint_type), POINTER        :: lcolv(:)
@@ -424,8 +422,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: offset
       INTEGER, INTENT(INOUT)                             :: n_tot
       INTEGER, DIMENSION(:), POINTER                     :: map
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_colv_ext', routineP = moduleN//':'//routineN
 
       TYPE(colvar_constraint_type), POINTER              :: colv_list(:)
       TYPE(fixd_constraint_type), DIMENSION(:), POINTER  :: fixd_list
@@ -470,8 +466,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: offset
       INTEGER, INTENT(INOUT)                             :: n_tot
       INTEGER, DIMENSION(:), POINTER                     :: map
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'eval_colv_low', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatm, iconst, ind, ival
 
@@ -522,8 +516,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nsize_xyz, nsize_int
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: cvalues, Mmatrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_clv_force', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, k
       REAL(KIND=dp)                                      :: tmp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: MassI, wrk
@@ -535,7 +527,7 @@ CONTAINS
       IF (PRESENT(forces)) THEN
          ALLOCATE (wrk(nsize_int))
          ALLOCATE (Amatrix(nsize_int, nsize_xyz))
-         ! Compute the transformation matrices and the invese mass diagonal Matrix
+         ! Compute the transformation matrices and the inverse mass diagonal Matrix
          CALL eval_colvar(force_env, coords, cvalues, Bmatrix, MassI, Amatrix)
          wrk = MATMUL(Amatrix, forces)
          forces = 0.0_dp
@@ -543,7 +535,7 @@ CONTAINS
          DEALLOCATE (Amatrix)
          DEALLOCATE (wrk)
       ELSE
-         ! Compute the transformation matrices and the invese mass diagonal Matrix
+         ! Compute the transformation matrices and the inverse mass diagonal Matrix
          CALL eval_colvar(force_env, coords, cvalues, Bmatrix, MassI)
       END IF
       ! Compute the Metric Tensor
@@ -575,9 +567,6 @@ CONTAINS
       TYPE(colvar_type), POINTER                         :: colvar
       TYPE(particle_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: particles
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'post_process_colvar', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=3)                                   :: name_kind
       INTEGER                                            :: i, ii, j, natoms, nkinds, nr_frame, stat

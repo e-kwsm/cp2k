@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,7 +47,6 @@ MODULE qs_nl_hash_table_types
              nl_hash_table_status
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_nl_hash_table_types'
-   INTEGER, PRIVATE, SAVE :: last_nl_hash_table_id = 0
 
 ! key value indicating an empty slot
    INTEGER(KIND=int_8), PARAMETER, PRIVATE :: EMPTY_KEY = -1_int_8
@@ -74,11 +75,8 @@ MODULE qs_nl_hash_table_types
 !> \param nelements : number of non-empty slots in table
 !> \param nmax      : max number of slots in table
 !> \param prime     : prime number used in the hash function
-!> \param id_nr     : unique id for the object
-!> \param ref_count : reference counter for the object
 ! **************************************************************************************************
    TYPE nl_hash_table_data
-      INTEGER :: id_nr, ref_count
       TYPE(nl_hash_table_element), DIMENSION(:), POINTER :: table => NULL()
       INTEGER :: nelements
       INTEGER :: nmax
@@ -107,9 +105,6 @@ CONTAINS
       INTEGER(KIND=int_8), INTENT(IN)                    :: key
       TYPE(neighbor_list_task_type), INTENT(IN), POINTER :: val
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_add', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: islot
       LOGICAL                                            :: check_ok
 
@@ -134,7 +129,7 @@ CONTAINS
       ! If a task exists, we make our new task point to that i.e. adding it to the beginning of the list
       IF (ASSOCIATED(hash_table%obj%table(islot)%val)) THEN
          val%next => hash_table%obj%table(islot)%val
-      ENDIF
+      END IF
 
       ! store the (maybe new) first item in the list in the hash table
       hash_table%obj%table(islot)%val => val
@@ -148,9 +143,6 @@ CONTAINS
    SUBROUTINE nl_hash_table_create(hash_table, nmax)
       TYPE(nl_hash_table_obj), INTENT(INOUT)             :: hash_table
       INTEGER, INTENT(IN), OPTIONAL                      :: nmax
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_create', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: my_nmax
       LOGICAL                                            :: check_ok
@@ -166,10 +158,6 @@ CONTAINS
       IF (PRESENT(nmax)) my_nmax = nmax
       CALL nl_hash_table_init(hash_table=hash_table, nmax=my_nmax)
 
-      ! book keeping stuff
-      hash_table%obj%ref_count = 1
-      hash_table%obj%id_nr = last_nl_hash_table_id + 1
-      last_nl_hash_table_id = hash_table%obj%id_nr
    END SUBROUTINE nl_hash_table_create
 
 ! **************************************************************************************************
@@ -183,9 +171,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: idx
       TYPE(neighbor_list_task_type), INTENT(OUT), &
          POINTER                                         :: val
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_get_from_index', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: check_ok
 
@@ -218,9 +203,6 @@ CONTAINS
    SUBROUTINE nl_hash_table_init(hash_table, nmax)
       TYPE(nl_hash_table_obj), INTENT(INOUT)             :: hash_table
       INTEGER, INTENT(IN), OPTIONAL                      :: nmax
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_init', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii, my_nmax, two_to_power
       LOGICAL                                            :: check_ok
@@ -268,9 +250,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: key
       LOGICAL, INTENT(OUT)                               :: is_null
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_is_null', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: check_ok
 
       check_ok = nl_hash_table_has_data(hash_table)
@@ -294,9 +273,6 @@ CONTAINS
    RECURSIVE SUBROUTINE nl_hash_table_rehash(hash_table, nmax)
       TYPE(nl_hash_table_obj), INTENT(INOUT)             :: hash_table
       INTEGER, INTENT(IN), OPTIONAL                      :: nmax
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_rehash', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ii, my_nmax
       TYPE(nl_hash_table_element), ALLOCATABLE, &
@@ -333,23 +309,11 @@ CONTAINS
    SUBROUTINE nl_hash_table_release(hash_table)
       TYPE(nl_hash_table_obj), INTENT(INOUT)             :: hash_table
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_release', &
-         routineP = moduleN//':'//routineN
-
-      LOGICAL                                            :: check_ok
-
       IF (ASSOCIATED(hash_table%obj)) THEN
-         check_ok = hash_table%obj%ref_count > 0
-         CPASSERT(check_ok)
-         hash_table%obj%ref_count = hash_table%obj%ref_count - 1
-         IF (hash_table%obj%ref_count == 0) THEN
-            hash_table%obj%ref_count = 1
-            IF (ASSOCIATED(hash_table%obj%table)) THEN
-               DEALLOCATE (hash_table%obj%table)
-            END IF
-            hash_table%obj%ref_count = 0
-            DEALLOCATE (hash_table%obj)
+         IF (ASSOCIATED(hash_table%obj%table)) THEN
+            DEALLOCATE (hash_table%obj%table)
          END IF
+         DEALLOCATE (hash_table%obj)
       ELSE
          NULLIFY (hash_table%obj)
       END IF
@@ -365,9 +329,6 @@ CONTAINS
    SUBROUTINE nl_hash_table_status(hash_table, nelements, nmax, prime)
       TYPE(nl_hash_table_obj), INTENT(INOUT)             :: hash_table
       INTEGER, INTENT(OUT), OPTIONAL                     :: nelements, nmax, prime
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'nl_hash_table_status', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: check_ok
 
@@ -395,7 +356,7 @@ CONTAINS
       guess = nl_hash_table_hash_function(hash_table, key)
 
       ! then search for key and stop at first empty slot from guess to
-      ! nmax.  using the same linear probe for adding and retreiving
+      ! nmax.  using the same linear probe for adding and retrieving
       ! makes all non-empty keys being put before the first empty slot.
       DO islot = guess, hash_table%obj%nmax
          IF ((hash_table%obj%table(islot)%key == key) .OR. &

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -70,8 +72,8 @@ CONTAINS
                              iter_max, size_ortho_space, silent, ot_settings)
 
       TYPE(dbcsr_type), POINTER                          :: matrix_h, matrix_s
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: matrix_orthogonal_space_fm
-      TYPE(cp_fm_type), POINTER                          :: matrix_c_fm
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_orthogonal_space_fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_c_fm
       TYPE(preconditioner_type), OPTIONAL, POINTER       :: preconditioner
       REAL(KIND=dp)                                      :: eps_gradient
       INTEGER, INTENT(IN)                                :: iter_max
@@ -79,7 +81,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: silent
       TYPE(qs_ot_settings_type), INTENT(IN), OPTIONAL    :: ot_settings
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ot_eigensolver', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'ot_eigensolver'
       INTEGER, PARAMETER                                 :: max_iter_inner_loop = 40
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
@@ -104,7 +106,6 @@ CONTAINS
       END IF
 
       NULLIFY (matrix_c) ! fm->dbcsr
-      !XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx
 
       CALL cp_fm_get_info(matrix_c_fm, nrow_global=n, ncol_global=k) ! fm->dbcsr
       ALLOCATE (matrix_c)
@@ -149,7 +150,7 @@ CONTAINS
             ortho_k = ortho_space_k + k
          ELSE
             ortho_k = k
-         ENDIF
+         END IF
 
          ! allocate
          CALL qs_ot_allocate(qs_ot_env(1), matrix_s, matrix_c_fm%matrix_struct, ortho_k=ortho_k)
@@ -220,7 +221,7 @@ CONTAINS
 
             CALL make_basis_sv(qs_ot_env(1)%matrix_c0, k, qs_ot_env(1)%matrix_sc0, &
                                qs_ot_env(1)%para_env, qs_ot_env(1)%blacs_env)
-         ENDIF
+         END IF
 
          ! init
          CALL qs_ot_init(qs_ot_env(1))
@@ -243,10 +244,10 @@ CONTAINS
                ELSE
                   ! we should presumably make one
                END IF
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
-!     *** Eigensolver loop ***
+         ! *** Eigensolver loop ***
          ieigensolver = 0
          eigensolver_loop: DO
 
@@ -259,7 +260,7 @@ CONTAINS
             CALL dbcsr_dot(matrix_c, matrix_hc(1)%matrix, energy)
             IF (.NOT. energy_only) THEN
                CALL dbcsr_scale(matrix_hc(1)%matrix, 2.0_dp)
-            ENDIF
+            END IF
 
             qs_ot_env(1)%etotal = energy
             CALL ot_mini(qs_ot_env, matrix_hc)
@@ -287,10 +288,11 @@ CONTAINS
 
          IF (delta < eps_gradient) THEN
             IF ((output_unit > 0) .AND. .NOT. my_silent) THEN
-               WRITE (output_unit, *) " Reached convergence in ", iter_total, " iterations "
-            ENDIF
+               WRITE (UNIT=output_unit, FMT="(T2,A,I0,A)") &
+                  "OT| Eigensolver reached convergence in ", iter_total, " iterations"
+            END IF
             EXIT outer_scf
-         ENDIF
+         END IF
          IF (iter_total >= iter_max) THEN
             IF (output_unit > 0) THEN
                IF (my_silent) THEN
@@ -300,11 +302,11 @@ CONTAINS
                   WRITE (output_unit, *) "number of iterations ", iter_total, " exceeded maximum"
                   WRITE (output_unit, *) "current gradient / target gradient", delta, " / ", eps_gradient
                END IF
-            ENDIF
+            END IF
             EXIT outer_scf
-         ENDIF
+         END IF
 
-      ENDDO outer_scf
+      END DO outer_scf
 
       CALL copy_dbcsr_to_fm(matrix_c, matrix_c_fm) ! fm->dbcsr
       CALL dbcsr_release_p(matrix_c) ! fm->dbcsr

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -87,18 +89,14 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: calc_forces
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_init', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: img, ispin, nimg, nspin
       LOGICAL                                            :: has_unit_metric, molecule_only
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_w_mp2
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s, matrix_w
       TYPE(dbcsr_type), POINTER                          :: matrix
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
 
-      NULLIFY (ks_env, matrix_w, matrix_w_mp2, matrix_s, dft_control)
+      NULLIFY (ks_env, matrix_w, matrix_s, dft_control)
 
       CALL get_qs_env(qs_env, dft_control=dft_control)
       IF (dft_control%qs_control%do_kg) THEN
@@ -128,18 +126,7 @@ CONTAINS
             END DO
          END DO
          CALL set_ks_env(ks_env, matrix_w_kp=matrix_w)
-         IF (ASSOCIATED(qs_env%mp2_env)) THEN
-            ! create the MP2 energy weighted density matrix
-            CALL dbcsr_allocate_matrix_set(matrix_w_mp2, dft_control%nspins)
-            DO ispin = 1, nspin
-               ALLOCATE (matrix_w_mp2(ispin)%matrix)
-               CALL dbcsr_copy(matrix_w_mp2(ispin)%matrix, matrix, &
-                               name="W MATRIX MP2")
-               CALL dbcsr_set(matrix_w_mp2(ispin)%matrix, 0.0_dp)
-            END DO
-            CALL set_ks_env(ks_env, matrix_w_mp2=matrix_w_mp2)
-         END IF
-      ENDIF
+      END IF
 
    END SUBROUTINE qs_energies_init
 
@@ -154,8 +141,7 @@ CONTAINS
    SUBROUTINE qs_energies_init_kg(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_init_kg', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_init_kg'
 
       INTEGER                                            :: handle, isubset, natom
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -163,7 +149,7 @@ CONTAINS
       TYPE(kg_environment_type), POINTER                 :: kg_env
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: soo_list
+         POINTER                                         :: soo_list, soo_list1
 
       CALL timeset(routineN, handle)
 
@@ -220,6 +206,13 @@ CONTAINS
          CALL kg_build_neighborlist(qs_env, sab_orb=soo_list, molecular=.TRUE.)
          kg_env%lri_env%soo_list => soo_list
          CALL calculate_lri_integrals(kg_env%lri_env, qs_env)
+         IF (qs_env%energy_correction) THEN
+            NULLIFY (soo_list1)
+            CALL kg_build_neighborlist(qs_env, sab_orb=soo_list1, molecular=.TRUE.)
+            kg_env%lri_env1%soo_list => soo_list1
+            CALL calculate_lri_integrals(kg_env%lri_env1, qs_env)
+         END IF
+
          ! Atomic grids
       CASE (kg_tnadd_atomic)
          ! build the A-C list for the nonadditive kinetic energy potential
@@ -250,8 +243,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: calc_forces
       LOGICAL                                            :: molecule_only
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_init_hamiltonians', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_energies_init_hamiltonians'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: do_kpoints
@@ -283,13 +275,13 @@ CONTAINS
       IF (do_kpoints) THEN
          CALL get_qs_env(qs_env, sab_kp=sab_nl)
          CALL kpoint_init_cell_index(kpoints, sab_nl, para_env, dft_control)
-      ENDIF
+      END IF
       IF (dft_control%qs_control%cdft) THEN
          IF (.NOT. (dft_control%qs_control%cdft_control%external_control)) &
             dft_control%qs_control%cdft_control%need_pot = .TRUE.
          IF (ASSOCIATED(dft_control%qs_control%cdft_control%group)) THEN
             ! In case CDFT weight function was built beforehand (in mixed force_eval)
-            IF (ASSOCIATED(dft_control%qs_control%cdft_control%group(1)%weight%pw)) &
+            IF (ASSOCIATED(dft_control%qs_control%cdft_control%group(1)%weight)) &
                dft_control%qs_control%cdft_control%need_pot = .FALSE.
          END IF
       END IF
@@ -333,7 +325,7 @@ CONTAINS
          ELSE IF (dft_control%qs_control%rigpw) THEN
             CALL get_qs_env(qs_env=qs_env, lri_env=lri_env)
             CALL build_ri_matrices(lri_env, qs_env, calculate_forces=.FALSE.)
-         ENDIF
+         END IF
 
          ! ZMP addition to read external density
          CALL external_read_density(qs_env)
@@ -354,11 +346,11 @@ CONTAINS
       IF (dft_control%qs_control%dfet_embedded) THEN
          dft_control%apply_embed_pot = .TRUE.
          CALL given_embed_pot(qs_env)
-      ENDIF
+      END IF
       ! Matrix embedding potential
       IF (dft_control%qs_control%dmfet_embedded) THEN
          dft_control%apply_dmfet_pot = .TRUE.
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 

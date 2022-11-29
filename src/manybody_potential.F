@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -26,6 +28,14 @@ MODULE manybody_potential
    USE input_section_types,             ONLY: section_vals_type
    USE kinds,                           ONLY: dp
    USE manybody_eam,                    ONLY: get_force_eam
+   USE manybody_gal,                    ONLY: destroy_gal_arrays,&
+                                              gal_energy,&
+                                              gal_forces,&
+                                              setup_gal_arrays
+   USE manybody_gal21,                  ONLY: destroy_gal21_arrays,&
+                                              gal21_energy,&
+                                              gal21_forces,&
+                                              setup_gal21_arrays
    USE manybody_quip,                   ONLY: quip_add_force_virial,&
                                               quip_energy_store_force_virial
    USE manybody_siepmann,               ONLY: destroy_siepmann_arrays,&
@@ -38,11 +48,11 @@ MODULE manybody_potential
                                               setup_tersoff_arrays,&
                                               tersoff_energy,&
                                               tersoff_forces
-   USE mathlib,                         ONLY: matvec_3x3
    USE message_passing,                 ONLY: mp_sum
    USE pair_potential_types,            ONLY: &
-        ea_type, eam_pot_type, pair_potential_pp_type, pair_potential_single_type, quip_type, &
-        siepmann_pot_type, siepmann_type, tersoff_pot_type, tersoff_type
+        ea_type, eam_pot_type, gal21_pot_type, gal21_type, gal_pot_type, gal_type, &
+        pair_potential_pp_type, pair_potential_single_type, quip_type, siepmann_pot_type, &
+        siepmann_type, tersoff_pot_type, tersoff_type
    USE particle_types,                  ONLY: particle_type
    USE util,                            ONLY: sort
 #include "./base/base_uses.f90"
@@ -82,15 +92,15 @@ CONTAINS
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
       TYPE(section_vals_type), POINTER                   :: mm_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'energy_manybody', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'energy_manybody'
 
       INTEGER :: atom_a, atom_b, handle, i, iend, ifirst, igrp, ikind, ilast, ilist, indexa, &
          ipair, iparticle, iparticle_local, istart, iunique, jkind, junique, mpair, nkinds, &
          nloc_size, npairs, nparticle, nparticle_local, nr_h3O, nr_o, nr_oh, nunique
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a, work_list
       INTEGER, DIMENSION(:, :), POINTER                  :: glob_loc_list, list, sort_list
-      LOGICAL                                            :: any_quip, any_siepmann, any_tersoff
+      LOGICAL                                            :: any_gal, any_gal21, any_quip, &
+                                                            any_siepmann, any_tersoff
       REAL(KIND=dp)                                      :: drij, embed, pot_loc, pot_quip, qr, &
                                                             rab2_max, rij(3)
       REAL(KIND=dp), DIMENSION(3)                        :: cell_v, cvi
@@ -99,6 +109,8 @@ CONTAINS
       TYPE(eam_pot_type), POINTER                        :: eam
       TYPE(eam_type), DIMENSION(:), POINTER              :: eam_data
       TYPE(fist_neighbor_type), POINTER                  :: nonbonded
+      TYPE(gal21_pot_type), POINTER                      :: gal21
+      TYPE(gal_pot_type), POINTER                        :: gal
       TYPE(neighbor_kind_pairs_type), POINTER            :: neighbor_kind_pair
       TYPE(pair_potential_pp_type), POINTER              :: potparm
       TYPE(pair_potential_single_type), POINTER          :: pot
@@ -106,9 +118,11 @@ CONTAINS
       TYPE(siepmann_pot_type), POINTER                   :: siepmann
       TYPE(tersoff_pot_type), POINTER                    :: tersoff
 
-      NULLIFY (eam, siepmann, tersoff)
+      NULLIFY (eam, siepmann, tersoff, gal, gal21)
       any_tersoff = .FALSE.
       any_siepmann = .FALSE.
+      any_gal = .FALSE.
+      any_gal21 = .FALSE.
       any_quip = .FALSE.
       CALL timeset(routineN, handle)
       CALL fist_nonbond_env_get(fist_nonbond_env, r_last_update_pbc=r_last_update_pbc, &
@@ -154,6 +168,8 @@ CONTAINS
             any_tersoff = any_tersoff .OR. ANY(pot%type == tersoff_type)
             any_quip = any_quip .OR. ANY(pot%type == quip_type)
             any_siepmann = any_siepmann .OR. ANY(pot%type == siepmann_type)
+            any_gal = any_gal .OR. ANY(pot%type == gal_type)
+            any_gal21 = any_gal21 .OR. ANY(pot%type == gal21_type)
          END DO
       END DO
       CALL fist_nonbond_env_get(fist_nonbond_env, nonbonded=nonbonded, natom_types=nkinds)
@@ -162,7 +178,7 @@ CONTAINS
          CALL quip_energy_store_force_virial(particle_set, cell, atomic_kind_set, potparm, &
                                              fist_nonbond_env, pot_quip, para_env)
          pot_manybody = pot_manybody + pot_quip
-      ENDIF
+      END IF
       ! TERSOFF
       IF (any_tersoff) THEN
          NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
@@ -182,7 +198,7 @@ CONTAINS
                DO i = 1, SIZE(pot%type)
                   IF (pot%type(i) /= tersoff_type) CYCLE
                   rab2_max = pot%set(i)%tersoff%rcutsq
-                  CALL matvec_3x3(cell_v, cell%hmat, cvi)
+                  cell_v = MATMUL(cell%hmat, cvi)
                   pot => potparm%pot(ikind, jkind)%pot
                   tersoff => pot%set(i)%tersoff
                   npairs = iend - istart + 1
@@ -264,7 +280,7 @@ CONTAINS
                DO i = 1, SIZE(pot%type)
                   IF (pot%type(i) /= siepmann_type) CYCLE
                   rab2_max = pot%set(i)%siepmann%rcutsq
-                  CALL matvec_3x3(cell_v, cell%hmat, cvi)
+                  cell_v = MATMUL(cell%hmat, cvi)
                   pot => potparm%pot(ikind, jkind)%pot
                   siepmann => pot%set(i)%siepmann
                   npairs = iend - istart + 1
@@ -331,6 +347,166 @@ CONTAINS
                                      print_h3o=.FALSE., print_o=.TRUE.)
       END IF
 
+      !GAL19 POTENTIAL
+      IF (any_gal) THEN
+         NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
+         CALL setup_gal_arrays(nonbonded, potparm, glob_loc_list, glob_cell_v, glob_loc_list_a, cell)
+         DO ilist = 1, nonbonded%nlists
+            neighbor_kind_pair => nonbonded%neighbor_kind_pairs(ilist)
+            npairs = neighbor_kind_pair%npairs
+            IF (npairs == 0) CYCLE
+            Kind_Group_Loop_3: DO igrp = 1, neighbor_kind_pair%ngrp_kind
+               istart = neighbor_kind_pair%grp_kind_start(igrp)
+               iend = neighbor_kind_pair%grp_kind_end(igrp)
+               ikind = neighbor_kind_pair%ij_kind(1, igrp)
+               jkind = neighbor_kind_pair%ij_kind(2, igrp)
+               list => neighbor_kind_pair%list
+               cvi = neighbor_kind_pair%cell_vector
+               pot => potparm%pot(ikind, jkind)%pot
+               DO i = 1, SIZE(pot%type)
+                  IF (pot%type(i) /= gal_type) CYCLE
+                  rab2_max = pot%set(i)%gal%rcutsq
+                  cell_v = MATMUL(cell%hmat, cvi)
+                  pot => potparm%pot(ikind, jkind)%pot
+                  gal => pot%set(i)%gal
+                  npairs = iend - istart + 1
+                  IF (npairs /= 0) THEN
+                     ALLOCATE (sort_list(2, npairs), work_list(npairs))
+                     sort_list = list(:, istart:iend)
+                     ! Sort the list of neighbors, this increases the efficiency for single
+                     ! potential contributions
+                     CALL sort(sort_list(1, :), npairs, work_list)
+                     DO ipair = 1, npairs
+                        work_list(ipair) = sort_list(2, work_list(ipair))
+                     END DO
+                     sort_list(2, :) = work_list
+                     ! find number of unique elements of array index 1
+                     nunique = 1
+                     DO ipair = 1, npairs - 1
+                        IF (sort_list(1, ipair + 1) /= sort_list(1, ipair)) nunique = nunique + 1
+                     END DO
+                     ipair = 1
+                     junique = sort_list(1, ipair)
+                     ifirst = 1
+                     DO iunique = 1, nunique
+                        atom_a = junique
+                        IF (glob_loc_list_a(ifirst) > atom_a) CYCLE
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) == atom_a) EXIT
+                        END DO
+                        ifirst = mpair
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) /= atom_a) EXIT
+                        END DO
+                        ilast = mpair - 1
+                        nloc_size = 0
+                        IF (ifirst /= 0) nloc_size = ilast - ifirst + 1
+                        DO WHILE (ipair <= npairs)
+                           IF (sort_list(1, ipair) /= junique) EXIT
+                           atom_b = sort_list(2, ipair)
+                           ! Energy terms
+                           pot_loc = 0.0_dp
+                           rij(:) = r_last_update_pbc(atom_b)%r(:) - r_last_update_pbc(atom_a)%r(:) + cell_v
+                           drij = DOT_PRODUCT(rij, rij)
+                           ipair = ipair + 1
+                           IF (drij > rab2_max) CYCLE
+                           drij = SQRT(drij)
+                           CALL gal_energy(pot_loc, gal, r_last_update_pbc, atom_a, atom_b, &
+                                           cell, particle_set, mm_section)
+
+                           pot_manybody = pot_manybody + pot_loc
+                        END DO
+                        ifirst = ilast + 1
+                        IF (ipair <= npairs) junique = sort_list(1, ipair)
+                     END DO
+                     DEALLOCATE (sort_list, work_list)
+                  END IF
+               END DO
+            END DO Kind_Group_Loop_3
+         END DO
+         CALL destroy_gal_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
+      END IF
+
+      !GAL21 POTENTIAL
+      IF (any_gal21) THEN
+         NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
+         CALL setup_gal21_arrays(nonbonded, potparm, glob_loc_list, glob_cell_v, glob_loc_list_a, cell)
+         DO ilist = 1, nonbonded%nlists
+            neighbor_kind_pair => nonbonded%neighbor_kind_pairs(ilist)
+            npairs = neighbor_kind_pair%npairs
+            IF (npairs == 0) CYCLE
+            Kind_Group_Loop_5: DO igrp = 1, neighbor_kind_pair%ngrp_kind
+               istart = neighbor_kind_pair%grp_kind_start(igrp)
+               iend = neighbor_kind_pair%grp_kind_end(igrp)
+               ikind = neighbor_kind_pair%ij_kind(1, igrp)
+               jkind = neighbor_kind_pair%ij_kind(2, igrp)
+               list => neighbor_kind_pair%list
+               cvi = neighbor_kind_pair%cell_vector
+               pot => potparm%pot(ikind, jkind)%pot
+               DO i = 1, SIZE(pot%type)
+                  IF (pot%type(i) /= gal21_type) CYCLE
+                  rab2_max = pot%set(i)%gal21%rcutsq
+                  cell_v = MATMUL(cell%hmat, cvi)
+                  pot => potparm%pot(ikind, jkind)%pot
+                  gal21 => pot%set(i)%gal21
+                  npairs = iend - istart + 1
+                  IF (npairs /= 0) THEN
+                     ALLOCATE (sort_list(2, npairs), work_list(npairs))
+                     sort_list = list(:, istart:iend)
+                     ! Sort the list of neighbors, this increases the efficiency for single
+                     ! potential contributions
+                     CALL sort(sort_list(1, :), npairs, work_list)
+                     DO ipair = 1, npairs
+                        work_list(ipair) = sort_list(2, work_list(ipair))
+                     END DO
+                     sort_list(2, :) = work_list
+                     ! find number of unique elements of array index 1
+                     nunique = 1
+                     DO ipair = 1, npairs - 1
+                        IF (sort_list(1, ipair + 1) /= sort_list(1, ipair)) nunique = nunique + 1
+                     END DO
+                     ipair = 1
+                     junique = sort_list(1, ipair)
+                     ifirst = 1
+                     DO iunique = 1, nunique
+                        atom_a = junique
+                        IF (glob_loc_list_a(ifirst) > atom_a) CYCLE
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) == atom_a) EXIT
+                        END DO
+                        ifirst = mpair
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) /= atom_a) EXIT
+                        END DO
+                        ilast = mpair - 1
+                        nloc_size = 0
+                        IF (ifirst /= 0) nloc_size = ilast - ifirst + 1
+                        DO WHILE (ipair <= npairs)
+                           IF (sort_list(1, ipair) /= junique) EXIT
+                           atom_b = sort_list(2, ipair)
+                           ! Energy terms
+                           pot_loc = 0.0_dp
+                           rij(:) = r_last_update_pbc(atom_b)%r(:) - r_last_update_pbc(atom_a)%r(:) + cell_v
+                           drij = DOT_PRODUCT(rij, rij)
+                           ipair = ipair + 1
+                           IF (drij > rab2_max) CYCLE
+                           drij = SQRT(drij)
+                           CALL gal21_energy(pot_loc, gal21, r_last_update_pbc, atom_a, atom_b, &
+                                             cell, particle_set, mm_section)
+
+                           pot_manybody = pot_manybody + pot_loc
+                        END DO
+                        ifirst = ilast + 1
+                        IF (ipair <= npairs) junique = sort_list(1, ipair)
+                     END DO
+                     DEALLOCATE (sort_list, work_list)
+                  END IF
+               END DO
+            END DO Kind_Group_Loop_5
+         END DO
+         CALL destroy_gal21_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
+      END IF
+
       CALL timestop(handle)
    END SUBROUTINE energy_manybody
 
@@ -355,8 +531,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: f_nonbond, pv_nonbond
       LOGICAL, INTENT(IN)                                :: use_virial
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_nonbond_manybody', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'force_nonbond_manybody'
 
       INTEGER :: atom_a, atom_b, handle, i, i_a, i_b, iend, ifirst, igrp, ikind, ilast, ilist, &
          ipair, istart, iunique, jkind, junique, kind_a, kind_b, mpair, nkinds, nloc_size, npairs, &
@@ -364,7 +539,8 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: eam_kinds_index
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a, work_list
       INTEGER, DIMENSION(:, :), POINTER                  :: glob_loc_list, list, sort_list
-      LOGICAL                                            :: any_quip, any_siepmann, any_tersoff
+      LOGICAL                                            :: any_gal, any_gal21, any_quip, &
+                                                            any_siepmann, any_tersoff
       REAL(KIND=dp) :: f_eam, fac, fr(3), ptens11, ptens12, ptens13, ptens21, ptens22, ptens23, &
          ptens31, ptens32, ptens33, rab(3), rab2, rab2_max, rtmp(3)
       REAL(KIND=dp), DIMENSION(3)                        :: cell_v, cvi
@@ -372,6 +548,8 @@ CONTAINS
       TYPE(eam_pot_type), POINTER                        :: eam_a, eam_b
       TYPE(eam_type), DIMENSION(:), POINTER              :: eam_data
       TYPE(fist_neighbor_type), POINTER                  :: nonbonded
+      TYPE(gal21_pot_type), POINTER                      :: gal21
+      TYPE(gal_pot_type), POINTER                        :: gal
       TYPE(neighbor_kind_pairs_type), POINTER            :: neighbor_kind_pair
       TYPE(pair_potential_pp_type), POINTER              :: potparm
       TYPE(pair_potential_single_type), POINTER          :: pot
@@ -382,8 +560,10 @@ CONTAINS
       any_tersoff = .FALSE.
       any_quip = .FALSE.
       any_siepmann = .FALSE.
+      any_gal = .FALSE.
+      any_gal21 = .FALSE.
       CALL timeset(routineN, handle)
-      NULLIFY (eam_a, eam_b, tersoff, siepmann)
+      NULLIFY (eam_a, eam_b, tersoff, siepmann, gal, gal21)
 
       CALL fist_nonbond_env_get(fist_nonbond_env, nonbonded=nonbonded, potparm=potparm, &
                                 natom_types=nkinds, eam_data=eam_data, r_last_update_pbc=r_last_update_pbc)
@@ -431,9 +611,11 @@ CONTAINS
             pot => potparm%pot(ikind, jkind)%pot
             IF (pot%no_mb) CYCLE
             rab2_max = pot%rcutsq
-            CALL matvec_3x3(cell_v, cell%hmat, cvi)
+            cell_v = MATMUL(cell%hmat, cvi)
             any_tersoff = any_tersoff .OR. ANY(pot%type == tersoff_type)
             any_siepmann = any_siepmann .OR. ANY(pot%type == siepmann_type)
+            any_gal = any_gal .OR. ANY(pot%type == gal_type)
+            any_gal21 = any_gal21 .OR. ANY(pot%type == gal21_type)
             i = eam_kinds_index(ikind, jkind)
             IF (i == -1) CYCLE
             ! EAM
@@ -480,7 +662,7 @@ CONTAINS
                      ptens23 = ptens23 + rab(2)*fr(3)
                      ptens33 = ptens33 + rab(3)*fr(3)
                   END IF
-               ENDIF
+               END IF
             END DO
          END DO Kind_Group_Loop1
       END DO
@@ -505,7 +687,7 @@ CONTAINS
 
                IF (pot%no_mb) CYCLE
                rab2_max = pot%rcutsq
-               CALL matvec_3x3(cell_v, cell%hmat, cvi)
+               cell_v = MATMUL(cell%hmat, cvi)
                DO i = 1, SIZE(pot%type)
                   ! TERSOFF
                   IF (pot%type(i) == tersoff_type) THEN
@@ -582,7 +764,7 @@ CONTAINS
 
                IF (pot%no_mb) CYCLE
                rab2_max = pot%rcutsq
-               CALL matvec_3x3(cell_v, cell%hmat, cvi)
+               cell_v = MATMUL(cell%hmat, cvi)
                DO i = 1, SIZE(pot%type)
                   ! SIEPMANN
                   IF (pot%type(i) == siepmann_type) THEN
@@ -644,6 +826,163 @@ CONTAINS
          END DO
          CALL destroy_siepmann_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
       END IF
+
+      ! GAL19 potential..
+      IF (any_gal) THEN
+         NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
+         CALL setup_gal_arrays(nonbonded, potparm, glob_loc_list, glob_cell_v, glob_loc_list_a, cell)
+         DO ilist = 1, nonbonded%nlists
+            neighbor_kind_pair => nonbonded%neighbor_kind_pairs(ilist)
+            npairs = neighbor_kind_pair%npairs
+            IF (npairs == 0) CYCLE
+            Kind_Group_Loop4: DO igrp = 1, neighbor_kind_pair%ngrp_kind
+               istart = neighbor_kind_pair%grp_kind_start(igrp)
+               iend = neighbor_kind_pair%grp_kind_end(igrp)
+               ikind = neighbor_kind_pair%ij_kind(1, igrp)
+               jkind = neighbor_kind_pair%ij_kind(2, igrp)
+               list => neighbor_kind_pair%list
+               cvi = neighbor_kind_pair%cell_vector
+               pot => potparm%pot(ikind, jkind)%pot
+
+               IF (pot%no_mb) CYCLE
+               rab2_max = pot%rcutsq
+               cell_v = MATMUL(cell%hmat, cvi)
+               DO i = 1, SIZE(pot%type)
+                  ! GAL19
+                  IF (pot%type(i) == gal_type) THEN
+                     npairs = iend - istart + 1
+                     gal => pot%set(i)%gal
+                     ALLOCATE (sort_list(2, npairs), work_list(npairs))
+                     sort_list = list(:, istart:iend)
+                     ! Sort the list of neighbors, this increases the efficiency for single
+                     ! potential contributions
+                     CALL sort(sort_list(1, :), npairs, work_list)
+                     DO ipair = 1, npairs
+                        work_list(ipair) = sort_list(2, work_list(ipair))
+                     END DO
+                     sort_list(2, :) = work_list
+                     ! find number of unique elements of array index 1
+                     nunique = 1
+                     DO ipair = 1, npairs - 1
+                        IF (sort_list(1, ipair + 1) /= sort_list(1, ipair)) nunique = nunique + 1
+                     END DO
+                     ipair = 1
+                     junique = sort_list(1, ipair)
+                     ifirst = 1
+                     DO iunique = 1, nunique
+                        atom_a = junique
+                        IF (glob_loc_list_a(ifirst) > atom_a) CYCLE
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) == atom_a) EXIT
+                        END DO
+                        ifirst = mpair
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) /= atom_a) EXIT
+                        END DO
+                        ilast = mpair - 1
+                        nloc_size = 0
+                        IF (ifirst /= 0) nloc_size = ilast - ifirst + 1
+                        DO WHILE (ipair <= npairs)
+                           IF (sort_list(1, ipair) /= junique) EXIT
+                           atom_b = sort_list(2, ipair)
+                           ! Derivative terms
+                           rtmp = r_last_update_pbc(atom_b)%r(:) - r_last_update_pbc(atom_a)%r(:) + cell_v
+                           ipair = ipair + 1
+                           IF (DOT_PRODUCT(rtmp, rtmp) <= gal%rcutsq) THEN
+                              CALL gal_forces(gal, r_last_update_pbc, &
+                                              atom_a, atom_b, f_nonbond, use_virial, &
+                                              cell, particle_set)
+                           END IF
+                        END DO
+                        ifirst = ilast + 1
+                        IF (ipair <= npairs) junique = sort_list(1, ipair)
+                     END DO
+                     DEALLOCATE (sort_list, work_list)
+                  END IF
+               END DO
+            END DO Kind_Group_Loop4
+         END DO
+         CALL destroy_gal_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
+      END IF
+
+      ! GAL21 potential..
+      IF (any_gal21) THEN
+         NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
+         CALL setup_gal21_arrays(nonbonded, potparm, glob_loc_list, glob_cell_v, glob_loc_list_a, cell)
+         DO ilist = 1, nonbonded%nlists
+            neighbor_kind_pair => nonbonded%neighbor_kind_pairs(ilist)
+            npairs = neighbor_kind_pair%npairs
+            IF (npairs == 0) CYCLE
+            Kind_Group_Loop6: DO igrp = 1, neighbor_kind_pair%ngrp_kind
+               istart = neighbor_kind_pair%grp_kind_start(igrp)
+               iend = neighbor_kind_pair%grp_kind_end(igrp)
+               ikind = neighbor_kind_pair%ij_kind(1, igrp)
+               jkind = neighbor_kind_pair%ij_kind(2, igrp)
+               list => neighbor_kind_pair%list
+               cvi = neighbor_kind_pair%cell_vector
+               pot => potparm%pot(ikind, jkind)%pot
+
+               IF (pot%no_mb) CYCLE
+               rab2_max = pot%rcutsq
+               cell_v = MATMUL(cell%hmat, cvi)
+               DO i = 1, SIZE(pot%type)
+                  ! GAL21
+                  IF (pot%type(i) == gal21_type) THEN
+                     npairs = iend - istart + 1
+                     gal21 => pot%set(i)%gal21
+                     ALLOCATE (sort_list(2, npairs), work_list(npairs))
+                     sort_list = list(:, istart:iend)
+                     ! Sort the list of neighbors, this increases the efficiency for single
+                     ! potential contributions
+                     CALL sort(sort_list(1, :), npairs, work_list)
+                     DO ipair = 1, npairs
+                        work_list(ipair) = sort_list(2, work_list(ipair))
+                     END DO
+                     sort_list(2, :) = work_list
+                     ! find number of unique elements of array index 1
+                     nunique = 1
+                     DO ipair = 1, npairs - 1
+                        IF (sort_list(1, ipair + 1) /= sort_list(1, ipair)) nunique = nunique + 1
+                     END DO
+                     ipair = 1
+                     junique = sort_list(1, ipair)
+                     ifirst = 1
+                     DO iunique = 1, nunique
+                        atom_a = junique
+                        IF (glob_loc_list_a(ifirst) > atom_a) CYCLE
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) == atom_a) EXIT
+                        END DO
+                        ifirst = mpair
+                        DO mpair = ifirst, SIZE(glob_loc_list_a)
+                           IF (glob_loc_list_a(mpair) /= atom_a) EXIT
+                        END DO
+                        ilast = mpair - 1
+                        nloc_size = 0
+                        IF (ifirst /= 0) nloc_size = ilast - ifirst + 1
+                        DO WHILE (ipair <= npairs)
+                           IF (sort_list(1, ipair) /= junique) EXIT
+                           atom_b = sort_list(2, ipair)
+                           ! Derivative terms
+                           rtmp = r_last_update_pbc(atom_b)%r(:) - r_last_update_pbc(atom_a)%r(:) + cell_v
+                           ipair = ipair + 1
+                           IF (DOT_PRODUCT(rtmp, rtmp) <= gal21%rcutsq) THEN
+                              CALL gal21_forces(gal21, r_last_update_pbc, &
+                                                atom_a, atom_b, f_nonbond, pv_nonbond, use_virial, &
+                                                cell, particle_set)
+                           END IF
+                        END DO
+                        ifirst = ilast + 1
+                        IF (ipair <= npairs) junique = sort_list(1, ipair)
+                     END DO
+                     DEALLOCATE (sort_list, work_list)
+                  END IF
+               END DO
+            END DO Kind_Group_Loop6
+         END DO
+         CALL destroy_gal_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
+      END IF
+
       IF (use_virial) THEN
          pv_nonbond(1, 1) = pv_nonbond(1, 1) + ptens11
          pv_nonbond(1, 2) = pv_nonbond(1, 2) + ptens12

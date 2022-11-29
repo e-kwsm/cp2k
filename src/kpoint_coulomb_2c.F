@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -59,10 +61,11 @@ CONTAINS
 !> \param atomic_kind_set ...
 !> \param size_lattice_sum ...
 !> \param operator_type ...
-!> \param cutoff ...
+!> \param ikp_start ...
+!> \param ikp_end ...
 ! **************************************************************************************************
    SUBROUTINE build_2c_coulomb_matrix_kp(matrix_v_kp, kpoints, basis_type, cell, particle_set, qs_kind_set, &
-                                         atomic_kind_set, size_lattice_sum, operator_type, cutoff)
+                                         atomic_kind_set, size_lattice_sum, operator_type, ikp_start, ikp_end)
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_v_kp
       TYPE(kpoint_type), POINTER                         :: kpoints
@@ -71,11 +74,10 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-      INTEGER                                            :: size_lattice_sum, operator_type
-      REAL(dp)                                           :: cutoff
+      INTEGER                                            :: size_lattice_sum, operator_type, &
+                                                            ikp_start, ikp_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_2c_coulomb_matrix_kp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_2c_coulomb_matrix_kp'
 
       INTEGER                                            :: handle, total_periodicity
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
@@ -88,7 +90,7 @@ CONTAINS
 
       CALL lattice_sum(matrix_v_kp, kpoints, basis_type, cell, particle_set, &
                        qs_kind_set, atomic_kind_set, size_lattice_sum, matrix_v_L_tmp, &
-                       operator_type, cutoff)
+                       operator_type, ikp_start, ikp_end)
 
       CALL deallocate_tmp(matrix_v_L_tmp)
 
@@ -108,11 +110,12 @@ CONTAINS
 !> \param size_lattice_sum ...
 !> \param matrix_v_L_tmp ...
 !> \param operator_type ...
-!> \param cutoff ...
+!> \param ikp_start ...
+!> \param ikp_end ...
 ! **************************************************************************************************
    SUBROUTINE lattice_sum(matrix_v_kp, kpoints, basis_type, cell, particle_set, &
                           qs_kind_set, atomic_kind_set, size_lattice_sum, matrix_v_L_tmp, &
-                          operator_type, cutoff)
+                          operator_type, ikp_start, ikp_end)
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_v_kp
       TYPE(kpoint_type), POINTER                         :: kpoints
@@ -123,10 +126,9 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       INTEGER                                            :: size_lattice_sum
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
-      INTEGER                                            :: operator_type
-      REAL(dp)                                           :: cutoff
+      INTEGER                                            :: operator_type, ikp_start, ikp_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lattice_sum', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'lattice_sum'
 
       INTEGER :: factor, handle, i_block, i_x, i_x_inner, i_x_outer, ik, j_y, j_y_inner, &
          j_y_outer, k_z, k_z_inner, k_z_outer, nkp, x_max, x_min, y_max, y_min, z_max, z_min
@@ -212,7 +214,7 @@ CONTAINS
                         ! Compute (P 0 | Q vec_L) and store it in matrix_v_L_tmp
                         CALL compute_v_transl(matrix_v_L_tmp, blocks_of_v_L, vec_L, particle_set, &
                                               qs_kind_set, atomic_kind_set, basis_type, cell, &
-                                              operator_type, cutoff)
+                                              operator_type)
 
                         DO i_block = 1, SIZE(blocks_of_v_L)
                            blocks_of_v_L_store(i_block)%block(:, :) = blocks_of_v_L_store(i_block)%block(:, :) &
@@ -224,7 +226,7 @@ CONTAINS
                END DO
 
                ! add exp(iq*vec_L) * (P 0 | Q vec_L) to V_PQ(q)
-               DO ik = 1, nkp
+               DO ik = ikp_start, ikp_end
 
                   ! coskl and sinkl are identical for all i_x_outer, j_y_outer, k_z_outer
                   coskl = COS(twopi*DOT_PRODUCT(vec_s(1:3), kpoints%xkp(1:3, ik)))
@@ -251,7 +253,7 @@ CONTAINS
          END DO
       END DO
 
-      CALL set_blocks_to_matrix_v_kp(matrix_v_kp, blocks_of_v_kp)
+      CALL set_blocks_to_matrix_v_kp(matrix_v_kp, blocks_of_v_kp, ikp_start, ikp_end)
 
       CALL deallocate_blocks_of_v_kp(blocks_of_v_kp)
       CALL deallocate_blocks_of_v_L(blocks_of_v_L)
@@ -265,15 +267,17 @@ CONTAINS
 !> \brief ...
 !> \param matrix_v_kp ...
 !> \param blocks_of_v_kp ...
+!> \param ikp_start ...
+!> \param ikp_end ...
 ! **************************************************************************************************
-   SUBROUTINE set_blocks_to_matrix_v_kp(matrix_v_kp, blocks_of_v_kp)
+   SUBROUTINE set_blocks_to_matrix_v_kp(matrix_v_kp, blocks_of_v_kp, ikp_start, ikp_end)
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_v_kp
       TYPE(two_d_util_type), ALLOCATABLE, &
          DIMENSION(:, :, :)                              :: blocks_of_v_kp
+      INTEGER                                            :: ikp_start, ikp_end
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_blocks_to_matrix_v_kp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_blocks_to_matrix_v_kp'
 
       INTEGER                                            :: col, handle, i_block, i_real_im, ik, row
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: data_block
@@ -281,7 +285,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      DO ik = 1, SIZE(matrix_v_kp, 1)
+      DO ik = ikp_start, ikp_end
 
          DO i_real_im = 1, 2
 
@@ -320,10 +324,9 @@ CONTAINS
 !> \param basis_type ...
 !> \param cell ...
 !> \param operator_type ...
-!> \param cutoff ...
 ! **************************************************************************************************
    SUBROUTINE compute_v_transl(matrix_v_L_tmp, blocks_of_v_L, vec_L, particle_set, &
-                               qs_kind_set, atomic_kind_set, basis_type, cell, operator_type, cutoff)
+                               qs_kind_set, atomic_kind_set, basis_type, cell, operator_type)
 
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
       TYPE(two_d_util_type), ALLOCATABLE, DIMENSION(:)   :: blocks_of_v_L
@@ -334,10 +337,8 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: basis_type
       TYPE(cell_type), POINTER                           :: cell
       INTEGER                                            :: operator_type
-      REAL(dp)                                           :: cutoff
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_v_transl', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'compute_v_transl'
 
       INTEGER                                            :: col, handle, i_block, kind_a, kind_b, &
                                                             natom, row
@@ -385,7 +386,7 @@ CONTAINS
          blocks_of_v_L(i_block)%block = 0.0_dp
 
          CALL int_operators_r12_ab_shg(operator_type, blocks_of_v_L(i_block)%block, rab=rab_L, &
-                                       fba=basis_set_a, fbb=basis_set_b, scona_shg=contr_a, sconb_shg=contr_b, omega=cutoff, &
+                                       fba=basis_set_a, fbb=basis_set_b, scona_shg=contr_a, sconb_shg=contr_b, &
                                        calculate_forces=.FALSE.)
 
          i_block = i_block + 1
@@ -410,8 +411,7 @@ CONTAINS
       TYPE(two_d_util_type), ALLOCATABLE, &
          DIMENSION(:, :, :)                              :: blocks_of_v_kp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_blocks_of_v_kp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_blocks_of_v_kp'
 
       INTEGER                                            :: handle, i_block, i_real_img, ik
 
@@ -438,8 +438,7 @@ CONTAINS
    SUBROUTINE deallocate_blocks_of_v_L(blocks_of_v_L)
       TYPE(two_d_util_type), ALLOCATABLE, DIMENSION(:)   :: blocks_of_v_L
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_blocks_of_v_L', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_blocks_of_v_L'
 
       INTEGER                                            :: handle, i_block
 
@@ -464,8 +463,7 @@ CONTAINS
       TYPE(two_d_util_type), ALLOCATABLE, DIMENSION(:)   :: blocks_of_v_L
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_blocks_of_v_L', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_blocks_of_v_L'
 
       INTEGER                                            :: col, handle, i_block, nblocks, row
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: data_block
@@ -520,8 +518,7 @@ CONTAINS
          DIMENSION(:, :, :)                              :: blocks_of_v_kp
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_v_kp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_blocks_of_v_kp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_blocks_of_v_kp'
 
       INTEGER                                            :: col, handle, i_block, i_real_img, ik, &
                                                             nblocks, row
@@ -586,8 +583,7 @@ CONTAINS
       TYPE(kpoint_type), POINTER                         :: kpoints
       INTEGER                                            :: total_periodicity
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_periodicity', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'check_periodicity'
 
       INTEGER                                            :: handle
       INTEGER, DIMENSION(3)                              :: nkp_grid, periodic
@@ -623,7 +619,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_v_kp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_tmp', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'allocate_tmp'
 
       INTEGER                                            :: handle
 
@@ -649,7 +645,7 @@ CONTAINS
 
       TYPE(dbcsr_type), POINTER                          :: matrix_v_L_tmp
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_tmp', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'deallocate_tmp'
 
       INTEGER                                            :: handle
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -82,15 +84,13 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind, jkind
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_int', routineP = moduleN//':'//routineN
-
       IF (lri_env%use_shg_integrals) THEN
          CALL lri_int_shg(lri_env, lrii, rab, obasa, obasb, fbasa, fbasb, &
                           iatom, jatom, ikind, jkind, calculate_forces)
       ELSE
          CALL lri_int_os(lri_env, lrii, rab, obasa, obasb, fbasa, fbasb, &
                          iatom, jatom, ikind, calculate_forces)
-      ENDIF
+      END IF
 
    END SUBROUTINE lri_int
 
@@ -117,8 +117,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rab
       TYPE(gto_basis_set_type), POINTER                  :: obasa, obasb, fbasa, fbasb
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind, jkind
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_int2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nba, nfa
       INTEGER, DIMENSION(:, :, :), POINTER               :: fba_index, fbb_index, oba_index, &
@@ -184,8 +182,8 @@ CONTAINS
                                                lri_env%cg_shg%cg_coeff, lri_env%cg_shg%cg_none0_list, &
                                                lri_env%cg_shg%ncg_none0, &
                                                Waux_mat, dWaux_mat, .TRUE., .FALSE.)
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             DEALLOCATE (Waux_mat, dWaux_mat)
          ELSE
             !*** (fa,fb)
@@ -208,8 +206,8 @@ CONTAINS
                CALL int_overlap_abb_os(lriint%abbint, dummy2, rab, obasa, obasb, fbasb, &
                                        .FALSE., lri_env%debug, lrii%dmax_abb)
             END IF
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
    END SUBROUTINE lri_int2
 
@@ -240,15 +238,13 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind, jkind
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_dint', routineP = moduleN//':'//routineN
-
       IF (lri_env%use_shg_integrals) THEN
          CALL lri_int_shg(lri_env, lrii, rab, obasa, obasb, fbasa, fbasb, &
                           iatom, jatom, ikind, jkind, calculate_forces)
       ELSE
          CALL lri_int_os(lri_env, lrii, rab, obasa, obasb, fbasa, fbasb, &
                          iatom, jatom, ikind, calculate_forces)
-      ENDIF
+      END IF
 
    END SUBROUTINE lri_dint
 
@@ -276,8 +272,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: rab
       TYPE(gto_basis_set_type), POINTER                  :: obasa, obasb, fbasa, fbasb
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind, jkind
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_dint2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nba, nbb, nfa, nfb
       INTEGER, DIMENSION(:, :, :), POINTER               :: fba_index, fbb_index, oba_index, &
@@ -343,8 +337,8 @@ CONTAINS
                                                   lri_env%cg_shg%cg_coeff, lri_env%cg_shg%cg_none0_list, &
                                                   lri_env%cg_shg%ncg_none0, &
                                                   Waux_mat, dWaux_mat, .FALSE., .TRUE.)
-                  ENDIF
-               ENDIF
+                  END IF
+               END IF
                DEALLOCATE (Waux_mat, dWaux_mat)
 
             ELSE
@@ -377,9 +371,9 @@ CONTAINS
                                           .TRUE., lri_env%debug, lrii%dmax_abb)
                   DEALLOCATE (dummy2)
                END IF
-            ENDIF
-         ENDIF
-      ENDIF
+            END IF
+         END IF
+      END IF
 
    END SUBROUTINE lri_dint2
 
@@ -408,7 +402,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_int_os', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'lri_int_os'
 
       INTEGER                                            :: handle, nba, nbb, nfa, nfb
       LOGICAL                                            :: do_force
@@ -456,7 +450,7 @@ CONTAINS
          !*** (a,b,fb)
          CALL int_overlap_abb_os(lrii%abbint, lrii%dabbint, rab, obasa, obasb, fbasb, &
                                  do_force, lri_env%debug, lrii%dmax_abb)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -487,7 +481,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iatom, jatom, ikind, jkind
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_int_shg', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'lri_int_shg'
 
       INTEGER                                            :: handle, nba, nbb, nfa, nfb
       INTEGER, DIMENSION(:, :, :), POINTER               :: fba_index, fbb_index, oba_index, &
@@ -562,10 +556,10 @@ CONTAINS
                                          lri_env%cg_shg%cg_coeff, lri_env%cg_shg%cg_none0_list, &
                                          lri_env%cg_shg%ncg_none0, &
                                          Waux_mat, dWaux_mat, .TRUE., do_force)
-         ENDIF
+         END IF
 
          DEALLOCATE (Waux_mat, dWaux_mat)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -598,9 +592,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: skip_sab, skip_soo, skip_aba, skip_abb, &
                                                             skip_dsab, skip_dsoo, skip_daba, &
                                                             skip_dabb
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'allocate_int_type', &
-         routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: do_aba, do_abb, do_daba, do_dabb, &
                                                             do_dsab, do_dsoo, do_sab, do_soo
@@ -680,9 +671,6 @@ CONTAINS
 
       TYPE(int_type), INTENT(INOUT), OPTIONAL            :: lriint
       TYPE(dint_type), INTENT(INOUT), OPTIONAL           :: lridint
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'deallocate_int_type', &
-         routineP = moduleN//':'//routineN
 
       IF (PRESENT(lriint)) THEN
          IF (ALLOCATED(lriint%sabint)) DEALLOCATE (lriint%sabint)

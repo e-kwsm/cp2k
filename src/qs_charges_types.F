@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -21,7 +23,7 @@ MODULE qs_charges_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_charges_types'
 
    PUBLIC :: qs_charges_type
-   PUBLIC :: qs_charges_create, qs_charges_retain, qs_charges_release
+   PUBLIC :: qs_charges_create, qs_charges_release
 !***
 
 ! **************************************************************************************************
@@ -30,14 +32,13 @@ MODULE qs_charges_types
 !> \param total_rho_rspace total charge in the real space
 !> \param total_rho_gspace total charge in the g space
 !> \note
-!>      this type is loosing the reason to exist...
+!>      this type is losing the reason to exist...
 !> \par History
 !>      10.2002 created [fawzi]
 !>      11.2002 moved total_rho_elec_rspace to qs_rho_type
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    TYPE qs_charges_type
-      INTEGER :: ref_count
       REAL(KIND=dp) :: total_rho_core_rspace, total_rho_gspace
       REAL(KIND=dp) :: total_rho0_soft_rspace, total_rho0_hard_lebedev
       REAL(KIND=dp) :: total_rho_soft_gspace
@@ -60,14 +61,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qs_charges_create(qs_charges, nspins, total_rho_core_rspace, &
                                 total_rho_gspace)
-      TYPE(qs_charges_type), POINTER                     :: qs_charges
+      TYPE(qs_charges_type), INTENT(OUT)                 :: qs_charges
       INTEGER, INTENT(in)                                :: nspins
       REAL(KIND=dp), INTENT(in), OPTIONAL                :: total_rho_core_rspace, total_rho_gspace
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_charges_create', &
-         routineP = moduleN//':'//routineN
-
-      ALLOCATE (qs_charges)
       qs_charges%total_rho_core_rspace = 0.0_dp
       IF (PRESENT(total_rho_core_rspace)) &
          qs_charges%total_rho_core_rspace = total_rho_core_rspace
@@ -82,26 +79,7 @@ CONTAINS
       qs_charges%total_rho1_hard(:) = 0.0_dp
       ALLOCATE (qs_charges%total_rho1_soft(nspins))
       qs_charges%total_rho1_soft(:) = 0.0_dp
-      qs_charges%ref_count = 1
    END SUBROUTINE qs_charges_create
-
-! **************************************************************************************************
-!> \brief retains the given qs_charges (see cp2k/doc/ReferenceCounting.html)
-!> \param qs_charges the object to retain
-!> \par History
-!>      10.2002 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE qs_charges_retain(qs_charges)
-      TYPE(qs_charges_type), POINTER                     :: qs_charges
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_charges_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(qs_charges))
-      CPASSERT(qs_charges%ref_count > 0)
-      qs_charges%ref_count = qs_charges%ref_count + 1
-   END SUBROUTINE qs_charges_retain
 
 ! **************************************************************************************************
 !> \brief releases the charges object (see cp2k/doc/ReferenceCounting.html)
@@ -111,21 +89,11 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE qs_charges_release(qs_charges)
-      TYPE(qs_charges_type), POINTER                     :: qs_charges
+      TYPE(qs_charges_type), INTENT(INOUT)               :: qs_charges
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_charges_release', &
-         routineP = moduleN//':'//routineN
+      DEALLOCATE (qs_charges%total_rho1_hard)
+      DEALLOCATE (qs_charges%total_rho1_soft)
 
-      IF (ASSOCIATED(qs_charges)) THEN
-         CPASSERT(qs_charges%ref_count > 0)
-         qs_charges%ref_count = qs_charges%ref_count - 1
-         IF (qs_charges%ref_count < 1) THEN
-            DEALLOCATE (qs_charges%total_rho1_hard)
-            DEALLOCATE (qs_charges%total_rho1_soft)
-            DEALLOCATE (qs_charges)
-         END IF
-      END IF
-      NULLIFY (qs_charges)
    END SUBROUTINE qs_charges_release
 
 END MODULE qs_charges_types

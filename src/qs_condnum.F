@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -47,6 +49,7 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief   Calculation of the overlap matrix Condition Number
 !> \param   matrixkp_s The overlap matrices to be calculated (kpoints, optional)
+!> \param   condnum Condition numbers for 1 and 2 norm
 !> \param   iunit  output unit
 !> \param   norml1 logical: calculate estimate to 1-norm
 !> \param   norml2 logical: calculate estimate to 1-norm and 2-norm condition number
@@ -57,16 +60,15 @@ CONTAINS
 !> \author  JHU
 !> \version 1.0
 ! **************************************************************************************************
-   SUBROUTINE overlap_condnum(matrixkp_s, iunit, norml1, norml2, use_arnoldi, blacs_env)
+   SUBROUTINE overlap_condnum(matrixkp_s, condnum, iunit, norml1, norml2, use_arnoldi, blacs_env)
 
-      TYPE(dbcsr_p_type), DIMENSION(:, :), OPTIONAL, &
-         POINTER                                         :: matrixkp_s
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrixkp_s
+      REAL(KIND=dp), DIMENSION(2), INTENT(INOUT)         :: condnum
       INTEGER, INTENT(IN)                                :: iunit
       LOGICAL, INTENT(IN)                                :: norml1, norml2, use_arnoldi
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'overlap_condnum', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'overlap_condnum'
 
       INTEGER                                            :: handle, ic, maxiter, nbas, ndep
       LOGICAL                                            :: converged
@@ -74,12 +76,13 @@ CONTAINS
                                                             threshold
       REAL(KIND=dp), DIMENSION(2)                        :: eigvals
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: fmsmat, fmwork
+      TYPE(cp_fm_type)                                   :: fmsmat, fmwork
       TYPE(dbcsr_type)                                   :: tempmat
       TYPE(dbcsr_type), POINTER                          :: smat
 
       CALL timeset(routineN, handle)
 
+      condnum(1:2) = 0.0_dp
       NULLIFY (smat)
       IF (SIZE(matrixkp_s, 2) == 1) THEN
          IF (iunit > 0) WRITE (iunit, '(/,T2,A)') "OVERLAP MATRIX CONDITION NUMBER"
@@ -105,9 +108,9 @@ CONTAINS
                WRITE (iunit, '(T4,A,ES11.3E3,T32,A,ES11.3E3,A4,ES11.3E3,T63,A,F8.4)') &
                   "CN : |A|*|A^-1|: ", anorm, " * ", amnorm, "=", anorm*amnorm, "Log(1-CN):", LOG10(anorm*amnorm)
             END IF
+            condnum(1) = anorm*amnorm
          END IF
          IF (norml2) THEN
-
             eps_ev = 1.0E-14_dp
             ! diagonalization
             CALL dbcsr_get_info(smat, nfullrows_total=nbas)
@@ -142,7 +145,13 @@ CONTAINS
                ELSE
                   WRITE (iunit, '(T4,A,ES11.3E3,T32,A,ES11.3E3,T63,A)') &
                      "CN : max/min EV: ", max_ev, " / ", min_ev, "Log(CN): infinity"
-               ENDIF
+               END IF
+            END IF
+            IF (min_ev > 0) THEN
+               condnum(1) = anorm*amnorm
+               condnum(2) = max_ev/min_ev
+            ELSE
+               condnum(1:2) = 0.0_dp
             END IF
          END IF
          IF (use_arnoldi) THEN
@@ -160,9 +169,13 @@ CONTAINS
                ELSE
                   WRITE (iunit, '(T4,A,ES11.3E3,T32,A,ES11.3E3,T63,A)') &
                      "CN : max/min ev: ", max_ev, " / ", min_ev, "Log(CN): infinity"
-               ENDIF
-            ENDIF
-
+               END IF
+            END IF
+            IF (min_ev > 0) THEN
+               condnum(2) = max_ev/min_ev
+            ELSE
+               condnum(2) = 0.0_dp
+            END IF
             IF (converged) THEN
                IF (min_ev == 0) THEN
                   CPWARN("Ill-conditioned S matrix: basis set is overcomplete.")
@@ -172,7 +185,7 @@ CONTAINS
             ELSE
                CPWARN("Condition number estimate of overlap matrix is not reliable (not converged).")
             END IF
-         ENDIF
+         END IF
       END IF
       IF (SIZE(matrixkp_s, 2) == 1) THEN
          NULLIFY (smat)
@@ -286,9 +299,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE smat_precon_diag(pmat)
       TYPE(dbcsr_type)                                   :: pmat
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'smat_precon_diag', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: iatom, info, jatom, n
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: sblock

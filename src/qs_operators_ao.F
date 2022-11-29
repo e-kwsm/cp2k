@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,6 +25,7 @@ MODULE qs_operators_ao
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_get_block_p,&
                                               dbcsr_get_matrix_type,&
+                                              dbcsr_has_symmetry,&
                                               dbcsr_p_type,&
                                               dbcsr_type_antisymmetric,&
                                               dbcsr_type_no_symmetry
@@ -58,7 +61,7 @@ MODULE qs_operators_ao
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief   Calculation of the linear momentum matrix over
+!> \brief   Calculation of the linear momentum matrix <mu|∂|nu> over
 !>          Cartesian Gaussian functions.
 !> \param qs_env ...
 !> \param matrix ...
@@ -71,8 +74,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_lin_mom_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_lin_mom_matrix'
 
       INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, last_jatom, &
          ldai, maxco, maxlgto, maxsgf, natom, ncoa, ncob, neighbor_list_id, nkind, nseta, nsetb, &
@@ -80,7 +82,7 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, lb_min, npgfa, &
                                                             npgfb, nsgfa, nsgfb
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
-      LOGICAL                                            :: found, new_atom_b
+      LOGICAL                                            :: do_symmetric, found, new_atom_b
       REAL(KIND=dp)                                      :: dab, rab2
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: intab, rr_work
@@ -96,14 +98,14 @@ CONTAINS
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: nl_iterator
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: sab_orb
+         POINTER                                         :: sab_nl
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (cell, sab_orb, qs_kind_set, particle_set, para_env)
+      NULLIFY (cell, sab_nl, qs_kind_set, particle_set, para_env)
       NULLIFY (logger)
 
       logger => cp_get_default_logger()
@@ -113,12 +115,18 @@ CONTAINS
                       particle_set=particle_set, &
                       neighbor_list_id=neighbor_list_id, &
                       para_env=para_env, &
-                      sab_orb=sab_orb, &
                       cell=cell)
 
       nkind = SIZE(qs_kind_set)
       natom = SIZE(particle_set)
 
+      ! Take into account the symmetry of the input matrix
+      do_symmetric = dbcsr_has_symmetry(matrix(1)%matrix)
+      IF (do_symmetric) THEN
+         CALL get_qs_env(qs_env=qs_env, sab_orb=sab_nl)
+      ELSE
+         CALL get_qs_env(qs_env=qs_env, sab_all=sab_nl)
+      END IF
 !   *** Allocate work storage ***
 
       CALL get_qs_kind_set(qs_kind_set=qs_kind_set, &
@@ -144,7 +152,7 @@ CONTAINS
             NULLIFY (basis_set_list(ikind)%gto_basis_set)
          END IF
       END DO
-      CALL neighbor_list_iterator_create(nl_iterator, sab_orb)
+      CALL neighbor_list_iterator_create(nl_iterator, sab_nl)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
          CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, inode=inode, &
                                 iatom=iatom, jatom=jatom, r=rab)
@@ -184,12 +192,17 @@ CONTAINS
          END IF
 
          IF (new_atom_b) THEN
-            IF (iatom <= jatom) THEN
+            IF (do_symmetric) THEN
+               IF (iatom <= jatom) THEN
+                  irow = iatom
+                  icol = jatom
+               ELSE
+                  irow = jatom
+                  icol = iatom
+               END IF
+            ELSE
                irow = iatom
                icol = jatom
-            ELSE
-               irow = jatom
-               icol = iatom
             END IF
 
             DO i = 1, 3
@@ -197,7 +210,7 @@ CONTAINS
                CALL dbcsr_get_block_p(matrix=matrix(i)%matrix, &
                                       row=irow, col=icol, BLOCK=integral(i)%block, found=found)
                CPASSERT(ASSOCIATED(INTEGRAL(i)%block))
-            ENDDO
+            END DO
          END IF
 
          rab2 = rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3)
@@ -232,29 +245,37 @@ CONTAINS
                              sphi_b(1, sgfb), SIZE(sphi_b, 1), &
                              0.0_dp, work(1, 1), SIZE(work, 1))
 
-                  IF (iatom <= jatom) THEN
+                  IF (do_symmetric) THEN
+                     IF (iatom <= jatom) THEN
 
+                        CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                   1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   work(1, 1), SIZE(work, 1), &
+                                   1.0_dp, integral(i)%block(sgfa, sgfb), &
+                                   SIZE(integral(i)%block, 1))
+
+                     ELSE
+
+                        CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                   -1.0_dp, work(1, 1), SIZE(work, 1), &
+                                   sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   1.0_dp, integral(i)%block(sgfb, sgfa), &
+                                   SIZE(integral(i)%block, 1))
+
+                     END IF
+                  ELSE
                      CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
                                 1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
                                 work(1, 1), SIZE(work, 1), &
                                 1.0_dp, integral(i)%block(sgfa, sgfb), &
                                 SIZE(integral(i)%block, 1))
+                  END IF
 
-                  ELSE
+               END DO
 
-                     CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
-                                -1.0_dp, work(1, 1), SIZE(work, 1), &
-                                sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                1.0_dp, integral(i)%block(sgfb, sgfa), &
-                                SIZE(integral(i)%block, 1))
+            END DO
 
-                  ENDIF
-
-               ENDDO
-
-            ENDDO
-
-         ENDDO
+         END DO
 
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
@@ -313,8 +334,6 @@ CONTAINS
       REAL(dp), DIMENSION(0:ldrr-1, 0:ldrr-1, 3), &
          INTENT(INOUT)                                   :: rr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lin_mom', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, i, &
                                                             ipgf, j, jpgf, la, lb, ma, mb, na, nb
       REAL(dp)                                           :: dab, dumx, dumy, dumz, f0, rab2, xhi, zet
@@ -343,11 +362,11 @@ CONTAINS
                      intab(i, j, 1) = 0.0_dp
                      intab(i, j, 2) = 0.0_dp
                      intab(i, j, 3) = 0.0_dp
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                nb = nb + ncoset(lb_max)
                CYCLE
-            ENDIF
+            END IF
 
             ! *** Calculate some prefactors ***
             zet = zeta(ipgf) + zetb(jpgf)
@@ -391,21 +410,21 @@ CONTAINS
                   IF (az .GT. 0) dumz = dumz - REAL(az, dp)*rr(az - 1, bz, 3)
                   intab(ma, mb, 3) = f0*rr(ax, bx, 1)*rr(ay, by, 2)*dumz
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
+               END DO
+               END DO
+               END DO !la
 
-            ENDDO
-            ENDDO
-            ENDDO !lb
+            END DO
+            END DO
+            END DO !lb
 
             nb = nb + ncoset(lb_max)
 
-         ENDDO
+         END DO
 
          na = na + ncoset(la_max)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE lin_mom
 
@@ -426,8 +445,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: rc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_ang_mom_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_ang_mom_matrix'
 
       INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, last_jatom, &
          ldai, maxco, maxlgto, maxsgf, natom, ncoa, ncob, neighbor_list_id, nkind, nseta, nsetb, &
@@ -554,7 +572,7 @@ CONTAINS
                CALL dbcsr_get_block_p(matrix=matrix(i)%matrix, &
                                       row=irow, col=icol, BLOCK=INTEGRAL(i)%block, found=found)
                CPASSERT(ASSOCIATED(INTEGRAL(i)%block))
-            ENDDO
+            END DO
          END IF
 
          rab2 = rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3)
@@ -617,11 +635,11 @@ CONTAINS
                   !
                   !ENDIF
 
-               ENDDO
+               END DO
 
-            ENDDO
+            END DO
 
-         ENDDO
+         END DO
 
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
@@ -681,8 +699,6 @@ CONTAINS
       REAL(dp), DIMENSION(0:ldrr-1, 0:ldrr-1, 3), &
          INTENT(INOUT)                                   :: rr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ang_mom', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ax, ay, az, bx, by, bz, coa, cob, i, &
                                                             ipgf, j, jpgf, la, lb, ma, mb, na, nb
       REAL(dp)                                           :: dab, dumx, dumy, dumz, f0, rab2, xhi, zet
@@ -711,11 +727,11 @@ CONTAINS
                      intab(i, j, 1) = 0.0_dp
                      intab(i, j, 2) = 0.0_dp
                      intab(i, j, 3) = 0.0_dp
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                nb = nb + ncoset(lb_max)
                CYCLE
-            ENDIF
+            END IF
 
             ! *** Calculate some prefactors ***
             zet = zeta(ipgf) + zetb(jpgf)
@@ -766,21 +782,21 @@ CONTAINS
                        &  (rr(ax + 1, bx, 1) + rac(1)*rr(ax, bx, 1))*dumy &
                        & - (rr(ay + 1, by, 2) + rac(2)*rr(ay, by, 2))*dumx)
                   !
-               ENDDO
-               ENDDO
-               ENDDO !la
+               END DO
+               END DO
+               END DO !la
 
-            ENDDO
-            ENDDO
-            ENDDO !lb
+            END DO
+            END DO
+            END DO !lb
 
             nb = nb + ncoset(lb_max)
 
-         ENDDO
+         END DO
 
          na = na + ncoset(la_max)
 
-      ENDDO
+      END DO
 
    END SUBROUTINE ang_mom
 
@@ -803,7 +819,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: minimum_image
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'p_xyz_ao', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'p_xyz_ao'
 
       INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, last_jatom, &
          ldab, ldsa, ldsb, ldwork, maxl, ncoa, ncob, nkind, nseta, nsetb, sgfa, sgfb
@@ -1071,7 +1087,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: order
       LOGICAL, INTENT(IN), OPTIONAL                      :: minimum_image, soft
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rRc_xyz_ao', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rRc_xyz_ao'
 
       INTEGER :: handle, iatom, icol, ikind, imom, inode, irow, iset, jatom, jkind, jset, &
          last_jatom, ldab, ldsa, ldsb, ldwork, M_dim, maxl, ncoa, ncob, nkind, nseta, nsetb, sgfa, &
@@ -1333,7 +1349,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: order
       LOGICAL, INTENT(IN), OPTIONAL                      :: minimum_image, soft
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rRc_xyz_der_ao', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rRc_xyz_der_ao'
 
       INTEGER :: handle, i, iatom, icol, idir, ikind, imom, inode, ipgf, irow, iset, j, jatom, &
          jkind, jpgf, jset, last_jatom, lda_min, ldab, ldb_min, ldsa, ldsb, ldwork, M_dim, maxl, &

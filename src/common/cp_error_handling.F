@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -9,6 +11,7 @@
 ! **************************************************************************************************
 MODULE cp_error_handling
    USE base_hooks,                      ONLY: cp_abort_hook,&
+                                              cp_hint_hook,&
                                               cp_warn_hook
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE kinds,                           ONLY: dp
@@ -30,7 +33,7 @@ MODULE cp_error_handling
    PUBLIC :: cp_error_handling_setup
 
    !API (via pointer assignment to hook, PR67982, not meant to be called directly)
-   PUBLIC :: cp_abort_handler, cp_warn_handler
+   PUBLIC :: cp_abort_handler, cp_warn_handler, cp_hint_handler
 
    INTEGER, PUBLIC, SAVE :: warning_counter = 0
 
@@ -43,6 +46,7 @@ CONTAINS
    SUBROUTINE cp_error_handling_setup()
       cp_abort_hook => cp_abort_handler
       cp_warn_hook => cp_warn_handler
+      cp_hint_hook => cp_hint_handler
    END SUBROUTINE cp_error_handling_setup
 
 ! **************************************************************************************************
@@ -64,7 +68,7 @@ CONTAINS
 
       CALL print_abort_message(message, location, unit_nr)
       CALL print_stack(unit_nr)
-      CALL m_flush(unit_nr)
+      FLUSH (unit_nr)  ! ignore &GLOBAL / FLUSH_SHOULD_FLUSH
 
       CALL mp_abort()
    END SUBROUTINE cp_abort_handler
@@ -88,8 +92,26 @@ CONTAINS
       IF (unit_nr > 0) THEN
          CALL print_message("WARNING in "//TRIM(location)//' :: '//TRIM(ADJUSTL(message)), unit_nr, 1, 1, 1)
          CALL m_flush(unit_nr)
-      ENDIF
+      END IF
    END SUBROUTINE cp_warn_handler
+
+! **************************************************************************************************
+!> \brief Signal a hint
+!> \param location ...
+!> \param message ...
+!> \author Ole Schuett
+! **************************************************************************************************
+   SUBROUTINE cp_hint_handler(location, message)
+      CHARACTER(len=*), INTENT(in)                       :: location, message
+
+      INTEGER                                            :: unit_nr
+
+      unit_nr = cp_logger_get_default_io_unit()
+      IF (unit_nr > 0) THEN
+         CALL print_message("HINT in "//TRIM(location)//' :: '//TRIM(ADJUSTL(message)), unit_nr, 1, 1, 1)
+         CALL m_flush(unit_nr)
+      END IF
+   END SUBROUTINE cp_hint_handler
 
 ! **************************************************************************************************
 !> \brief Delay non-master ranks/threads, used by cp_abort_handler()
@@ -114,8 +136,8 @@ CONTAINS
          t1 = m_walltime()
          DO
             IF (m_walltime() - t1 > wait_time .OR. t1 < 0) EXIT
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
    END SUBROUTINE delay_non_master
 
@@ -146,7 +168,7 @@ CONTAINS
          b = next_linebreak(message, a, txt_width)
          a = b + 1
          msg_height = msg_height + 1
-      ENDDO
+      END DO
 
       ! calculate message and image starting lines
       IF (img_height > msg_height) THEN
@@ -155,7 +177,7 @@ CONTAINS
       ELSE
          msg_start = 1
          img_start = msg_height - img_height + 2
-      ENDIF
+      END IF
 
       ! print empty line
       WRITE (UNIT=output_unit, FMT="(A)") ""
@@ -172,7 +194,7 @@ CONTAINS
          ELSE
             WRITE (UNIT=output_unit, FMT="(A)", advance='no') img(c:c + img_width - 1)
             c = c + img_width
-         ENDIF
+         END IF
          IF (i < msg_start) THEN
             WRITE (UNIT=output_unit, FMT="(A)", advance='no') REPEAT(" ", txt_width + 2)
          ELSE
@@ -184,9 +206,9 @@ CONTAINS
             WRITE (UNIT=output_unit, FMT="(A)", advance='no') REPEAT(" ", indent)
             WRITE (UNIT=output_unit, FMT="(A)", advance='no') TRIM(msg_line)
             WRITE (UNIT=output_unit, FMT="(A)", advance='no') REPEAT(" ", fill)
-         ENDIF
+         END IF
          WRITE (UNIT=output_unit, FMT="(A)", advance='yes') "*"
-      ENDDO
+      END DO
 
       ! print location line
       WRITE (UNIT=output_unit, FMT="(A)", advance='no') " *"
@@ -228,8 +250,8 @@ CONTAINS
             ibreak = pos + rowlen - 1 ! no space found, break mid-word
          ELSE
             ibreak = pos + i ! break at space closest to rowlen
-         ENDIF
-      ENDIF
+         END IF
+      END IF
    END FUNCTION next_linebreak
 
 END MODULE cp_error_handling

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -280,7 +282,7 @@ CONTAINS
       md3 = n3
       DO WHILE (nproc*(md2/nproc) .LT. n2)
          md2 = md2 + 1
-      ENDDO
+      END DO
 
       !dimensions of the kernel, 1/8 of the total volume,
       !compatible with nproc
@@ -289,7 +291,7 @@ CONTAINS
       nd3 = n3/2 + 1
       DO WHILE (MODULO(nd3, nproc) .NE. 0)
          nd3 = nd3 + 1
-      ENDDO
+      END DO
 
    END SUBROUTINE P_FFT_dimensions
 
@@ -334,8 +336,7 @@ CONTAINS
                                                             nd1, nd2, nd3
       INTEGER, INTENT(in)                                :: nproc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'S_FFT_dimensions', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'S_FFT_dimensions'
 
       INTEGER                                            :: handle, l1, l2, l3
 
@@ -381,7 +382,7 @@ CONTAINS
       md3 = n3/2
       DO WHILE (nproc*(md2/nproc) .LT. n2)
          md2 = md2 + 1
-      ENDDO
+      END DO
 
       !dimensions of the kernel, 1/8 of the total volume,
       !compatible with nproc
@@ -393,7 +394,7 @@ CONTAINS
       nd3 = n3/2 + 1
       DO WHILE (MODULO(nd3, nproc) .NE. 0)
          nd3 = nd3 + 1
-      ENDDO
+      END DO
       CALL timestop(handle)
 
    END SUBROUTINE S_FFT_dimensions
@@ -483,7 +484,7 @@ CONTAINS
       md3 = n3/2
       DO WHILE (nproc*(md2/nproc) .LT. n2/2)
          md2 = md2 + 1
-      ENDDO
+      END DO
 
       !dimensions of the kernel, 1/8 of the total volume,
       !compatible with nproc
@@ -493,7 +494,7 @@ CONTAINS
 
       DO WHILE (MODULO(nd3, nproc) .NE. 0)
          nd3 = nd3 + 1
-      ENDDO
+      END DO
 
    END SUBROUTINE F_FFT_dimensions
 
@@ -519,8 +520,7 @@ CONTAINS
          INTENT(inout)                                   :: zf, rhopot
       REAL(KIND=dp), INTENT(in)                          :: factor
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'scale_and_distribute', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'scale_and_distribute'
 
       INTEGER                                            :: handle, j1, j3, jp2
 
@@ -551,7 +551,7 @@ CONTAINS
          END DO
       ELSE
          zf = 0._dp
-      ENDIF
+      END IF
       CALL timestop(handle)
 
    END SUBROUTINE scale_and_distribute

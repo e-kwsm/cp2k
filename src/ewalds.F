@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,7 +29,6 @@ MODULE ewalds
    USE mathconstants,                   ONLY: fourpi,&
                                               oorootpi,&
                                               pi
-   USE mathlib,                         ONLY: matvec_3x3
    USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
    USE pw_grid_types,                   ONLY: pw_grid_type
@@ -89,7 +90,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), OPTIONAL, &
          POINTER                                         :: pv_coulomb
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ewald_evaluate', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'ewald_evaluate'
 
       COMPLEX(KIND=dp)                                   :: snode
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: summe
@@ -125,7 +126,7 @@ CONTAINS
       CALL ewald_env_get(ewald_env, alpha=alpha, group=group)
       CALL ewald_pw_get(ewald_pw, pw_big_pool=pw_pool, dg=dg)
       CALL dg_get(dg, dg_rho0=dg_rho0)
-      rho0 => dg_rho0%density%pw%cr3d
+      rho0 => dg_rho0%density%cr3d
       pw_grid => pw_pool%pw_grid
       bds => pw_grid%bounds
 
@@ -134,7 +135,7 @@ CONTAINS
       nnodes = 0
       DO iparticle_kind = 1, nparticle_kind
          nnodes = nnodes + local_particles%n_el(iparticle_kind)
-      ENDDO
+      END DO
 
       CALL structure_factor_allocate(pw_grid%bounds, nnodes, exp_igr)
 
@@ -156,7 +157,7 @@ CONTAINS
                node = node + 1
                iparticle = local_particles%list(iparticle_kind)%array(iparticle_local)
                charge(node) = charges(iparticle)
-               CALL matvec_3x3(vec, cell%h_inv, particle_set(iparticle)%r)
+               vec = MATMUL(cell%h_inv, particle_set(iparticle)%r)
                CALL structure_factor_evaluate(vec, exp_igr%lb, &
                                               exp_igr%ex(:, node), exp_igr%ey(:, node), exp_igr%ez(:, node))
             END DO
@@ -167,7 +168,7 @@ CONTAINS
                node = node + 1
                iparticle = local_particles%list(iparticle_kind)%array(iparticle_local)
                charge(node) = q
-               CALL matvec_3x3(vec, cell%h_inv, particle_set(iparticle)%r)
+               vec = MATMUL(cell%h_inv, particle_set(iparticle)%r)
                CALL structure_factor_evaluate(vec, exp_igr%lb, &
                                               exp_igr%ex(:, node), exp_igr%ey(:, node), exp_igr%ez(:, node))
             END DO
@@ -307,8 +308,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: e_self, e_neut
       REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ewald_self', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ewald_type, group, iparticle_kind, &
                                                             nparticle_kind, nparticle_local
       LOGICAL                                            :: is_shell
@@ -392,9 +391,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: e_self(:)
       REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ewald_self_atom', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ewald_type, ii, iparticle_kind, &
                                                             iparticle_local, nparticle_kind, &
                                                             nparticle_local
@@ -452,8 +448,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iw
       REAL(KIND=dp), INTENT(IN)                          :: pot_nonbond, e_gspace, e_self, e_neut, &
                                                             e_bonded
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'ewald_print', routineP = moduleN//':'//routineN
 
       IF (iw > 0) THEN
          WRITE (iw, '( A, A )') ' *********************************', &

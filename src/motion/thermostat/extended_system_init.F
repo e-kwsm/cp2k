@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -31,7 +33,8 @@ MODULE extended_system_init
                                               nph_uniaxial_damped_ensemble,&
                                               nph_uniaxial_ensemble,&
                                               npt_f_ensemble,&
-                                              npt_i_ensemble
+                                              npt_i_ensemble,&
+                                              npt_ia_ensemble
    USE input_cp2k_binary_restarts,      ONLY: read_binary_thermostats_nose
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
@@ -75,7 +78,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(section_vals_type), POINTER                   :: work_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'initialize_npt', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'initialize_npt'
 
       INTEGER                                            :: handle, i, ind, j
       LOGICAL                                            :: explicit, restart
@@ -94,7 +97,7 @@ CONTAINS
 
       ! first allocating the npt_info_type if requested
       SELECT CASE (simpar%ensemble)
-      CASE (npt_i_ensemble, npe_i_ensemble)
+      CASE (npt_i_ensemble, npe_i_ensemble, npt_ia_ensemble)
          ALLOCATE (npt_info(1, 1))
          npt_info(:, :)%eps = LOG(cell%deth)/3.0_dp
          temp = simpar%temp_baro_ext
@@ -177,8 +180,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: nose_section
       LOGICAL, INTENT(IN)                                :: save_mem
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_baro', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_baro'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: restart
@@ -247,8 +249,7 @@ CONTAINS
       TYPE(global_constraint_type), POINTER              :: gci
       LOGICAL, INTENT(IN)                                :: save_mem
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_slow', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_slow'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: restart
@@ -314,8 +315,7 @@ CONTAINS
       TYPE(global_constraint_type), POINTER              :: gci
       LOGICAL, INTENT(IN)                                :: save_mem
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_fast', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_fast'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: restart
@@ -383,8 +383,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: save_mem
       CHARACTER(LEN=*), INTENT(IN)                       :: binary_restart_file_name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_part', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_part'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: restart
@@ -453,8 +452,7 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: save_mem
       CHARACTER(LEN=*), INTENT(IN)                       :: binary_restart_file_name
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_shell', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_nhc_shell'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: restart
@@ -501,9 +499,6 @@ CONTAINS
 
       TYPE(lnhc_parameters_type), POINTER                :: nhc
       REAL(KIND=dp), INTENT(IN)                          :: dt
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_yoshida_coef', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp), DIMENSION(nhc%nyosh)                :: yosh_wt
 
@@ -588,7 +583,7 @@ CONTAINS
       CHARACTER(LEN=*), INTENT(IN)                       :: binary_restart_file_name, thermostat_name
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'restart_nose', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'restart_nose'
 
       INTEGER                                            :: handle, i, ind, j
       LOGICAL                                            :: explicit
@@ -716,8 +711,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_nhc_variables', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_nhc_variables'
 
       INTEGER                                            :: handle, i, icount, j, number, tot_rn
       REAL(KIND=dp)                                      :: akin, dum, temp
@@ -853,8 +847,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: cmass
       TYPE(global_environment_type), POINTER             :: globenv
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_barostat_variables', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'init_barostat_variables'
 
       INTEGER                                            :: handle, i, j, number
       REAL(KIND=dp)                                      :: akin, temp, v
@@ -869,7 +862,7 @@ CONTAINS
       npt(:, :)%v = 0.0_dp
       npt(:, :)%f = 0.0_dp
       SELECT CASE (ensemble)
-      CASE (npt_i_ensemble)
+      CASE (npt_i_ensemble, npt_ia_ensemble)
          npt(:, :)%mass = REAL(nfree + 3, KIND=dp)*temp_ext*tau_cell**2
       CASE (npt_f_ensemble)
          npt(:, :)%mass = REAL(nfree + 3, KIND=dp)*temp_ext*tau_cell**2/3.0_dp
@@ -904,7 +897,7 @@ CONTAINS
       IF (number /= 0) THEN
          temp = 2.0_dp*akin/REAL(number, KIND=dp)
          IF (temp > 0.0_dp) temp = SQRT(temp_ext/temp)
-      ENDIF
+      END IF
       DO i = 1, SIZE(npt, 1)
          DO j = i, SIZE(npt, 2)
             npt(j, i)%v = temp*npt(j, i)%v
@@ -912,7 +905,7 @@ CONTAINS
             IF (debug_isotropic_limit) THEN
                npt(j, i)%v = 0.0_dp
                npt(i, j)%v = 0.0_dp
-               WRITE (*, *) 'DEBUG ISOTROPIC LIMIT| INTIAL v_eps', npt(j, i)%v
+               WRITE (*, *) 'DEBUG ISOTROPIC LIMIT| INITIAL v_eps', npt(j, i)%v
             END IF
          END DO
       END DO
@@ -937,8 +930,7 @@ CONTAINS
 
       TYPE(lnhc_parameters_type), POINTER                :: nhc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_nhc_forces', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'init_nhc_forces'
 
       INTEGER                                            :: handle, i, j
 

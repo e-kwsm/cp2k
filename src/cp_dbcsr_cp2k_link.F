@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,6 +18,7 @@ MODULE cp_dbcsr_cp2k_link
    USE basis_set_types,                 ONLY: gto_basis_set_p_type,&
                                               gto_basis_set_type
    USE bibliography,                    ONLY: Borstnik2014,&
+                                              Heinecke2016,&
                                               Schuett2016,&
                                               cite_reference
    USE cp_control_types,                ONLY: dft_control_type
@@ -86,11 +89,9 @@ CONTAINS
    SUBROUTINE create_dbcsr_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dbcsr_section', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: idefault
       LOGICAL                                            :: ldefault
+      REAL(KIND=dp)                                      :: rdefault
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -123,7 +124,8 @@ CONTAINS
                                         "Fortran MATMUL", &
                                         "Library optimised for Small Matrix Multiplies "// &
                                         "(requires the SMM library at link time)", &
-                                        "Intel's libxsmm"))
+                                        "LIBXSMM"), &
+                          citations=(/Heinecke2016/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -226,36 +228,35 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      NULLIFY (subsection)
+      CALL section_create(subsection, __LOCATION__, name="TENSOR", &
+                          description="Configuration options for Tensors.", &
+                          n_keywords=1, n_subsections=0, repeats=.FALSE.)
+
+      CALL dbcsr_get_default_config(tas_split_factor=rdefault)
+      CALL keyword_create(keyword, __LOCATION__, name="TAS_SPLIT_FACTOR", &
+                          description="Parameter for hybrid DBCSR-TAS matrix-matrix multiplication algorithm: "// &
+                          "a TAS matrix is split into s submatrices with s = N_max/(N_min*f) with f "// &
+                          "given by this parameter and N_max/N_min the max/min occupancies of the matrices "// &
+                          "involved in a multiplication. A large value makes the multiplication Cannon-based "// &
+                          "(s=1) and a small value (> 0) makes the multiplication based on TAS algorithm "// &
+                          "(s=number of MPI ranks)", &
+                          default_r_val=rdefault)
+      CALL section_add_keyword(subsection, keyword)
+      CALL keyword_release(keyword)
+
+      CALL section_add_subsection(section, subsection)
+      CALL section_release(subsection)
+
       !---------------------------------------------------------------------------
       NULLIFY (subsection)
       CALL section_create(subsection, __LOCATION__, name="ACC", &
                           description="Configuration options for the ACC-Driver.", &
                           n_keywords=1, n_subsections=0, repeats=.FALSE.)
 
-      CALL dbcsr_get_default_config(accdrv_priority_buffers=idefault)
-      CALL keyword_create(keyword, __LOCATION__, name="priority_buffers", &
-                          description="Number of transfer-buffers associated with high priority streams.", &
-                          default_i_val=idefault)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL dbcsr_get_default_config(accdrv_posterior_buffers=idefault)
-      CALL keyword_create(keyword, __LOCATION__, name="posterior_buffers", &
-                          description="Number of transfer-buffers associated with low priority streams.", &
-                          default_i_val=idefault)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL dbcsr_get_default_config(accdrv_priority_streams=idefault)
-      CALL keyword_create(keyword, __LOCATION__, name="priority_streams", &
-                          description="Number of acc streams created with high priority.", &
-                          default_i_val=idefault)
-      CALL section_add_keyword(subsection, keyword)
-      CALL keyword_release(keyword)
-
-      CALL dbcsr_get_default_config(accdrv_posterior_streams=idefault)
-      CALL keyword_create(keyword, __LOCATION__, name="posterior_streams", &
-                          description="Number of acc streams created with low priority.", &
+      CALL dbcsr_get_default_config(accdrv_thread_buffers=idefault)
+      CALL keyword_create(keyword, __LOCATION__, name="thread_buffers", &
+                          description="Number of transfer-buffers associated with each thread and corresponding stream.", &
                           default_i_val=idefault)
       CALL section_add_keyword(subsection, keyword)
       CALL keyword_release(keyword)
@@ -333,6 +334,7 @@ CONTAINS
 
       INTEGER                                            :: handle, ival
       LOGICAL                                            :: lval
+      REAL(kind=real_8)                                  :: rval
       TYPE(section_vals_type), POINTER                   :: dbcsr_section
 
       CALL timeset(routineN, handle)
@@ -377,17 +379,11 @@ CONTAINS
       CALL section_vals_val_get(dbcsr_section, "use_mempools_cpu", l_val=lval)
       CALL dbcsr_set_config(use_mempools_cpu=lval)
 
-      CALL section_vals_val_get(dbcsr_section, "ACC%priority_streams", i_val=ival)
-      CALL dbcsr_set_config(accdrv_priority_streams=ival)
+      CALL section_vals_val_get(dbcsr_section, "TENSOR%tas_split_factor", r_val=rval)
+      CALL dbcsr_set_config(tas_split_factor=rval)
 
-      CALL section_vals_val_get(dbcsr_section, "ACC%priority_buffers", i_val=ival)
-      CALL dbcsr_set_config(accdrv_priority_buffers=ival)
-
-      CALL section_vals_val_get(dbcsr_section, "ACC%posterior_streams", i_val=ival)
-      CALL dbcsr_set_config(accdrv_posterior_streams=ival)
-
-      CALL section_vals_val_get(dbcsr_section, "ACC%posterior_buffers", i_val=ival)
-      CALL dbcsr_set_config(accdrv_posterior_buffers=ival)
+      CALL section_vals_val_get(dbcsr_section, "ACC%thread_buffers", i_val=ival)
+      CALL dbcsr_set_config(accdrv_thread_buffers=ival)
 
       CALL section_vals_val_get(dbcsr_section, "ACC%min_flop_process", i_val=ival)
       CALL dbcsr_set_config(accdrv_min_flop_process=ival)
@@ -414,6 +410,9 @@ CONTAINS
       SELECT CASE (ival)
       CASE (mm_driver_auto)
          CALL dbcsr_set_config(mm_driver="AUTO")
+#if defined(__LIBXSMM)
+         CALL cite_reference(Heinecke2016)
+#endif
       CASE (mm_driver_blas)
          CALL dbcsr_set_config(mm_driver="BLAS")
       CASE (mm_driver_matmul)
@@ -422,6 +421,7 @@ CONTAINS
          CALL dbcsr_set_config(mm_driver="SMM")
       CASE (mm_driver_xsmm)
          CALL dbcsr_set_config(mm_driver="XSMM")
+         CALL cite_reference(Heinecke2016)
       CASE DEFAULT
          CPABORT("Unknown mm_driver")
       END SELECT
@@ -448,8 +448,7 @@ CONTAINS
          POINTER                                         :: sab_orb
       LOGICAL, INTENT(IN), OPTIONAL                      :: desymmetrize
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_alloc_block_from_nbl', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_dbcsr_alloc_block_from_nbl'
 
       CHARACTER(LEN=1)                                   :: symmetry
       INTEGER                                            :: blk_cnt, handle, iatom, icol, inode, &
@@ -501,7 +500,7 @@ CONTAINS
             ALLOCATE (cols((blk_cnt + nadd)*2))
             cols(1:blk_cnt) = tmp(1:blk_cnt)
             DEALLOCATE (tmp)
-         ENDIF
+         END IF
          IF (alloc_full) THEN
             blk_cnt = blk_cnt + 1
             rows(blk_cnt) = iatom
@@ -561,8 +560,7 @@ CONTAINS
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(dbcsr_type), INTENT(INOUT)                    :: csr_sparsity
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_to_csr_screening', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_dbcsr_to_csr_screening'
 
       INTEGER :: atom_a, atom_b, handle, iatom, icol, ikind, ipgf, irow, iset, isgf, ishell, &
          jatom, jkind, jpgf, jset, jsgf, jshell, natom, nkind, nset_a, nset_b
@@ -695,19 +693,19 @@ CONTAINS
                                  ELSE
                                     screen_blk(jsgf + 1:jsgf + nso(l_b(jshell, jset)), &
                                                isgf + 1:isgf + nso(l_a(ishell, iset))) = 1.0_dp
-                                 ENDIF
+                                 END IF
                                  EXIT gto_loop
-                              ENDIF
-                           ENDIF
-                        ENDDO
-                     ENDDO gto_loop
+                              END IF
+                           END IF
+                        END DO
+                     END DO gto_loop
                      jsgf = jsgf + nso(l_b(jshell, jset))
-                  ENDDO
-               ENDDO
+                  END DO
+               END DO
                isgf = isgf + nso(l_a(ishell, iset))
-            ENDDO
-         ENDDO
-      ENDDO
+            END DO
+         END DO
+      END DO
 
       CALL neighbor_list_iterator_release(nl_iterator)
       DEALLOCATE (basis_set_list_a, basis_set_list_b)

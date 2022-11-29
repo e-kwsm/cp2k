@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,7 +26,6 @@ MODULE molecular_states
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type
@@ -44,10 +45,11 @@ MODULE molecular_states
    USE message_passing,                 ONLY: mp_bcast,&
                                               mp_maxloc
    USE molecule_types,                  ONLY: molecule_type
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_collocate_density,            ONLY: calculate_wavefunction
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -92,19 +94,19 @@ CONTAINS
                                          loc_print_section, particles, tag, marked_states, ispin)
 
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
-      TYPE(cp_fm_type), POINTER                          :: mo_localized, mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_localized, mo_coeff
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
       TYPE(dbcsr_type), POINTER                          :: Hks, matrix_S
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), INTENT(INOUT)                     :: wf_r, wf_g
+      TYPE(pw_type), INTENT(INOUT)                       :: wf_r
+      TYPE(pw_type), INTENT(IN)                          :: wf_g
       TYPE(section_vals_type), POINTER                   :: loc_print_section
       TYPE(particle_list_type), POINTER                  :: particles
       CHARACTER(LEN=*), INTENT(IN)                       :: tag
       INTEGER, DIMENSION(:), POINTER                     :: marked_states
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'construct_molecular_states', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'construct_molecular_states'
 
       CHARACTER(LEN=default_path_length)                 :: filename
       CHARACTER(LEN=default_string_length)               :: title
@@ -121,7 +123,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: b, c, d, D_igk, e_vectors, &
+      TYPE(cp_fm_type)                                   :: b, c, d, D_igk, e_vectors, &
                                                             rot_e_vectors, smo, storage
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -151,7 +153,7 @@ CONTAINS
          ALLOCATE (eval_range(2))
          eval_range(1) = -HUGE(0.0_dp)
          eval_range(2) = +HUGE(0.0_dp)
-      ENDIF
+      END IF
       CALL section_vals_val_get(loc_print_section, "MOLECULAR_STATES%MARK_STATES", &
                                 n_rep_val=n_rep)
       IF (n_rep .GT. 0) THEN
@@ -178,8 +180,8 @@ CONTAINS
          WRITE (unit_report, *) SIZE(mo_eigenvalues), " number of states "
          DO i = 1, SIZE(mo_eigenvalues)
             WRITE (unit_report, *) mo_eigenvalues(i)
-         ENDDO
-      ENDIF
+         END DO
+      END IF
 
       !-----------------------------------------------------------------------------
       !-----------------------------------------------------------------------------
@@ -188,7 +190,6 @@ CONTAINS
       CALL cp_fm_get_info(mo_localized, &
                           ncol_global=ncol_global, &
                           nrow_global=nrow_global)
-      NULLIFY (smo)
       CALL cp_fm_create(smo, mo_coeff%matrix_struct)
       CALL cp_dbcsr_sm_fm_multiply(matrix_S, mo_coeff, smo, ncol_global)
 
@@ -205,7 +206,7 @@ CONTAINS
             nstates(1) = molecule_set(imol)%lmi(ispin)%nstates
          ELSE
             nstates(1) = 0
-         ENDIF
+         END IF
          nstates(2) = para_env%mepos
 
          CALL mp_maxloc(nstates, para_env%group)
@@ -226,7 +227,7 @@ CONTAINS
          ind => states(:)
          ALLOCATE (evals(ns))
 
-         NULLIFY (b, c, d, fm_struct_tmp, e_vectors, rot_e_vectors)
+         NULLIFY (fm_struct_tmp)
 
          CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=nrow_global, &
                                   ncol_global=ns, &
@@ -253,8 +254,8 @@ CONTAINS
 
          CALL cp_dbcsr_sm_fm_multiply(Hks, b, c, ns)
 
-         CALL cp_gemm('T', 'N', ns, ns, nrow_global, 1.0_dp, &
-                      b, c, 0.0_dp, d)
+         CALL parallel_gemm('T', 'N', ns, ns, nrow_global, 1.0_dp, &
+                            b, c, 0.0_dp, d)
 
          CALL choose_eigv_solver(d, e_vectors, evals)
 
@@ -277,11 +278,11 @@ CONTAINS
             WRITE (unit_report, *) imol, ns, " imol, number of states"
             DO k = 1, ns
                WRITE (unit_report, *) evals(k)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
 
-         CALL cp_gemm('N', 'N', nrow_global, ns, ns, 1.0_dp, &
-                      b, e_vectors, 0.0_dp, rot_e_vectors)
+         CALL parallel_gemm('N', 'N', nrow_global, ns, ns, 1.0_dp, &
+                            b, e_vectors, 0.0_dp, rot_e_vectors)
 
          DO i = 1, ns
             CALL cp_fm_to_fm(rot_e_vectors, storage, 1, i, ind(i))
@@ -295,18 +296,18 @@ CONTAINS
                                      context=mo_localized%matrix_struct%context)
             CALL cp_fm_create(D_igk, fm_struct_tmp)
             CALL cp_fm_struct_release(fm_struct_tmp)
-            CALL cp_gemm('T', 'N', ns, ncol_global, nrow_global, 1.0_dp, &
-                         rot_e_vectors, smo, 0.0_dp, D_igk)
+            CALL parallel_gemm('T', 'N', ns, ncol_global, nrow_global, 1.0_dp, &
+                               rot_e_vectors, smo, 0.0_dp, D_igk)
             DO i = 1, ns
                DO k = 1, ncol_global
                   CALL cp_fm_get_element(D_igk, i, k, tmp)
                   IF (unit_report > 0) THEN
                      WRITE (unit_report, *) tmp**2
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
             CALL cp_fm_release(D_igk)
-         ENDIF
+         END IF
 
          IF (BTEST(cp_print_key_should_output(logger%iter_info, loc_print_section, &
                                               "MOLECULAR_STATES%CUBES"), cp_p_file)) THEN
@@ -333,13 +334,13 @@ CONTAINS
                unit_nr = cp_print_key_unit_nr(logger, loc_print_section, "MOLECULAR_STATES%CUBES", &
                                               extension=".cube", middle_name=TRIM(filename), log_filename=.FALSE., &
                                               mpi_io=mpi_io)
-               CALL cp_pw_to_cube(wf_r%pw, unit_nr, particles=particles, title=title, &
+               CALL cp_pw_to_cube(wf_r, unit_nr, particles=particles, title=title, &
                                   stride=section_get_ivals(loc_print_section, &
                                                            "MOLECULAR_STATES%CUBES%STRIDE"), mpi_io=mpi_io)
                CALL cp_print_key_finished_output(unit_nr, logger, loc_print_section, &
                                                  "MOLECULAR_STATES%CUBES", mpi_io=mpi_io)
             END DO
-         ENDIF
+         END IF
 
          DEALLOCATE (evals)
          CALL cp_fm_release(b)

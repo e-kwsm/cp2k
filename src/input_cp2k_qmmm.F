@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -88,9 +90,6 @@ CONTAINS
    SUBROUTINE create_qmmm_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -128,7 +127,7 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="use_geep_lib", &
                           description=" This keyword enables the use of the internal GEEP library to generate the "// &
                           "gaussian expansion of the MM potential. Using this keyword there's no need to provide "// &
-                          "the MM_POTENTIAL_FILENAME. It expects a number from 2 to 15 (the number of gaussian funtions"// &
+                          "the MM_POTENTIAL_FILENAME. It expects a number from 2 to 15 (the number of gaussian functions"// &
                           " to be used in the expansion.", &
                           usage="use_geep_lib INTEGER", &
                           default_i_val=0)
@@ -280,9 +279,6 @@ CONTAINS
    SUBROUTINE create_qmmm_mm_kinds(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_mm_kinds', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -319,9 +315,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_qmmm_force_mixing_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_force_mixing_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: link_subsection, print_key, &
@@ -557,9 +550,6 @@ CONTAINS
    SUBROUTINE create_qmmm_qm_kinds(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_qm_kinds', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
 
       NULLIFY (keyword)
@@ -590,9 +580,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_qmmm_walls_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_walls_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
 
@@ -642,9 +629,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_qmmm_image_charge_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_image_charge_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -738,9 +722,6 @@ CONTAINS
    SUBROUTINE create_qmmm_periodic_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_periodic_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
 
@@ -767,7 +748,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="NGRIDS", &
                           description="Specifies the number of grid points used for the Interpolation of the G-space term", &
-                          usage="NGRIDS <integer> <iteger> <integer> ", n_var=3, default_i_vals=(/50, 50, 50/))
+                          usage="NGRIDS <integer> <integer> <integer> ", n_var=3, default_i_vals=(/50, 50, 50/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -801,9 +782,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_multipole_qmmm_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_multipole_qmmm_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -851,7 +829,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="NGRIDS", &
                           description="Specifies the number of grid points used for the Interpolation of the G-space term", &
-                          usage="NGRIDS <integer> <iteger> <integer> ", n_var=3, default_i_vals=(/50, 50, 50/))
+                          usage="NGRIDS <integer> <integer> <integer> ", n_var=3, default_i_vals=(/50, 50, 50/))
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -881,9 +859,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_qmmm_forcefield_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_forcefield_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -920,9 +895,6 @@ CONTAINS
    SUBROUTINE create_qmmm_ff_nb_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_ff_nb_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(section_type), POINTER                        :: subsection
 
       NULLIFY (subsection)
@@ -956,9 +928,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_qmmm_link_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_link_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: subsection
@@ -1011,8 +980,8 @@ CONTAINS
                           usage="LINK_TYPE char", &
                           enum_c_vals=s2a("IMOMM", "GHO", "PSEUDO"), &
                           enum_i_vals=(/do_qmmm_link_imomm, do_qmmm_link_gho, do_qmmm_link_pseudo/), &
-                          enum_desc=s2a("Use Generalized Hybrid Orbital method", &
-                                        "Use Integrated Molecular Orbital Molecular Mechanics method", &
+                          enum_desc=s2a("Use Integrated Molecular Orbital Molecular Mechanics method", &
+                                        "Use Generalized Hybrid Orbital method", &
                                         "Use a monovalent pseudo-potential"), &
                           default_i_val=do_qmmm_link_imomm)
       CALL section_add_keyword(section, keyword)
@@ -1156,9 +1125,6 @@ CONTAINS
    SUBROUTINE create_qmmm_interp_section(section)
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_qmmm_interp_section', &
-         routineP = moduleN//':'//routineN
-
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key
 
@@ -1240,7 +1206,7 @@ CONTAINS
       CALL section_release(print_key)
 
       CALL cp_print_key_section_create(print_key, __LOCATION__, "spl_coeffs", &
-                                       description="outputs a cube with the coefficents calculated for "// &
+                                       description="outputs a cube with the coefficients calculated for "// &
                                        "the spline interpolation", &
                                        print_level=debug_print_level)
       CALL section_add_subsection(section, print_key)
@@ -1254,9 +1220,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE create_print_qmmm_section(section)
       TYPE(section_type), POINTER                        :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_print_qmmm_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key

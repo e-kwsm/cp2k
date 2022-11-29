@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -24,8 +26,8 @@ MODULE rt_propagation_output
                                               cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
+                                              cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_get_default_unit_nr,&
@@ -49,9 +51,11 @@ MODULE rt_propagation_output
                                               section_vals_type
    USE kahan_sum,                       ONLY: accurate_sum
    USE kinds,                           ONLY: default_path_length,&
+                                              default_string_length,&
                                               dp
    USE machine,                         ONLY: m_flush
    USE message_passing,                 ONLY: mp_max
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -64,14 +68,20 @@ MODULE rt_propagation_output
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: get_qs_kind_set,&
                                               qs_kind_type
    USE qs_linres_current,               ONLY: calculate_jrho_resp
    USE qs_linres_types,                 ONLY: current_env_type
-   USE qs_mo_io,                        ONLY: write_rt_mos_to_restart
+   USE qs_mo_io,                        ONLY: write_mo_set_to_output_unit,&
+                                              write_rt_mos_to_restart
+   USE qs_mo_types,                     ONLY: allocate_mo_set,&
+                                              deallocate_mo_set,&
+                                              get_mo_set,&
+                                              init_mo_set,&
+                                              mo_set_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_scf_post_gpw,                 ONLY: qs_scf_post_moments,&
@@ -109,8 +119,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(in)                                :: run_type
       REAL(dp), INTENT(in), OPTIONAL                     :: delta_iter, used_time
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_prop_output', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: n_electrons, nspin, output_unit, spin
       REAL(dp)                                           :: orthonormality, tot_rho_r
@@ -187,7 +195,7 @@ CONTAINS
             IF (output_unit > 0) &
                WRITE (output_unit, FMT="(/,(T3,A,T60,F20.10))") &
                "Max deviation from orthonormalization:", orthonormality
-         ENDIF
+         END IF
       END IF
 
       IF (output_unit > 0) &
@@ -203,11 +211,11 @@ CONTAINS
             IF (BTEST(cp_print_key_should_output(logger%iter_info, &
                                                  dft_section, "REAL_TIME_PROPAGATION%PRINT%RESTART"), cp_p_file)) THEN
                CALL write_rt_p_to_restart(rho_new, .FALSE.)
-            ENDIF
+            END IF
             IF (BTEST(cp_print_key_should_output(logger%iter_info, &
                                                  dft_section, "REAL_TIME_PROPAGATION%PRINT%RESTART_HISTORY"), cp_p_file)) THEN
                CALL write_rt_p_to_restart(rho_new, .TRUE.)
-            ENDIF
+            END IF
             IF (.NOT. dft_control%qs_control%dftb) THEN
                !Not sure if these things could also work with dftb or not
                CALL write_mo_free_results(qs_env)
@@ -216,8 +224,8 @@ CONTAINS
                   DO spin = 1, SIZE(rho_new)/2
                      CALL rt_current(qs_env, rho_new(2*spin)%matrix, dft_section, spin, SIZE(rho_new)/2)
                   END DO
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          ELSE
             CALL get_rtp(rtp=rtp, mos_new=mos_new)
             IF (.NOT. dft_control%qs_control%dftb) THEN
@@ -236,12 +244,13 @@ CONTAINS
                      CALL rt_current(qs_env, P_im(spin)%matrix, dft_section, spin, nspin)
                   END DO
                   CALL dbcsr_deallocate_matrix_set(P_im)
-               ENDIF
-            ENDIF
+               END IF
+            END IF
             CALL write_rt_mos_to_restart(qs_env%mos, mos_new, particle_set, &
                                          dft_section, qs_kind_set)
-         ENDIF
-      ENDIF
+            CALL write_rtp_mos_to_output_unit(qs_env, mos_new)
+         END IF
+      END IF
 
       rtp%energy_old = rtp%energy_new
 
@@ -250,6 +259,79 @@ CONTAINS
                        "or use a smaller TIMESTEP")
 
    END SUBROUTINE rt_prop_output
+
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param mos_new ...
+! **************************************************************************************************
+   SUBROUTINE write_rtp_mos_to_output_unit(qs_env, mos_new)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_rtp_mos_to_output_unit'
+
+      CHARACTER(LEN=10)                                  :: spin
+      CHARACTER(LEN=2*default_string_length)             :: name
+      INTEGER                                            :: i, ispin, nao, nelectron, nmo, nspins
+      REAL(KIND=dp)                                      :: flexible_electron_count, maxocc, n_el_f
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(mo_set_type)                                  :: mo_set_rtp
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(section_vals_type), POINTER                   :: dft_section, input
+
+      NULLIFY (atomic_kind_set, particle_set, qs_kind_set, input, mos)
+
+      CALL get_qs_env(qs_env, &
+                      atomic_kind_set=atomic_kind_set, &
+                      qs_kind_set=qs_kind_set, &
+                      particle_set=particle_set, &
+                      input=input, &
+                      mos=mos)
+
+      NULLIFY (dft_section)
+      dft_section => section_vals_get_subs_vals(input, "DFT")
+      nspins = SIZE(mos_new)/2
+
+      DO ispin = 1, nspins
+         ! initiate mo_set
+         CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo, nelectron=nelectron, &
+                         n_el_f=n_el_f, maxocc=maxocc, flexible_electron_count=flexible_electron_count)
+
+         CALL allocate_mo_set(mo_set_rtp, &
+                              nao=nao, &
+                              nmo=nmo, &
+                              nelectron=nelectron, &
+                              n_el_f=n_el_f, &
+                              maxocc=maxocc, &
+                              flexible_electron_count=flexible_electron_count)
+
+         WRITE (name, fmt="(a,I6)") "RTP MO SET, SPIN ", ispin
+         CALL init_mo_set(mo_set_rtp, fm_ref=mos_new(2*ispin - 1)%matrix, name=name)
+
+         IF (nspins > 1) THEN
+            IF (ispin == 1) THEN
+               spin = "ALPHA SPIN"
+            ELSE
+               spin = "BETA SPIN"
+            END IF
+         ELSE
+            spin = ""
+         END IF
+
+         !loop for real (odd) and imaginary (even) parts
+         DO i = 1, 0, -1
+            CALL cp_fm_to_fm(mos_new(2*ispin - i)%matrix, mo_set_rtp%mo_coeff)
+            CALL write_mo_set_to_output_unit(mo_set_rtp, atomic_kind_set, qs_kind_set, particle_set, &
+                                          dft_section, 4, 0, rtp=.TRUE., spin=TRIM(spin), cpart=MOD(i, 2), sim_step=qs_env%sim_step)
+         END DO
+
+         CALL deallocate_mo_set(mo_set_rtp)
+      END DO
+
+   END SUBROUTINE write_rtp_mos_to_output_unit
 
 ! **************************************************************************************************
 !> \brief computes the effective orthonormality of a set of mos given an s-matrix
@@ -264,17 +346,16 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_calculate_orthonormality', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'rt_calculate_orthonormality'
 
       INTEGER                                            :: handle, i, im, ispin, j, k, n, &
                                                             ncol_local, nrow_local, nspin, re
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: alpha, max_alpha, max_beta
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: overlap_re, svec_im, svec_re
+      TYPE(cp_fm_type)                                   :: overlap_re, svec_im, svec_re
 
-      NULLIFY (tmp_fm_struct, svec_im, svec_re, overlap_re)
+      NULLIFY (tmp_fm_struct)
 
       CALL timeset(routineN, handle)
 
@@ -302,10 +383,10 @@ CONTAINS
 
          CALL cp_fm_struct_release(tmp_fm_struct)
 
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(re)%matrix, &
-                      svec_re, 0.0_dp, overlap_re)
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(im)%matrix, &
-                      svec_im, 1.0_dp, overlap_re)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(re)%matrix, &
+                            svec_re, 0.0_dp, overlap_re)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(im)%matrix, &
+                            svec_im, 1.0_dp, overlap_re)
 
          CALL cp_fm_release(svec_re)
          CALL cp_fm_release(svec_im)
@@ -317,10 +398,10 @@ CONTAINS
                alpha = overlap_re%local_data(i, j)
                IF (row_indices(i) .EQ. col_indices(j)) alpha = alpha - 1.0_dp
                max_alpha = MAX(max_alpha, ABS(alpha))
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          CALL cp_fm_release(overlap_re)
-      ENDDO
+      END DO
       CALL mp_max(max_alpha, mos_new(1)%matrix%matrix_struct%para_env%group)
       CALL mp_max(max_beta, mos_new(1)%matrix%matrix_struct%para_env%group)
       orthonormality = max_alpha
@@ -330,7 +411,7 @@ CONTAINS
    END SUBROUTINE rt_calculate_orthonormality
 
 ! **************************************************************************************************
-!> \brief computs the convergence criterion for RTP and EMD
+!> \brief computes the convergence criterion for RTP and EMD
 !> \param rtp ...
 !> \param matrix_s Overlap matrix without the derivatives
 !> \param delta_mos ...
@@ -345,7 +426,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: delta_mos
       REAL(dp), INTENT(out)                              :: delta_eps
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_convergence', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rt_convergence'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, icol, im, ispin, j, lcol, &
@@ -354,7 +435,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: alpha, max_alpha
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
       TYPE(cp_fm_struct_type), POINTER                   :: newstruct, newstruct1, tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: work, work1, work2
+      TYPE(cp_fm_type)                                   :: work, work1, work2
 
       NULLIFY (tmp_fm_struct)
 
@@ -411,11 +492,11 @@ CONTAINS
          CALL cp_fm_create(work, matrix_struct=newstruct1)
          CALL cp_fm_create(work2, matrix_struct=newstruct1)
 
-         CALL cp_gemm("T", "N", nmo, newdim, nao, one, delta_mos(re)%matrix, &
-                      work1, zero, work)
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, one, delta_mos(re)%matrix, &
+                            work1, zero, work)
 
-         CALL cp_gemm("T", "N", nmo, newdim, nao, one, delta_mos(im)%matrix, &
-                      work1, zero, work2)
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, one, delta_mos(im)%matrix, &
+                            work1, zero, work2)
 
          CALL cp_fm_get_info(work, nrow_local=lrow)
          DO i = 1, lrow
@@ -423,8 +504,8 @@ CONTAINS
                alpha = SQRT((work%local_data(i, j) + work2%local_data(i, j + lcol))**2 + &
                             (work%local_data(i, j + lcol) - work2%local_data(i, j))**2)
                max_alpha = MAX(max_alpha, ABS(alpha))
-            ENDDO
-         ENDDO
+            END DO
+         END DO
 
          CALL cp_fm_release(work)
          CALL cp_fm_release(work1)
@@ -433,7 +514,7 @@ CONTAINS
          CALL cp_fm_struct_release(newstruct)
          CALL cp_fm_struct_release(newstruct1)
 
-      ENDDO
+      END DO
 
       CALL mp_max(max_alpha, delta_mos(1)%matrix%matrix_struct%para_env%group)
       delta_eps = SQRT(max_alpha)
@@ -443,7 +524,7 @@ CONTAINS
    END SUBROUTINE rt_convergence
 
 ! **************************************************************************************************
-!> \brief computs the convergence criterion for RTP and EMD based on the density matrix
+!> \brief computes the convergence criterion for RTP and EMD based on the density matrix
 !> \param rtp ...
 !> \param delta_P ...
 !> \param delta_eps ...
@@ -456,8 +537,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: delta_P
       REAL(dp), INTENT(out)                              :: delta_eps
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_convergence_density', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'rt_convergence_density'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: col_atom, group, handle, i, ispin, &
@@ -474,7 +554,7 @@ CONTAINS
 
       DO i = 1, SIZE(rho_new)
          CALL dbcsr_add(delta_P(i)%matrix, rho_new(i)%matrix, one, -one)
-      ENDDO
+      END DO
       !get the maximum value of delta_P
       DO i = 1, SIZE(delta_P)
          !square all entries of both matrices
@@ -521,7 +601,7 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_moment', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_moment'
 
       INTEGER                                            :: handle, output_unit
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -557,8 +637,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: filter_eps
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'report_density_occupation', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'report_density_occupation'
 
       INTEGER                                            :: handle, i, im, ispin, re, unit_nr
       REAL(KIND=dp)                                      :: eps, occ
@@ -575,7 +654,7 @@ CONTAINS
          CALL dbcsr_init_p(tmp(i)%matrix)
          CALL dbcsr_create(tmp(i)%matrix, template=rho(i)%matrix)
          CALL dbcsr_copy(tmp(i)%matrix, rho(i)%matrix)
-      ENDDO
+      END DO
       DO ispin = 1, SIZE(rho)/2
          re = 2*ispin - 1
          im = 2*ispin
@@ -586,7 +665,7 @@ CONTAINS
             IF (unit_nr > 0) WRITE (unit_nr, FMT="((T3,A,I1,A,F15.12,A,T61,F20.10))") "Occupation of rho spin ", &
                ispin, " eps ", eps, " real: ", occ
             eps = eps*10
-         ENDDO
+         END DO
          eps = MAX(filter_eps, 10E-12_dp)
          DO WHILE (eps < 1.1_dp)
             CALL dbcsr_filter(tmp(im)%matrix, eps)
@@ -594,8 +673,8 @@ CONTAINS
             IF (unit_nr > 0) WRITE (unit_nr, FMT="((T3,A,I1,A,F15.12,A,T61,F20.10))") "Occupation of rho spin ", &
                ispin, " eps ", eps, " imag: ", occ
             eps = eps*10
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       CALL dbcsr_deallocate_matrix_set(tmp)
       CALL timestop(handle)
 
@@ -613,8 +692,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_new
       LOGICAL                                            :: history
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_rt_p_to_restart', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_rt_p_to_restart'
 
       CHARACTER(LEN=default_path_length)                 :: file_name, project_name
       INTEGER                                            :: handle, im, ispin, re, unit_nr
@@ -627,7 +705,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       project_name = logger%iter_info%project_name
       DO ispin = 1, SIZE(rho_new)/2
@@ -638,24 +716,24 @@ CONTAINS
                TRIM(project_name)//"_LS_DM_SPIN_RE", ispin, "_"//TRIM(cp_iter_string(logger%iter_info))//"_RESTART.dm"
          ELSE
             WRITE (file_name, '(A,I0,A)') TRIM(project_name)//"_LS_DM_SPIN_RE", ispin, "_RESTART.dm"
-         ENDIF
+         END IF
          cs_pos = dbcsr_checksum(rho_new(re)%matrix, pos=.TRUE.)
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(T2,A,E20.8)') "Writing restart DM "//TRIM(file_name)//" with checksum: ", cs_pos
-         ENDIF
+         END IF
          CALL dbcsr_binary_write(rho_new(re)%matrix, file_name)
          IF (history) THEN
             WRITE (file_name, '(A,I0,A)') &
                TRIM(project_name)//"_LS_DM_SPIN_IM", ispin, "_"//TRIM(cp_iter_string(logger%iter_info))//"_RESTART.dm"
          ELSE
             WRITE (file_name, '(A,I0,A)') TRIM(project_name)//"_LS_DM_SPIN_IM", ispin, "_RESTART.dm"
-         ENDIF
+         END IF
          cs_pos = dbcsr_checksum(rho_new(im)%matrix, pos=.TRUE.)
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(T2,A,E20.8)') "Writing restart DM "//TRIM(file_name)//" with checksum: ", cs_pos
-         ENDIF
+         END IF
          CALL dbcsr_binary_write(rho_new(im)%matrix, file_name)
-      ENDDO
+      END DO
 
       CALL timestop(handle)
 
@@ -676,7 +754,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: dft_section
       INTEGER                                            :: spin, nspin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_current', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'rt_current'
 
       CHARACTER(len=1)                                   :: char_spin
       CHARACTER(len=14)                                  :: ext
@@ -689,8 +767,8 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: tmp, zero
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: gs, rs
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: gs, rs
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
@@ -700,9 +778,7 @@ CONTAINS
       CALL qs_subsys_get(subsys, particles=particles)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
-      NULLIFY (zero, rs, gs, tmp)
-      ALLOCATE (rs, gs)
-      NULLIFY (rs%pw, gs%pw)
+      NULLIFY (zero, tmp)
       ALLOCATE (zero, tmp)
       CALL dbcsr_create(zero, template=P_im)
       CALL dbcsr_copy(zero, P_im)
@@ -711,19 +787,19 @@ CONTAINS
       CALL dbcsr_copy(tmp, P_im)
       IF (nspin == 1) THEN
          CALL dbcsr_scale(tmp, 0.5_dp)
-      ENDIF
+      END IF
       current_env%gauge = -1
       current_env%gauge_init = .FALSE.
-      CALL pw_pool_create_pw(auxbas_pw_pool, rs%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, gs%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rs, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, gs, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
       NULLIFY (stride)
       ALLOCATE (stride(3))
 
       DO dir = 1, 3
 
-         CALL pw_zero(rs%pw)
-         CALL pw_zero(gs%pw)
+         CALL pw_zero(rs)
+         CALL pw_zero(gs)
 
          CALL calculate_jrho_resp(zero, tmp, zero, zero, dir, dir, rs, gs, qs_env, current_env, retain_rsgrid=.TRUE.)
 
@@ -735,7 +811,7 @@ CONTAINS
             sdir = "-y"
          ELSE
             sdir = "-z"
-         ENDIF
+         END IF
          WRITE (char_spin, "(I1)") spin
 
          ext = "-SPIN-"//char_spin//sdir//".cube"
@@ -744,7 +820,7 @@ CONTAINS
                                            extension=ext, file_status="REPLACE", file_action="WRITE", &
                                            log_filename=.FALSE., mpi_io=mpi_io)
 
-         CALL cp_pw_to_cube(rs%pw, print_unit, "EMD current", particles=particles, stride=stride, &
+         CALL cp_pw_to_cube(rs, print_unit, "EMD current", particles=particles, stride=stride, &
                             mpi_io=mpi_io)
 
          CALL cp_print_key_finished_output(print_unit, logger, dft_section, "REAL_TIME_PROPAGATION%PRINT%CURRENT", &
@@ -752,11 +828,8 @@ CONTAINS
 
       END DO
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rs%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, gs%pw)
-
-      DEALLOCATE (rs)
-      DEALLOCATE (gs)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rs)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, gs)
 
       CALL dbcsr_deallocate_matrix(zero)
       CALL dbcsr_deallocate_matrix(tmp)

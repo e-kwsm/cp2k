@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -26,7 +28,6 @@ MODULE rt_propagator_init
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_type
@@ -43,9 +44,10 @@ MODULE rt_propagator_init
    USE iterate_matrix,                  ONLY: matrix_sqrt_Newton_Schulz
    USE kinds,                           ONLY: dp
    USE matrix_exp,                      ONLY: get_nsquare_norder
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: mo_set_type
    USE rt_make_propagators,             ONLY: compute_exponential,&
                                               compute_exponential_sparse,&
                                               propagate_arnoldi
@@ -76,9 +78,6 @@ CONTAINS
    SUBROUTINE init_propagators(qs_env)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_propagators', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, imat, unit_nr
       REAL(KIND=dp)                                      :: dt, prefac
@@ -122,9 +121,9 @@ CONTAINS
          IF (logger%para_env%ionode) THEN
             unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
             WRITE (unit_nr, *) "linear_scaling currently does not support pade exponentials, switching to taylor"
-         ENDIF
+         END IF
          rtp_control%mat_exp = do_taylor
-      ENDIF
+      END IF
       ! We have no clue yet about next H so we use initial H for t and t+dt
       ! Due to different nature of the propagator the prefactor has to be adopted
       SELECT CASE (rtp_control%propagator)
@@ -141,7 +140,7 @@ CONTAINS
       ! For ETRS this bit could be avoided but it drastically simplifies the workflow afterwards.
       ! If we compute the half propagated mos/exponential already here, we ensure everything is done
       ! with the correct S matrix and all information as during RTP/EMD are computed.
-      ! Therefore we might accept to compute an unnesscesary expoenential but understand the code afterwards
+      ! Therefore we might accept to compute an unnesscesary exponential but understand the code afterwards
       IF (rtp_control%propagator == do_etrs) THEN
          IF (rtp_control%mat_exp == do_arnoldi) THEN
             rtp%iter = 0
@@ -167,7 +166,7 @@ CONTAINS
          CALL get_rtp(rtp=rtp, rho_old=rho_old)
       ELSE
          CALL get_rtp(rtp=rtp, mos_old=mos_old)
-      ENDIF
+      END IF
       CALL put_data_to_history(rtp, mos=mos_old, s_mat=s_mat, ihist=1, rho=rho_old)
 
    END SUBROUTINE init_propagators
@@ -188,15 +187,14 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: s_mat, matrix_ks
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_maxabs_eigval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'get_maxabs_eigval'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, ispin, method, ndim
       LOGICAL                                            :: emd
       REAL(dp)                                           :: max_eval, min_eval, norm2, scale, t
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: eigval_H
-      TYPE(cp_fm_type), POINTER                          :: eigvec_H, H_fm, S_half, S_inv_fm, &
+      TYPE(cp_fm_type)                                   :: eigvec_H, H_fm, S_half, S_inv_fm, &
                                                             S_minus_half, tmp, tmp_mat_H
       TYPE(dbcsr_type), POINTER                          :: S_inv
 
@@ -265,10 +263,10 @@ CONTAINS
          CALL cp_fm_upper_to_full(H_fm, tmp_mat_H)
          CALL cp_fm_scale(t, H_fm)
 
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, one, H_fm, S_minus_half, zero, &
-                      tmp_mat_H)
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, one, S_minus_half, tmp_mat_H, zero, &
-                      H_fm)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, H_fm, S_minus_half, zero, &
+                            tmp_mat_H)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, S_minus_half, tmp_mat_H, zero, &
+                            H_fm)
 
          CALL cp_fm_syevd(H_fm, tmp_mat_H, eigval_H)
          min_eval = MINVAL(eigval_H)
@@ -307,8 +305,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: s_mat, matrix_ks
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_maxabs_eigval_sparse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'get_maxabs_eigval_sparse'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, ispin, method
@@ -374,16 +371,15 @@ CONTAINS
    SUBROUTINE backtransform_matrix(Eval, eigenvec, matrix)
 
       REAL(dp), DIMENSION(:), INTENT(in)                 :: Eval
-      TYPE(cp_fm_type), POINTER                          :: eigenvec, matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: eigenvec, matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'backtransform_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'backtransform_matrix'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
 
       INTEGER                                            :: handle, i, j, l, ncol_local, ndim, &
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      TYPE(cp_fm_type), POINTER                          :: tmp
+      TYPE(cp_fm_type)                                   :: tmp
 
       CALL timeset(routineN, handle)
       CALL cp_fm_create(tmp, &
@@ -401,8 +397,8 @@ CONTAINS
             tmp%local_data(j, i) = eigenvec%local_data(j, i)*Eval(l)
          END DO
       END DO
-      CALL cp_gemm("N", "T", ndim, ndim, ndim, one, tmp, eigenvec, zero, &
-                   matrix)
+      CALL parallel_gemm("N", "T", ndim, ndim, ndim, one, tmp, eigenvec, zero, &
+                         matrix)
 
       CALL cp_fm_release(tmp)
       CALL timestop(handle)
@@ -419,10 +415,7 @@ CONTAINS
    SUBROUTINE rt_initialize_rho_from_mos(rtp, mos)
 
       TYPE(rt_prop_type), POINTER                        :: rtp
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'rt_initialize_rho_from_mos', &
-         routineP = moduleN//':'//routineN
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       INTEGER                                            :: ispin, ncol, re
       REAL(KIND=dp)                                      :: alpha
@@ -434,10 +427,10 @@ CONTAINS
          re = 2*ispin - 1
          alpha = 3.0_dp - REAL(SIZE(mos), dp)
          CALL dbcsr_set(rho_old(re)%matrix, 0.0_dp)
-         CALL cp_fm_get_info(mos(ispin)%mo_set%mo_coeff, ncol_global=ncol)
-         CALL cp_fm_column_scale(mos(ispin)%mo_set%mo_coeff, mos(ispin)%mo_set%occupation_numbers/alpha)
+         CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=ncol)
+         CALL cp_fm_column_scale(mos(ispin)%mo_coeff, mos(ispin)%occupation_numbers/alpha)
          CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
-                                    matrix_v=mos(ispin)%mo_set%mo_coeff, ncol=ncol, alpha=alpha, keep_sparsity=.FALSE.)
+                                    matrix_v=mos(ispin)%mo_coeff, ncol=ncol, alpha=alpha, keep_sparsity=.FALSE.)
          CALL dbcsr_filter(rho_old(re)%matrix, eps=rtp%filter_eps)
          CALL dbcsr_copy(rho_new(re)%matrix, rho_old(re)%matrix)
       END DO

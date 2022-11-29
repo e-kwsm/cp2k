@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -60,9 +62,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: al_section
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_al_part', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: restart
 
       restart = .FALSE.
@@ -73,7 +72,7 @@ CONTAINS
 
       IF (.NOT. restart) THEN
          CALL init_al_variables(al)
-      ENDIF
+      END IF
 
    END SUBROUTINE initialize_al_part
 
@@ -83,9 +82,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE init_al_variables(al)
       TYPE(al_system_type), POINTER                      :: al
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'init_al_variables', &
-         routineP = moduleN//':'//routineN
 
       al%nvt(:)%mass = al%nvt(:)%nkt*al%tau_nh**2
       al%nvt(:)%chi = 0.0_dp
@@ -102,8 +98,6 @@ CONTAINS
       TYPE(al_system_type), POINTER                      :: al
       TYPE(section_vals_type), POINTER                   :: al_section
       LOGICAL, INTENT(inout)                             :: restart
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'restart_al', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, my_index, n_rep
       LOGICAL                                            :: explicit

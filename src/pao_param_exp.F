@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,8 +45,7 @@ CONTAINS
       TYPE(pao_env_type), POINTER                        :: pao
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_init_exp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_init_exp'
 
       INTEGER                                            :: acol, arow, handle, iatom, N
       LOGICAL                                            :: found
@@ -126,9 +127,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ikind
       INTEGER, INTENT(OUT)                               :: nparams
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_count_exp', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: cols, pao_basis_size, pri_basis_size, &
                                                             rows
       TYPE(gto_basis_set_type), POINTER                  :: basis_set
@@ -154,9 +152,6 @@ CONTAINS
    SUBROUTINE pao_param_initguess_exp(pao)
       TYPE(pao_env_type), POINTER                        :: pao
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_initguess_exp', &
-         routineP = moduleN//':'//routineN
-
       CALL dbcsr_set(pao%matrix_X, 0.0_dp) ! actual initial guess is matrix_U0
 
    END SUBROUTINE pao_param_initguess_exp
@@ -171,7 +166,7 @@ CONTAINS
       TYPE(pao_env_type), POINTER                        :: pao
       TYPE(dbcsr_type), OPTIONAL                         :: matrix_M, matrix_G
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_calc_U_exp', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pao_calc_U_exp'
 
       COMPLEX(dp)                                        :: denom
       COMPLEX(dp), DIMENSION(:), POINTER                 :: evals
@@ -213,7 +208,7 @@ CONTAINS
          DO i = 1, nparams
             block_X_full(MOD(i - 1, M) + 1, M + (i - 1)/M + 1) = +block_X(i, 1)
             block_X_full(M + (i - 1)/M + 1, MOD(i - 1, M) + 1) = -block_X(i, 1)
-         ENDDO
+         END DO
 
          ! diagonalize block_X_full
          ALLOCATE (evals(N), evecs(N, N))
@@ -225,9 +220,9 @@ CONTAINS
             DO i = 1, N
                DO j = 1, N
                   block_U(i, j) = block_U(i, j) + REAL(EXP(evals(k))*evecs(i, k)*CONJG(evecs(j, k)), dp)
-               ENDDO
-            ENDDO
-         ENDDO
+               END DO
+            END DO
+         END DO
 
          block_U = MATMUL(block_U0, block_U) ! prepend initial guess rotation
 
@@ -250,24 +245,24 @@ CONTAINS
                      block_D(i, j) = (EXP(evals(i)) - EXP(evals(j)))/denom
                   ELSE
                      block_D(i, j) = 1.0_dp ! limit according to L'Hospital's rule
-                  ENDIF
-               ENDDO
-            ENDDO
+                  END IF
+               END DO
+            END DO
 
             IF (ASSOCIATED(block_M)) THEN
                block_tmp = MATMUL(TRANSPOSE(block_U0), block_M)
             ELSE
                block_tmp = 0.0_dp
-            ENDIF
+            END IF
             block_G_full = fold_derivatives(block_tmp, block_D, evecs)
 
             ! return only gradient for rotations between occupied and virtuals
             DO i = 1, nparams
                block_G(i, 1) = 2.0_dp*block_G_full(MOD(i - 1, M) + 1, M + (i - 1)/M + 1)
-            ENDDO
+            END DO
 
             DEALLOCATE (block_D, block_tmp, block_G_full)
-         ENDIF
+         END IF
 
          DEALLOCATE (block_X_full, evals, evecs)
 
@@ -289,9 +284,6 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), INTENT(IN)              :: M
       COMPLEX(dp), DIMENSION(:, :), INTENT(IN)           :: D, R
       REAL(dp), DIMENSION(SIZE(M, 1), SIZE(M, 1))        :: G
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'fold_derivatives', &
-         routineP = moduleN//':'//routineN
 
       COMPLEX(dp), DIMENSION(:, :), POINTER              :: F, RF, RM, RMR
       INTEGER                                            :: n
@@ -324,8 +316,6 @@ CONTAINS
       COMPLEX(dp), DIMENSION(:, :)                       :: evecs
       COMPLEX(dp), DIMENSION(:)                          :: evals
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'diag_antisym', routineP = moduleN//':'//routineN
-
       COMPLEX(dp), DIMENSION(:, :), POINTER              :: matrix_c
       INTEGER                                            :: N
       REAL(dp), DIMENSION(:), POINTER                    :: evals_r
@@ -351,7 +341,7 @@ CONTAINS
       COMPLEX(dp), DIMENSION(:, :)                       :: matrix, eigenvectors
       REAL(dp), DIMENSION(:)                             :: eigenvalues
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'zheevd_wrapper', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'zheevd_wrapper'
 
       COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: work
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: A

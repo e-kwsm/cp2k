@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -107,7 +109,7 @@ CONTAINS
 
          block_A = MATMUL(MATMUL(block_N_inv, block_U), block_Y)
          block_B = MATMUL(MATMUL(block_N, block_U), block_Y)
-      ENDDO
+      END DO
       CALL dbcsr_iterator_stop(iter)
 !$OMP END PARALLEL
 
@@ -125,7 +127,7 @@ CONTAINS
       TYPE(pao_env_type), POINTER                        :: pao
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pao_param_init'
 
       INTEGER                                            :: handle
 
@@ -139,7 +141,7 @@ CONTAINS
       CASE (pao_gth_param)
          CALL pao_param_init_gth(pao, qs_env)
       CASE DEFAULT
-         CPABORT("PAO: unkown parametrization")
+         CPABORT("PAO: unknown parametrization")
       END SELECT
 
       CALL timestop(handle)
@@ -153,8 +155,7 @@ CONTAINS
    SUBROUTINE pao_param_finalize(pao)
       TYPE(pao_env_type), POINTER                        :: pao
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_finalize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_finalize'
 
       INTEGER                                            :: handle
 
@@ -168,7 +169,7 @@ CONTAINS
       CASE (pao_gth_param)
          CALL pao_param_finalize_gth(pao)
       CASE DEFAULT
-         CPABORT("PAO: unkown parametrization")
+         CPABORT("PAO: unknown parametrization")
       END SELECT
 
       CALL timestop(handle)
@@ -188,8 +189,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: ikind
       INTEGER, INTENT(OUT)                               :: nparams
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_count', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pao_param_count'
 
       INTEGER                                            :: handle
 
@@ -203,7 +203,7 @@ CONTAINS
       CASE (pao_gth_param)
          CALL pao_param_count_gth(qs_env, ikind=ikind, nparams=nparams)
       CASE DEFAULT
-         CPABORT("PAO: unkown parametrization")
+         CPABORT("PAO: unknown parametrization")
       END SELECT
 
       CALL timestop(handle)
@@ -219,8 +219,7 @@ CONTAINS
       TYPE(pao_env_type), POINTER                        :: pao
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_initial_guess', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_param_initial_guess'
 
       INTEGER                                            :: handle
       REAL(dp)                                           :: norm
@@ -236,7 +235,7 @@ CONTAINS
       CASE (pao_gth_param)
          CALL pao_param_initguess_gth(pao)
       CASE DEFAULT
-         CPABORT("PAO: unkown parametrization")
+         CPABORT("PAO: unknown parametrization")
       END SELECT
 
       norm = dbcsr_frobenius_norm(pao%matrix_X)
@@ -248,7 +247,7 @@ CONTAINS
          CALL dbcsr_multiply("N", "N", 1.0_dp, pao%matrix_precon, matrix_tmp, &
                              0.0_dp, pao%matrix_X, retain_sparsity=.TRUE.)
          CALL dbcsr_release(matrix_tmp)
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -286,7 +285,7 @@ CONTAINS
       CASE (pao_gth_param)
          CALL pao_calc_U_gth(pao, penalty, matrix_M, matrix_G)
       CASE DEFAULT
-         CPABORT("PAO: unkown parametrization")
+         CPABORT("PAO: unknown parametrization")
       END SELECT
 
       CALL pao_assert_unitary(pao)
@@ -300,8 +299,7 @@ CONTAINS
    SUBROUTINE pao_assert_unitary(pao)
       TYPE(pao_env_type), POINTER                        :: pao
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_assert_unitary', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_assert_unitary'
 
       INTEGER                                            :: acol, arow, group, handle, i, iatom, M, N
       INTEGER, DIMENSION(:), POINTER                     :: blk_sizes_pao, blk_sizes_pri
@@ -331,7 +329,7 @@ CONTAINS
          tmp2 = MATMUL(TRANSPOSE(tmp1), tmp1)
          DO i = 1, M
             tmp2(i, i) = tmp2(i, i) - 1.0_dp
-         ENDDO
+         END DO
 
 !$OMP ATOMIC
          delta_max = MAX(delta_max, MAXVAL(ABS(tmp2)))

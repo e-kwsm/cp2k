@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,8 +18,7 @@ MODULE mixed_environment
                                               get_cell
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_subsys_methods,               ONLY: cp_subsys_create
-   USE cp_subsys_types,                 ONLY: cp_subsys_release,&
-                                              cp_subsys_set,&
+   USE cp_subsys_types,                 ONLY: cp_subsys_set,&
                                               cp_subsys_type
    USE distribution_1d_types,           ONLY: distribution_1d_release,&
                                               distribution_1d_type
@@ -58,13 +59,13 @@ CONTAINS
    SUBROUTINE mixed_init(mixed_env, root_section, para_env, force_env_section, &
                          use_motion_section)
 
-      TYPE(mixed_environment_type), POINTER              :: mixed_env
+      TYPE(mixed_environment_type), INTENT(INOUT)        :: mixed_env
       TYPE(section_vals_type), POINTER                   :: root_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: force_env_section
       LOGICAL, INTENT(IN)                                :: use_motion_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_init', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mixed_init'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: use_ref_cell
@@ -98,7 +99,6 @@ CONTAINS
 
       CALL cell_release(cell)
       CALL cell_release(cell_ref)
-      CALL cp_subsys_release(subsys)
 
       CALL timestop(handle)
 
@@ -120,13 +120,12 @@ CONTAINS
    SUBROUTINE mixed_init_subsys(mixed_env, subsys, cell, cell_ref, &
                                 force_env_section, subsys_section)
 
-      TYPE(mixed_environment_type), POINTER              :: mixed_env
+      TYPE(mixed_environment_type), INTENT(INOUT)        :: mixed_env
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(cell_type), POINTER                           :: cell, cell_ref
       TYPE(section_vals_type), POINTER                   :: force_env_section, subsys_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mixed_init_subsys', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mixed_init_subsys'
 
       INTEGER                                            :: handle
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set

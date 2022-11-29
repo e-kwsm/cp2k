@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -27,7 +29,8 @@ MODULE qs_tddfpt_eigensolver
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_set_element,&
-                                              cp_fm_to_fm
+                                              cp_fm_to_fm,&
+                                              cp_fm_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit,&
                                               cp_to_string
    USE cp_para_types,                   ONLY: cp_para_env_type
@@ -70,11 +73,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE eigensolver(p_env, qs_env, t_env)
 
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(tddfpt_env_type), INTENT(INOUT)               :: t_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'eigensolver', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'eigensolver'
 
       INTEGER                                            :: handle, n_ev, nspins, output_unit, &
                                                             restarts
@@ -167,7 +170,7 @@ CONTAINS
 
       REAL(KIND=dp), DIMENSION(:)                        :: in_evals
       TYPE(tddfpt_env_type), INTENT(INOUT)               :: t_env
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(kind=dp), DIMENSION(:), OPTIONAL              :: out_evals
       LOGICAL                                            :: res
@@ -184,12 +187,12 @@ CONTAINS
       REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: evals_difference, evals_tmp
       REAL(kind=dp), ALLOCATABLE, DIMENSION(:, :)        :: evals
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_p_type)                                 :: Atilde, Us
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: R, X
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: Ab, b, Sb
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_mo_fm_pools
       TYPE(cp_fm_struct_p_type), DIMENSION(:), POINTER   :: kv_fm_struct
       TYPE(cp_fm_struct_type), POINTER                   :: tilde_fm_struct
+      TYPE(cp_fm_type)                                   :: Atilde, Us
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -200,7 +203,7 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       NULLIFY (ao_mo_fm_pools, X, R, b, Ab, Sb, tddfpt_control, &
-               tilde_fm_struct, Atilde%matrix, Us%matrix, matrix_s, dft_control, &
+               tilde_fm_struct, matrix_s, dft_control, &
                para_env, blacs_env)
 
       CALL get_qs_env(qs_env, &
@@ -316,7 +319,7 @@ CONTAINS
                         CALL cp_fm_to_fm(Ab(j, spin)%matrix, X(spin)%matrix)
                         CALL cp_fm_scale_and_add(1.0_dp, X(spin)%matrix, &
                                                  -evals(iev, iter - 1), Sb(j, spin)%matrix)
-                        CALL cp_fm_get_element(Us%matrix, j, iev, tmp)
+                        CALL cp_fm_get_element(Us, j, iev, tmp)
                         CALL cp_fm_scale_and_add(1.0_dp, R(spin)%matrix, &
                                                  tmp, X(spin)%matrix)
                      END DO
@@ -381,18 +384,18 @@ CONTAINS
          !--------------------------------------------!
          ! deallocate memory for the reduced matrices !
          !--------------------------------------------!
-         IF (ASSOCIATED(Atilde%matrix)) CALL cp_fm_release(Atilde%matrix)
-         IF (ASSOCIATED(Us%matrix)) CALL cp_fm_release(Us%matrix)
+         CALL cp_fm_release(Atilde)
+         CALL cp_fm_release(Us)
          IF (ASSOCIATED(tilde_fm_struct)) CALL cp_fm_struct_release(tilde_fm_struct)
 
          !------------------------------------------!
          ! allocate memory for the reduced matrices !
          !------------------------------------------!
          CALL cp_fm_struct_create(tilde_fm_struct, para_env, blacs_env, k, k)
-         CALL cp_fm_create(Atilde%matrix, &
+         CALL cp_fm_create(Atilde, &
                            tilde_fm_struct, &
                            routineP//"Atilde")
-         CALL cp_fm_create(Us%matrix, &
+         CALL cp_fm_create(Us, &
                            tilde_fm_struct, &
                            routineP//"Us")
 
@@ -406,7 +409,7 @@ CONTAINS
                   CALL cp_fm_trace(b(i, spin)%matrix, Ab(j, spin)%matrix, tmp)
                   Atilde_ij = Atilde_ij + tmp
                END DO
-               CALL cp_fm_set_element(Atilde%matrix, i, j, Atilde_ij)
+               CALL cp_fm_set_element(Atilde, i, j, Atilde_ij)
             END DO
          END DO
 
@@ -414,7 +417,7 @@ CONTAINS
          ! diagonalize Atilde !
          !--------------------!
          evals_tmp(:) = evals(:, iter)
-         CALL cp_fm_syevd(Atilde%matrix, Us%matrix, evals_tmp(:))
+         CALL cp_fm_syevd(Atilde, Us, evals_tmp(:))
          evals(:, iter) = evals_tmp(:)
 
          !-------------------!
@@ -476,29 +479,18 @@ CONTAINS
          DO j = 1, n_ev
             CALL cp_fm_set_all(t_env%evecs(j, spin)%matrix, 0.0_dp)
             DO i = 1, k
-               CALL cp_fm_get_element(Us%matrix, i, j, tmp)
+               CALL cp_fm_get_element(Us, i, j, tmp)
                CALL cp_fm_scale_and_add(1.0_dp, t_env%evecs(j, spin)%matrix, &
                                         tmp, b(i, spin)%matrix)
             END DO
          END DO
       END DO
 
-      DO spin = 1, nspins
-         DO i = 1, max_kv
-            IF (ASSOCIATED(b(i, spin)%matrix)) &
-               CALL cp_fm_release(b(i, spin)%matrix)
-            IF (ASSOCIATED(Ab(i, spin)%matrix)) &
-               CALL cp_fm_release(Ab(i, spin)%matrix)
-            IF (ASSOCIATED(Sb(i, spin)%matrix)) &
-               CALL cp_fm_release(Sb(i, spin)%matrix)
-         END DO
-      END DO
-
       !----------!
       ! clean up !
       !----------!
-      IF (ASSOCIATED(Atilde%matrix)) CALL cp_fm_release(Atilde%matrix)
-      IF (ASSOCIATED(Us%matrix)) CALL cp_fm_release(Us%matrix)
+      CALL cp_fm_release(Atilde)
+      CALL cp_fm_release(Us)
       IF (ASSOCIATED(tilde_fm_struct)) CALL cp_fm_struct_release(tilde_fm_struct)
       CALL fm_pools_give_back_fm_vect(ao_mo_fm_pools, X)
       CALL fm_pools_give_back_fm_vect(ao_mo_fm_pools, R)
@@ -506,12 +498,18 @@ CONTAINS
       DO spin = 1, nspins
          CALL cp_fm_struct_release(kv_fm_struct(spin)%struct)
          DO i = 1, max_kv
-            IF (ASSOCIATED(b(i, spin)%matrix)) &
+            IF (ASSOCIATED(b(i, spin)%matrix)) THEN
                CALL cp_fm_release(b(i, spin)%matrix)
-            IF (ASSOCIATED(Ab(i, spin)%matrix)) &
+               DEALLOCATE (b(i, spin)%matrix)
+            END IF
+            IF (ASSOCIATED(Ab(i, spin)%matrix)) THEN
                CALL cp_fm_release(Ab(i, spin)%matrix)
-            IF (ASSOCIATED(Sb(i, spin)%matrix)) &
+               DEALLOCATE (Ab(i, spin)%matrix)
+            END IF
+            IF (ASSOCIATED(Sb(i, spin)%matrix)) THEN
                CALL cp_fm_release(Sb(i, spin)%matrix)
+               DEALLOCATE (Sb(i, spin)%matrix)
+            END IF
          END DO
       END DO
       DEALLOCATE (b, Ab, Sb, evals, evals_tmp, evals_difference, must_improve, kv_fm_struct)
@@ -538,11 +536,11 @@ CONTAINS
    SUBROUTINE apply_op(X, R, p_env, qs_env, do_kernel)
 
       TYPE(cp_fm_p_type), DIMENSION(:)                   :: X, R
-      TYPE(qs_p_env_type), POINTER                       :: p_env
+      TYPE(qs_p_env_type)                                :: p_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN)                                :: do_kernel
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'apply_op', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'apply_op'
 
       INTEGER                                            :: handle, nspins, spin
       INTEGER, SAVE                                      :: counter = 0
@@ -569,15 +567,10 @@ CONTAINS
          DO spin = 1, nspins
             CALL dbcsr_set(p_env%p1(spin)%matrix, 0.0_dp) ! optimize?
             CALL cp_dbcsr_plus_fm_fm_t(p_env%p1(spin)%matrix, &
-                                       matrix_v=p_env%psi0d(spin)%matrix, &
+                                       matrix_v=p_env%psi0d(spin), &
                                        matrix_g=X(spin)%matrix, &
                                        ncol=p_env%n_mo(spin), &
-                                       alpha=0.5_dp)
-            CALL cp_dbcsr_plus_fm_fm_t(p_env%p1(spin)%matrix, &
-                                       matrix_v=X(spin)%matrix, &
-                                       matrix_g=p_env%psi0d(spin)%matrix, &
-                                       ncol=p_env%n_mo(spin), &
-                                       alpha=0.5_dp)
+                                       symmetry_mode=1)
          END DO
          DO spin = 1, nspins
             CALL cp_fm_set_all(X(spin)%matrix, 0.0_dp)
@@ -622,6 +615,7 @@ CONTAINS
             NULLIFY (vectors(index, spin)%matrix)
             mat_name = routineP//vectors_name//TRIM(cp_to_string(index)) &
                        //","//TRIM(cp_to_string(spin))
+            ALLOCATE (vectors(index, spin)%matrix)
             CALL cp_fm_create(vectors(index, spin)%matrix, &
                               fm_struct(spin)%struct, mat_name)
             IF (.NOT. ASSOCIATED(vectors(index, spin)%matrix)) &

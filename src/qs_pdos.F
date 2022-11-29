@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -31,7 +33,6 @@ MODULE qs_pdos
                                               cp_fm_init_random,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type,&
@@ -54,6 +55,7 @@ MODULE qs_pdos
                                               nsoset
    USE orbital_symbols,                 ONLY: l_sym,&
                                               sgf_symbol
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE preconditioner_types,            ONLY: preconditioner_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -66,7 +68,7 @@ MODULE qs_pdos
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_wavefunction
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -141,7 +143,7 @@ CONTAINS
    SUBROUTINE calculate_projected_dos(mo_set, atomic_kind_set, qs_kind_set, particle_set, qs_env, &
                                       dft_section, ispin, xas_mittle, external_matrix_shalf)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -150,10 +152,9 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: ispin
       CHARACTER(LEN=default_string_length), INTENT(IN), &
          OPTIONAL                                        :: xas_mittle
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: external_matrix_shalf
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL, TARGET     :: external_matrix_shalf
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_projected_dos', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_projected_dos'
 
       CHARACTER(LEN=16)                                  :: fmtstr2
       CHARACTER(LEN=27)                                  :: fmtstr1
@@ -182,8 +183,8 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: matrix_shalf, matrix_shalfc, &
-                                                            matrix_work, mo_coeff, mo_virt
+      TYPE(cp_fm_type)                                   :: matrix_shalfc, matrix_work, mo_virt
+      TYPE(cp_fm_type), POINTER                          :: matrix_shalf, mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: s_matrix
@@ -191,9 +192,9 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
       TYPE(ldos_p_type), DIMENSION(:), POINTER           :: ldos_p
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(r_ldos_p_type), DIMENSION(:), POINTER         :: r_ldos_p
       TYPE(section_vals_type), POINTER                   :: ldos_section
 
@@ -209,8 +210,8 @@ CONTAINS
       IF ((.NOT. should_output)) RETURN
 
       NULLIFY (context, s_matrix, orb_basis_set, para_env, pdos_array)
-      NULLIFY (eigenvalues, fm_struct_tmp, matrix_work, matrix_shalf, mo_coeff, vecbuffer)
-      NULLIFY (ldos_section, list, cell, pw_env, auxbas_pw_pool, mo_virt, evals_virt)
+      NULLIFY (eigenvalues, fm_struct_tmp, mo_coeff, vecbuffer)
+      NULLIFY (ldos_section, list, cell, pw_env, auxbas_pw_pool, evals_virt)
       NULLIFY (occupation_numbers, ldos_p, r_ldos_p, dft_control, occupation_numbers)
 
       CALL timeset(routineN, handle)
@@ -248,7 +249,7 @@ CONTAINS
 
          CALL generate_virtual_mo(qs_env, mo_set, evals_virt, mo_virt, nvirt, ispin=my_spin)
       ELSE
-         NULLIFY (evals_virt, mo_virt)
+         NULLIFY (evals_virt)
          nvirt = 0
       END IF
 
@@ -257,8 +258,10 @@ CONTAINS
 
       ! Create S^1/2 : from sparse to full matrix, if no external available
       IF (calc_matsh) THEN
+         NULLIFY (matrix_shalf)
          CALL cp_fm_struct_create(fm_struct_tmp, para_env=para_env, context=context, &
                                   nrow_global=nrow_global, ncol_global=nrow_global)
+         ALLOCATE (matrix_shalf)
          CALL cp_fm_create(matrix_shalf, fm_struct_tmp, name="matrix_shalf")
          CALL cp_fm_create(matrix_work, fm_struct_tmp, name="matrix_work")
          CALL cp_fm_struct_release(fm_struct_tmp)
@@ -273,8 +276,8 @@ CONTAINS
       CALL cp_fm_struct_create(fm_struct_tmp, para_env=para_env, context=context, &
                                nrow_global=nrow_global, ncol_global=ncol_global)
       CALL cp_fm_create(matrix_shalfc, fm_struct_tmp, name="matrix_shalfc")
-      CALL cp_gemm("N", "N", nrow_global, ncol_global, nrow_global, &
-                   1.0_dp, matrix_shalf, mo_coeff, 0.0_dp, matrix_shalfc)
+      CALL parallel_gemm("N", "N", nrow_global, ncol_global, nrow_global, &
+                         1.0_dp, matrix_shalf, mo_coeff, 0.0_dp, matrix_shalfc)
       CALL cp_fm_struct_release(fm_struct_tmp)
 
       IF (do_virt) THEN
@@ -283,12 +286,15 @@ CONTAINS
          CALL cp_fm_struct_create(fm_struct_tmp, para_env=para_env, context=context, &
                                   nrow_global=nrow_global, ncol_global=nvirt)
          CALL cp_fm_create(matrix_work, fm_struct_tmp, name="matrix_shalfc")
-         CALL cp_gemm("N", "N", nrow_global, nvirt, nrow_global, &
-                      1.0_dp, matrix_shalf, mo_virt, 0.0_dp, matrix_work)
+         CALL parallel_gemm("N", "N", nrow_global, nvirt, nrow_global, &
+                            1.0_dp, matrix_shalf, mo_virt, 0.0_dp, matrix_work)
          CALL cp_fm_struct_release(fm_struct_tmp)
       END IF
 
-      IF (calc_matsh) CALL cp_fm_release(matrix_shalf)
+      IF (calc_matsh) THEN
+         CALL cp_fm_release(matrix_shalf)
+         DEALLOCATE (matrix_shalf)
+      END IF
       ! Array to store the PDOS per kind and angular momentum
       do_ldos = .FALSE.
       ldos_section => section_vals_get_subs_vals(dft_section, "PRINT%PDOS%LDOS")
@@ -356,10 +362,10 @@ CONTAINS
          CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                          pw_pools=pw_pools)
 
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
          ALLOCATE (read_r(4, n_r_ldos))
@@ -426,10 +432,10 @@ CONTAINS
                r_ldos_p(ildos)%ldos%eval_range(2) = +HUGE(0.0_dp)
             END IF
 
-            bo => wf_r%pw%pw_grid%bounds_local
-            dh = wf_r%pw%pw_grid%dh
-            dvol = wf_r%pw%pw_grid%dvol
-            np_tot = wf_r%pw%pw_grid%npts(1)*wf_r%pw%pw_grid%npts(2)*wf_r%pw%pw_grid%npts(3)
+            bo => wf_r%pw_grid%bounds_local
+            dh = wf_r%pw_grid%dh
+            dvol = wf_r%pw_grid%dvol
+            np_tot = wf_r%pw_grid%npts(1)*wf_r%pw_grid%npts(2)*wf_r%pw_grid%npts(3)
             ALLOCATE (r_ldos_p(ildos)%ldos%index_grid_local(3, np_tot))
 
             r_ldos_p(ildos)%ldos%npoints = 0
@@ -437,9 +443,9 @@ CONTAINS
             DO jy = bo(1, 2), bo(2, 2)
             DO jx = bo(1, 1), bo(2, 1)
                !compute the position of the grid point
-               i = jx - wf_r%pw%pw_grid%bounds(1, 1)
-               j = jy - wf_r%pw%pw_grid%bounds(1, 2)
-               k = jz - wf_r%pw%pw_grid%bounds(1, 3)
+               i = jx - wf_r%pw_grid%bounds(1, 1)
+               j = jy - wf_r%pw_grid%bounds(1, 2)
+               k = jz - wf_r%pw_grid%bounds(1, 3)
                r(3) = k*dh(3, 3) + j*dh(3, 2) + i*dh(3, 1)
                r(2) = k*dh(2, 3) + j*dh(2, 2) + i*dh(2, 1)
                r(1) = k*dh(1, 3) + j*dh(1, 2) + i*dh(1, 1)
@@ -657,7 +663,7 @@ CONTAINS
                   jy = r_ldos_p(ildos)%ldos%index_grid_local(2, il)
                   jz = r_ldos_p(ildos)%ldos%index_grid_local(3, il)
                   r_ldos_p(ildos)%ldos%pdos_array(imo) = r_ldos_p(ildos)%ldos%pdos_array(imo) + &
-                                                         wf_r%pw%cr3d(jx, jy, jz)*wf_r%pw%cr3d(jx, jy, jz)
+                                                         wf_r%cr3d(jx, jy, jz)*wf_r%cr3d(jx, jy, jz)
                END DO
                r_ldos_p(ildos)%ldos%pdos_array(imo) = r_ldos_p(ildos)%ldos%pdos_array(imo)*dvol
             END IF
@@ -895,8 +901,8 @@ CONTAINS
          DEALLOCATE (read_r)
          DEALLOCATE (r_ldos_p)
          DEALLOCATE (r_ldos_index)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
       END IF
       IF (do_virt) THEN
          DEALLOCATE (evals_virt)
@@ -932,13 +938,10 @@ CONTAINS
                                   nvirt, ispin)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       REAL(KIND=dp), DIMENSION(:), POINTER               :: evals_virt
-      TYPE(cp_fm_type), POINTER                          :: mo_virt
+      TYPE(cp_fm_type), INTENT(OUT)                      :: mo_virt
       INTEGER, INTENT(IN)                                :: nvirt, ispin
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'generate_virtual_mo', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: nmo, nrow_global
       TYPE(cp_blacs_env_type), POINTER                   :: context
@@ -949,7 +952,7 @@ CONTAINS
       TYPE(preconditioner_type), POINTER                 :: local_preconditioner
       TYPE(scf_control_type), POINTER                    :: scf_control
 
-      NULLIFY (evals_virt, mo_virt)
+      NULLIFY (evals_virt)
       ALLOCATE (evals_virt(nvirt))
 
       CALL get_qs_env(qs_env, matrix_ks=ks_matrix, matrix_s=s_matrix, &

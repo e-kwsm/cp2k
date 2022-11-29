@@ -18,17 +18,17 @@
     &EFIELD
     &END
     &SCF
-      SCF_GUESS ATOMIC 
+      SCF_GUESS ATOMIC
       &OT
          PRECONDITIONER FULL_SINGLE_INVERSE
          MINIMIZER DIIS
       &END
       &OUTER_SCF
          MAX_SCF  10
-         EPS_SCF 1.0E-7
+         EPS_SCF 1.0E-4
       &END
       MAX_SCF  10
-      EPS_SCF 1.0E-7
+      EPS_SCF 1.0E-4
     &END SCF
     &XC
       &XC_FUNCTIONAL PBE
@@ -43,7 +43,7 @@
   &END DFT
   &SUBSYS
     &CELL
-      ABC [angstrom] 6.0 6.0 6.0
+      ABC [angstrom] 4.0 4.0 4.0
       PERIODIC NONE
     &END
     &COORD
@@ -79,5 +79,5 @@
    DE 0.002
    EPS_NO_ERROR_CHECK 5.e-5
 &END
- 
+
 

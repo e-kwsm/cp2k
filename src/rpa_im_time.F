@@ -1,18 +1,18 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Routines for RPA with imaginary time
+!> \brief Routines for low-scaling RPA/GW with imaginary time
 !> \par History
 !>      10.2015 created [Jan Wilhelm]
 ! **************************************************************************************************
 MODULE rpa_im_time
-
    USE cell_types,                      ONLY: cell_type,&
                                               get_cell
-   USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: copy_fm_to_dbcsr,&
                                               dbcsr_allocate_matrix_set,&
                                               dbcsr_deallocate_matrix_set
@@ -22,38 +22,44 @@ MODULE rpa_im_time
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
                                               cp_fm_release,&
+                                              cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
         dbcsr_add, dbcsr_clear, dbcsr_copy, dbcsr_create, dbcsr_distribution_get, &
         dbcsr_distribution_type, dbcsr_filter, dbcsr_get_info, dbcsr_init_p, dbcsr_p_type, &
-        dbcsr_release_p, dbcsr_reserve_all_blocks, dbcsr_scalar, dbcsr_scale, dbcsr_set, &
-        dbcsr_type, dbcsr_type_no_symmetry
-   USE dbcsr_tensor_api,                ONLY: &
-        dbcsr_t_batched_contract_finalize, dbcsr_t_batched_contract_init, dbcsr_t_contract, &
-        dbcsr_t_copy, dbcsr_t_copy_matrix_to_tensor, dbcsr_t_copy_tensor_to_matrix, &
-        dbcsr_t_create, dbcsr_t_destroy, dbcsr_t_filter, dbcsr_t_get_info, dbcsr_t_nd_mp_comm, &
-        dbcsr_t_need_contract, dbcsr_t_pgrid_destroy, dbcsr_t_pgrid_type, dbcsr_t_type
+        dbcsr_release_p, dbcsr_reserve_all_blocks, dbcsr_scale, dbcsr_set, dbcsr_type, &
+        dbcsr_type_no_symmetry
+   USE dbt_api,                         ONLY: &
+        dbt_batched_contract_finalize, dbt_batched_contract_init, dbt_contract, dbt_copy, &
+        dbt_copy_matrix_to_tensor, dbt_copy_tensor_to_matrix, dbt_create, dbt_destroy, dbt_filter, &
+        dbt_get_info, dbt_nblks_total, dbt_nd_mp_comm, dbt_pgrid_destroy, dbt_pgrid_type, dbt_type
+   USE hfx_types,                       ONLY: block_ind_type,&
+                                              hfx_compression_type
+   USE input_constants,                 ONLY: gw_gf_gamma,&
+                                              gw_gf_mic
    USE kinds,                           ONLY: dp,&
                                               int_8
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_env_type,&
                                               kpoint_type
-   USE machine,                         ONLY: m_walltime
+   USE machine,                         ONLY: m_flush,&
+                                              m_walltime
    USE mathconstants,                   ONLY: twopi
    USE message_passing,                 ONLY: mp_sync
    USE mp2_types,                       ONLY: mp2_type
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
-   USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
-   USE qs_tensors,                      ONLY: get_tensor_occupancy,&
-                                              tensor_change_pgrid
+   USE qs_tensors,                      ONLY: decompress_tensor,&
+                                              get_tensor_occupancy
    USE qs_tensors_types,                ONLY: create_2c_tensor
+   USE rpa_gw_im_time_util,             ONLY: compute_weight_re_im,&
+                                              get_atom_index_from_basis_function_index
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -65,7 +71,9 @@ MODULE rpa_im_time
    PUBLIC :: compute_mat_P_omega, &
              compute_transl_dm, &
              init_cell_index_rpa, &
-             zero_mat_P_omega
+             zero_mat_P_omega, &
+             compute_periodic_dm, &
+             compute_mat_dm_global
 
 CONTAINS
 
@@ -83,6 +91,8 @@ CONTAINS
 !> \param ispin ...
 !> \param t_3c_M ...
 !> \param t_3c_O ...
+!> \param t_3c_O_compressed ...
+!> \param t_3c_O_ind ...
 !> \param starts_array_mc ...
 !> \param ends_array_mc ...
 !> \param starts_array_mc_block ...
@@ -102,6 +112,7 @@ CONTAINS
 !> \param mp2_env ...
 !> \param para_env ...
 !> \param qs_env ...
+!> \param do_kpoints_from_Gamma ...
 !> \param index_to_cell_3c ...
 !> \param cell_to_index_3c ...
 !> \param has_mat_P_blocks ...
@@ -115,7 +126,7 @@ CONTAINS
                                   mat_P_global, &
                                   matrix_s, &
                                   ispin, &
-                                  t_3c_M, t_3c_O, &
+                                  t_3c_M, t_3c_O, t_3c_O_compressed, t_3c_O_ind, &
                                   starts_array_mc, ends_array_mc, &
                                   starts_array_mc_block, ends_array_mc_block, &
                                   weights_cos_tf_t_to_w, &
@@ -123,17 +134,22 @@ CONTAINS
                                   alpha, eps_filter_im_time, Eigenval, nmo, &
                                   num_integ_points, cut_memory, unit_nr, &
                                   mp2_env, para_env, &
-                                  qs_env, index_to_cell_3c, cell_to_index_3c, &
+                                  qs_env, do_kpoints_from_Gamma, &
+                                  index_to_cell_3c, cell_to_index_3c, &
                                   has_mat_P_blocks, do_ri_sos_laplace_mp2, &
                                   dbcsr_time, dbcsr_nflop)
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_P_omega
-      TYPE(cp_fm_type), POINTER :: fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, fm_mo_coeff_occ, &
-         fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, fm_mo_coeff_virt_scaled
+      TYPE(dbcsr_p_type), DIMENSION(:, :), INTENT(IN)    :: mat_P_omega
+      TYPE(cp_fm_type), INTENT(IN) :: fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, &
+         fm_mo_coeff_occ, fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, fm_mo_coeff_virt_scaled
       TYPE(dbcsr_p_type), INTENT(INOUT)                  :: mat_P_global
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       INTEGER, INTENT(IN)                                :: ispin
-      TYPE(dbcsr_t_type), INTENT(INOUT)                  :: t_3c_M
-      TYPE(dbcsr_t_type), DIMENSION(:, :), INTENT(INOUT) :: t_3c_O
+      TYPE(dbt_type), INTENT(INOUT)                      :: t_3c_M
+      TYPE(dbt_type), DIMENSION(:, :), INTENT(INOUT)     :: t_3c_O
+      TYPE(hfx_compression_type), DIMENSION(:, :, :), &
+         INTENT(INOUT)                                   :: t_3c_O_compressed
+      TYPE(block_ind_type), DIMENSION(:, :, :), &
+         INTENT(INOUT)                                   :: t_3c_O_ind
       INTEGER, DIMENSION(:), INTENT(IN)                  :: starts_array_mc, ends_array_mc, &
                                                             starts_array_mc_block, &
                                                             ends_array_mc_block
@@ -148,9 +164,10 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(0:num_integ_points), &
          INTENT(IN)                                      :: tau_tj
       INTEGER, INTENT(IN)                                :: cut_memory, unit_nr
-      TYPE(mp2_type), POINTER                            :: mp2_env
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(mp2_type)                                     :: mp2_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL, INTENT(IN)                                :: do_kpoints_from_Gamma
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell_3c
       INTEGER, ALLOCATABLE, DIMENSION(:, :, :), &
          INTENT(IN)                                      :: cell_to_index_3c
@@ -159,44 +176,36 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: dbcsr_time
       INTEGER(int_8), INTENT(INOUT)                      :: dbcsr_nflop
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_mat_P_omega', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_mat_P_omega'
 
       INTEGER :: comm_2d, handle, handle2, handle3, i, i_cell, i_cell_R_1, i_cell_R_1_minus_S, &
          i_cell_R_1_minus_T, i_cell_R_2, i_cell_R_2_minus_S_minus_T, i_cell_S, i_cell_T, i_mem, &
-         iquad, j, j_mem, jquad, num_3c_repl, num_cells_dm, unit_nr_2, unit_nr_dbcsr
+         iquad, j, j_mem, jquad, num_3c_repl, num_cells_dm, unit_nr_dbcsr
       INTEGER(int_8)                                     :: nze, nze_dm_occ, nze_dm_virt, nze_M_occ, &
                                                             nze_M_virt, nze_O
-      INTEGER(KIND=int_8)                                :: flops_1_max_occ, flops_1_max_virt, &
-                                                            flops_1_occ, flops_1_virt, flops_2, &
-                                                            flops_2_max
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dist_1, dist_2, size_dm, size_P
+      INTEGER(KIND=int_8)                                :: flops_1_occ, flops_1_virt, flops_2
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dist_1, dist_2, mc_ranges, size_dm, &
+                                                            size_P
       INTEGER, DIMENSION(2)                              :: pdims_2d
       INTEGER, DIMENSION(2, 1)                           :: ibounds_2, jbounds_2
       INTEGER, DIMENSION(2, 2)                           :: ibounds_1, jbounds_1
       INTEGER, DIMENSION(3)                              :: bounds_3c
       INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell_dm
-      LOGICAL :: do_Gamma_RPA, do_kpoints_cubic_RPA, do_opt_pgrid, first_cycle_im_time, &
-         first_cycle_omega_loop, memory_info, pgrid_1_init_occ, pgrid_1_init_virt, pgrid_2_init, &
-         R_1_minus_S_needed, R_1_minus_T_needed, R_2_minus_S_minus_T_needed
+      LOGICAL :: do_Gamma_RPA, do_kpoints_cubic_RPA, first_cycle_im_time, first_cycle_omega_loop, &
+         memory_info, R_1_minus_S_needed, R_1_minus_T_needed, R_2_minus_S_minus_T_needed
       REAL(dp)                                           :: occ, occ_dm_occ, occ_dm_virt, occ_M_occ, &
                                                             occ_M_virt, occ_O, t1_flop
       REAL(KIND=dp)                                      :: omega, omega_old, t1, t2, tau, weight, &
                                                             weight_old
       TYPE(dbcsr_distribution_type)                      :: dist_P
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_occ_global, mat_dm_virt_global
-      TYPE(dbcsr_t_pgrid_type)                           :: pgrid_1_use_occ, pgrid_1_use_virt, &
-                                                            pgrid_2_use, pgrid_2d
-      TYPE(dbcsr_t_pgrid_type), POINTER                  :: pgrid_1_opt_occ, pgrid_1_opt_virt, &
-                                                            pgrid_2_opt
-      TYPE(dbcsr_t_type)                                 :: t_3c_M_occ, t_3c_M_occ_tmp, t_3c_M_virt, &
+      TYPE(dbt_pgrid_type)                               :: pgrid_2d
+      TYPE(dbt_type)                                     :: t_3c_M_occ, t_3c_M_occ_tmp, t_3c_M_virt, &
                                                             t_3c_M_virt_tmp, t_dm, t_dm_tmp, t_P, &
                                                             t_P_tmp
-      TYPE(dbcsr_t_type), ALLOCATABLE, DIMENSION(:)      :: t_dm_occ, t_dm_virt
-      TYPE(dbcsr_t_type), &
+      TYPE(dbt_type), ALLOCATABLE, DIMENSION(:)          :: t_dm_occ, t_dm_virt
+      TYPE(dbt_type), &
          DIMENSION(SIZE(t_3c_O, 1), SIZE(t_3c_O, 2))     :: t_3c_O_occ, t_3c_O_virt
-
-      NULLIFY (pgrid_1_opt_occ, pgrid_1_opt_virt, pgrid_2_opt)
 
       CALL timeset(routineN, handle)
 
@@ -205,143 +214,126 @@ CONTAINS
          unit_nr_dbcsr = unit_nr
       ELSE
          unit_nr_dbcsr = 0
-      ENDIF
+      END IF
 
       do_kpoints_cubic_RPA = qs_env%mp2_env%ri_rpa_im_time%do_im_time_kpoints
       do_Gamma_RPA = .NOT. do_kpoints_cubic_RPA
       num_3c_repl = MAXVAL(cell_to_index_3c)
-      do_opt_pgrid = qs_env%mp2_env%ri_rpa_im_time%group_size_internal
 
       first_cycle_im_time = .TRUE.
       DO i = 1, SIZE(t_3c_O, 1)
          DO j = 1, SIZE(t_3c_O, 2)
-            CALL dbcsr_t_create(t_3c_O(i, j), t_3c_O_occ(i, j))
-            CALL dbcsr_t_copy(t_3c_O(i, j), t_3c_O_occ(i, j))
-            CALL dbcsr_t_create(t_3c_O(i, j), t_3c_O_virt(i, j))
-            CALL dbcsr_t_copy(t_3c_O(i, j), t_3c_O_virt(i, j))
-            !CALL dbcsr_t_clear(t_3c_O(i, j)) ! clearing t_3c_O is not safe because it may be used later
-         ENDDO
-      ENDDO
+            CALL dbt_create(t_3c_O(i, j), t_3c_O_occ(i, j))
+            CALL dbt_create(t_3c_O(i, j), t_3c_O_virt(i, j))
+         END DO
+      END DO
 
-      pgrid_1_init_occ = .FALSE.; pgrid_1_init_virt = .FALSE.; pgrid_2_init = .FALSE.
+      CALL dbt_create(t_3c_M, t_3c_M_occ, name="M occ (RI | AO AO)")
+      CALL dbt_create(t_3c_M, t_3c_M_virt, name="M virt (RI | AO AO)")
+
+      ALLOCATE (mc_ranges(cut_memory + 1))
+      mc_ranges(:cut_memory) = starts_array_mc_block(:)
+      mc_ranges(cut_memory + 1) = ends_array_mc_block(cut_memory) + 1
+
       DO jquad = 1, num_integ_points
 
          CALL mp_sync(para_env%group)
          t1 = m_walltime()
 
-         flops_1_max_virt = 0; flops_1_max_occ = 0; flops_2_max = 0
-
-         unit_nr_2 = unit_nr_dbcsr
-         IF (pgrid_1_init_occ) THEN
-            DO i = 1, SIZE(t_3c_O, 1)
-               DO j = 1, SIZE(t_3c_O, 2)
-                  CALL tensor_change_pgrid(t_3c_O_occ(i, j), pgrid_1_use_occ, &
-                                           starts_array_mc_block_2=starts_array_mc_block, &
-                                           ends_array_mc_block_2=ends_array_mc_block, &
-                                           unit_nr=unit_nr_2)
-                  unit_nr_2 = 0
-               ENDDO
-            ENDDO
-         ENDIF
-
-         unit_nr_2 = unit_nr_dbcsr
-         IF (pgrid_1_init_virt) THEN
-            DO i = 1, SIZE(t_3c_O, 1)
-               DO j = 1, SIZE(t_3c_O, 2)
-                  CALL tensor_change_pgrid(t_3c_O_virt(i, j), pgrid_1_use_virt, &
-                                           starts_array_mc_block_2=starts_array_mc_block, &
-                                           ends_array_mc_block_2=ends_array_mc_block, &
-                                           unit_nr=unit_nr_2)
-                  unit_nr_2 = 0
-               ENDDO
-            ENDDO
-         ENDIF
-
-         IF (pgrid_2_init) THEN
-            CALL tensor_change_pgrid(t_3c_M, pgrid_2_use, &
-                                     starts_array_mc_block_2=starts_array_mc_block, &
-                                     ends_array_mc_block_2=ends_array_mc_block, &
-                                     starts_array_mc_block_3=starts_array_mc_block, &
-                                     ends_array_mc_block_3=ends_array_mc_block, &
-                                     nodata=.TRUE., unit_nr=unit_nr_dbcsr)
-         ENDIF
-
          CALL compute_mat_dm_global(fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, tau_tj, num_integ_points, nmo, &
                                     fm_mo_coeff_occ, fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, &
                                     fm_mo_coeff_virt_scaled, mat_dm_occ_global, mat_dm_virt_global, &
                                     matrix_s, ispin, &
-                                    Eigenval, e_fermi, eps_filter, memory_info, &
-                                    unit_nr, &
-                                    jquad, do_kpoints_cubic_RPA, qs_env, &
-                                    num_cells_dm, index_to_cell_dm)
+                                    Eigenval, e_fermi, eps_filter, memory_info, unit_nr, &
+                                    jquad, do_kpoints_cubic_RPA, do_kpoints_from_Gamma, qs_env, &
+                                    num_cells_dm, index_to_cell_dm, para_env)
 
          ALLOCATE (t_dm_virt(num_cells_dm))
          ALLOCATE (t_dm_occ(num_cells_dm))
          CALL dbcsr_get_info(mat_P_global%matrix, distribution=dist_P)
          CALL dbcsr_distribution_get(dist_P, group=comm_2d, nprows=pdims_2d(1), npcols=pdims_2d(2))
 
-         pgrid_2d = dbcsr_t_nd_mp_comm(comm_2d, [1], [2], pdims_2d=pdims_2d)
-         CALL dbcsr_t_get_info(t_3c_M, blk_size_1=size_P)
-         CALL dbcsr_t_get_info(t_3c_O(1, 1), blk_size_3=size_dm)
+         pgrid_2d = dbt_nd_mp_comm(comm_2d, [1], [2], pdims_2d=pdims_2d)
+         ALLOCATE (size_P(dbt_nblks_total(t_3c_M, 1)))
+         CALL dbt_get_info(t_3c_M, blk_size_1=size_P)
+
+         ALLOCATE (size_dm(dbt_nblks_total(t_3c_O(1, 1), 3)))
+         CALL dbt_get_info(t_3c_O(1, 1), blk_size_3=size_dm)
          CALL create_2c_tensor(t_dm, dist_1, dist_2, pgrid_2d, size_dm, size_dm, name="D (AO | AO)")
+         DEALLOCATE (size_dm)
          DEALLOCATE (dist_1, dist_2)
          CALL create_2c_tensor(t_P, dist_1, dist_2, pgrid_2d, size_P, size_P, name="P (RI | RI)")
+         DEALLOCATE (size_P)
          DEALLOCATE (dist_1, dist_2)
-         CALL dbcsr_t_pgrid_destroy(pgrid_2d)
+         CALL dbt_pgrid_destroy(pgrid_2d)
 
          DO i_cell = 1, num_cells_dm
-            CALL dbcsr_t_create(t_dm, t_dm_virt(i_cell), name="D virt (AO | AO)")
-            CALL dbcsr_t_create(mat_dm_virt_global(jquad, i_cell)%matrix, t_dm_tmp)
-            CALL dbcsr_t_copy_matrix_to_tensor(mat_dm_virt_global(jquad, i_cell)%matrix, t_dm_tmp)
-            CALL dbcsr_t_copy(t_dm_tmp, t_dm_virt(i_cell), move_data=.TRUE.)
+            CALL dbt_create(t_dm, t_dm_virt(i_cell), name="D virt (AO | AO)")
+            CALL dbt_create(mat_dm_virt_global(jquad, i_cell)%matrix, t_dm_tmp)
+            CALL dbt_copy_matrix_to_tensor(mat_dm_virt_global(jquad, i_cell)%matrix, t_dm_tmp)
+            CALL dbt_copy(t_dm_tmp, t_dm_virt(i_cell), move_data=.TRUE.)
             CALL dbcsr_clear(mat_dm_virt_global(jquad, i_cell)%matrix)
 
-            CALL dbcsr_t_create(t_dm, t_dm_occ(i_cell), name="D occ (AO | AO)")
-            CALL dbcsr_t_copy_matrix_to_tensor(mat_dm_occ_global(jquad, i_cell)%matrix, t_dm_tmp)
-            CALL dbcsr_t_copy(t_dm_tmp, t_dm_occ(i_cell), move_data=.TRUE.)
-            CALL dbcsr_t_destroy(t_dm_tmp)
+            CALL dbt_create(t_dm, t_dm_occ(i_cell), name="D occ (AO | AO)")
+            CALL dbt_copy_matrix_to_tensor(mat_dm_occ_global(jquad, i_cell)%matrix, t_dm_tmp)
+            CALL dbt_copy(t_dm_tmp, t_dm_occ(i_cell), move_data=.TRUE.)
+            CALL dbt_destroy(t_dm_tmp)
             CALL dbcsr_clear(mat_dm_occ_global(jquad, i_cell)%matrix)
-         ENDDO
+         END DO
 
          CALL get_tensor_occupancy(t_dm_occ(1), nze_dm_occ, occ_dm_occ)
          CALL get_tensor_occupancy(t_dm_virt(1), nze_dm_virt, occ_dm_virt)
-         IF (do_Gamma_RPA) CALL get_tensor_occupancy(t_3c_O(1, 1), nze_O, occ_O)
 
-         CALL dbcsr_t_destroy(t_dm)
+         CALL dbt_destroy(t_dm)
 
-         CALL dbcsr_t_create(t_3c_O_occ(1, 1), t_3c_M_occ_tmp, name="M (RI AO | AO)")
-         CALL dbcsr_t_create(t_3c_O_virt(1, 1), t_3c_M_virt_tmp, name="M (RI AO | AO)")
-         CALL dbcsr_t_create(t_3c_M, t_3c_M_occ, name="M occ (RI | AO AO)")
-         CALL dbcsr_t_create(t_3c_M, t_3c_M_virt, name="M virt (RI | AO AO)")
+         CALL dbt_create(t_3c_O_occ(1, 1), t_3c_M_occ_tmp, name="M (RI AO | AO)")
+         CALL dbt_create(t_3c_O_virt(1, 1), t_3c_M_virt_tmp, name="M (RI AO | AO)")
 
          CALL timeset(routineN//"_contract", handle2)
 
          CALL mp_sync(para_env%group)
          t1_flop = m_walltime()
 
+         DO i = 1, SIZE(t_3c_O_occ, 1)
+            DO j = 1, SIZE(t_3c_O_occ, 2)
+               CALL dbt_batched_contract_init(t_3c_O_occ(i, j), batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+            END DO
+         END DO
+         DO i = 1, SIZE(t_3c_O_virt, 1)
+            DO j = 1, SIZE(t_3c_O_virt, 2)
+               CALL dbt_batched_contract_init(t_3c_O_virt(i, j), batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+            END DO
+         END DO
+         CALL dbt_batched_contract_init(t_3c_M_occ_tmp, batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+         CALL dbt_batched_contract_init(t_3c_M_virt_tmp, batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+         CALL dbt_batched_contract_init(t_3c_M_occ, batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+         CALL dbt_batched_contract_init(t_3c_M_virt, batch_range_2=mc_ranges, batch_range_3=mc_ranges)
+
          DO i_cell_T = 1, num_cells_dm/2 + 1
 
             IF (.NOT. ANY(has_mat_P_blocks(i_cell_T, :, :, :, :))) CYCLE
 
-            CALL dbcsr_t_batched_contract_init(t_P)
+            CALL dbt_batched_contract_init(t_P)
 
             IF (do_Gamma_RPA) THEN
+               nze_O = 0
                nze_M_virt = 0
                nze_M_occ = 0
                occ_M_virt = 0.0_dp
                occ_M_occ = 0.0_dp
-            ENDIF
+               occ_O = 0.0_dp
+            END IF
 
             DO j_mem = 1, cut_memory
 
-               CALL dbcsr_t_get_info(t_3c_O_occ(1, 1), nfull_total=bounds_3c)
+               CALL dbt_get_info(t_3c_O_occ(1, 1), nfull_total=bounds_3c)
 
                jbounds_1(:, 1) = [1, bounds_3c(1)]
                jbounds_1(:, 2) = [starts_array_mc(j_mem), ends_array_mc(j_mem)]
 
                jbounds_2(:, 1) = [starts_array_mc(j_mem), ends_array_mc(j_mem)]
 
-               IF (do_Gamma_RPA) CALL dbcsr_t_batched_contract_init(t_dm_virt(1))
+               IF (do_Gamma_RPA) CALL dbt_batched_contract_init(t_dm_virt(1))
 
                DO i_mem = 1, cut_memory
 
@@ -355,19 +347,6 @@ CONTAINS
                   IF (unit_nr_dbcsr > 0) WRITE (UNIT=unit_nr_dbcsr, FMT="(T3,A,I3,1X,I3)") &
                      "RPA_LOW_SCALING_INFO| Memory Cut iteration", i_mem, j_mem
 
-                  IF (do_Gamma_RPA) THEN
-                     IF (.NOT. dbcsr_t_need_contract(t_3c_O_occ(1, 1), &
-                                                     t_dm_occ(1), &
-                                                     contract_1=[3], notcontract_1=[1, 2], &
-                                                     contract_2=[2], notcontract_2=[1], &
-                                                     bounds_2=jbounds_1, bounds_3=ibounds_2)) CYCLE
-                     IF (.NOT. dbcsr_t_need_contract(t_3c_O_occ(1, 1), &
-                                                     t_dm_virt(1), &
-                                                     contract_1=[3], notcontract_1=[1, 2], &
-                                                     contract_2=[2], notcontract_2=[1], &
-                                                     bounds_2=ibounds_1, bounds_3=jbounds_2)) CYCLE
-                  ENDIF
-
                   DO i_cell_R_1 = 1, num_3c_repl
 
                      DO i_cell_R_2 = 1, num_3c_repl
@@ -377,65 +356,62 @@ CONTAINS
                         CALL get_diff_index_3c(i_cell_R_1, i_cell_T, i_cell_R_1_minus_T, &
                                                index_to_cell_3c, cell_to_index_3c, index_to_cell_dm, &
                                                R_1_minus_T_needed, do_kpoints_cubic_RPA)
+
+                        IF (do_Gamma_RPA) CALL dbt_batched_contract_init(t_dm_occ(1))
                         DO i_cell_S = 1, num_cells_dm
                            CALL get_diff_index_3c(i_cell_R_1, i_cell_S, i_cell_R_1_minus_S, index_to_cell_3c, &
                                                   cell_to_index_3c, index_to_cell_dm, R_1_minus_S_needed, &
                                                   do_kpoints_cubic_RPA)
                            IF (R_1_minus_S_needed) THEN
-                           IF (dbcsr_t_need_contract(t_3c_O_occ(i_cell_R_1_minus_S, i_cell_R_2), &
-                                                     t_dm_occ(i_cell_S), &
-                                                     contract_1=[3], notcontract_1=[1, 2], &
-                                                     contract_2=[2], notcontract_2=[1], &
-                                                     bounds_2=jbounds_1, bounds_3=ibounds_2)) THEN
 
                               CALL timeset(routineN//"_calc_M_occ_t", handle3)
+                              CALL decompress_tensor(t_3c_O(i_cell_R_1_minus_S, i_cell_R_2), &
+                                                     t_3c_O_ind(i_cell_R_1_minus_S, i_cell_R_2, j_mem)%ind, &
+                                                     t_3c_O_compressed(i_cell_R_1_minus_S, i_cell_R_2, j_mem), &
+                                                     qs_env%mp2_env%ri_rpa_im_time%eps_compress)
 
-                              CALL dbcsr_t_contract(alpha=dbcsr_scalar(1.0_dp), &
-                                                    tensor_1=t_3c_O_occ(i_cell_R_1_minus_S, i_cell_R_2), &
-                                                    tensor_2=t_dm_occ(i_cell_S), &
-                                                    beta=dbcsr_scalar(1.0_dp), &
-                                                    tensor_3=t_3c_M_occ_tmp, &
-                                                    contract_1=[3], notcontract_1=[1, 2], &
-                                                    contract_2=[2], notcontract_2=[1], &
-                                                    map_1=[1, 2], map_2=[3], &
-                                                    bounds_2=jbounds_1, bounds_3=ibounds_2, &
-                                                    pgrid_opt_1=pgrid_1_opt_occ, &
-                                                    filter_eps=eps_filter, unit_nr=unit_nr_dbcsr, &
-                                                    flop=flops_1_occ)
+                              IF (do_Gamma_RPA .AND. i_mem == 1) THEN
+                                 CALL get_tensor_occupancy(t_3c_O(1, 1), nze, occ)
+                                 nze_O = nze_O + nze
+                                 occ_O = occ_O + occ
+                              END IF
+
+                              CALL dbt_copy(t_3c_O(i_cell_R_1_minus_S, i_cell_R_2), &
+                                            t_3c_O_occ(i_cell_R_1_minus_S, i_cell_R_2), move_data=.TRUE.)
+
+                              CALL dbt_contract(alpha=1.0_dp, &
+                                                tensor_1=t_3c_O_occ(i_cell_R_1_minus_S, i_cell_R_2), &
+                                                tensor_2=t_dm_occ(i_cell_S), &
+                                                beta=1.0_dp, &
+                                                tensor_3=t_3c_M_occ_tmp, &
+                                                contract_1=[3], notcontract_1=[1, 2], &
+                                                contract_2=[2], notcontract_2=[1], &
+                                                map_1=[1, 2], map_2=[3], &
+                                                bounds_2=jbounds_1, bounds_3=ibounds_2, &
+                                                filter_eps=eps_filter, unit_nr=unit_nr_dbcsr, &
+                                                flop=flops_1_occ)
                               CALL timestop(handle3)
 
                               dbcsr_nflop = dbcsr_nflop + flops_1_occ
 
-                              IF (do_opt_pgrid) THEN
-                                 CPASSERT(ASSOCIATED(pgrid_1_opt_occ))
-                                 IF (flops_1_occ .GT. flops_1_max_occ) THEN
-                                    IF (pgrid_1_init_occ) CALL dbcsr_t_pgrid_destroy(pgrid_1_use_occ)
-                                    pgrid_1_use_occ = pgrid_1_opt_occ
-                                    DEALLOCATE (pgrid_1_opt_occ)
-                                    pgrid_1_init_occ = .TRUE.
-                                    flops_1_max_occ = flops_1_occ
-                                 ELSE
-                                    CALL dbcsr_t_pgrid_destroy(pgrid_1_opt_occ)
-                                    DEALLOCATE (pgrid_1_opt_occ)
-                                 ENDIF
-                              ENDIF
-                           ENDIF
-                           ENDIF
-                        ENDDO
+                           END IF
+                        END DO
+
+                        IF (do_Gamma_RPA) CALL dbt_batched_contract_finalize(t_dm_occ(1))
 
                         ! copy matrix to optimal contraction layout - copy is done manually in order
                         ! to better control memory allocations (we can release data of previous
                         ! representation)
                         CALL timeset(routineN//"_copy_M_occ_t", handle3)
-                        CALL dbcsr_t_copy(t_3c_M_occ_tmp, t_3c_M_occ, order=[1, 3, 2], move_data=.TRUE.)
-                        CALL dbcsr_t_filter(t_3c_M_occ, eps_filter)
+                        CALL dbt_copy(t_3c_M_occ_tmp, t_3c_M_occ, order=[1, 3, 2], move_data=.TRUE.)
+                        CALL dbt_filter(t_3c_M_occ, eps_filter)
                         CALL timestop(handle3)
 
                         IF (do_Gamma_RPA) THEN
                            CALL get_tensor_occupancy(t_3c_M_occ, nze, occ)
                            nze_M_occ = nze_M_occ + nze
                            occ_M_occ = occ_M_occ + occ
-                        ENDIF
+                        END IF
 
                         DO i_cell_S = 1, num_cells_dm
                            CALL get_diff_diff_index_3c(i_cell_R_2, i_cell_S, i_cell_T, i_cell_R_2_minus_S_minus_T, &
@@ -443,115 +419,80 @@ CONTAINS
                                                        R_2_minus_S_minus_T_needed, do_kpoints_cubic_RPA)
 
                            IF (R_1_minus_T_needed .AND. R_2_minus_S_minus_T_needed) THEN
+                              CALL decompress_tensor(t_3c_O(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), &
+                                                     t_3c_O_ind(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T, i_mem)%ind, &
+                                                     t_3c_O_compressed(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T, i_mem), &
+                                                     qs_env%mp2_env%ri_rpa_im_time%eps_compress)
 
-                              IF (dbcsr_t_need_contract(t_3c_O_virt(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), &
-                                                        t_dm_virt(i_cell_S), &
-                                                        contract_1=[3], notcontract_1=[1, 2], &
-                                                        contract_2=[2], notcontract_2=[1], &
-                                                        bounds_2=ibounds_1, bounds_3=jbounds_2)) THEN
+                              CALL dbt_copy(t_3c_O(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), &
+                                            t_3c_O_virt(i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), move_data=.TRUE.)
 
-                                 CALL timeset(routineN//"_calc_M_virt_t", handle3)
-                                 CALL dbcsr_t_contract(alpha=dbcsr_scalar(alpha/2.0_dp), &
-                                                       tensor_1=t_3c_O_virt( &
-                                                       i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), &
-                                                       tensor_2=t_dm_virt(i_cell_S), &
-                                                       beta=dbcsr_scalar(1.0_dp), &
-                                                       tensor_3=t_3c_M_virt_tmp, &
-                                                       contract_1=[3], notcontract_1=[1, 2], &
-                                                       contract_2=[2], notcontract_2=[1], &
-                                                       map_1=[1, 2], map_2=[3], &
-                                                       bounds_2=ibounds_1, bounds_3=jbounds_2, &
-                                                       pgrid_opt_1=pgrid_1_opt_virt, &
-                                                       filter_eps=eps_filter, unit_nr=unit_nr_dbcsr, &
-                                                       flop=flops_1_virt)
-                                 CALL timestop(handle3)
+                              CALL timeset(routineN//"_calc_M_virt_t", handle3)
+                              CALL dbt_contract(alpha=alpha/2.0_dp, &
+                                                tensor_1=t_3c_O_virt( &
+                                                i_cell_R_2_minus_S_minus_T, i_cell_R_1_minus_T), &
+                                                tensor_2=t_dm_virt(i_cell_S), &
+                                                beta=1.0_dp, &
+                                                tensor_3=t_3c_M_virt_tmp, &
+                                                contract_1=[3], notcontract_1=[1, 2], &
+                                                contract_2=[2], notcontract_2=[1], &
+                                                map_1=[1, 2], map_2=[3], &
+                                                bounds_2=ibounds_1, bounds_3=jbounds_2, &
+                                                filter_eps=eps_filter, unit_nr=unit_nr_dbcsr, &
+                                                flop=flops_1_virt)
+                              CALL timestop(handle3)
 
-                                 dbcsr_nflop = dbcsr_nflop + flops_1_virt
+                              dbcsr_nflop = dbcsr_nflop + flops_1_virt
 
-                                 IF (do_opt_pgrid) THEN
-                                    CPASSERT(ASSOCIATED(pgrid_1_opt_virt))
-                                    IF (flops_1_virt .GT. flops_1_max_virt) THEN
-                                       IF (pgrid_1_init_virt) CALL dbcsr_t_pgrid_destroy(pgrid_1_use_virt)
-                                       pgrid_1_use_virt = pgrid_1_opt_virt
-                                       DEALLOCATE (pgrid_1_opt_virt)
-                                       pgrid_1_init_virt = .TRUE.
-                                       flops_1_max_virt = flops_1_virt
-                                    ELSE
-                                       CALL dbcsr_t_pgrid_destroy(pgrid_1_opt_virt)
-                                       DEALLOCATE (pgrid_1_opt_virt)
-                                    ENDIF
-                                 ENDIF
-                              ENDIF
-                           ENDIF
-                        ENDDO
+                           END IF
+                        END DO
 
                         CALL timeset(routineN//"_copy_M_virt_t", handle3)
-                        CALL dbcsr_t_copy(t_3c_M_virt_tmp, t_3c_M_virt, move_data=.TRUE.)
-                        CALL dbcsr_t_filter(t_3c_M_virt, eps_filter)
+                        CALL dbt_copy(t_3c_M_virt_tmp, t_3c_M_virt, move_data=.TRUE.)
+                        CALL dbt_filter(t_3c_M_virt, eps_filter)
                         CALL timestop(handle3)
 
                         IF (do_Gamma_RPA) THEN
                            CALL get_tensor_occupancy(t_3c_M_virt, nze, occ)
                            nze_M_virt = nze_M_virt + nze
                            occ_M_virt = occ_M_virt + occ
-                        ENDIF
+                        END IF
 
                         flops_2 = 0
-                        IF (dbcsr_t_need_contract(t_3c_M_occ, t_3c_M_virt, &
-                                                  contract_1=[2, 3], notcontract_1=[1], &
-                                                  contract_2=[2, 3], notcontract_2=[1])) THEN
 
-                           CALL timeset(routineN//"_calc_P_t", handle3)
+                        CALL timeset(routineN//"_calc_P_t", handle3)
 
-                           CALL dbcsr_t_contract(alpha=dbcsr_scalar(1.0_dp), tensor_1=t_3c_M_occ, &
-                                                 tensor_2=t_3c_M_virt, &
-                                                 beta=dbcsr_scalar(1.0_dp), &
-                                                 tensor_3=t_P, &
-                                                 contract_1=[2, 3], notcontract_1=[1], &
-                                                 contract_2=[2, 3], notcontract_2=[1], &
-                                                 map_1=[1], map_2=[2], &
-                                                 pgrid_opt_2=pgrid_2_opt, &
-                                                 filter_eps=eps_filter_im_time/REAL(cut_memory**2, KIND=dp), &
-                                                 flop=flops_2, &
-                                                 move_data=.TRUE., &
-                                                 unit_nr=unit_nr_dbcsr)
+                        CALL dbt_contract(alpha=1.0_dp, tensor_1=t_3c_M_occ, &
+                                          tensor_2=t_3c_M_virt, &
+                                          beta=1.0_dp, &
+                                          tensor_3=t_P, &
+                                          contract_1=[2, 3], notcontract_1=[1], &
+                                          contract_2=[2, 3], notcontract_2=[1], &
+                                          map_1=[1], map_2=[2], &
+                                          filter_eps=eps_filter_im_time/REAL(cut_memory**2, KIND=dp), &
+                                          flop=flops_2, &
+                                          move_data=.TRUE., &
+                                          unit_nr=unit_nr_dbcsr)
 
-                           CALL timestop(handle3)
-
-                           dbcsr_nflop = dbcsr_nflop + flops_2
-
-                           IF (do_opt_pgrid) THEN
-                              CPASSERT(ASSOCIATED(pgrid_2_opt))
-                              IF (flops_2 .GT. flops_2_max) THEN
-                                 IF (pgrid_2_init) CALL dbcsr_t_pgrid_destroy(pgrid_2_use)
-                                 pgrid_2_use = pgrid_2_opt
-                                 DEALLOCATE (pgrid_2_opt)
-                                 pgrid_2_init = .TRUE.
-                                 flops_2_max = flops_2
-                              ELSE
-                                 CALL dbcsr_t_pgrid_destroy(pgrid_2_opt)
-                                 DEALLOCATE (pgrid_2_opt)
-                              ENDIF
-                           ENDIF
-                        ENDIF
+                        CALL timestop(handle3)
 
                         first_cycle_im_time = .FALSE.
 
                         IF (jquad == 1 .AND. flops_2 == 0) &
                            has_mat_P_blocks(i_cell_T, i_mem, j_mem, i_cell_R_1, i_cell_R_2) = .FALSE.
 
-                     ENDDO
-                  ENDDO
-               ENDDO
-               IF (do_Gamma_RPA) CALL dbcsr_t_batched_contract_finalize(t_dm_virt(1))
-            ENDDO
+                     END DO
+                  END DO
+               END DO
+               IF (do_Gamma_RPA) CALL dbt_batched_contract_finalize(t_dm_virt(1))
+            END DO
 
-            CALL dbcsr_t_batched_contract_finalize(t_P, unit_nr=unit_nr_dbcsr)
+            CALL dbt_batched_contract_finalize(t_P, unit_nr=unit_nr_dbcsr)
 
-            CALL dbcsr_t_create(mat_P_global%matrix, t_P_tmp)
-            CALL dbcsr_t_copy(t_P, t_P_tmp, move_data=.TRUE.)
-            CALL dbcsr_t_copy_tensor_to_matrix(t_P_tmp, mat_P_global%matrix)
-            CALL dbcsr_t_destroy(t_P_tmp)
+            CALL dbt_create(mat_P_global%matrix, t_P_tmp)
+            CALL dbt_copy(t_P, t_P_tmp, move_data=.TRUE.)
+            CALL dbt_copy_tensor_to_matrix(t_P_tmp, mat_P_global%matrix)
+            CALL dbt_destroy(t_P_tmp)
 
             IF (do_ri_sos_laplace_mp2) THEN
                ! For RI-SOS-Laplace-MP2 we do not perform a cosine transform,
@@ -589,22 +530,37 @@ CONTAINS
                END DO
 
                CALL timestop(handle3)
-            ENDIF
+            END IF
 
-         ENDDO
+         END DO
 
          CALL timestop(handle2)
 
-         CALL dbcsr_t_destroy(t_P)
-         DO i_cell = 1, num_cells_dm
-            CALL dbcsr_t_destroy(t_dm_virt(i_cell))
-            CALL dbcsr_t_destroy(t_dm_occ(i_cell))
-         ENDDO
+         CALL dbt_batched_contract_finalize(t_3c_M_occ_tmp)
+         CALL dbt_batched_contract_finalize(t_3c_M_virt_tmp)
+         CALL dbt_batched_contract_finalize(t_3c_M_occ)
+         CALL dbt_batched_contract_finalize(t_3c_M_virt)
 
-         CALL dbcsr_t_destroy(t_3c_M_occ_tmp)
-         CALL dbcsr_t_destroy(t_3c_M_virt_tmp)
-         CALL dbcsr_t_destroy(t_3c_M_occ)
-         CALL dbcsr_t_destroy(t_3c_M_virt)
+         DO i = 1, SIZE(t_3c_O_occ, 1)
+            DO j = 1, SIZE(t_3c_O_occ, 2)
+               CALL dbt_batched_contract_finalize(t_3c_O_occ(i, j))
+            END DO
+         END DO
+
+         DO i = 1, SIZE(t_3c_O_virt, 1)
+            DO j = 1, SIZE(t_3c_O_virt, 2)
+               CALL dbt_batched_contract_finalize(t_3c_O_virt(i, j))
+            END DO
+         END DO
+
+         CALL dbt_destroy(t_P)
+         DO i_cell = 1, num_cells_dm
+            CALL dbt_destroy(t_dm_virt(i_cell))
+            CALL dbt_destroy(t_dm_occ(i_cell))
+         END DO
+
+         CALL dbt_destroy(t_3c_M_occ_tmp)
+         CALL dbt_destroy(t_3c_M_virt_tmp)
          DEALLOCATE (t_dm_virt)
          DEALLOCATE (t_dm_occ)
 
@@ -616,8 +572,8 @@ CONTAINS
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, '(/T3,A,1X,I3)') &
                'RPA_LOW_SCALING_INFO| Info for time point', jquad
-            WRITE (unit_nr, '(T6,A,T56,F25.6)') &
-               'Time:', t2 - t1
+            WRITE (unit_nr, '(T6,A,T56,F25.1)') &
+               'Execution time (s):', t2 - t1
             WRITE (unit_nr, '(T6,A,T63,ES7.1,1X,A1,1X,F7.3,A1)') &
                'Occupancy of D occ:', REAL(nze_dm_occ, dp), '/', occ_dm_occ*100, '%'
             WRITE (unit_nr, '(T6,A,T63,ES7.1,1X,A1,1X,F7.3,A1)') &
@@ -629,22 +585,22 @@ CONTAINS
                   'Occupancy of M occ:', REAL(nze_M_occ, dp), '/', occ_M_occ*100, '%'
                WRITE (unit_nr, '(T6,A,T63,ES7.1,1X,A1,1X,F7.3,A1)') &
                   'Occupancy of M virt:', REAL(nze_M_virt, dp), '/', occ_M_virt*100, '%'
-            ENDIF
+            END IF
             WRITE (unit_nr, *)
-         ENDIF
+            CALL m_flush(unit_nr)
+         END IF
 
       END DO ! time points
 
+      CALL dbt_destroy(t_3c_M_occ)
+      CALL dbt_destroy(t_3c_M_virt)
+
       DO i = 1, SIZE(t_3c_O, 1)
          DO j = 1, SIZE(t_3c_O, 2)
-            CALL dbcsr_t_destroy(t_3c_O_occ(i, j))
-            CALL dbcsr_t_destroy(t_3c_O_virt(i, j))
-         ENDDO
-      ENDDO
-
-      IF (pgrid_1_init_virt) CALL dbcsr_t_pgrid_destroy(pgrid_1_use_virt)
-      IF (pgrid_1_init_occ) CALL dbcsr_t_pgrid_destroy(pgrid_1_use_occ)
-      IF (pgrid_2_init) CALL dbcsr_t_pgrid_destroy(pgrid_2_use)
+            CALL dbt_destroy(t_3c_O_occ(i, j))
+            CALL dbt_destroy(t_3c_O_virt(i, j))
+         END DO
+      END DO
 
       CALL clean_up(mat_dm_occ_global, mat_dm_virt_global)
 
@@ -657,7 +613,7 @@ CONTAINS
 !> \param mat_P_omega ...
 ! **************************************************************************************************
    SUBROUTINE zero_mat_P_omega(mat_P_omega)
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_P_omega
+      TYPE(dbcsr_p_type), DIMENSION(:, :), INTENT(IN)    :: mat_P_omega
 
       INTEGER                                            :: i_kp, jquad
 
@@ -693,42 +649,44 @@ CONTAINS
 !> \param unit_nr ...
 !> \param jquad ...
 !> \param do_kpoints_cubic_RPA ...
+!> \param do_kpoints_from_Gamma ...
 !> \param qs_env ...
 !> \param num_cells_dm ...
 !> \param index_to_cell_dm ...
+!> \param para_env ...
 ! **************************************************************************************************
    SUBROUTINE compute_mat_dm_global(fm_scaled_dm_occ_tau, fm_scaled_dm_virt_tau, tau_tj, num_integ_points, nmo, &
                                     fm_mo_coeff_occ, fm_mo_coeff_virt, fm_mo_coeff_occ_scaled, &
                                     fm_mo_coeff_virt_scaled, mat_dm_occ_global, mat_dm_virt_global, &
                                     matrix_s, ispin, &
-                                    Eigenval, e_fermi, eps_filter, memory_info, &
-                                    unit_nr, &
-                                    jquad, do_kpoints_cubic_RPA, qs_env, &
-                                    num_cells_dm, index_to_cell_dm)
+                                    Eigenval, e_fermi, eps_filter, memory_info, unit_nr, &
+                                    jquad, do_kpoints_cubic_RPA, do_kpoints_from_Gamma, qs_env, &
+                                    num_cells_dm, index_to_cell_dm, para_env)
 
-      TYPE(cp_fm_type), POINTER                          :: fm_scaled_dm_occ_tau, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_scaled_dm_occ_tau, &
                                                             fm_scaled_dm_virt_tau
       INTEGER, INTENT(IN)                                :: num_integ_points
       REAL(KIND=dp), DIMENSION(0:num_integ_points), &
          INTENT(IN)                                      :: tau_tj
       INTEGER, INTENT(IN)                                :: nmo
-      TYPE(cp_fm_type), POINTER                          :: fm_mo_coeff_occ, fm_mo_coeff_virt, &
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mo_coeff_occ, fm_mo_coeff_virt, &
                                                             fm_mo_coeff_occ_scaled, &
                                                             fm_mo_coeff_virt_scaled
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_occ_global, mat_dm_virt_global
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
+      TYPE(dbcsr_p_type), DIMENSION(:), INTENT(IN)       :: matrix_s
       INTEGER, INTENT(IN)                                :: ispin
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
       REAL(KIND=dp), INTENT(IN)                          :: e_fermi, eps_filter
       LOGICAL, INTENT(IN)                                :: memory_info
       INTEGER, INTENT(IN)                                :: unit_nr, jquad
-      LOGICAL, INTENT(IN)                                :: do_kpoints_cubic_RPA
+      LOGICAL, INTENT(IN)                                :: do_kpoints_cubic_RPA, &
+                                                            do_kpoints_from_Gamma
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(OUT)                               :: num_cells_dm
       INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell_dm
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_mat_dm_global', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_mat_dm_global'
       REAL(KIND=dp), PARAMETER                           :: stabilize_exp = 70.0_dp
 
       INTEGER                                            :: handle, i_global, iiB, iquad, jjB, &
@@ -746,17 +704,35 @@ CONTAINS
 
       IF (do_kpoints_cubic_RPA) THEN
 
-         CALL compute_transl_dm(mat_dm_occ_global, qs_env, ispin, num_integ_points, jquad, e_fermi, tau, &
+         CALL compute_transl_dm(mat_dm_occ_global, qs_env, &
+                                ispin, num_integ_points, jquad, e_fermi, tau, &
                                 eps_filter, num_cells_dm, index_to_cell_dm, &
                                 remove_occ=.FALSE., remove_virt=.TRUE., first_jquad=1)
 
-         CALL compute_transl_dm(mat_dm_virt_global, qs_env, ispin, num_integ_points, jquad, e_fermi, tau, &
+         CALL compute_transl_dm(mat_dm_virt_global, qs_env, &
+                                ispin, num_integ_points, jquad, e_fermi, tau, &
                                 eps_filter, num_cells_dm, index_to_cell_dm, &
                                 remove_occ=.TRUE., remove_virt=.FALSE., first_jquad=1)
+
+      ELSE IF (do_kpoints_from_Gamma) THEN
+
+         CALL compute_periodic_dm(mat_dm_occ_global, qs_env, &
+                                  ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ=.FALSE., remove_virt=.TRUE., first_jquad=1, &
+                                  symmetrize=.FALSE.)
+
+         CALL compute_periodic_dm(mat_dm_virt_global, qs_env, &
+                                  ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ=.TRUE., remove_virt=.FALSE., first_jquad=1, &
+                                  symmetrize=.FALSE.)
+
+         num_cells_dm = 1
 
       ELSE
 
          num_cells_dm = 1
+
+         CALL mp_sync(para_env%group)
 
          ! get info of fm_mo_coeff_occ
          CALL cp_fm_get_info(matrix=fm_mo_coeff_occ, &
@@ -808,16 +784,18 @@ CONTAINS
             END DO
          END DO
 
+         CALL mp_sync(para_env%group)
+
          size_dm_occ = nmo
          size_dm_virt = nmo
 
-         CALL cp_gemm(transa="N", transb="T", m=size_dm_occ, n=size_dm_occ, k=nmo, alpha=1.0_dp, &
-                      matrix_a=fm_mo_coeff_occ_scaled, matrix_b=fm_mo_coeff_occ_scaled, beta=0.0_dp, &
-                      matrix_c=fm_scaled_dm_occ_tau)
+         CALL parallel_gemm(transa="N", transb="T", m=size_dm_occ, n=size_dm_occ, k=nmo, alpha=1.0_dp, &
+                            matrix_a=fm_mo_coeff_occ_scaled, matrix_b=fm_mo_coeff_occ_scaled, beta=0.0_dp, &
+                            matrix_c=fm_scaled_dm_occ_tau)
 
-         CALL cp_gemm(transa="N", transb="T", m=size_dm_virt, n=size_dm_virt, k=nmo, alpha=1.0_dp, &
-                      matrix_a=fm_mo_coeff_virt_scaled, matrix_b=fm_mo_coeff_virt_scaled, beta=0.0_dp, &
-                      matrix_c=fm_scaled_dm_virt_tau)
+         CALL parallel_gemm(transa="N", transb="T", m=size_dm_virt, n=size_dm_virt, k=nmo, alpha=1.0_dp, &
+                            matrix_a=fm_mo_coeff_virt_scaled, matrix_b=fm_mo_coeff_virt_scaled, beta=0.0_dp, &
+                            matrix_c=fm_scaled_dm_virt_tau)
 
          IF (jquad == 1) THEN
 
@@ -870,6 +848,7 @@ CONTAINS
       END IF ! do kpoints
 
       CALL timestop(handle)
+
    END SUBROUTINE compute_mat_dm_global
 
 ! **************************************************************************************************
@@ -899,8 +878,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: tau, e_fermi
       LOGICAL, INTENT(IN)                                :: remove_occ, remove_virt
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_matrices_rpa', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_matrices_rpa'
       REAL(KIND=dp), PARAMETER                           :: stabilize_exp = 70.0_dp
 
       INTEGER                                            :: handle, i_mo, ikpgr, ispin, kplocal, &
@@ -908,7 +886,8 @@ CONTAINS
       INTEGER, DIMENSION(2)                              :: kp_range
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigenvalues, exp_scaling, occupation
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
-      TYPE(cp_fm_type), POINTER                          :: cpmat, fwork, rpmat
+      TYPE(cp_fm_type)                                   :: fwork
+      TYPE(cp_fm_type), POINTER                          :: cpmat, rpmat
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(mo_set_type), POINTER                         :: mo_set
 
@@ -918,7 +897,7 @@ CONTAINS
       CPASSERT(kpoint%use_real_wfn .EQV. .FALSE.)
 
       ! work matrix
-      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)%mo_set
+      mo_set => kpoint%kp_env(1)%kpoint_env%mos(1, 1)
       CALL get_mo_set(mo_set, nao=nao, nmo=nmo)
 
       ! if this CPASSERT is triggered, please add all virtual MOs to SCF section,
@@ -937,7 +916,7 @@ CONTAINS
          kp => kpoint%kp_env(ikpgr)%kpoint_env
          nspin = SIZE(kp%mos, 2)
          DO ispin = 1, nspin
-            mo_set => kp%mos(1, ispin)%mo_set
+            mo_set => kp%mos(1, ispin)
             CALL get_mo_set(mo_set, eigenvalues=eigenvalues)
             rpmat => kp%wmat(1, ispin)%matrix
             cpmat => kp%wmat(2, ispin)%matrix
@@ -957,6 +936,7 @@ CONTAINS
             END IF
 
             DO i_mo = 1, nmo
+
                IF (ABS(tau*0.5_dp*(eigenvalues(i_mo) - e_fermi)) < stabilize_exp) THEN
                   exp_scaling(i_mo) = EXP(-ABS(tau*(eigenvalues(i_mo) - e_fermi)))
                ELSE
@@ -967,12 +947,12 @@ CONTAINS
             CALL cp_fm_column_scale(fwork, exp_scaling)
 
             ! Re(c)*Re(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
-            mo_set => kp%mos(2, ispin)%mo_set
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, rpmat)
+            mo_set => kp%mos(2, ispin)
             ! Im(c)*Re(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, -1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, cpmat)
             ! Re(c)*Im(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, fwork, mo_set%mo_coeff, 1.0_dp, cpmat)
 
             CALL cp_fm_to_fm(mo_set%mo_coeff, fwork)
 
@@ -998,7 +978,7 @@ CONTAINS
 
             CALL cp_fm_column_scale(fwork, exp_scaling)
             ! Im(c)*Im(c)
-            CALL cp_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
+            CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 1.0_dp, rpmat)
 
          END DO
 
@@ -1039,28 +1019,22 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: remove_occ, remove_virt
       INTEGER, INTENT(IN)                                :: first_jquad
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_transl_dm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'compute_transl_dm'
 
       INTEGER                                            :: handle, i_dim, i_img, iquad, jspin, nspin
       INTEGER, DIMENSION(3)                              :: cell_grid_dm
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work, matrix_s_kp
-      TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
-      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: sab_nl
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
       CALL get_qs_env(qs_env, &
                       matrix_s_kp=matrix_s_kp, &
-                      sab_orb=sab_nl, &
                       mos=mos, &
-                      dft_control=dft_control, &
-                      cell=cell, &
-                      kpoints=kpoints)
+                      kpoints=kpoints, &
+                      cell=cell)
 
       nspin = SIZE(mos)
 
@@ -1111,7 +1085,6 @@ CONTAINS
       IF (jquad == first_jquad) THEN
 
          NULLIFY (mat_dm_global)
-!         CALL dbcsr_allocate_matrix_set(mat_dm_global, jquad:num_integ_points, num_cells_dm)
          ALLOCATE (mat_dm_global(first_jquad:num_integ_points, num_cells_dm))
 
          DO iquad = first_jquad, num_integ_points
@@ -1145,6 +1118,231 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief ...
+!> \param mat_dm_global ...
+!> \param qs_env ...
+!> \param ispin ...
+!> \param num_integ_points ...
+!> \param jquad ...
+!> \param e_fermi ...
+!> \param tau ...
+!> \param remove_occ ...
+!> \param remove_virt ...
+!> \param first_jquad ...
+!> \param symmetrize ...
+! **************************************************************************************************
+   SUBROUTINE compute_periodic_dm(mat_dm_global, qs_env, ispin, num_integ_points, jquad, e_fermi, tau, &
+                                  remove_occ, remove_virt, first_jquad, symmetrize)
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      INTEGER, INTENT(IN)                                :: ispin, num_integ_points, jquad
+      REAL(KIND=dp), INTENT(IN)                          :: e_fermi, tau
+      LOGICAL, INTENT(IN)                                :: remove_occ, remove_virt
+      INTEGER, INTENT(IN)                                :: first_jquad
+      LOGICAL, INTENT(IN)                                :: symmetrize
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_periodic_dm'
+
+      INTEGER                                            :: handle, iquad, jspin, nspin, num_cells_dm
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work, matrix_s_kp
+      TYPE(kpoint_type), POINTER                         :: kpoints_G
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (matrix_s_kp, mos)
+
+      CALL get_qs_env(qs_env, &
+                      matrix_s_kp=matrix_s_kp, &
+                      mos=mos)
+
+      kpoints_G => qs_env%mp2_env%ri_rpa_im_time%kpoints_G
+
+      nspin = SIZE(mos)
+
+      num_cells_dm = 1
+
+      NULLIFY (mat_dm_global_work)
+      CALL dbcsr_allocate_matrix_set(mat_dm_global_work, nspin, num_cells_dm)
+
+      ! jquad = first_jquad to allocate the matrix set
+      IF (jquad == first_jquad) THEN
+
+         NULLIFY (mat_dm_global)
+         ALLOCATE (mat_dm_global(first_jquad:num_integ_points, num_cells_dm))
+
+         DO iquad = first_jquad, num_integ_points
+            NULLIFY (mat_dm_global(iquad, 1)%matrix)
+            ALLOCATE (mat_dm_global(iquad, 1)%matrix)
+            CALL dbcsr_create(matrix=mat_dm_global(iquad, 1)%matrix, &
+                              template=matrix_s_kp(1, 1)%matrix, &
+                              matrix_type=dbcsr_type_no_symmetry)
+
+         END DO
+
+      END IF
+
+      DO jspin = 1, nspin
+
+         ALLOCATE (mat_dm_global_work(jspin, 1)%matrix)
+         CALL dbcsr_create(matrix=mat_dm_global_work(jspin, 1)%matrix, &
+                           template=matrix_s_kp(1, 1)%matrix, &
+                           matrix_type=dbcsr_type_no_symmetry)
+
+         CALL dbcsr_reserve_all_blocks(mat_dm_global_work(jspin, 1)%matrix)
+
+         CALL dbcsr_set(mat_dm_global_work(ispin, 1)%matrix, 0.0_dp)
+
+      END DO
+
+      ! density matrices in k-space weighted with EXP(-|e_i-e_F|*t) for occupied orbitals
+      CALL kpoint_density_matrices_rpa(kpoints_G, tau, e_fermi, &
+                                       remove_occ=remove_occ, remove_virt=remove_virt)
+
+      SELECT CASE (qs_env%mp2_env%ri_rpa_im_time%periodic_gf)
+      CASE (gw_gf_mic)
+         ! density matrices in real space, the cell vectors T for transforming are taken from kpoints%index_to_cell
+         ! (custom made for RPA) and not from sab_nl (which is symmetric and from SCF)
+         CALL density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only=.FALSE.)
+      CASE (gw_gf_gamma)
+         ! Gamma-only: take Gamma-k-point matrix
+         CALL density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only=.TRUE.)
+      END SELECT
+
+      CALL dbcsr_copy(mat_dm_global(jquad, 1)%matrix, &
+                      mat_dm_global_work(ispin, 1)%matrix)
+
+      CALL dbcsr_deallocate_matrix_set(mat_dm_global_work)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE compute_periodic_dm
+
+   ! **************************************************************************************************
+!> \brief ...
+!> \param kpoints_G ...
+!> \param mat_dm_global_work ...
+!> \param qs_env ...
+!> \param symmetrize ...
+!> \param gamma_only ...
+! **************************************************************************************************
+   SUBROUTINE density_matrix_from_kp_to_mic(kpoints_G, mat_dm_global_work, qs_env, symmetrize, gamma_only)
+
+      TYPE(kpoint_type), POINTER                         :: kpoints_G
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL                                            :: symmetrize, gamma_only
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_from_kp_to_mic'
+
+      INTEGER                                            :: handle, iatom, iatom_old, ik, irow, &
+                                                            ispin, jatom, jatom_old, jcol, nao, &
+                                                            ncol_local, nkp, nrow_local, nspin, &
+                                                            num_cells
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_from_ao_index
+      INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
+      INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell
+      REAL(KIND=dp)                                      :: contribution, weight_im, weight_re
+      REAL(KIND=dp), DIMENSION(2)                        :: abs_cutoffs_chi_W
+      REAL(KIND=dp), DIMENSION(3, 3)                     :: hmat
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: wkp
+      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: xkp
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cp_fm_type)                                   :: fm_mat_work
+      TYPE(cp_fm_type), POINTER                          :: cpmat, rpmat
+      TYPE(kpoint_env_type), POINTER                     :: kp
+      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (xkp, wkp)
+
+      CALL cp_fm_create(fm_mat_work, kpoints_G%kp_env(1)%kpoint_env%wmat(1, 1)%matrix%matrix_struct)
+      CALL cp_fm_set_all(fm_mat_work, 0.0_dp)
+
+      CALL get_kpoint_info(kpoints_G, nkp=nkp, xkp=xkp, wkp=wkp)
+      index_to_cell => kpoints_G%index_to_cell
+      num_cells = SIZE(index_to_cell, 2)
+
+      abs_cutoffs_chi_W = qs_env%mp2_env%ri_rpa_im_time%abs_cutoffs_chi_W
+
+      nspin = SIZE(mat_dm_global_work, 1)
+
+      mo_set => kpoints_G%kp_env(1)%kpoint_env%mos(1, 1)
+      CALL get_mo_set(mo_set, nao=nao)
+
+      ALLOCATE (atom_from_ao_index(nao))
+
+      CALL get_atom_index_from_basis_function_index(qs_env, atom_from_ao_index, nao, "ORB")
+
+      CALL cp_fm_get_info(matrix=kpoints_G%kp_env(1)%kpoint_env%wmat(1, 1)%matrix, &
+                          nrow_local=nrow_local, &
+                          ncol_local=ncol_local, &
+                          row_indices=row_indices, &
+                          col_indices=col_indices)
+
+      NULLIFY (cell, particle_set)
+      CALL get_qs_env(qs_env, cell=cell, particle_set=particle_set)
+      CALL get_cell(cell=cell, h=hmat)
+
+      abs_cutoffs_chi_W(1:2) = qs_env%mp2_env%ri_rpa_im_time%abs_cutoffs_chi_W(1:2)
+
+      iatom_old = 0
+      jatom_old = 0
+
+      DO ispin = 1, nspin
+
+         CALL dbcsr_set(mat_dm_global_work(ispin, 1)%matrix, 0.0_dp)
+
+         DO ik = 1, nkp
+
+            kp => kpoints_G%kp_env(ik)%kpoint_env
+            rpmat => kp%wmat(1, ispin)%matrix
+            cpmat => kp%wmat(2, ispin)%matrix
+
+            DO irow = 1, nrow_local
+               DO jcol = 1, ncol_local
+
+                  iatom = atom_from_ao_index(row_indices(irow))
+                  jatom = atom_from_ao_index(col_indices(jcol))
+
+                  IF (iatom .NE. iatom_old .OR. jatom .NE. jatom_old) THEN
+
+                     CALL compute_weight_re_im(weight_re, weight_im, &
+                                               num_cells, iatom, jatom, xkp(1:3, ik), wkp(ik), &
+                                               cell, index_to_cell, hmat, particle_set, abs_cutoffs_chi_W, &
+                                               symmetrize, gamma_only)
+
+                     iatom_old = iatom
+                     jatom_old = jatom
+
+                  END IF
+
+                  ! minus sign because of i^2 = -1
+                  contribution = weight_re*rpmat%local_data(irow, jcol) - &
+                                 weight_im*cpmat%local_data(irow, jcol)
+
+                  fm_mat_work%local_data(irow, jcol) = fm_mat_work%local_data(irow, jcol) + contribution
+
+               END DO
+            END DO
+
+         END DO ! ik
+
+         CALL copy_fm_to_dbcsr(fm_mat_work, mat_dm_global_work(ispin, 1)%matrix, keep_sparsity=.FALSE.)
+         CALL cp_fm_set_all(fm_mat_work, 0.0_dp)
+
+      END DO
+
+      CALL cp_fm_release(fm_mat_work)
+      DEALLOCATE (atom_from_ao_index)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE density_matrix_from_kp_to_mic
+
+! **************************************************************************************************
+!> \brief ...
 !> \param kpoints ...
 !> \param mat_dm_global_work ...
 !> \param index_to_cell ...
@@ -1152,15 +1350,13 @@ CONTAINS
    SUBROUTINE density_matrix_from_kp_to_transl(kpoints, mat_dm_global_work, index_to_cell)
 
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: mat_dm_global_work
-      INTEGER, DIMENSION(:, :), OPTIONAL, POINTER        :: index_to_cell
+      TYPE(dbcsr_p_type), DIMENSION(:, :), INTENT(IN)    :: mat_dm_global_work
+      INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_from_kp_to_transl', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'density_matrix_from_kp_to_transl'
 
       INTEGER                                            :: handle, icell, ik, ispin, nkp, nspin, &
                                                             xcell, ycell, zcell
-      INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       REAL(KIND=dp)                                      :: arg, coskl, sinkl
       REAL(KIND=dp), DIMENSION(:), POINTER               :: wkp
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: xkp
@@ -1170,7 +1366,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (cell_to_index, xkp, wkp)
+      NULLIFY (xkp, wkp)
 
       NULLIFY (mat_work_re)
       CALL dbcsr_init_p(mat_work_re)
@@ -1184,8 +1380,7 @@ CONTAINS
                         template=mat_dm_global_work(1, 1)%matrix, &
                         matrix_type=dbcsr_type_no_symmetry)
 
-      CALL get_kpoint_info(kpoints, nkp=nkp, xkp=xkp, wkp=wkp, &
-                           cell_to_index=cell_to_index)
+      CALL get_kpoint_info(kpoints, nkp=nkp, xkp=xkp, wkp=wkp)
 
       nspin = SIZE(mat_dm_global_work, 1)
 
@@ -1248,10 +1443,9 @@ CONTAINS
       INTEGER, DIMENSION(3), INTENT(IN)                  :: cell_grid
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell
-      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cell_type), INTENT(IN), POINTER               :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_cell_index_rpa', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_cell_index_rpa'
 
       INTEGER                                            :: cell_counter, handle, i_cell, &
                                                             index_min_dist, num_cells, xcell, &
@@ -1379,12 +1573,11 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell_3c
       INTEGER, ALLOCATABLE, DIMENSION(:, :, :), &
          INTENT(IN)                                      :: cell_to_index_3c
-      INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell_dm
+      INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell_dm
       LOGICAL, INTENT(OUT)                               :: R_minus_S_needed
       LOGICAL, INTENT(IN)                                :: do_kpoints_cubic_RPA
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_diff_index_3c', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'get_diff_index_3c'
 
       INTEGER :: handle, x_cell_R, x_cell_R_minus_S, x_cell_S, y_cell_R, y_cell_R_minus_S, &
          y_cell_S, z_cell_R, z_cell_R_minus_S, z_cell_S
@@ -1466,12 +1659,11 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell_3c
       INTEGER, ALLOCATABLE, DIMENSION(:, :, :), &
          INTENT(IN)                                      :: cell_to_index_3c
-      INTEGER, DIMENSION(:, :), POINTER                  :: index_to_cell_dm
+      INTEGER, DIMENSION(:, :), INTENT(IN)               :: index_to_cell_dm
       LOGICAL, INTENT(OUT)                               :: R_minus_S_minus_T_needed
       LOGICAL, INTENT(IN)                                :: do_kpoints_cubic_RPA
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_diff_diff_index_3c', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_diff_diff_index_3c'
 
       INTEGER :: handle, x_cell_R, x_cell_R_minus_S_minus_T, x_cell_S, x_cell_T, y_cell_R, &
          y_cell_R_minus_S_minus_T, y_cell_S, y_cell_T, z_cell_R, z_cell_R_minus_S_minus_T, &

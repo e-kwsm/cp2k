@@ -2,5 +2,8 @@ exe
 lib
 obj
 regtesting
-tools/toolchain
+tools/toolchain/install
+tools/toolchain/build
 .git*
+*~
+\#*\#

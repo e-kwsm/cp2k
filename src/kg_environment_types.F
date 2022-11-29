@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -115,8 +117,8 @@ MODULE kg_environment_types
       !
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER       :: tnadd_mat
       ! LRI
-      TYPE(lri_environment_type), POINTER             :: lri_env
-      TYPE(lri_density_type), POINTER                 :: lri_density
+      TYPE(lri_environment_type), POINTER             :: lri_env, lri_env1
+      TYPE(lri_density_type), POINTER                 :: lri_density, lri_rho1
       ! atomic grid
       TYPE(atom_integration_grid_type), POINTER       :: int_grid_atom
       TYPE(integration_grid_type), POINTER            :: int_grid_molecules
@@ -132,7 +134,7 @@ CONTAINS
    SUBROUTINE kg_env_release(kg_env)
       TYPE(kg_environment_type), POINTER                 :: kg_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'kg_env_release', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'kg_env_release'
 
       INTEGER                                            :: handle, isub
 
@@ -145,7 +147,7 @@ CONTAINS
 
       IF (ASSOCIATED(kg_env%tnadd_mat)) THEN
          CALL dbcsr_deallocate_matrix_set(kg_env%tnadd_mat)
-      ENDIF
+      END IF
 
       DO isub = 1, kg_env%nsubsets
          CALL release_neighbor_list_sets(kg_env%subset(isub)%sab_orb)
@@ -160,9 +162,19 @@ CONTAINS
       ! LRI
       IF (ASSOCIATED(kg_env%lri_env)) THEN
          CALL lri_env_release(kg_env%lri_env)
+         DEALLOCATE (kg_env%lri_env)
       END IF
       IF (ASSOCIATED(kg_env%lri_density)) THEN
          CALL lri_density_release(kg_env%lri_density)
+         DEALLOCATE (kg_env%lri_density)
+      END IF
+      IF (ASSOCIATED(kg_env%lri_env1)) THEN
+         CALL lri_env_release(kg_env%lri_env1)
+         DEALLOCATE (kg_env%lri_env1)
+      END IF
+      IF (ASSOCIATED(kg_env%lri_rho1)) THEN
+         CALL lri_density_release(kg_env%lri_rho1)
+         DEALLOCATE (kg_env%lri_rho1)
       END IF
       ! atom grids
       IF (ASSOCIATED(kg_env%int_grid_atom)) THEN

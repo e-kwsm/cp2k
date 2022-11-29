@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -18,6 +20,9 @@ MODULE xc_xlda_hole_t_c_lr
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi
    USE mathlib,                         ONLY: expint
+   USE xc_derivative_desc,              ONLY: deriv_rho,&
+                                              deriv_rhoa,&
+                                              deriv_rhob
    USE xc_derivative_set_types,         ONLY: xc_derivative_set_type,&
                                               xc_dset_get_derivative
    USE xc_derivative_types,             ONLY: xc_derivative_get,&
@@ -110,7 +115,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param order degree of the derivative that should be evalated,
+!> \param order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param params input parameters (scaling, cutoff_radius)
@@ -120,31 +125,24 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xlda_hole_t_c_lr_lda_eval(rho_set, deriv_set, order, params)
 
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: order
       TYPE(section_vals_type), POINTER                   :: params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lda_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lda_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho, R, sx
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_rho, rho
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_rho, rho
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
       CALL section_vals_val_get(params, "SCALE_X", r_val=sx)
       CALL section_vals_val_get(params, "CUTOFF_RADIUS", r_val=R)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rho=rho, &
                           local_bounds=bo, rho_cutoff=epsilon_rho)
@@ -156,12 +154,12 @@ CONTAINS
       e_rho => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rho)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rho], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rho)
       END IF
@@ -202,9 +200,6 @@ CONTAINS
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: rho, e_0, e_rho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lda_calc', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
       REAL(dp)                                           :: my_rho
 
@@ -243,9 +238,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: rho
       REAL(kind=dp), INTENT(INOUT)                       :: e_0, e_rho
       REAL(KIND=dp), INTENT(IN)                          :: sx, R
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lda_calc_0', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                                      :: t1, t12, t14, t15, t19, t2, t22, t23, &
                                                             t24, t25, t3, t32, t33, t36, t4, t41, &
@@ -304,7 +296,7 @@ CONTAINS
 !> \param rho_set the density where you want to evaluate the functional
 !> \param deriv_set place where to store the functional derivatives (they are
 !>        added to the derivatives)
-!> \param order degree of the derivative that should be evalated,
+!> \param order degree of the derivative that should be evaluated,
 !>        if positive all the derivatives up to the given degree are evaluated,
 !>        if negative only the given degree is calculated
 !> \param params input parameters (scaling, cutoff_radius)
@@ -314,31 +306,24 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE xlda_hole_t_c_lr_lsd_eval(rho_set, deriv_set, order, params)
 
-      TYPE(xc_rho_set_type), POINTER                     :: rho_set
-      TYPE(xc_derivative_set_type), POINTER              :: deriv_set
+      TYPE(xc_rho_set_type), INTENT(IN)                  :: rho_set
+      TYPE(xc_derivative_set_type), INTENT(IN)           :: deriv_set
       INTEGER, INTENT(IN)                                :: order
       TYPE(section_vals_type), POINTER                   :: params
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lsd_eval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lsd_eval'
 
       INTEGER                                            :: handle, npoints
-      INTEGER, DIMENSION(:, :), POINTER                  :: bo
+      INTEGER, DIMENSION(2, 3)                           :: bo
       REAL(kind=dp)                                      :: epsilon_rho, R, sx
-      REAL(kind=dp), DIMENSION(:, :, :), POINTER         :: dummy, e_0, e_rhoa, e_rhob, rhoa, rhob
+      REAL(kind=dp), CONTIGUOUS, DIMENSION(:, :, :), &
+         POINTER                                         :: dummy, e_0, e_rhoa, e_rhob, rhoa, rhob
       TYPE(xc_derivative_type), POINTER                  :: deriv
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (bo)
-
       CALL section_vals_val_get(params, "SCALE_X", r_val=sx)
       CALL section_vals_val_get(params, "CUTOFF_RADIUS", r_val=R)
-
-      CPASSERT(ASSOCIATED(rho_set))
-      CPASSERT(rho_set%ref_count > 0)
-      CPASSERT(ASSOCIATED(deriv_set))
-      CPASSERT(deriv_set%ref_count > 0)
 
       CALL xc_rho_set_get(rho_set, rhoa=rhoa, rhob=rhob, &
                           local_bounds=bo, rho_cutoff=epsilon_rho)
@@ -351,15 +336,15 @@ CONTAINS
       e_rhob => dummy
 
       IF (order >= 0) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "", &
+         deriv => xc_dset_get_derivative(deriv_set, [INTEGER::], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_0)
       END IF
       IF (order >= 1 .OR. order == -1) THEN
-         deriv => xc_dset_get_derivative(deriv_set, "(rhoa)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhoa], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhoa)
-         deriv => xc_dset_get_derivative(deriv_set, "(rhob)", &
+         deriv => xc_dset_get_derivative(deriv_set, [deriv_rhob], &
                                          allocate_deriv=.TRUE.)
          CALL xc_derivative_get(deriv, deriv_data=e_rhob)
       END IF
@@ -409,9 +394,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: npoints, order
       REAL(kind=dp), DIMENSION(1:npoints), INTENT(inout) :: rho, e_0, e_rho
       REAL(kind=dp), INTENT(in)                          :: epsilon_rho, sx, R
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'xlda_hole_t_c_lr_lsd_calc', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
       REAL(dp)                                           :: e_tmp, my_rho

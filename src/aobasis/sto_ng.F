@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -53,8 +55,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: zeta
       INTEGER, INTENT(IN)                                :: n, nq, lq
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: alpha, coef
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_sto_ng', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: m, na, nc
 

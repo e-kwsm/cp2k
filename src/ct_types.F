@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -79,7 +81,7 @@ MODULE ct_types
 !SPIN!!!    ! virt orbitals, contravariant-covariant representation
 !SPIN!!!    TYPE(dbcsr_type), DIMENSION(:), POINTER  :: matrix_v=>NULL()
 !SPIN!!!
-!SPIN!!!    ! to avoid bulding Occ-by-N and Virt-vy-N matrices inside
+!SPIN!!!    ! to avoid building Occ-by-N and Virt-vy-N matrices inside
 !SPIN!!!    ! the ct routines get them from the external code
 !SPIN!!!    TYPE(dbcsr_type), DIMENSION(:), POINTER  :: matrix_qp_template=>NULL()
 !SPIN!!!    TYPE(dbcsr_type), DIMENSION(:), POINTER  :: matrix_pq_template=>NULL()
@@ -104,7 +106,7 @@ MODULE ct_types
       ! virt orbitals, contravariant-covariant representation
       TYPE(dbcsr_type), POINTER  :: matrix_v => NULL()
 
-      ! to avoid bulding Occ-by-N and Virt-vy-N matrices inside
+      ! to avoid building Occ-by-N and Virt-vy-N matrices inside
       ! the ct routines get them from the external code
       TYPE(dbcsr_type), POINTER  :: matrix_qp_template => NULL()
       TYPE(dbcsr_type), POINTER  :: matrix_pq_template => NULL()
@@ -133,9 +135,6 @@ CONTAINS
    SUBROUTINE ct_step_env_init(env)
 
       TYPE(ct_step_env_type)                             :: env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ct_step_env_init', &
-         routineP = moduleN//':'//routineN
 
       env%use_occ_orbs = .TRUE.
       env%use_virt_orbs = .FALSE.
@@ -232,9 +231,6 @@ CONTAINS
                                                             qq_preconditioner_full, &
                                                             pp_preconditioner_full
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ct_step_env_get', &
-         routineP = moduleN//':'//routineN
-
 !INTEGER      , OPTIONAL                     :: nspins
 !SPIN!!!    TYPE(dbcsr_type), DIMENSION(:), POINTER, OPTIONAL  :: p_index_up
 !SPIN!!!    TYPE(dbcsr_type), DIMENSION(:), POINTER, OPTIONAL  :: p_index_down
@@ -289,7 +285,7 @@ CONTAINS
          !CALL dbcsr_copy(copy_matrix_x(ispin),env%matrix_x(ispin))
          CALL dbcsr_copy(copy_matrix_x, env%matrix_x)
          !ENDDO
-      ENDIF
+      END IF
       !IF (PRESENT(matrix_x)) matrix_x => env%matrix_x
       IF (PRESENT(energy_correction)) energy_correction = env%energy_correction
       IF (PRESENT(converged)) converged = env%converged
@@ -356,9 +352,6 @@ CONTAINS
       LOGICAL, OPTIONAL                                  :: qq_preconditioner_full, &
                                                             pp_preconditioner_full
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ct_step_env_set', &
-         routineP = moduleN//':'//routineN
-
 !INTEGER      , OPTIONAL                     :: nspins
 !SPIN!!!    TYPE(dbcsr_type), TARGET, DIMENSION(:), OPTIONAL  :: p_index_up
 !SPIN!!!    TYPE(dbcsr_type), TARGET, DIMENSION(:), OPTIONAL  :: p_index_down
@@ -421,9 +414,6 @@ CONTAINS
    SUBROUTINE ct_step_env_clean(env)
 
       TYPE(ct_step_env_type)                             :: env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ct_step_env_clean', &
-         routineP = moduleN//':'//routineN
 
 !INTEGER                                     :: ispin
 

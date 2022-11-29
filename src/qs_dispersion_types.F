@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -69,7 +71,7 @@ MODULE qs_dispersion_types
       REAL(KIND=dp)                          :: kgc8 !s8 scaling parameter
       !vdW-DF variables
       REAL(KIND=dp)                          :: pw_cutoff
-      REAL(KIND=dp)                          :: b_value, c_value !parameters for the rVV10 functional
+      REAL(KIND=dp)                          :: b_value, c_value, scale_rvv10 !parameters for the rVV10 functional
       INTEGER                                :: nqs, nr_points
       !! The number of q points and radial points
       !! used in generating the kernel phi(q1*r, q2*r)
@@ -90,6 +92,8 @@ MODULE qs_dispersion_types
       !! kernel matrix at each of the q points.  Stored as
       !! d2phi_dk2(k_point, q1_value, q2_value)
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: d2y_dx2 !! 2nd derivatives of q_mesh for interpolation
+      INTEGER, DIMENSION(:, :), POINTER  :: d3_exclude_pair
+      INTEGER  :: nd3_exclude_pair
    END TYPE qs_dispersion_type
 
    TYPE qs_atom_dispersion_type
@@ -125,9 +129,6 @@ CONTAINS
 
       TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_dispersion_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       IF (ASSOCIATED(dispersion_env)) THEN
@@ -161,6 +162,9 @@ CONTAINS
          END IF
          IF (ASSOCIATED(dispersion_env%d2y_dx2)) THEN
             DEALLOCATE (dispersion_env%d2y_dx2)
+         END IF
+         IF (ASSOCIATED(dispersion_env%d3_exclude_pair)) THEN
+            DEALLOCATE (dispersion_env%d3_exclude_pair)
          END IF
          ! neighborlists
          CALL release_neighbor_list_sets(dispersion_env%sab_vdw)

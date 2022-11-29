@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -43,7 +45,7 @@ CONTAINS
    SUBROUTINE atom_code(root_section)
       TYPE(section_vals_type), POINTER                   :: root_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_code', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_code'
 
       INTEGER                                            :: handle, iw, run_type_id
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -92,7 +94,7 @@ CONTAINS
    SUBROUTINE atom_test(atom_section)
       TYPE(section_vals_type), POINTER                   :: atom_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_test', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'atom_test'
 
       CHARACTER(len=2)                                   :: elem
       CHARACTER(len=default_string_length)               :: z_string

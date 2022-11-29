@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -10,69 +12,69 @@
 !> \author Manuel Guidon
 ! **************************************************************************************************
 MODULE hfx_derivatives
-   USE admm_types,                      ONLY: admm_type
-   USE atomic_kind_types,               ONLY: atomic_kind_type,&
-                                              get_atomic_kind_set
-   USE cell_types,                      ONLY: cell_type,&
-                                              pbc
-   USE cp_control_types,                ONLY: dft_control_type
-   USE cp_files,                        ONLY: close_file,&
-                                              open_file
-   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
-                                              cp_logger_type
-   USE cp_output_handling,              ONLY: cp_p_file,&
-                                              cp_print_key_finished_output,&
-                                              cp_print_key_should_output,&
-                                              cp_print_key_unit_nr
-   USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: dbcsr_get_matrix_type,&
-                                              dbcsr_p_type,&
-                                              dbcsr_type_antisymmetric
-   USE gamma,                           ONLY: init_md_ftable
-   USE hfx_communication,               ONLY: get_full_density
-   USE hfx_compression_methods,         ONLY: hfx_add_mult_cache_elements,&
-                                              hfx_add_single_cache_element,&
-                                              hfx_decompress_first_cache,&
-                                              hfx_flush_last_cache,&
-                                              hfx_get_mult_cache_elements,&
-                                              hfx_get_single_cache_element,&
-                                              hfx_reset_cache_and_container
-   USE hfx_libint_interface,            ONLY: evaluate_deriv_eri
-   USE hfx_load_balance_methods,        ONLY: collect_load_balance_info,&
-                                              hfx_load_balance,&
-                                              hfx_update_load_balance
-   USE hfx_pair_list_methods,           ONLY: build_atomic_pair_list,&
-                                              build_pair_list,&
-                                              build_pair_list_pgf,&
-                                              build_pgf_product_list,&
-                                              pgf_product_list_size
-   USE hfx_screening_methods,           ONLY: update_pmax_mat
-   USE hfx_types,                       ONLY: &
-        alloc_containers, dealloc_containers, hfx_basis_info_type, hfx_basis_type, hfx_cache_type, &
-        hfx_cell_type, hfx_container_type, hfx_distribution, hfx_general_type, hfx_init_container, &
-        hfx_load_balance_type, hfx_memory_type, hfx_p_kind, hfx_pgf_list, hfx_pgf_product_list, &
-        hfx_potential_type, hfx_screen_coeff_type, hfx_screening_type, hfx_task_list_type, &
-        hfx_type, init_t_c_g0_lmax, log_zero, pair_list_type, pair_set_list_type
-   USE input_constants,                 ONLY: do_potential_mix_cl_trunc,&
-                                              do_potential_truncated,&
-                                              hfx_do_eval_forces
-   USE input_section_types,             ONLY: section_vals_type
-   USE kinds,                           ONLY: dp,&
-                                              int_8
-   USE libint_wrapper,                  ONLY: cp_libint_t
-   USE machine,                         ONLY: m_walltime
-   USE mathconstants,                   ONLY: fac
-   USE message_passing,                 ONLY: mp_sum
-   USE orbital_pointers,                ONLY: nco,&
-                                              ncoset,&
-                                              nso
-   USE particle_types,                  ONLY: particle_type
-   USE qs_environment_types,            ONLY: get_qs_env,&
-                                              qs_environment_type
-   USE qs_force_types,                  ONLY: qs_force_type
-   USE t_c_g0,                          ONLY: init
-   USE util,                            ONLY: sort
-   USE virial_types,                    ONLY: virial_type
+   USE admm_types, ONLY: admm_type
+   USE atomic_kind_types, ONLY: atomic_kind_type, &
+                                get_atomic_kind_set
+   USE cell_types, ONLY: cell_type, &
+                         pbc
+   USE cp_control_types, ONLY: dft_control_type
+   USE cp_files, ONLY: close_file, &
+                       open_file
+   USE cp_log_handling, ONLY: cp_get_default_logger, &
+                              cp_logger_type
+   USE cp_output_handling, ONLY: cp_p_file, &
+                                 cp_print_key_finished_output, &
+                                 cp_print_key_should_output, &
+                                 cp_print_key_unit_nr
+   USE cp_para_types, ONLY: cp_para_env_type
+   USE dbcsr_api, ONLY: dbcsr_get_matrix_type, &
+                        dbcsr_p_type, &
+                        dbcsr_type_antisymmetric
+   USE gamma, ONLY: init_md_ftable
+   USE hfx_communication, ONLY: get_full_density
+   USE hfx_compression_methods, ONLY: hfx_add_mult_cache_elements, &
+                                      hfx_add_single_cache_element, &
+                                      hfx_decompress_first_cache, &
+                                      hfx_flush_last_cache, &
+                                      hfx_get_mult_cache_elements, &
+                                      hfx_get_single_cache_element, &
+                                      hfx_reset_cache_and_container
+   USE hfx_libint_interface, ONLY: evaluate_deriv_eri
+   USE hfx_load_balance_methods, ONLY: collect_load_balance_info, &
+                                       hfx_load_balance, &
+                                       hfx_update_load_balance
+   USE hfx_pair_list_methods, ONLY: build_atomic_pair_list, &
+                                    build_pair_list, &
+                                    build_pair_list_pgf, &
+                                    build_pgf_product_list, &
+                                    pgf_product_list_size
+   USE hfx_screening_methods, ONLY: update_pmax_mat
+   USE hfx_types, ONLY: &
+      alloc_containers, dealloc_containers, hfx_basis_info_type, hfx_basis_type, hfx_cache_type, &
+      hfx_cell_type, hfx_container_type, hfx_distribution, hfx_general_type, hfx_init_container, &
+      hfx_load_balance_type, hfx_memory_type, hfx_p_kind, hfx_pgf_list, hfx_pgf_product_list, &
+      hfx_potential_type, hfx_screen_coeff_type, hfx_screening_type, hfx_task_list_type, &
+      hfx_type, init_t_c_g0_lmax, log_zero, pair_list_type, pair_set_list_type
+   USE input_constants, ONLY: do_potential_mix_cl_trunc, &
+                              do_potential_truncated, &
+                              hfx_do_eval_forces
+   USE input_section_types, ONLY: section_vals_type
+   USE kinds, ONLY: dp, &
+                    int_8
+   USE libint_wrapper, ONLY: cp_libint_t
+   USE machine, ONLY: m_walltime
+   USE mathconstants, ONLY: fac
+   USE message_passing, ONLY: mp_sum
+   USE orbital_pointers, ONLY: nco, &
+                               ncoset, &
+                               nso
+   USE particle_types, ONLY: particle_type
+   USE qs_environment_types, ONLY: get_qs_env, &
+                                   qs_environment_type
+   USE qs_force_types, ONLY: qs_force_type
+   USE t_c_g0, ONLY: init
+   USE util, ONLY: sort
+   USE virial_types, ONLY: virial_type
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_get_num_threads
 
@@ -111,7 +113,8 @@ CONTAINS
 !> \author Manuel Guidon
 ! **************************************************************************************************
    SUBROUTINE derivatives_four_center(qs_env, rho_ao, rho_ao_resp, hfx_section, para_env, &
-                                      irep, use_virial, adiabatic_rescale_factor, resp_only)
+                                      irep, use_virial, adiabatic_rescale_factor, resp_only, &
+                                      external_x_data)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: rho_ao
@@ -122,60 +125,60 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: use_virial
       REAL(dp), INTENT(IN), OPTIONAL                     :: adiabatic_rescale_factor
       LOGICAL, INTENT(IN), OPTIONAL                      :: resp_only
+      TYPE(hfx_type), DIMENSION(:, :), POINTER, OPTIONAL  :: external_x_data
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'derivatives_four_center', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'derivatives_four_center'
 
       INTEGER :: atomic_offset_ac, atomic_offset_ad, atomic_offset_bc, atomic_offset_bd, bin, &
-         bits_max_val, buffer_left, buffer_size, buffer_start, cache_size, coord, current_counter, &
-         forces_map(4, 2), handle, handle_bin, handle_getP, handle_load, handle_main, i, i_atom, &
-         i_list_ij, i_list_kl, i_set_list_ij, i_set_list_ij_start, i_set_list_ij_stop, &
-         i_set_list_kl, i_set_list_kl_start, i_set_list_kl_stop, i_thread, iatom, iatom_block, &
-         iatom_end, iatom_start, ikind, iset, iw, j, j_atom, jatom, jatom_block, jatom_end, &
-         jatom_start, jkind, jset, k, k_atom, katom, katom_block, katom_end, katom_start
+                 bits_max_val, buffer_left, buffer_size, buffer_start, cache_size, coord, current_counter, &
+                 forces_map(4, 2), handle, handle_bin, handle_getP, handle_load, handle_main, i, i_atom, &
+                 i_list_ij, i_list_kl, i_set_list_ij, i_set_list_ij_start, i_set_list_ij_stop, &
+                 i_set_list_kl, i_set_list_kl_start, i_set_list_kl_stop, i_thread, iatom, iatom_block, &
+                 iatom_end, iatom_start, ikind, iset, iw, j, j_atom, jatom, jatom_block, jatom_end, &
+                 jatom_start, jkind, jset, k, k_atom, katom, katom_block, katom_end, katom_start
       INTEGER :: kind_kind_idx, kkind, kset, l_atom, l_max, latom, latom_block, latom_end, &
-         latom_start, lkind, lset, max_am, max_pgf, max_set, my_bin_id, my_bin_size, my_thread_id, &
-         n_threads, natom, nbits, ncob, ncos_max, nints, nkimages, nkind, nneighbors, nseta, &
-         nsetb, nsgf_max, nspins, sgfb, shm_task_counter, shm_total_bins, sphi_a_u1, sphi_a_u2, &
-         sphi_a_u3, sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, &
-         sphi_d_u2, sphi_d_u3, swap_id, tmp_i4, unit_id
+                 latom_start, lkind, lset, max_am, max_pgf, max_set, my_bin_id, my_bin_size, my_thread_id, &
+                 n_threads, natom, nbits, ncob, ncos_max, nints, nkimages, nkind, nneighbors, nseta, &
+                 nsetb, nsgf_max, nspins, sgfb, shm_task_counter, shm_total_bins, sphi_a_u1, sphi_a_u2, &
+                 sphi_a_u3, sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, &
+                 sphi_d_u2, sphi_d_u3, swap_id, tmp_i4, unit_id
       INTEGER(int_8) :: atom_block, counter, estimate_to_store_int, max_val_memory, &
-         mem_compression_counter, mem_eris, mem_max_val, my_current_counter, my_istart, &
-         n_processes, nblocks, ncpu, neris_incore, neris_onthefly, neris_tmp, neris_total, &
-         nprim_ints, shm_neris_incore, shm_neris_onthefly, shm_neris_total, shm_nprim_ints, &
-         shm_stor_count_max_val, shm_storage_counter_integrals, stor_count_max_val, &
-         storage_counter_integrals, tmp_block, tmp_i8(6)
+                        mem_compression_counter, mem_eris, mem_max_val, my_current_counter, my_istart, &
+                        n_processes, nblocks, ncpu, neris_incore, neris_onthefly, neris_tmp, neris_total, &
+                        nprim_ints, shm_neris_incore, shm_neris_onthefly, shm_neris_total, shm_nprim_ints, &
+                        shm_stor_count_max_val, shm_storage_counter_integrals, stor_count_max_val, &
+                        storage_counter_integrals, tmp_block, tmp_i8(6)
       INTEGER(int_8), ALLOCATABLE, DIMENSION(:)          :: tmp_task_list_cost
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of, last_sgf_global, &
                                                             nimages, tmp_index
       INTEGER, DIMENSION(:), POINTER :: la_max, la_min, lb_max, lb_min, lc_max, lc_min, ld_max, &
-         ld_min, npgfa, npgfb, npgfc, npgfd, nsgfa, nsgfb, nsgfc, nsgfd, shm_block_offset
+                                        ld_min, npgfa, npgfb, npgfc, npgfd, nsgfa, nsgfb, nsgfc, nsgfd, shm_block_offset
       INTEGER, DIMENSION(:, :), POINTER :: first_sgfb, nsgfl_a, nsgfl_b, nsgfl_c, nsgfl_d, &
-         offset_ac_set, offset_ad_set, offset_bc_set, offset_bd_set, shm_atomic_block_offset
+                                           offset_ac_set, offset_ad_set, offset_bc_set, offset_bd_set, shm_atomic_block_offset
       INTEGER, DIMENSION(:, :), POINTER, SAVE            :: shm_is_assoc_atomic_block
       INTEGER, DIMENSION(:, :, :, :), POINTER            :: shm_set_offset
       INTEGER, SAVE                                      :: shm_number_of_p_entries
       LOGICAL :: bins_left, buffer_overflow, do_dynamic_load_balancing, do_it, do_periodic, &
-         do_print_load_balance_info, is_anti_symmetric, my_resp_only, screen_pmat_forces, &
-         treat_forces_in_core, use_disk_storage, with_resp_density
+                 do_print_load_balance_info, is_anti_symmetric, my_resp_only, screen_pmat_forces, &
+                 treat_forces_in_core, use_disk_storage, with_resp_density
       LOGICAL, DIMENSION(:, :), POINTER                  :: shm_atomic_pair_list
       REAL(dp) :: bintime_start, bintime_stop, cartesian_estimate, cartesian_estimate_virial, &
-         compression_factor, eps_schwarz, eps_storage, fac, hf_fraction, ln_10, log10_eps_schwarz, &
-         log10_pmax, log_2, max_contraction_val, max_val1, max_val2, max_val2_set, &
-         my_adiabatic_rescale_factor, pmax_atom, pmax_blocks, pmax_entry, pmax_tmp, ra(3), rab2, &
-         rb(3), rc(3), rcd2, rd(3), spherical_estimate, spherical_estimate_virial, symm_fac, &
-         tmp_virial(3, 3)
+                  compression_factor, eps_schwarz, eps_storage, fac, hf_fraction, ln_10, log10_eps_schwarz, &
+                  log10_pmax, log_2, max_contraction_val, max_val1, max_val2, max_val2_set, &
+                  my_adiabatic_rescale_factor, pmax_atom, pmax_blocks, pmax_entry, pmax_tmp, ra(3), rab2, &
+                  rb(3), rc(3), rcd2, rd(3), spherical_estimate, spherical_estimate_virial, symm_fac, &
+                  tmp_virial(3, 3)
       REAL(dp), ALLOCATABLE, DIMENSION(:) :: ede_buffer1, ede_buffer2, ede_primitives_tmp, &
-         ede_primitives_tmp_virial, ede_work, ede_work2, ede_work2_virial, ede_work_forces, &
-         ede_work_virial, pac_buf, pac_buf_beta, pac_buf_resp, pac_buf_resp_beta, pad_buf, &
-         pad_buf_beta, pad_buf_resp, pad_buf_resp_beta, pbc_buf, pbc_buf_beta, pbc_buf_resp, &
-         pbc_buf_resp_beta, pbd_buf, pbd_buf_beta, pbd_buf_resp, pbd_buf_resp_beta
+                                             ede_primitives_tmp_virial, ede_work, ede_work2, ede_work2_virial, ede_work_forces, &
+                                             ede_work_virial, pac_buf, pac_buf_beta, pac_buf_resp, pac_buf_resp_beta, pad_buf, &
+                                             pad_buf_beta, pad_buf_resp, pad_buf_resp_beta, pbc_buf, pbc_buf_beta, pbc_buf_resp, &
+                                             pbc_buf_resp_beta, pbd_buf, pbd_buf_beta, pbd_buf_resp, pbd_buf_resp_beta
       REAL(dp), ALLOCATABLE, DIMENSION(:), TARGET        :: primitive_forces, primitive_forces_virial
       REAL(dp), DIMENSION(:), POINTER                    :: full_density_resp, &
                                                             full_density_resp_beta, T2
       REAL(dp), DIMENSION(:, :), POINTER :: full_density_alpha, full_density_beta, &
-         max_contraction, ptr_p_1, ptr_p_2, ptr_p_3, ptr_p_4, shm_pmax_atom, shm_pmax_block, &
-         sphi_b, zeta, zetb, zetc, zetd
+                                            max_contraction, ptr_p_1, ptr_p_2, ptr_p_3, ptr_p_4, shm_pmax_atom, shm_pmax_block, &
+                                            sphi_b, zeta, zetb, zetc, zetd
       REAL(dp), DIMENSION(:, :, :), POINTER              :: sphi_a_ext_set, sphi_b_ext_set, &
                                                             sphi_c_ext_set, sphi_d_ext_set
       REAL(dp), DIMENSION(:, :, :, :), POINTER           :: sphi_a_ext, sphi_b_ext, sphi_c_ext, &
@@ -212,6 +215,7 @@ CONTAINS
       TYPE(hfx_screening_type)                           :: screening_parameter
       TYPE(hfx_task_list_type), DIMENSION(:), POINTER    :: shm_task_list, tmp_task_list
       TYPE(hfx_type), POINTER                            :: actual_x_data
+      TYPE(hfx_type), DIMENSION(:, :), POINTER            :: my_x_data
       TYPE(pair_list_type)                               :: list_ij, list_kl
       TYPE(pair_set_list_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: set_list_ij, set_list_kl
@@ -240,6 +244,9 @@ CONTAINS
       nkimages = dft_control%nimages
       CPASSERT(nkimages == 1)
 
+      my_x_data => qs_env%x_data
+      IF (PRESENT(external_x_data)) my_x_data => external_x_data
+
       !! One atom systems have no contribution to forces
       IF (SIZE(particle_set, 1) == 1) THEN
          IF (.NOT. use_virial) RETURN
@@ -250,15 +257,15 @@ CONTAINS
       nkind = SIZE(atomic_kind_set, 1)
       l_max = 0
       DO ikind = 1, nkind
-         l_max = MAX(l_max, MAXVAL(qs_env%x_data(1, 1)%basis_parameter(ikind)%lmax))
-      ENDDO
+         l_max = MAX(l_max, MAXVAL(my_x_data(1, 1)%basis_parameter(ikind)%lmax))
+      END DO
       l_max = 4*l_max + 1
       CALL init_md_ftable(l_max)
 
-      IF (qs_env%x_data(1, 1)%potential_parameter%potential_type == do_potential_truncated .OR. &
-          qs_env%x_data(1, 1)%potential_parameter%potential_type == do_potential_mix_cl_trunc) THEN
+      IF (my_x_data(1, 1)%potential_parameter%potential_type == do_potential_truncated .OR. &
+          my_x_data(1, 1)%potential_parameter%potential_type == do_potential_mix_cl_trunc) THEN
          IF (l_max > init_t_c_g0_lmax) THEN
-            CALL open_file(unit_number=unit_id, file_name=qs_env%x_data(1, 1)%potential_parameter%filename)
+            CALL open_file(unit_number=unit_id, file_name=my_x_data(1, 1)%potential_parameter%filename)
             CALL init(l_max, unit_id, para_env%mepos, para_env%group)
             CALL close_file(unit_id)
             init_t_c_g0_lmax = l_max
@@ -330,7 +337,7 @@ CONTAINS
 !$OMP                                  shm_pmax_atom,&
 !$OMP                                  use_virial,&
 !$OMP                                  do_print_load_balance_info,&
-!$OMP                                  nkimages,nspins)&
+!$OMP                                  nkimages,nspins,my_x_data)&
 !$OMP  PRIVATE(actual_x_data,atomic_kind_set,atomic_offset_ac,atomic_offset_ad,atomic_offset_bc,&
 !$OMP  atomic_offset_bd,atom_of_kind,basis_info,&
 !$OMP  basis_parameter,bin,bins_left,bintime_start,bintime_stop,bits_max_val,buffer_left,buffer_overflow,buffer_size,&
@@ -371,7 +378,7 @@ CONTAINS
 
       ln_10 = LOG(10.0_dp)
       log_2 = LOG10(2.0_dp)
-      actual_x_data => qs_env%x_data(irep, i_thread + 1)
+      actual_x_data => my_x_data(irep, i_thread + 1)
       do_periodic = actual_x_data%periodic_parameter%do_periodic
 
       screening_parameter = actual_x_data%screening_parameter
@@ -461,13 +468,13 @@ CONTAINS
             ! the maximum value after multiplication with sphi_b
             max_contraction(jset, jatom) = MAXVAL((/(SUM(ABS(sphi_b(1:ncob, i))), i=sgfb, sgfb + nsgfb(jset) - 1)/))
             max_pgf = MAX(max_pgf, npgfb(jset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ncpu = para_env%num_pe
       n_processes = ncpu*n_threads
 
-      !! initalize some counters
+      !! initialize some counters
       neris_total = 0_int_8
       neris_incore = 0_int_8
       neris_onthefly = 0_int_8
@@ -550,12 +557,12 @@ CONTAINS
 
       ! restore as full density the HF density
       ! maybe in the future
-      IF (with_resp_density) THEN
+      IF (with_resp_density .AND. .NOT. my_resp_only) THEN
          full_density_alpha(:, 1) = full_density_alpha(:, 1) - full_density_resp
          IF (nspins == 2) THEN
             full_density_beta(:, 1) = &
                full_density_beta(:, 1) - full_density_resp_beta
-         ENDIF
+         END IF
          ! full_density_resp=full_density+full_density_resp
       END IF
 
@@ -604,8 +611,8 @@ CONTAINS
          DO iset = 1, nseta
             ncos_max = MAX(ncos_max, ncoset(la_max(iset)))
             nsgf_max = MAX(nsgf_max, nsgfa(iset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       !! Allocate work arrays
       ALLOCATE (primitive_forces(12*nsgf_max**4))
@@ -672,7 +679,7 @@ CONTAINS
       END IF
 
       !! Start caluclating integrals of the form (ab|cd) or (ij|kl)
-      !! In order to do so, there is a main four-loop structre that takes into account the two symmetries
+      !! In order to do so, there is a main four-loop structure that takes into account the two symmetries
       !!
       !!   (ab|cd) = (ba|cd) = (ab|dc) = (ba|dc)
       !!
@@ -706,7 +713,7 @@ CONTAINS
       !! This tells the process where to start the main loops and how many bunches of integrals it has to
       !! calculate. The original parallelization is a simple modulo distribution that is binned and
       !! optimized in the load_balance routines. Since the Monte Carlo routines can swap processors,
-      !! we need to know which was the inital cpu_id.
+      !! we need to know which was the initial cpu_id.
       !! Furthermore, the indices iatom, jatom, katom, latom have to be set to istart, jstart, kstart and
       !! lstart only the first time the loop is executed. All subsequent loops have to start with one or
       !! iatom and katom respectively. Therefore, we use flags like first_j_loop etc.
@@ -746,12 +753,12 @@ CONTAINS
       IF (treat_forces_in_core) THEN
          !! IF new md step -> reinitialize containers
          IF (actual_x_data%memory_parameter%recalc_forces) THEN
-            CALL dealloc_containers(actual_x_data, hfx_do_eval_forces)
-            CALL alloc_containers(actual_x_data, my_bin_size, hfx_do_eval_forces)
+            CALL dealloc_containers(actual_x_data%store_forces, memory_parameter%actual_memory_usage)
+            CALL alloc_containers(actual_x_data%store_forces, my_bin_size)
 
             DO bin = 1, my_bin_size
-               maxval_container => actual_x_data%maxval_container_forces(bin)
-               integral_containers => actual_x_data%integral_containers_forces(:, bin)
+               maxval_container => actual_x_data%store_forces%maxval_container(bin)
+               integral_containers => actual_x_data%store_forces%integral_containers(:, bin)
                CALL hfx_init_container(maxval_container, memory_parameter%actual_memory_usage, .FALSE.)
                DO i = 1, 64
                   CALL hfx_init_container(integral_containers(i), memory_parameter%actual_memory_usage, .FALSE.)
@@ -762,10 +769,10 @@ CONTAINS
          !! Decompress the first cache for maxvals and integrals
          IF (.NOT. actual_x_data%memory_parameter%recalc_forces) THEN
             DO bin = 1, my_bin_size
-               maxval_cache => actual_x_data%maxval_cache_forces(bin)
-               maxval_container => actual_x_data%maxval_container_forces(bin)
-               integral_caches => actual_x_data%integral_caches_forces(:, bin)
-               integral_containers => actual_x_data%integral_containers_forces(:, bin)
+               maxval_cache => actual_x_data%store_forces%maxval_cache(bin)
+               maxval_container => actual_x_data%store_forces%maxval_container(bin)
+               integral_caches => actual_x_data%store_forces%integral_caches(:, bin)
+               integral_containers => actual_x_data%store_forces%integral_containers(:, bin)
                CALL hfx_decompress_first_cache(bits_max_val, maxval_cache, maxval_container, &
                                                memory_parameter%actual_memory_usage, .FALSE.)
                DO i = 1, 64
@@ -782,16 +789,16 @@ CONTAINS
          ! ** Lets construct the task list
          shm_total_bins = 0
          DO i = 1, n_threads
-            shm_total_bins = shm_total_bins + SIZE(qs_env%x_data(irep, i)%distribution_forces)
+            shm_total_bins = shm_total_bins + SIZE(my_x_data(irep, i)%distribution_forces)
          END DO
          ALLOCATE (tmp_task_list(shm_total_bins))
          shm_task_counter = 0
          DO i = 1, n_threads
-            DO bin = 1, SIZE(qs_env%x_data(irep, i)%distribution_forces)
+            DO bin = 1, SIZE(my_x_data(irep, i)%distribution_forces)
                shm_task_counter = shm_task_counter + 1
                tmp_task_list(shm_task_counter)%thread_id = i
                tmp_task_list(shm_task_counter)%bin_id = bin
-               tmp_task_list(shm_task_counter)%cost = qs_env%x_data(irep, i)%distribution_forces(bin)%cost
+               tmp_task_list(shm_task_counter)%cost = my_x_data(irep, i)%distribution_forces(bin)%cost
             END DO
          END DO
 
@@ -841,17 +848,17 @@ CONTAINS
       my_bin_size = SIZE(actual_x_data%distribution_forces)
       DO bin = 1, my_bin_size
          actual_x_data%distribution_forces(bin)%time_forces = 0.0_dp
-      ENDDO
+      END DO
 !$OMP END MASTER
 !$OMP BARRIER
 
       IF (treat_forces_in_core) THEN
          IF (my_bin_size > 0) THEN
-            maxval_container => actual_x_data%maxval_container_forces(1)
-            maxval_cache => actual_x_data%maxval_cache_forces(1)
+            maxval_container => actual_x_data%store_forces%maxval_container(1)
+            maxval_cache => actual_x_data%store_forces%maxval_cache(1)
 
-            integral_containers => actual_x_data%integral_containers_forces(:, 1)
-            integral_caches => actual_x_data%integral_caches_forces(:, 1)
+            integral_containers => actual_x_data%store_forces%integral_containers(:, 1)
+            integral_caches => actual_x_data%store_forces%integral_caches(:, 1)
          END IF
       END IF
 
@@ -878,12 +885,12 @@ CONTAINS
                my_thread_id = shm_task_list(shm_task_counter)%thread_id
                my_bin_id = shm_task_list(shm_task_counter)%bin_id
                IF (treat_forces_in_core) THEN
-                  maxval_cache => qs_env%x_data(irep, my_thread_id)%maxval_cache_forces(my_bin_id)
-                  maxval_container => qs_env%x_data(irep, my_thread_id)%maxval_container_forces(my_bin_id)
-                  integral_caches => qs_env%x_data(irep, my_thread_id)%integral_caches_forces(:, my_bin_id)
-                  integral_containers => qs_env%x_data(irep, my_thread_id)%integral_containers_forces(:, my_bin_id)
+                  maxval_cache => my_x_data(irep, my_thread_id)%store_forces%maxval_cache(my_bin_id)
+                  maxval_container => my_x_data(irep, my_thread_id)%store_forces%maxval_container(my_bin_id)
+                  integral_caches => my_x_data(irep, my_thread_id)%store_forces%integral_caches(:, my_bin_id)
+                  integral_containers => my_x_data(irep, my_thread_id)%store_forces%integral_containers(:, my_bin_id)
                END IF
-               distribution_forces => qs_env%x_data(irep, my_thread_id)%distribution_forces(my_bin_id)
+               distribution_forces => my_x_data(irep, my_thread_id)%distribution_forces(my_bin_id)
                do_it = .TRUE.
                bins_left = .TRUE.
                IF (actual_x_data%memory_parameter%recalc_forces) THEN
@@ -1158,7 +1165,7 @@ CONTAINS
                         mem_compression_counter = 0
                         DO i = 1, n_threads
 !$OMP                   ATOMIC READ
-                           tmp_i4 = qs_env%x_data(irep, i)%memory_parameter%actual_memory_usage
+                           tmp_i4 = my_x_data(irep, i)%memory_parameter%actual_memory_usage
                            mem_compression_counter = mem_compression_counter + &
                                                      tmp_i4*memory_parameter%cache_size
                         END DO
@@ -1432,7 +1439,7 @@ CONTAINS
                                                            iset, jset, kset, lset, offset_bd_set, offset_bc_set, &
                                                            offset_ad_set, offset_ac_set, atomic_offset_bd, atomic_offset_bc, &
                                                            atomic_offset_ad, atomic_offset_ac, is_anti_symmetric)
-                           ENDIF
+                           END IF
                         END IF
                         IF (spherical_estimate*pmax_entry >= eps_schwarz) THEN
                            DO coord = 1, 12
@@ -1462,7 +1469,7 @@ CONTAINS
                                     CALL update_forces(nsgfa(iset), nsgfb(jset), nsgfc(kset), nsgfd(lset), &
                                                        pbd_buf_beta, pbc_buf_beta, pad_buf_beta, pac_buf_beta, fac, &
                                                        T2, force, forces_map, coord)
-                                 ENDIF
+                                 END IF
                               END IF
                            END DO !coord
                         END IF
@@ -1476,7 +1483,8 @@ CONTAINS
                                     CALL update_virial(nsgfa(iset), nsgfb(jset), nsgfc(kset), nsgfd(lset), &
                                                        pbd_buf, pbc_buf, pad_buf, pac_buf, fac, &
                                                        T2, tmp_virial, coord, i, &
-                                                       pbd_buf_resp, pbc_buf_resp, pad_buf_resp, pac_buf_resp)
+                                                       pbd_buf_resp, pbc_buf_resp, pad_buf_resp, &
+                                                       pac_buf_resp, my_resp_only)
                                  ELSE
                                     CALL update_virial(nsgfa(iset), nsgfb(jset), nsgfc(kset), nsgfd(lset), &
                                                        pbd_buf, pbc_buf, pad_buf, pac_buf, fac, &
@@ -1488,12 +1496,13 @@ CONTAINS
                                                           pbd_buf_beta, pbc_buf_beta, pad_buf_beta, pac_buf_beta, &
                                                           fac, T2, tmp_virial, coord, i, &
                                                           pbd_buf_resp_beta, pbc_buf_resp_beta, &
-                                                          pad_buf_resp_beta, pac_buf_resp_beta)
+                                                          pad_buf_resp_beta, pac_buf_resp_beta, &
+                                                          my_resp_only)
                                     ELSE
                                        CALL update_virial(nsgfa(iset), nsgfb(jset), nsgfc(kset), nsgfd(lset), &
                                                           pbd_buf_beta, pbc_buf_beta, pad_buf_beta, pac_buf_beta, &
                                                           fac, T2, tmp_virial, coord, i)
-                                    ENDIF
+                                    END IF
                                  END IF
                               END DO
                            END DO !coord
@@ -1634,10 +1643,10 @@ CONTAINS
       IF (actual_x_data%memory_parameter%recalc_forces) THEN
          IF (treat_forces_in_core) THEN
             DO bin = 1, my_bin_size
-               maxval_cache => actual_x_data%maxval_cache_forces(bin)
-               maxval_container => actual_x_data%maxval_container_forces(bin)
-               integral_caches => actual_x_data%integral_caches_forces(:, bin)
-               integral_containers => actual_x_data%integral_containers_forces(:, bin)
+               maxval_cache => actual_x_data%store_forces%maxval_cache(bin)
+               maxval_container => actual_x_data%store_forces%maxval_container(bin)
+               integral_caches => actual_x_data%store_forces%integral_caches(:, bin)
+               integral_containers => actual_x_data%store_forces%integral_containers(:, bin)
                CALL hfx_flush_last_cache(bits_max_val, maxval_cache, maxval_container, memory_parameter%actual_memory_usage, &
                                          .FALSE.)
                DO i = 1, 64
@@ -1650,10 +1659,10 @@ CONTAINS
       !! reset all caches except we calculate all on the fly
       IF (treat_forces_in_core) THEN
          DO bin = 1, my_bin_size
-            maxval_cache => actual_x_data%maxval_cache_forces(bin)
-            maxval_container => actual_x_data%maxval_container_forces(bin)
-            integral_caches => actual_x_data%integral_caches_forces(:, bin)
-            integral_containers => actual_x_data%integral_containers_forces(:, bin)
+            maxval_cache => actual_x_data%store_forces%maxval_cache(bin)
+            maxval_container => actual_x_data%store_forces%maxval_container(bin)
+            integral_caches => actual_x_data%store_forces%integral_caches(:, bin)
+            integral_containers => actual_x_data%store_forces%integral_containers(:, bin)
 
             CALL hfx_reset_cache_and_container(maxval_cache, maxval_container, memory_parameter%actual_memory_usage, .FALSE.)
             DO i = 1, 64
@@ -1853,9 +1862,9 @@ CONTAINS
       TYPE(cp_libint_t)                                  :: deriv
       REAL(dp), INTENT(IN)                               :: ra(3), rb(3), rc(3), rd(3)
       INTEGER, INTENT(IN) :: npgfa, npgfb, npgfc, npgfd, la_min, la_max, lb_min, lb_max, lc_min, &
-         lc_max, ld_min, ld_max, nsgfa, nsgfb, nsgfc, nsgfd, sphi_a_u1, sphi_a_u2, sphi_a_u3, &
-         sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, sphi_d_u2, &
-         sphi_d_u3
+                             lc_max, ld_min, ld_max, nsgfa, nsgfb, nsgfc, nsgfd, sphi_a_u1, sphi_a_u2, sphi_a_u3, &
+                             sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, sphi_d_u2, &
+                             sphi_d_u3
       REAL(dp), DIMENSION(1:npgfa), INTENT(IN)           :: zeta
       REAL(dp), DIMENSION(1:npgfb), INTENT(IN)           :: zetb
       REAL(dp), DIMENSION(1:npgfc), INTENT(IN)           :: zetc
@@ -1877,8 +1886,8 @@ CONTAINS
          DIMENSION(:), INTENT(INOUT)                     :: pgf_product_list
       INTEGER, DIMENSION(0:), INTENT(IN)                 :: nsgfl_a, nsgfl_b, nsgfl_c, nsgfl_d
       REAL(dp), INTENT(IN) :: sphi_a_ext(sphi_a_u1, sphi_a_u2, sphi_a_u3), &
-         sphi_b_ext(sphi_b_u1, sphi_b_u2, sphi_b_u3), sphi_c_ext(sphi_c_u1, sphi_c_u2, sphi_c_u3), &
-         sphi_d_ext(sphi_d_u1, sphi_d_u2, sphi_d_u3)
+                              sphi_b_ext(sphi_b_u1, sphi_b_u2, sphi_b_u3), sphi_c_ext(sphi_c_u1, sphi_c_u2, sphi_c_u3), &
+                              sphi_d_ext(sphi_d_u1, sphi_d_u2, sphi_d_u3)
       REAL(dp), DIMENSION(*)                             :: ede_work, ede_work2, ede_work_forces, &
                                                             ede_buffer1, ede_buffer2, &
                                                             ede_primitives_tmp
@@ -1891,8 +1900,8 @@ CONTAINS
       REAL(dp)                                           :: cart_estimate_virial
 
       INTEGER :: ipgf, jpgf, kpgf, la, lb, lc, ld, list_ij, list_kl, lpgf, max_l, ncoa, ncob, &
-         ncoc, ncod, nelements_ij, nelements_kl, nproducts, nsgfla, nsgflb, nsgflc, nsgfld, nsoa, &
-         nsob, nsoc, nsod, s_offset_a, s_offset_b, s_offset_c, s_offset_d
+                 ncoc, ncod, nelements_ij, nelements_kl, nproducts, nsgfla, nsgflb, nsgflc, nsgfld, nsoa, &
+                 nsob, nsoc, nsod, s_offset_a, s_offset_b, s_offset_c, s_offset_d
       REAL(dp)                                           :: EtaInv, tmp_max, tmp_max_virial, Zeta_A, &
                                                             Zeta_B, Zeta_C, Zeta_D, ZetaInv
 
@@ -2165,7 +2174,7 @@ CONTAINS
    END SUBROUTINE prefetch_density_matrix
 
 ! **************************************************************************************************
-!> \brief This routine updates the forces using bufferd density matrices
+!> \brief This routine updates the forces using buffered density matrices
 !> \param ma_max Size of matrix blocks
 !> \param mb_max Size of matrix blocks
 !> \param mc_max Size of matrix blocks
@@ -2175,7 +2184,7 @@ CONTAINS
 !> \param pad buffer that will contain P(a,d)
 !> \param pac buffer that will contain P(a,c)
 !> \param fac mulitplication factor (spin, symmetry)
-!> \param prim primitve forces
+!> \param prim primitive forces
 !> \param force storage loacation for forces
 !> \param forces_map index table
 !> \param coord which of the 12 coords to be updated
@@ -2275,7 +2284,7 @@ CONTAINS
    END SUBROUTINE update_forces
 
 ! **************************************************************************************************
-!> \brief This routine updates the virial using bufferd density matrices
+!> \brief This routine updates the virial using buffered density matrices
 !> \param ma_max Size of matrix blocks
 !> \param mb_max Size of matrix blocks
 !> \param mc_max Size of matrix blocks
@@ -2285,7 +2294,7 @@ CONTAINS
 !> \param pad buffer that will contain P(a,d)
 !> \param pac buffer that will contain P(a,c)
 !> \param fac mulitplication factor (spin, symmetry)
-!> \param prim primitve forces
+!> \param prim primitive forces
 !> \param tmp_virial ...
 !> \param coord which of the 12 coords to be updated
 !> \param l ...
@@ -2300,7 +2309,7 @@ CONTAINS
    SUBROUTINE update_virial(ma_max, mb_max, mc_max, md_max, &
                             pbd, pbc, pad, pac, fac, &
                             prim, tmp_virial, coord, l, &
-                            pbd_resp, pbc_resp, pad_resp, pac_resp)
+                            pbd_resp, pbc_resp, pad_resp, pac_resp, resp_only)
 
       INTEGER, INTENT(IN)                                :: ma_max, mb_max, mc_max, md_max
       REAL(dp), DIMENSION(*), INTENT(IN)                 :: pbd, pbc, pad, pac
@@ -2310,9 +2319,10 @@ CONTAINS
       REAL(dp)                                           :: tmp_virial(3, 3)
       INTEGER, INTENT(IN)                                :: coord, l
       REAL(dp), DIMENSION(*), INTENT(IN), OPTIONAL       :: pbd_resp, pbc_resp, pad_resp, pac_resp
+      LOGICAL, INTENT(IN), OPTIONAL                      :: resp_only
 
       INTEGER                                            :: i, j, ma, mb, mc, md, p_index
-      LOGICAL                                            :: with_resp_density
+      LOGICAL                                            :: with_resp_density, full_force
       REAL(dp)                                           :: temp1, temp1_resp, temp3, temp3_resp, &
                                                             temp4, teresp
 
@@ -2323,6 +2333,8 @@ CONTAINS
           PRESENT(pac_resp)) with_resp_density = .TRUE.
 
       IF (with_resp_density) THEN
+         full_force = .TRUE.
+         IF (PRESENT(resp_only)) full_force = .NOT. resp_only
          p_index = 0
          temp4 = 0.0_dp
          DO md = 1, md_max
@@ -2335,8 +2347,12 @@ CONTAINS
                   DO ma = 1, ma_max
                      p_index = p_index + 1
                      ! HF-SCF
-                     teresp = temp1*pad((md - 1)*ma_max + ma) + &
-                              temp3*pac((mc - 1)*ma_max + ma)
+                     IF (full_force) THEN
+                        teresp = temp1*pad((md - 1)*ma_max + ma) + &
+                                 temp3*pac((mc - 1)*ma_max + ma)
+                     ELSE
+                        teresp = 0.0_dp
+                     END IF
                      ! RESP+HF
                      teresp = teresp + &
                               pac((mc - 1)*ma_max + ma)*temp3_resp + &
@@ -2372,6 +2388,6 @@ CONTAINS
       tmp_virial(i, j) = tmp_virial(i, j) - temp4
    END SUBROUTINE update_virial
 
-#include "hfx_get_pmax_val.f90"
+   #:include 'hfx_get_pmax_val.fypp'
 
 END MODULE hfx_derivatives

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief an exclusion type
@@ -39,9 +41,6 @@ CONTAINS
    SUBROUTINE exclusion_release(exclusions)
       TYPE(exclusion_type), DIMENSION(:), POINTER        :: exclusions
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'exclusion_release', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatom
 
       IF (ASSOCIATED(exclusions)) THEN
@@ -56,13 +55,13 @@ CONTAINS
                IF (ASSOCIATED(exclusions(iatom)%list_exclude_ei)) THEN
                   DEALLOCATE (exclusions(iatom)%list_exclude_ei)
                END IF
-            ENDIF
+            END IF
             IF (ASSOCIATED(exclusions(iatom)%list_onfo)) THEN
                DEALLOCATE (exclusions(iatom)%list_onfo)
-            ENDIF
-         ENDDO
+            END IF
+         END DO
          DEALLOCATE (exclusions)
-      ENDIF
+      END IF
    END SUBROUTINE exclusion_release
 
 END MODULE exclusion_types

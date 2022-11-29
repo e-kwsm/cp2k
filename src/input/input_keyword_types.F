@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -39,7 +41,6 @@ MODULE input_keyword_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_keyword_types'
 
    INTEGER, PARAMETER, PUBLIC :: usage_string_length = default_string_length*2
-   INTEGER, SAVE, PRIVATE :: last_keyword_id = 0
 
    PUBLIC :: keyword_p_type, keyword_type, keyword_create, keyword_retain, &
              keyword_release, keyword_get, keyword_describe, &
@@ -62,6 +63,7 @@ MODULE input_keyword_types
 !> \param usage how to use it "MAXSCF 10"
 !> \param description what does it do: "MAXSCF : determines the maximum
 !>        number of steps in an SCF run"
+!> \param deprecation_notice show this warning that the keyword is deprecated
 !> \param citations references to literature associated with this keyword
 !> \param type_of_var the type of keyword (controls how it is parsed)
 !>        it can be one of: no_parse_t,logical_t, integer_t, real_t,
@@ -69,6 +71,7 @@ MODULE input_keyword_types
 !> \param n_var number of values that should be parsed (-1=unknown)
 !> \param repeats if the keyword can be present more than once in the
 !>        section
+!> \param removed to trigger a CPABORT when encountered while parsing the input
 !> \param enum enumeration that defines the mapping between integers and
 !>        strings
 !> \param unit the default unit this keyword is read in (to automatically
@@ -83,14 +86,15 @@ MODULE input_keyword_types
 !> \author Joost & fawzi
 ! **************************************************************************************************
    TYPE keyword_type
-      INTEGER :: ref_count, id_nr
+      INTEGER :: ref_count
       CHARACTER(LEN=default_string_length), DIMENSION(:), POINTER:: names
       CHARACTER(LEN=usage_string_length) :: location
       CHARACTER(LEN=usage_string_length) :: usage
-      CHARACTER, DIMENSION(:), POINTER :: description => Null()
+      CHARACTER, DIMENSION(:), POINTER :: description => null()
+      CHARACTER(LEN=:), ALLOCATABLE :: deprecation_notice
       INTEGER, POINTER, DIMENSION(:) :: citations
       INTEGER :: type_of_var, n_var
-      LOGICAL :: repeats
+      LOGICAL :: repeats, removed
       TYPE(enumeration_type), POINTER :: enum
       TYPE(cp_unit_type), POINTER :: unit
       TYPE(val_type), POINTER :: default_value
@@ -136,6 +140,8 @@ CONTAINS
 !> \param enum_desc ...
 !> \param unit_str ...
 !> \param citations ...
+!> \param deprecation_notice ...
+!> \param removed ...
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE keyword_create(keyword, location, name, description, usage, type_of_var, &
@@ -145,7 +151,7 @@ CONTAINS
                              lone_keyword_val, lone_keyword_l_val, lone_keyword_r_val, lone_keyword_c_val, &
                              lone_keyword_i_val, lone_keyword_l_vals, lone_keyword_r_vals, &
                              lone_keyword_c_vals, lone_keyword_i_vals, enum_c_vals, enum_i_vals, &
-                             enum, enum_strict, enum_desc, unit_str, citations)
+                             enum, enum_strict, enum_desc, unit_str, citations, deprecation_notice, removed)
       TYPE(keyword_type), POINTER                        :: keyword
       CHARACTER(len=*), INTENT(in)                       :: location, name, description
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: usage
@@ -182,8 +188,8 @@ CONTAINS
          OPTIONAL                                        :: enum_desc
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: unit_str
       INTEGER, DIMENSION(:), INTENT(in), OPTIONAL        :: citations
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'keyword_create', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), INTENT(in), OPTIONAL             :: deprecation_notice
+      LOGICAL, INTENT(in), OPTIONAL                      :: removed
 
       INTEGER                                            :: i, n
       LOGICAL                                            :: check
@@ -191,10 +197,9 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(keyword))
       ALLOCATE (keyword)
       keyword%ref_count = 1
-      last_keyword_id = last_keyword_id + 1
-      keyword%id_nr = last_keyword_id
       NULLIFY (keyword%unit)
       keyword%location = location
+      keyword%removed = .FALSE.
 
       IF (PRESENT(variants)) THEN
          ALLOCATE (keyword%names(SIZE(variants) + 1))
@@ -228,7 +233,7 @@ CONTAINS
          keyword%citations = citations
       ELSE
          NULLIFY (keyword%citations)
-      ENDIF
+      END IF
 
       keyword%repeats = .FALSE.
       IF (PRESENT(repeats)) keyword%repeats = repeats
@@ -257,7 +262,7 @@ CONTAINS
          keyword%default_value => default_val
          IF (ASSOCIATED(default_val%enum)) THEN
             IF (ASSOCIATED(keyword%enum)) THEN
-               CPASSERT(keyword%enum%id_nr == default_val%enum%id_nr)
+               CPASSERT(ASSOCIATED(keyword%enum, default_val%enum))
             ELSE
                keyword%enum => default_val%enum
                CALL enum_retain(keyword%enum)
@@ -283,9 +288,9 @@ CONTAINS
          IF (PRESENT(type_of_var)) THEN
             keyword%type_of_var = type_of_var
          ELSE
-            CALL cp_warn(__LOCATION__, &
-                         "keyword "//TRIM(keyword%names(1))// &
-                         " assumed undefined type by default")
+            CALL cp_abort(__LOCATION__, &
+                          "keyword "//TRIM(keyword%names(1))// &
+                          " assumed undefined type by default")
          END IF
       ELSE IF (PRESENT(type_of_var)) THEN
          IF (keyword%type_of_var /= type_of_var) &
@@ -310,8 +315,8 @@ CONTAINS
          CALL val_retain(lone_keyword_val)
          IF (ASSOCIATED(lone_keyword_val%enum)) THEN
             IF (ASSOCIATED(keyword%enum)) THEN
-               IF (keyword%enum%id_nr /= lone_keyword_val%enum%id_nr) &
-                  CPABORT("keyword%enum%id_nr==lone_keyword_val%enum%id_nr")
+               IF (.NOT. ASSOCIATED(keyword%enum, lone_keyword_val%enum)) &
+                  CPABORT("keyword%enum/=lone_keyword_val%enum")
             ELSE
                IF (ASSOCIATED(keyword%lone_keyword_value)) THEN
                   CPABORT(".NOT. ASSOCIATED(keyword%lone_keyword_value)")
@@ -344,8 +349,8 @@ CONTAINS
                   END DO
                   IF (.NOT. check) &
                      CPABORT("default value not in enumeration : "//keyword%names(1))
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          END IF
       END IF
 
@@ -364,7 +369,7 @@ CONTAINS
                END DO
                IF (.NOT. check) &
                   CPABORT("default value not in enumeration : "//keyword%names(1))
-            ENDIF
+            END IF
             keyword%n_var = SIZE(keyword%default_value%i_val)
          CASE (real_t)
             keyword%n_var = SIZE(keyword%default_value%r_val)
@@ -383,7 +388,16 @@ CONTAINS
          CPABORT("arrays of lchar_t not supported : "//keyword%names(1))
 
       IF (PRESENT(unit_str)) THEN
+         ALLOCATE (keyword%unit)
          CALL cp_unit_create(keyword%unit, unit_str)
+      END IF
+
+      IF (PRESENT(deprecation_notice)) THEN
+         keyword%deprecation_notice = TRIM(deprecation_notice)
+      END IF
+
+      IF (PRESENT(removed)) THEN
+         keyword%removed = removed
       END IF
    END SUBROUTINE keyword_create
 
@@ -394,8 +408,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE keyword_retain(keyword)
       TYPE(keyword_type), POINTER                        :: keyword
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'keyword_retain', routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(keyword))
       CPASSERT(keyword%ref_count > 0)
@@ -410,9 +422,6 @@ CONTAINS
    SUBROUTINE keyword_release(keyword)
       TYPE(keyword_type), POINTER                        :: keyword
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'keyword_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(keyword)) THEN
          CPASSERT(keyword%ref_count > 0)
          keyword%ref_count = keyword%ref_count - 1
@@ -422,10 +431,13 @@ CONTAINS
             CALL val_release(keyword%default_value)
             CALL val_release(keyword%lone_keyword_value)
             CALL enum_release(keyword%enum)
-            CALL cp_unit_release(keyword%unit)
+            IF (ASSOCIATED(keyword%unit)) THEN
+               CALL cp_unit_release(keyword%unit)
+               DEALLOCATE (keyword%unit)
+            END IF
             IF (ASSOCIATED(keyword%citations)) THEN
                DEALLOCATE (keyword%citations)
-            ENDIF
+            END IF
             DEALLOCATE (keyword)
          END IF
       END IF
@@ -459,8 +471,6 @@ CONTAINS
       TYPE(enumeration_type), OPTIONAL, POINTER          :: enum
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: citations
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'keyword_get', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(keyword))
       CPASSERT(keyword%ref_count > 0)
       IF (PRESENT(names)) names => keyword%names
@@ -487,9 +497,6 @@ CONTAINS
    SUBROUTINE keyword_describe(keyword, unit_nr, level)
       TYPE(keyword_type), POINTER                        :: keyword
       INTEGER, INTENT(in)                                :: unit_nr, level
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'keyword_describe', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=default_string_length)               :: c_string
       INTEGER                                            :: i, l
@@ -609,7 +616,7 @@ CONTAINS
                   WRITE (unit_nr, "(a,' ')", advance="NO") keyword%names(i)
                END DO
                WRITE (unit_nr, "()")
-            ENDIF
+            END IF
          END IF
       END IF
    END SUBROUTINE keyword_describe
@@ -626,11 +633,8 @@ CONTAINS
       TYPE(keyword_type), POINTER                        :: keyword
       INTEGER, INTENT(IN)                                :: level, unit_number
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'write_keyword_xml', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=1000)                                :: string
-      CHARACTER(LEN=3)                                   :: repeats
+      CHARACTER(LEN=3)                                   :: removed, repeats
       CHARACTER(LEN=8)                                   :: short_string
       INTEGER                                            :: i, l0, l1, l2, l3, l4
 
@@ -651,11 +655,18 @@ CONTAINS
          repeats = "no "
       END IF
 
+      IF (keyword%removed) THEN
+         removed = "yes"
+      ELSE
+         removed = "no "
+      END IF
+
       ! Write (special) keyword element
 
       IF (keyword%names(1) == "_SECTION_PARAMETERS_") THEN
          WRITE (UNIT=unit_number, FMT="(A)") &
-            REPEAT(" ", l0)//"<SECTION_PARAMETERS repeats="""//TRIM(repeats)//""">", &
+            REPEAT(" ", l0)//"<SECTION_PARAMETERS repeats="""//TRIM(repeats)// &
+            """ removed="""//TRIM(removed)//""">", &
             REPEAT(" ", l1)//"<NAME type=""default"">SECTION_PARAMETERS</NAME>"
       ELSE IF (keyword%names(1) == "_DEFAULT_KEYWORD_") THEN
          WRITE (UNIT=unit_number, FMT="(A)") &
@@ -663,7 +674,8 @@ CONTAINS
             REPEAT(" ", l1)//"<NAME type=""default"">DEFAULT_KEYWORD</NAME>"
       ELSE
          WRITE (UNIT=unit_number, FMT="(A)") &
-            REPEAT(" ", l0)//"<KEYWORD repeats="""//TRIM(repeats)//""">", &
+            REPEAT(" ", l0)//"<KEYWORD repeats="""//TRIM(repeats)// &
+            """ removed="""//TRIM(removed)//""">", &
             REPEAT(" ", l1)//"<NAME type=""default"">"// &
             TRIM(keyword%names(1))//"</NAME>"
       END IF
@@ -730,6 +742,11 @@ CONTAINS
       WRITE (UNIT=unit_number, FMT="(A)") REPEAT(" ", l1)//"<DESCRIPTION>"// &
          TRIM(substitute_special_xml_tokens(a2s(keyword%description))) &
          //"</DESCRIPTION>"
+
+      IF (ALLOCATED(keyword%deprecation_notice)) &
+         WRITE (UNIT=unit_number, FMT="(A)") REPEAT(" ", l1)//"<DEPRECATION_NOTICE>"// &
+         TRIM(substitute_special_xml_tokens(keyword%deprecation_notice)) &
+         //"</DEPRECATION_NOTICE>"
 
       IF (ASSOCIATED(keyword%default_value) .AND. &
           (keyword%type_of_var /= no_t)) THEN
@@ -810,9 +827,6 @@ CONTAINS
       CHARACTER(LEN=*), DIMENSION(:), INTENT(INOUT)      :: matching_string
       INTEGER, INTENT(IN)                                :: bonus
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'keyword_typo_match', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=LEN(matching_string(1)))             :: line
       INTEGER                                            :: i, imatch, imax, irank, j, k
 
@@ -828,13 +842,13 @@ CONTAINS
             irank = imax + 1
             DO k = imax, 1, -1
                IF (imatch > matching_rank(k)) irank = k
-            ENDDO
+            END DO
             IF (irank <= imax) THEN
                matching_rank(irank + 1:imax) = matching_rank(irank:imax - 1)
                matching_string(irank + 1:imax) = matching_string(irank:imax - 1)
                matching_rank(irank) = imatch
                matching_string(irank) = line
-            ENDIF
+            END IF
          END IF
 
          IF (keyword%type_of_var == enum_t) THEN
@@ -849,19 +863,18 @@ CONTAINS
                   irank = imax + 1
                   DO k = imax, 1, -1
                      IF (imatch > matching_rank(k)) irank = k
-                  ENDDO
+                  END DO
                   IF (irank <= imax) THEN
                      matching_rank(irank + 1:imax) = matching_rank(irank:imax - 1)
                      matching_string(irank + 1:imax) = matching_string(irank:imax - 1)
                      matching_rank(irank) = imatch
                      matching_string(irank) = line
-                  ENDIF
+                  END IF
                END IF
             END DO
          END IF
-      ENDDO
+      END DO
 
    END SUBROUTINE keyword_typo_match
 
 END MODULE input_keyword_types
-

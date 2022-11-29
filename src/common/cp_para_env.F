@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -14,6 +16,7 @@ MODULE cp_para_env
    USE cp_para_types,                   ONLY: cp_para_cart_type,&
                                               cp_para_env_type
    USE message_passing,                 ONLY: mp_comm_free,&
+                                              mp_comm_split_direct,&
                                               mp_environ
 #include "../base/base_uses.f90"
 
@@ -23,7 +26,7 @@ MODULE cp_para_env
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_para_env'
 
-   PUBLIC :: cp_para_env_retain, cp_para_env_release, cp_para_env_create
+   PUBLIC :: cp_para_env_retain, cp_para_env_release, cp_para_env_create, cp_para_env_split
    PUBLIC :: cp_cart_create, cp_cart_release
 !***
 CONTAINS
@@ -46,9 +49,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: group
       INTEGER, INTENT(in), OPTIONAL                      :: source, mepos, num_pe
       LOGICAL, INTENT(in), OPTIONAL                      :: owns_group
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_para_env_create', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(.NOT. ASSOCIATED(para_env))
       ALLOCATE (para_env)
@@ -76,15 +76,32 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE cp_para_env_retain(para_env)
-      TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_para_env_retain', &
-         routineP = moduleN//':'//routineN
+      TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
 
       CPASSERT(ASSOCIATED(para_env))
       CPASSERT(para_env%ref_count > 0)
       para_env%ref_count = para_env%ref_count + 1
    END SUBROUTINE cp_para_env_retain
+
+! **************************************************************************************************
+!> \brief splits the communicator of the template para_env according to the provided color
+!> \param para_env para_env with new sub communicator
+!> \param para_env_template para_env to be split
+!> \param color all processes with same color will belong to the same sub communicator
+! **************************************************************************************************
+   SUBROUTINE cp_para_env_split(para_env, para_env_template, color)
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env_template
+      INTEGER, INTENT(IN)                                :: color
+
+      INTEGER                                            :: comm
+
+      CPASSERT(para_env_template%ref_count > 0)
+      CALL mp_comm_split_direct(para_env_template%group, comm, color)
+      NULLIFY (para_env)
+      CALL cp_para_env_create(para_env, comm)
+
+   END SUBROUTINE cp_para_env_split
 
 ! **************************************************************************************************
 !> \brief releases the para object (to be called when you don't want anymore
@@ -99,9 +116,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_para_env_release(para_env)
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_para_env_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(para_env)) THEN
          CPASSERT(para_env%ref_count > 0)
@@ -130,8 +144,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: group, ndims
       LOGICAL, INTENT(in), OPTIONAL                      :: owns_group
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_cart_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(cart))
       ALLOCATE (cart)
       cart%owns_group = .TRUE.
@@ -156,11 +168,8 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE cp_cart_update(cart)
-      TYPE(cp_para_cart_type), POINTER                   :: cart
+      TYPE(cp_para_cart_type), INTENT(INOUT)             :: cart
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_cart_update', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(cart))
       CPASSERT(cart%ref_count > 0)
       CALL mp_environ(cart%group, cart%ndims, cart%num_pe, task_coor=cart%mepos, &
                       periods=cart%periodic)
@@ -174,9 +183,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cart_release(cart)
       TYPE(cp_para_cart_type), POINTER                   :: cart
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_cart_release', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(cart)) THEN
          CPASSERT(cart%ref_count > 0)

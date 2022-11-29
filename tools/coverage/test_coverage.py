@@ -1,9 +1,6 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-#
-# author: Ole Schuett
+#!/usr/bin/env python3
 
-from __future__ import print_function
+# author: Ole Schuett
 
 import sys
 import subprocess
@@ -23,7 +20,7 @@ def main():
     print("Git Commit: {}".format(git_rev))
 
     ref_fn, lcov_fn = sys.argv[1:]
-    content = open(lcov_fn).read()
+    content = open(lcov_fn, encoding="utf8").read()
     lines = content.split("\n")
 
     assert lines[2] == "=" * 80
@@ -40,19 +37,19 @@ def main():
         coverage[parts[0]] = (float(rate[:-1]), int(nlines))
 
     if not path.exists(ref_fn):
-        open(ref_fn, "w").write(pformat(coverage))
+        open(ref_fn, "w", encoding="utf8").write(pformat(coverage))
         print("Summary: Wrote new reference file")
         print("Status: UNKNOWN")
         sys.exit(0)
 
-    ref_coverage = eval(open(ref_fn).read())
+    ref_coverage = eval(open(ref_fn, encoding="utf8").read())
 
     issues = 0
     new_ref_coverage = dict()
     for fn in coverage.keys():
         cov_rate, nlines = coverage[fn]
         uncov_lines = nlines * (100.0 - cov_rate) / 100.0
-        if ref_coverage.has_key(fn):
+        if fn in ref_coverage:
             cov_rate0, nlines0 = ref_coverage[fn]
             uncov_lines0 = nlines0 * (100.0 - cov_rate0) / 100.0
             tol = max(nlines, nlines0) * 0.001  # uncov_lines has limited precision
@@ -84,7 +81,7 @@ def main():
     )
     print("Status: " + ("OK" if (issues == 0) else "FAILED"))
 
-    open(ref_fn, "w").write(pformat(new_ref_coverage))
+    open(ref_fn, "w", encoding="utf8").write(pformat(new_ref_coverage))
 
 
 # ===============================================================================

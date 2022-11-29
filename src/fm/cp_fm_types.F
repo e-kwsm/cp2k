@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,7 +25,6 @@ MODULE cp_fm_types
                                               cp_fm_struct_retain,&
                                               cp_fm_struct_type,&
                                               cp_fm_struct_write_info
-   USE cp_log_handling,                 ONLY: cp_to_string
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE kinds,                           ONLY: dp,&
                                               sp
@@ -42,7 +43,6 @@ MODULE cp_fm_types
    LOGICAL, PARAMETER          :: debug_this_module = .TRUE.
    INTEGER, PARAMETER :: src_tag = 3, dest_tag = 5, send_tag = 7, recv_tag = 11
 
-   INTEGER, SAVE :: last_fm_id_nr = 0
    INTEGER, PRIVATE :: mm_type = 1
 
    PUBLIC :: cp_fm_type, &
@@ -50,7 +50,6 @@ MODULE cp_fm_types
 
    PUBLIC :: cp_fm_add_to_element, &
              cp_fm_create, &
-             cp_fm_retain, &
              cp_fm_release, &
              cp_fm_get_info, &
              cp_fm_set_element, &
@@ -76,7 +75,8 @@ MODULE cp_fm_types
              cp_fm_read_unformatted, & ! reads a full matrix from an open unit
              cp_fm_setup, & ! allows to set flags for fms
              cp_fm_get_mm_type, &
-             cp_fm_write_info
+             cp_fm_write_info, &
+             cp_fm_to_fm_submat_general ! copy matrix across different contexts
 
    PUBLIC :: cp_fm_indxg2p, &
              cp_fm_indxg2l, &
@@ -90,9 +90,6 @@ MODULE cp_fm_types
 ! **************************************************************************************************
 !> \brief represent a full matrix
 !> \param name the name of the matrix, used for printing
-!> \param id_nr identification number that makes this matrix unique
-!> \param ref_cont reference count (see doc/ReferenceCounting.html)
-!> \param print_count sequential number to make the printed files unique
 !> \param matrix_struct structure of this matrix
 !> \param local_data array with the data of the matrix (its contents
 !>        depend on the matrix type used: in parallel runs it will be
@@ -104,12 +101,11 @@ MODULE cp_fm_types
 ! **************************************************************************************************
    TYPE cp_fm_type
 !    PRIVATE
-      CHARACTER(LEN=60) :: name
-      INTEGER :: id_nr, ref_count, print_count
-      LOGICAL :: use_sp
-      TYPE(cp_fm_struct_type), POINTER :: matrix_struct
-      REAL(KIND=dp), DIMENSION(:, :), POINTER :: local_data
-      REAL(KIND=sp), DIMENSION(:, :), POINTER :: local_data_sp
+      CHARACTER(LEN=60) :: name = ""
+      LOGICAL :: use_sp = .FALSE.
+      TYPE(cp_fm_struct_type), POINTER :: matrix_struct => NULL()
+      REAL(KIND=dp), DIMENSION(:, :), POINTER, CONTIGUOUS :: local_data => NULL()
+      REAL(KIND=sp), DIMENSION(:, :), POINTER, CONTIGUOUS :: local_data_sp => NULL()
    END TYPE cp_fm_type
 
 ! **************************************************************************************************
@@ -120,7 +116,7 @@ MODULE cp_fm_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE cp_fm_p_type
-      TYPE(cp_fm_type), POINTER :: matrix
+      TYPE(cp_fm_type), POINTER :: matrix => NULL()
    END TYPE cp_fm_p_type
 
 ! **************************************************************************************************
@@ -153,12 +149,12 @@ CONTAINS
 !>      preferred allocation routine
 ! **************************************************************************************************
    SUBROUTINE cp_fm_create(matrix, matrix_struct, name, use_sp)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(OUT)                      :: matrix
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: name
       LOGICAL, INTENT(in), OPTIONAL                      :: use_sp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_create', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_create'
 
       INTEGER                                            :: handle, ncol_local, npcol, nprow, &
                                                             nrow_local
@@ -171,14 +167,9 @@ CONTAINS
 #endif
 
       CPASSERT(ASSOCIATED(matrix_struct))
-      ALLOCATE (matrix)
       context => matrix_struct%context
       matrix%matrix_struct => matrix_struct
       CALL cp_fm_struct_retain(matrix%matrix_struct)
-      last_fm_id_nr = last_fm_id_nr + 1
-      matrix%id_nr = last_fm_id_nr
-      matrix%ref_count = 1
-      matrix%print_count = 0
 
       matrix%use_sp = .FALSE.
       IF (PRESENT(use_sp)) matrix%use_sp = use_sp
@@ -197,42 +188,24 @@ CONTAINS
          ALLOCATE (matrix%local_data_sp(nrow_local, ncol_local))
       ELSE
          ALLOCATE (matrix%local_data(nrow_local, ncol_local))
-      ENDIF
+      END IF
 
       ! JVDV we should remove this, as it is up to the user to zero afterwards
       IF (matrix%use_sp) THEN
-         CALL scopy(nrow_local*ncol_local, 0.0_sp, 0, matrix%local_data_sp, 1)
+         matrix%local_data_sp(1:nrow_local, 1:ncol_local) = 0.0_sp
       ELSE
-         CALL dcopy(nrow_local*ncol_local, 0.0_dp, 0, matrix%local_data, 1)
-      ENDIF
+         matrix%local_data(1:nrow_local, 1:ncol_local) = 0.0_dp
+      END IF
 
       IF (PRESENT(name)) THEN
          matrix%name = name
       ELSE
-         matrix%name = 'full matrix'//cp_to_string(matrix%id_nr)
+         matrix%name = 'full matrix'
       END IF
 
       CALL timestop(handle)
 
    END SUBROUTINE cp_fm_create
-
-! **************************************************************************************************
-!> \brief retains a full matrix
-!> \param matrix the matrix to retain
-!> \par History
-!>      08.2002 created [fawzi]
-!> \author Fawzi Mohamed
-! **************************************************************************************************
-   SUBROUTINE cp_fm_retain(matrix)
-      TYPE(cp_fm_type), POINTER                          :: matrix
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(matrix))
-      CPASSERT(matrix%ref_count > 0)
-      matrix%ref_count = matrix%ref_count + 1
-
-   END SUBROUTINE cp_fm_retain
 
 ! **************************************************************************************************
 !> \brief releases a full matrix
@@ -242,30 +215,24 @@ CONTAINS
 !> \author Fawzi Mohamed
 ! **************************************************************************************************
    SUBROUTINE cp_fm_release(matrix)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_release', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_release'
 
       INTEGER                                            :: handle
 
       CALL timeset(routineN, handle)
 
-      IF (ASSOCIATED(matrix)) THEN
-         CPASSERT(matrix%ref_count > 0)
-         matrix%ref_count = matrix%ref_count - 1
-         IF (matrix%ref_count < 1) THEN
-            IF (ASSOCIATED(matrix%local_data)) THEN
-               DEALLOCATE (matrix%local_data)
-            END IF
-            IF (ASSOCIATED(matrix%local_data_sp)) THEN
-               DEALLOCATE (matrix%local_data_sp)
-            END IF
-            matrix%name = ""
-            CALL cp_fm_struct_release(matrix%matrix_struct)
-            DEALLOCATE (matrix)
-         END IF
+      IF (ASSOCIATED(matrix%local_data)) THEN
+         DEALLOCATE (matrix%local_data)
+         NULLIFY (matrix%local_data)
       END IF
-      NULLIFY (matrix)
+      IF (ASSOCIATED(matrix%local_data_sp)) THEN
+         DEALLOCATE (matrix%local_data_sp)
+         NULLIFY (matrix%local_data_sp)
+      END IF
+      matrix%name = ""
+      CALL cp_fm_struct_release(matrix%matrix_struct)
 
       CALL timestop(handle)
 
@@ -281,28 +248,23 @@ CONTAINS
 !>      the value of a_ij is independent of the number of cpus
 ! **************************************************************************************************
    SUBROUTINE cp_fm_init_random(matrix, ncol, start_col)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       INTEGER, INTENT(IN), OPTIONAL                      :: ncol, start_col
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_init_random', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_init_random'
 
       INTEGER :: handle, icol_global, icol_local, irow_local, my_ncol, my_start_col, ncol_global, &
          ncol_local, nrow_global, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      LOGICAL, SAVE                                      :: FIRST = .TRUE.
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: buff
-      REAL(KIND=dp), DIMENSION(3, 2), SAVE               :: seed
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
+      REAL(KIND=dp), DIMENSION(3, 2), SAVE :: &
+         seed = RESHAPE((/1.0_dp, 2.0_dp, 3.0_dp, 4.0_dp, 5.0_dp, 6.0_dp/), (/3, 2/))
       TYPE(rng_stream_type)                              :: rng
 
       CALL timeset(routineN, handle)
 
-      ! first setup a parallel rng
-      IF (FIRST) THEN
-         seed(:, :) = RESHAPE((/1.0_dp, 2.0_dp, 3.0_dp, 4.0_dp, 5.0_dp, 6.0_dp/), (/3, 2/))
-         FIRST = .FALSE.
-      ENDIF
       ! guarantee same seed over all tasks
       CALL mp_bcast(seed, 0, matrix%matrix_struct%para_env%group)
 
@@ -336,16 +298,22 @@ CONTAINS
             CALL rng%reset_to_next_substream()
             icol_global = icol_global + 1
             IF (icol_global == col_indices(icol_local)) EXIT
-         ENDDO
+         END DO
          CALL rng%fill(buff)
          DO irow_local = 1, nrow_local
             local_data(irow_local, icol_local) = buff(row_indices(irow_local))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       DEALLOCATE (buff)
 
       ! store seed before deletion (unclear if this is the proper seed)
+
+      ! Note that, the initial state (rng%ig) instead of the current state (rng%cg) is stored in the
+      ! seed variable. As a consequence, each invocation of cp_fm_init_random uses exactly the same
+      ! stream of random numbers. While this seems odd and contrary to the original design,
+      ! it was probably introduced to improve reproducibility.
+      ! See also https://github.com/cp2k/cp2k/pull/506
       CALL rng%get(ig=seed)
 
       CALL timestop(handle)
@@ -364,23 +332,21 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_set_all(matrix, alpha, beta)
 
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       REAL(KIND=dp), INTENT(IN)                          :: alpha
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: beta
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_set_all', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_set_all'
 
-      INTEGER                                            :: handle, i, matrix_size, n
+      INTEGER                                            :: handle, i, n
 
       CALL timeset(routineN, handle)
 
       IF (matrix%use_sp) THEN
-         matrix_size = SIZE(matrix%local_data_sp, 1)*SIZE(matrix%local_data_sp, 2)
-         CALL scopy(matrix_size, REAL(alpha, sp), 0, matrix%local_data_sp, 1)
+         matrix%local_data_sp(:, :) = REAL(alpha, sp)
       ELSE
-         matrix_size = SIZE(matrix%local_data, 1)*SIZE(matrix%local_data, 2)
-         CALL dcopy(matrix_size, alpha, 0, matrix%local_data, 1)
-      ENDIF
+         matrix%local_data(:, :) = alpha
+      END IF
 
       IF (PRESENT(beta)) THEN
          CPASSERT(.NOT. matrix%use_sp)
@@ -401,14 +367,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_get_diag(matrix, diag)
 
-      IMPLICIT NONE
-
       ! arguments
-      TYPE(cp_fm_type), POINTER                  :: matrix
+      TYPE(cp_fm_type), INTENT(IN)             :: matrix
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT) :: diag
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_get_diag', &
-                                     routineP = moduleN//':'//routineN
 
       ! locals
       INTEGER :: i, nrow_global
@@ -444,8 +405,8 @@ CONTAINS
                diag(i) = REAL(a_sp(irow_local, icol_local), dp)
             ELSE
                diag(i) = a(irow_local, icol_local)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END DO
 #else
       DO i = 1, nrow_global
@@ -453,8 +414,8 @@ CONTAINS
             diag(i) = REAL(matrix%local_data_sp(i, i), dp)
          ELSE
             diag(i) = matrix%local_data(i, i)
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 #endif
       CALL mp_sum(diag, matrix%matrix_struct%para_env%group)
 
@@ -479,10 +440,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_get_element(matrix, irow_global, icol_global, alpha, local)
 
-      IMPLICIT NONE
-
       ! arguments
-      TYPE(cp_fm_type), POINTER          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)          :: matrix
       REAL(KIND=dp), INTENT(OUT)                     :: alpha
       INTEGER, INTENT(IN)                       :: icol_global, &
                                                    irow_global
@@ -537,12 +496,9 @@ CONTAINS
 !>      (otherwise one should use local_data tricks)
 ! **************************************************************************************************
    SUBROUTINE cp_fm_set_element(matrix, irow_global, icol_global, alpha)
-      TYPE(cp_fm_type), POINTER                :: matrix
+      TYPE(cp_fm_type), INTENT(IN)          :: matrix
       INTEGER, INTENT(IN)                      :: irow_global, icol_global
       REAL(KIND=dp), INTENT(IN)                :: alpha
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_set_element', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: mypcol, myprow, npcol, nprow
       TYPE(cp_blacs_env_type), POINTER         :: context
@@ -608,14 +564,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_set_submatrix(fm, new_values, start_row, &
                                   start_col, n_rows, n_cols, alpha, beta, transpose)
-      TYPE(cp_fm_type), POINTER                          :: fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm
       REAL(KIND=dp), DIMENSION(:, :), INTENT(in)         :: new_values
       INTEGER, INTENT(in), OPTIONAL                      :: start_row, start_col, n_rows, n_cols
       REAL(KIND=dp), INTENT(in), OPTIONAL                :: alpha, beta
       LOGICAL, INTENT(in), OPTIONAL                      :: transpose
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_set_submatrix', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, i0, j, j0, ncol, ncol_block, &
                                                             ncol_global, ncol_local, nrow, &
@@ -629,9 +582,6 @@ CONTAINS
       al = 1.0_dp; be = 0.0_dp; i0 = 1; j0 = 1; tr_a = .FALSE.
       ! can be called too many times, making it a bit useless
       ! CALL timeset(routineN//','//moduleN,handle)
-
-      CPASSERT(ASSOCIATED(fm))
-      CPASSERT(fm%ref_count > 0)
 
       CPASSERT(.NOT. fm%use_sp)
 
@@ -747,13 +697,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_get_submatrix(fm, target_m, start_row, &
                                   start_col, n_rows, n_cols, transpose)
-      TYPE(cp_fm_type), POINTER                          :: fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm
       REAL(KIND=dp), DIMENSION(:, :), INTENT(out)        :: target_m
       INTEGER, INTENT(in), OPTIONAL                      :: start_row, start_col, n_rows, n_cols
       LOGICAL, INTENT(in), OPTIONAL                      :: transpose
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_get_submatrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_get_submatrix'
 
       INTEGER                                            :: handle, i, i0, j, j0, ncol, ncol_global, &
                                                             ncol_local, nrow, nrow_global, &
@@ -766,9 +715,6 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       i0 = 1; j0 = 1; tr_a = .FALSE.
-
-      CPASSERT(ASSOCIATED(fm))
-      CPASSERT(fm%ref_count > 0)
 
       CPASSERT(.NOT. fm%use_sp)
 
@@ -791,7 +737,7 @@ CONTAINS
 #if defined(__SCALAPACK)
       ! zero-out whole target_m
       IF (SIZE(target_m, 1)*SIZE(target_m, 2) /= 0) THEN
-         CALL dcopy(SIZE(target_m, 1)*SIZE(target_m, 2), 0.0_dp, 0, target_m(1, 1), 1)
+         CALL dcopy(SIZE(target_m, 1)*SIZE(target_m, 2), [0.0_dp], 0, target_m, 1)
       END IF
 #endif
 
@@ -858,7 +804,7 @@ CONTAINS
 !> \param matrix_struct ...
 !> \param para_env ...
 !> \note
-!>       see also cp_fm_struct for explaination
+!>       see also cp_fm_struct for explanation
 !>       - nrow_local, ncol_local, row_indices, col_indices, local_data are hooks for efficient
 !>         access to the local blacs block
 ! **************************************************************************************************
@@ -867,42 +813,28 @@ CONTAINS
                              row_indices, col_indices, local_data, context, &
                              nrow_locals, ncol_locals, matrix_struct, para_env)
 
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       CHARACTER(LEN=*), INTENT(OUT), OPTIONAL            :: name
       INTEGER, INTENT(OUT), OPTIONAL                     :: nrow_global, ncol_global, nrow_block, &
                                                             ncol_block, nrow_local, ncol_local
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: row_indices, col_indices
-      REAL(KIND=dp), DIMENSION(:, :), OPTIONAL, POINTER  :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         OPTIONAL, POINTER                               :: local_data
       TYPE(cp_blacs_env_type), OPTIONAL, POINTER         :: context
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: nrow_locals, ncol_locals
       TYPE(cp_fm_struct_type), OPTIONAL, POINTER         :: matrix_struct
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_get_info', routineP = moduleN//':'//routineN
-
       IF (PRESENT(name)) name = matrix%name
-      IF (PRESENT(context)) context => matrix%matrix_struct%context
       IF (PRESENT(matrix_struct)) matrix_struct => matrix%matrix_struct
       IF (PRESENT(local_data)) local_data => matrix%local_data ! not hiding things anymore :-(
-      IF (PRESENT(row_indices)) THEN
-         CALL cp_fm_struct_get(matrix%matrix_struct, row_indices=row_indices)
-      ENDIF
-      IF (PRESENT(col_indices)) THEN
-         CALL cp_fm_struct_get(matrix%matrix_struct, col_indices=col_indices)
-      ENDIF
-      IF (PRESENT(nrow_locals)) THEN
-         nrow_locals => matrix%matrix_struct%nrow_locals
-      END IF
-      IF (PRESENT(ncol_locals)) THEN
-         ncol_locals => matrix%matrix_struct%ncol_locals
-      END IF
 
       CALL cp_fm_struct_get(matrix%matrix_struct, nrow_local=nrow_local, &
                             ncol_local=ncol_local, nrow_global=nrow_global, &
                             ncol_global=ncol_global, nrow_block=nrow_block, &
-                            ncol_block=ncol_block)
-
-      IF (PRESENT(para_env)) para_env => matrix%matrix_struct%para_env
+                            ncol_block=ncol_block, row_indices=row_indices, &
+                            col_indices=col_indices, nrow_locals=nrow_locals, &
+                            ncol_locals=ncol_locals, context=context, para_env=para_env)
 
    END SUBROUTINE cp_fm_get_info
 
@@ -912,7 +844,7 @@ CONTAINS
 !> \param io_unit the I/O unit to use for writing
 ! **************************************************************************************************
    SUBROUTINE cp_fm_write_info(matrix, io_unit)
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       INTEGER, INTENT(IN)                                :: io_unit
 
       WRITE (io_unit, '(/,A,A12)') "CP_FM | Name:                           ", matrix%name
@@ -928,12 +860,11 @@ CONTAINS
 !> \param ic_max ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_maxabsval(matrix, a_max, ir_max, ic_max)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       REAL(KIND=dp), INTENT(OUT)                         :: a_max
       INTEGER, INTENT(OUT), OPTIONAL                     :: ir_max, ic_max
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_maxabsval', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_maxabsval'
 
       INTEGER                                            :: handle, i, ic_max_local, ir_max_local, &
                                                             j, mepos, ncol_local, nrow_local, &
@@ -957,7 +888,7 @@ CONTAINS
          a_max = REAL(MAXVAL(ABS(my_block_sp(1:nrow_local, 1:ncol_local))), dp)
       ELSE
          a_max = MAXVAL(ABS(my_block(1:nrow_local, 1:ncol_local)))
-      ENDIF
+      END IF
 
       IF (PRESENT(ir_max)) THEN
          num_pe = matrix%matrix_struct%para_env%num_pe
@@ -978,13 +909,13 @@ CONTAINS
                         my_max = REAL(my_block_sp(j, i), dp)
                         ir_max_local = j
                         ic_max_local = i
-                     ENDIF
+                     END IF
                   ELSE
                      IF (ABS(my_block(j, i)) > my_max) THEN
                         my_max = my_block(j, i)
                         ir_max_local = j
                         ic_max_local = i
-                     ENDIF
+                     END IF
                   END IF
                END DO
             END DO
@@ -1031,11 +962,10 @@ CONTAINS
 !>      (but the bound is not so tight in the general case)
 ! **************************************************************************************************
    SUBROUTINE cp_fm_maxabsrownorm(matrix, a_max)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       REAL(KIND=dp), INTENT(OUT)                         :: a_max
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_maxabsrownorm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_maxabsrownorm'
 
       INTEGER                                            :: handle, i, j, ncol_local, nrow_global, &
                                                             nrow_local
@@ -1058,8 +988,8 @@ CONTAINS
       DO j = 1, ncol_local
          DO i = 1, nrow_local
             values(row_indices(i)) = values(row_indices(i)) + ABS(my_block(i, j))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       CALL mp_sum(values, matrix%matrix_struct%para_env%group)
       a_max = MAXVAL(values)
       DEALLOCATE (values)
@@ -1073,11 +1003,10 @@ CONTAINS
 !> \param norm_array ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_vectorsnorm(matrix, norm_array)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: norm_array
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_vectorsnorm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_vectorsnorm'
 
       INTEGER                                            :: handle, i, j, ncol_global, ncol_local, &
                                                             nrow_local
@@ -1098,8 +1027,8 @@ CONTAINS
       DO j = 1, ncol_local
          DO i = 1, nrow_local
             norm_array(col_indices(j)) = norm_array(col_indices(j)) + my_block(i, j)*my_block(i, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       CALL mp_sum(norm_array, matrix%matrix_struct%para_env%group)
       norm_array = SQRT(norm_array)
 
@@ -1119,12 +1048,11 @@ CONTAINS
 !>        added row variation
 ! **************************************************************************************************
    SUBROUTINE cp_fm_vectorssum(matrix, sum_array, dir)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: sum_array
       CHARACTER(LEN=1), INTENT(IN), OPTIONAL             :: dir
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_vectorssum', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_vectorssum'
 
       INTEGER                                            :: handle, i, j, ncol_local, nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
@@ -1158,14 +1086,14 @@ CONTAINS
       DO j = 1, ncol_local
          DO i = 1, nrow_local
             sum_array(col_indices(j)) = sum_array(col_indices(j)) + my_block(i, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       ELSE
       DO j = 1, ncol_local
          DO i = 1, nrow_local
             sum_array(row_indices(i)) = sum_array(row_indices(i)) + my_block(i, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       END IF
       CALL mp_sum(sum_array, matrix%matrix_struct%para_env%group)
 
@@ -1181,10 +1109,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_to_fm_matrix(source, destination)
 
-      TYPE(cp_fm_type), POINTER                          :: source, destination
+      TYPE(cp_fm_type), INTENT(IN)                       :: source, destination
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_matrix'
 
       INTEGER                                            :: handle, npcol, nprow
 
@@ -1204,8 +1131,8 @@ CONTAINS
                              "> to full matrix <"//TRIM(destination%name)// &
                              ">. The local_data blocks have different sizes.")
             CALL scopy(SIZE(source%local_data_sp, 1)*SIZE(source%local_data_sp, 2), &
-                       source%local_data_sp(1, 1), 1, destination%local_data_sp(1, 1), 1)
-         ELSEIF (source%use_sp .AND. .NOT. destination%use_sp) THEN
+                       source%local_data_sp, 1, destination%local_data_sp, 1)
+         ELSE IF (source%use_sp .AND. .NOT. destination%use_sp) THEN
             IF (SIZE(source%local_data_sp, 1) /= SIZE(destination%local_data, 1) .OR. &
                 SIZE(source%local_data_sp, 2) /= SIZE(destination%local_data, 2)) &
                CALL cp_abort(__LOCATION__, &
@@ -1213,7 +1140,7 @@ CONTAINS
                              "> to full matrix <"//TRIM(destination%name)// &
                              ">. The local_data blocks have different sizes.")
             destination%local_data = REAL(source%local_data_sp, dp)
-         ELSEIF (.NOT. source%use_sp .AND. destination%use_sp) THEN
+         ELSE IF (.NOT. source%use_sp .AND. destination%use_sp) THEN
             IF (SIZE(source%local_data, 1) /= SIZE(destination%local_data_sp, 1) .OR. &
                 SIZE(source%local_data, 2) /= SIZE(destination%local_data_sp, 2)) &
                CALL cp_abort(__LOCATION__, &
@@ -1229,10 +1156,10 @@ CONTAINS
                              "> to full matrix <"//TRIM(destination%name)// &
                              ">. The local_data blocks have different sizes.")
             CALL dcopy(SIZE(source%local_data, 1)*SIZE(source%local_data, 2), &
-                       source%local_data(1, 1), 1, destination%local_data(1, 1), 1)
-         ENDIF
+                       source%local_data, 1, destination%local_data, 1)
+         END IF
       ELSE
-         CPABORT("")
+         CPABORT("Data structures of source and target full matrix are not equivalent")
       END IF
 
       CALL timestop(handle)
@@ -1250,12 +1177,11 @@ CONTAINS
    SUBROUTINE cp_fm_to_fm_columns(msource, mtarget, ncol, source_start, &
                                   target_start)
 
-      TYPE(cp_fm_type), POINTER                :: msource, mtarget
+      TYPE(cp_fm_type), INTENT(IN)          :: msource, mtarget
       INTEGER, INTENT(IN)                      :: ncol
       INTEGER, INTENT(IN), OPTIONAL            :: source_start, target_start
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_columns', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_columns'
 
       INTEGER                                  :: handle, n, ss, ts
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a, b
@@ -1281,10 +1207,10 @@ CONTAINS
       desca(:) = msource%matrix_struct%descriptor(:)
       descb(:) = mtarget%matrix_struct%descriptor(:)
       DO i = 0, ncol - 1
-         CALL pdcopy(n, a(1, 1), 1, ss + i, desca, 1, b(1, 1), 1, ts + i, descb, 1)
+         CALL pdcopy(n, a, 1, ss + i, desca, 1, b, 1, ts + i, descb, 1)
       END DO
 #else
-      CALL dcopy(ncol*n, a(1, ss), 1, b(1, ts), 1)
+      CALL dcopy(ncol*n, a(:, ss), 1, b(:, ts), 1)
 #endif
 
       CALL timestop(handle)
@@ -1299,11 +1225,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_to_fm_triangular(msource, mtarget, uplo)
 
-      TYPE(cp_fm_type), POINTER                :: msource, mtarget
+      TYPE(cp_fm_type), INTENT(IN)          :: msource, mtarget
       CHARACTER(LEN=*), INTENT(IN)             :: uplo
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_triangular', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_triangular'
 
       INTEGER                                  :: handle, ncol, nrow
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a, b
@@ -1345,13 +1270,12 @@ CONTAINS
 
    SUBROUTINE cp_fm_to_fm_submat(msource, mtarget, nrow, ncol, s_firstrow, s_firstcol, t_firstrow, t_firstcol)
 
-      TYPE(cp_fm_type), POINTER                :: msource, mtarget
+      TYPE(cp_fm_type), INTENT(IN)             :: msource, mtarget
       INTEGER, INTENT(IN)                      :: nrow, ncol, s_firstrow, &
                                                   s_firstcol, t_firstrow, &
                                                   t_firstcol
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_submat', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_submat'
 
       INTEGER                                  :: handle, i, na, nb, ss, ts
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a, b
@@ -1385,13 +1309,13 @@ CONTAINS
       DO i = 0, ncol - 1
          ss = s_firstcol + i
          ts = t_firstcol + i
-         CALL pdcopy(nrow, a(1, 1), s_firstrow, ss, desca, 1, b(1, 1), t_firstrow, ts, descb, 1)
+         CALL pdcopy(nrow, a, s_firstrow, ss, desca, 1, b, t_firstrow, ts, descb, 1)
       END DO
 #else
       DO i = 0, ncol - 1
          ss = s_firstcol + i
          ts = t_firstcol + i
-         CALL dcopy(nrow, a(s_firstrow, ss), 1, b(t_firstrow, ts), 1)
+         CALL dcopy(nrow, a(s_firstrow:, ss), 1, b(t_firstrow:, ts), 1)
       END DO
 #endif
 
@@ -1410,11 +1334,10 @@ CONTAINS
 !>      31-Jan-2017 : Re-implemented using non-blocking MPI [IainB, MarkT]
 ! **************************************************************************************************
    SUBROUTINE cp_fm_copy_general(source, destination, para_env)
-      TYPE(cp_fm_type), POINTER                          :: source, destination
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_fm_type), INTENT(IN)                       :: source, destination
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_copy_general', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_copy_general'
 
       INTEGER                                            :: handle
       TYPE(copy_info_type)                               :: info
@@ -1422,11 +1345,11 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       CALL cp_fm_start_copy_general(source, destination, para_env, info)
-      IF (ASSOCIATED(destination)) THEN
+      IF (ASSOCIATED(destination%matrix_struct)) THEN
          CALL cp_fm_finish_copy_general(destination, info)
       END IF
-      IF (ASSOCIATED(source)) THEN
-         CALL cp_fm_cleanup_copy_general(source, info)
+      IF (ASSOCIATED(source%matrix_struct)) THEN
+         CALL cp_fm_cleanup_copy_general(info)
       END IF
 
       CALL timestop(handle)
@@ -1441,12 +1364,11 @@ CONTAINS
 !> \param info all of the data that will be needed to complete the copy operation
 ! **************************************************************************************************
    SUBROUTINE cp_fm_start_copy_general(source, destination, para_env, info)
-      TYPE(cp_fm_type), POINTER                          :: source, destination
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_fm_type), INTENT(IN)                       :: source, destination
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
       TYPE(copy_info_type), INTENT(OUT)                  :: info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_start_copy_general', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_start_copy_general'
 
       INTEGER :: dest_p_i, dest_q_j, global_comm, global_rank, global_size, handle, i, j, k, &
          mpi_rank, ncol_block_dest, ncol_block_src, ncol_local_recv, ncol_local_send, ncols, &
@@ -1482,12 +1404,8 @@ CONTAINS
          END DO
       ELSE
          ! assumption of double precision data is carried forward from ScaLAPACK version
-         IF (ASSOCIATED(source)) THEN
-            IF (source%use_sp) CPABORT("only DP kind implemented")
-         END IF
-         IF (ASSOCIATED(destination)) THEN
-            IF (destination%use_sp) CPABORT("only DP kind implemented")
-         END IF
+         IF (source%use_sp) CPABORT("only DP kind implemented")
+         IF (destination%use_sp) CPABORT("only DP kind implemented")
 
          NULLIFY (recv_dist, send_dist)
          NULLIFY (recv_col_indices, recv_row_indices, send_col_indices, send_row_indices)
@@ -1501,14 +1419,14 @@ CONTAINS
          ! on a subset of the processes involved in the communication
          ! Check if the source and/or destination arguments are .not. ASSOCIATED():
          ! if so, skip the send / recv parts (since these processes do not participate in the sending/receiving distribution)
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(destination%matrix_struct)) THEN
             recv_dist => destination%matrix_struct
             recv_rank = recv_dist%para_env%mepos
          ELSE
             recv_rank = mp_proc_null
          END IF
 
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(source%matrix_struct)) THEN
             send_dist => source%matrix_struct
             send_rank = send_dist%para_env%mepos
          ELSE
@@ -1519,7 +1437,7 @@ CONTAINS
          ALLOCATE (all_ranks(0:global_size - 1))
 
          CALL mp_allgather(send_rank, all_ranks, global_comm)
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(recv_dist)) THEN
             ALLOCATE (source2global(0:COUNT(all_ranks .NE. mp_proc_null) - 1))
             DO i = 0, global_size - 1
                IF (all_ranks(i) .NE. mp_proc_null) THEN
@@ -1529,7 +1447,7 @@ CONTAINS
          END IF
 
          CALL mp_allgather(recv_rank, all_ranks, global_comm)
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(send_dist)) THEN
             ALLOCATE (dest2global(0:COUNT(all_ranks .NE. mp_proc_null) - 1))
             DO i = 0, global_size - 1
                IF (all_ranks(i) .NE. mp_proc_null) THEN
@@ -1552,7 +1470,7 @@ CONTAINS
             CALL mp_irecv(dest_num_pe, mp_any_source, global_comm, recv_req(4), tag=dest_tag)
          END IF
 
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(send_dist)) THEN
             IF ((send_rank .EQ. 0)) THEN
                ! need to use separate buffers here in case this is actually global rank 0
                src_block_tmp = (/send_dist%nrow_block, send_dist%ncol_block/)
@@ -1561,7 +1479,7 @@ CONTAINS
             END IF
          END IF
 
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(recv_dist)) THEN
             IF ((recv_rank .EQ. 0)) THEN
                dest_block_tmp = (/recv_dist%nrow_block, recv_dist%ncol_block/)
                CALL mp_isend(dest_block_tmp, 0, global_comm, send_req(3), tag=dest_tag)
@@ -1579,13 +1497,13 @@ CONTAINS
             CALL mp_irecv(dest_blacs2mpi, mp_any_source, global_comm, recv_req(6), tag=dest_tag)
          END IF
 
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(send_dist)) THEN
             IF ((send_rank .EQ. 0)) THEN
                CALL mp_isend(send_dist%context%blacs2mpi(:, :), 0, global_comm, send_req(5), tag=src_tag)
             END IF
          END IF
 
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(recv_dist)) THEN
             IF ((recv_rank .EQ. 0)) THEN
                CALL mp_isend(recv_dist%context%blacs2mpi(:, :), 0, global_comm, send_req(6), tag=dest_tag)
             END IF
@@ -1631,7 +1549,7 @@ CONTAINS
          !      wait for the sends
 
          ! DEST_1
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(recv_dist)) THEN
             CALL cp_fm_struct_get(recv_dist, row_indices=recv_row_indices, &
                                   col_indices=recv_col_indices &
                                   )
@@ -1690,10 +1608,10 @@ CONTAINS
             END DO
             info%recv_request => recv_request
             DEALLOCATE (source2global)
-         END IF ! ASSOCIATED(destination)
+         END IF ! ASSOCIATED(recv_dist)
 
          ! SRC_1
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(send_dist)) THEN
             CALL cp_fm_struct_get(send_dist, row_indices=send_row_indices, &
                                   col_indices=send_col_indices &
                                   )
@@ -1759,7 +1677,7 @@ CONTAINS
             END DO
             info%send_request => send_request
             DEALLOCATE (send_count, send_disp, dest2global)
-         END IF ! ASSOCIATED(source)
+         END IF ! ASSOCIATED(send_dist)
          DEALLOCATE (dest_blacs2mpi)
 
       END IF !IF (.NOT. cp2k_is_parallel)
@@ -1774,11 +1692,10 @@ CONTAINS
 !> \param info all of the data that will be needed to complete the copy operation
 ! **************************************************************************************************
    SUBROUTINE cp_fm_finish_copy_general(destination, info)
-      TYPE(cp_fm_type), POINTER                          :: destination
+      TYPE(cp_fm_type), INTENT(IN)                       :: destination
       TYPE(copy_info_type), INTENT(INOUT)                :: info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_finish_copy_general', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_finish_copy_general'
 
       INTEGER                                            :: handle, i, j, k, mpi_rank, send_size, &
                                                             src_p_i, src_q_j
@@ -1791,8 +1708,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: recv_buf, send_buf
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(destination))
 
       IF (.NOT. cp2k_is_parallel) THEN
          ! Now unpack the data from the 'send buffer'
@@ -1852,15 +1767,12 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Completes the copy operation: wait for comms clean up MPI state
-!> \param source fm matrix
 !> \param info all of the data that will be needed to complete the copy operation
 ! **************************************************************************************************
-   SUBROUTINE cp_fm_cleanup_copy_general(source, info)
-      TYPE(cp_fm_type), POINTER                          :: source
+   SUBROUTINE cp_fm_cleanup_copy_general(info)
       TYPE(copy_info_type), INTENT(INOUT)                :: info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_cleanup_copy_general', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_cleanup_copy_general'
 
       INTEGER                                            :: handle
       INTEGER, DIMENSION(:), POINTER                     :: send_request
@@ -1868,8 +1780,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: send_buf
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(source))
 
       IF (.NOT. cp2k_is_parallel) THEN
          ! Don't do anything - no MPI state for the serial case
@@ -1883,7 +1793,7 @@ CONTAINS
          ! Was already done in cp_fm_finish_copy_general
          IF (ASSOCIATED(src_blacs2mpi)) THEN
             DEALLOCATE (src_blacs2mpi)
-         ENDIF
+         END IF
          CALL mp_waitall(send_request(:))
          DEALLOCATE (send_request, send_buf)
          ! Invalidate the stored state
@@ -1927,21 +1837,20 @@ CONTAINS
                                          d_firstcol, &
                                          global_context)
 
-      TYPE(cp_fm_type), POINTER                :: source, destination
+      TYPE(cp_fm_type), INTENT(IN)             :: source, destination
       INTEGER, INTENT(IN)                      :: nrows, ncols, &
                                                   s_firstrow, s_firstcol, &
                                                   d_firstrow, d_firstcol, &
                                                   global_context
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_submat_general', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_to_fm_submat_general'
 
       LOGICAL                                  :: debug
       INTEGER                                  :: handle
 #if defined(__SCALAPACK)
       INTEGER, DIMENSION(9)                    :: desca, descb
-      REAL(KIND=dp), DIMENSION(1, 1), TARGET    :: dummy
-      REAL(KIND=dp), DIMENSION(:, :), POINTER   :: smat, dmat
+      REAL(KIND=dp), DIMENSION(1, 1), TARGET   :: dummy
+      REAL(KIND=dp), DIMENSION(:, :), POINTER  :: smat, dmat
 #endif
 
       CALL timeset(routineN, handle)
@@ -1961,9 +1870,9 @@ CONTAINS
 #ifdef __SCALAPACK
          NULLIFY (smat, dmat)
          ! check whether source is available on this process
-         IF (ASSOCIATED(source)) THEN
+         IF (ASSOCIATED(source%matrix_struct)) THEN
             desca = source%matrix_struct%descriptor
-            IF (source%use_sp) CPABORT("only DP kind implemnted")
+            IF (source%use_sp) CPABORT("only DP kind implemented")
             IF (nrows .GT. source%matrix_struct%nrow_global) &
                CPABORT("nrows is greater than nrow_global of source")
             IF (ncols .GT. source%matrix_struct%ncol_global) &
@@ -1974,9 +1883,9 @@ CONTAINS
             smat => dummy
          END IF
          ! check destination is available on this process
-         IF (ASSOCIATED(destination)) THEN
+         IF (ASSOCIATED(destination%matrix_struct)) THEN
             descb = destination%matrix_struct%descriptor
-            IF (destination%use_sp) CPABORT("only DP kind implemnted")
+            IF (destination%use_sp) CPABORT("only DP kind implemented")
             IF (nrows .GT. destination%matrix_struct%nrow_global) &
                CPABORT("nrows is greater than nrow_global of destination")
             IF (ncols .GT. destination%matrix_struct%ncol_global) &
@@ -2023,12 +1932,9 @@ CONTAINS
 
       ! - Creation (05.05.06,MK)
 
-      TYPE(cp_fm_type), POINTER                :: matrix
+      TYPE(cp_fm_type), INTENT(IN)          :: matrix
       INTEGER, INTENT(IN)                      :: irow_global, icol_global
       REAL(KIND=dp), INTENT(IN)                :: alpha
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_add_to_element', &
-                                     routineP = moduleN//':'//routineN
 
       INTEGER                                  :: mypcol, myprow, npcol, nprow
       REAL(KIND=dp), DIMENSION(:, :), POINTER  :: a
@@ -2038,8 +1944,6 @@ CONTAINS
                                                   irow_local
       INTEGER, DIMENSION(9)                    :: desca
 #endif
-
-      CPASSERT(ASSOCIATED(matrix))
 
       context => matrix%matrix_struct%context
 
@@ -2076,11 +1980,10 @@ CONTAINS
 !> \param unit ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_write_unformatted(fm, unit)
-      TYPE(cp_fm_type), POINTER                :: fm
-      INTEGER                                  :: unit
+      TYPE(cp_fm_type), INTENT(IN)             :: fm
+      INTEGER, INTENT(IN)                      :: unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_write_unformatted', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_write_unformatted'
 
       INTEGER                                  :: handle, j, max_block, &
                                                   ncol_global, nrow_global
@@ -2117,9 +2020,9 @@ CONTAINS
       ALLOCATE (newdat(nrow_global, MAX(1, in)))
 
       ! do the actual scalapack to cols reordering
-      CALL pdgemr2d(nrow_global, ncol_global, fm%local_data(1, 1), 1, 1, &
+      CALL pdgemr2d(nrow_global, ncol_global, fm%local_data, 1, 1, &
                     fm%matrix_struct%descriptor, &
-                    newdat(1, 1), 1, 1, desc, ictxt_loc)
+                    newdat, 1, 1, desc, ictxt_loc)
 
       ALLOCATE (vecbuf(nrow_global*max_block))
       vecbuf = HUGE(1.0_dp) ! init for valgrind
@@ -2139,11 +2042,11 @@ CONTAINS
          ELSE
             IF (ipcol == mypcol) THEN
                CALL mp_send(vecbuf(:), 0, tag, para_env%group)
-            ENDIF
+            END IF
             IF (mypcol == 0) THEN
                CALL mp_recv(vecbuf(:), ipcol, tag, para_env%group)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          IF (unit > 0) THEN
             DO j = 1, i_block
@@ -2179,12 +2082,11 @@ CONTAINS
 !> \param value_format ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_write_formatted(fm, unit, header, value_format)
-      TYPE(cp_fm_type), POINTER                :: fm
-      INTEGER                                  :: unit
-      CHARACTER(LEN=*), OPTIONAL               :: header, value_format
+      TYPE(cp_fm_type), INTENT(IN)             :: fm
+      INTEGER, INTENT(IN)                      :: unit
+      CHARACTER(LEN=*), INTENT(IN), OPTIONAL   :: header, value_format
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_write_formatted', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_write_formatted'
 
       CHARACTER(LEN=21)                        :: my_value_format
       INTEGER                                  :: handle, i, j, max_block, &
@@ -2236,9 +2138,9 @@ CONTAINS
       ALLOCATE (newdat(nrow_global, MAX(1, in)))
 
       ! do the actual scalapack to cols reordering
-      CALL pdgemr2d(nrow_global, ncol_global, fm%local_data(1, 1), 1, 1, &
+      CALL pdgemr2d(nrow_global, ncol_global, fm%local_data, 1, 1, &
                     fm%matrix_struct%descriptor, &
-                    newdat(1, 1), 1, 1, desc, ictxt_loc)
+                    newdat, 1, 1, desc, ictxt_loc)
 
       ALLOCATE (vecbuf(nrow_global*max_block))
       vecbuf = HUGE(1.0_dp) ! init for valgrind
@@ -2260,11 +2162,11 @@ CONTAINS
          ELSE
             IF (ipcol == mypcol) THEN
                CALL mp_send(vecbuf(:), 0, tag, para_env%group)
-            ENDIF
+            END IF
             IF (mypcol == 0) THEN
                CALL mp_recv(vecbuf(:), ipcol, tag, para_env%group)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          IF (unit > 0) THEN
             DO j = 1, i_block
@@ -2307,11 +2209,10 @@ CONTAINS
 !> \param unit ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_read_unformatted(fm, unit)
-      TYPE(cp_fm_type), POINTER                :: fm
-      INTEGER                                  :: unit
+      TYPE(cp_fm_type), INTENT(IN)          :: fm
+      INTEGER, INTENT(IN)                      :: unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_read_unformatted', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_read_unformatted'
 
       INTEGER                                  :: handle, j, max_block, &
                                                   ncol_global, nrow_global
@@ -2338,12 +2239,12 @@ CONTAINS
          IF (para_env%mepos == 0) THEN
             DO k = 1, n_cols
                READ (unit) vecbuf(:, k)
-            ENDDO
-         ENDIF
+            END DO
+         END IF
          CALL mp_bcast(vecbuf, 0, para_env%group)
          CALL cp_fm_set_submatrix(fm, vecbuf, start_row=1, start_col=j, n_cols=n_cols)
 
-      ENDDO
+      END DO
 
       DEALLOCATE (vecbuf)
 
@@ -2361,7 +2262,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief wrapper to scalapack function INDXG2P that computes the process
-!>         coordinate which posseses the entry of a distributed matrix specified
+!>         coordinate which possesses the entry of a distributed matrix specified
 !>         by a global index INDXGLOB.
 !>
 !>  Arguments
@@ -2397,9 +2298,6 @@ CONTAINS
    FUNCTION cp_fm_indxg2p(INDXGLOB, NB, IPROC, ISRCPROC, NPROCS) RESULT(G2P)
       INTEGER, INTENT(IN)                      :: INDXGLOB, NB, IPROC, ISRCPROC, NPROCS
       INTEGER                                  :: G2P
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_indxg2p', &
-                                     routineP = moduleN//':'//routineN
 
 #if defined(__SCALAPACK)
       INTEGER, EXTERNAL :: indxg2p
@@ -2459,9 +2357,6 @@ CONTAINS
    FUNCTION cp_fm_indxg2l(INDXGLOB, NB, IPROC, ISRCPROC, NPROCS) RESULT(G2L)
       INTEGER, INTENT(IN)                      :: INDXGLOB, NB, IPROC, ISRCPROC, NPROCS
       INTEGER                                  :: G2L
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_indxg2l', &
-                                     routineP = moduleN//':'//routineN
 
 #if defined(__SCALAPACK)
       INTEGER, EXTERNAL :: indxg2l
@@ -2523,9 +2418,6 @@ CONTAINS
       INTEGER, INTENT(IN)                      :: INDXLOC, NB, IPROC, ISRCPROC, NPROCS
       INTEGER                                  :: L2G
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'cp_fm_indxl2g', &
-                                     routineP = moduleN//':'//routineN
-
 #if defined(__SCALAPACK)
       INTEGER, EXTERNAL :: indxl2g
 #endif
@@ -2551,7 +2443,7 @@ CONTAINS
 !> \param mult_type ...
 ! **************************************************************************************************
    SUBROUTINE cp_fm_setup(mult_type)
-      INTEGER                                            :: mult_type
+      INTEGER, INTENT(IN)                                :: mult_type
 
       mm_type = mult_type
    END SUBROUTINE cp_fm_setup

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -16,6 +18,7 @@
 ! **************************************************************************************************
 MODULE transport
    USE ISO_C_BINDING,                   ONLY: C_ASSOCIATED,&
+                                              C_BOOL,&
                                               C_DOUBLE,&
                                               C_F_PROCPOINTER,&
                                               C_INT,&
@@ -67,7 +70,7 @@ MODULE transport
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
                                               set_qs_env
@@ -128,8 +131,7 @@ CONTAINS
    SUBROUTINE transport_env_create(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'transport_env_create', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'transport_env_create'
 
       INTEGER                                            :: handle
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -167,8 +169,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(transport_env_type), INTENT(INOUT)            :: transport_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transport_init_read_input', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'transport_init_read_input'
 
       INTEGER                                            :: contact_bandwidth, contact_injsign, &
                                                             contact_natoms, contact_start, handle, &
@@ -297,8 +298,7 @@ CONTAINS
       TYPE(transport_env_type), INTENT(INOUT)            :: transport_env
       TYPE(dbcsr_type), INTENT(IN)                       :: template_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transport_initialize', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'transport_initialize'
 
       INTEGER                                            :: handle, mp_group, mynode, numnodes, &
                                                             unit_nr
@@ -313,7 +313,7 @@ CONTAINS
          unit_nr = cp_logger_get_default_unit_nr(logger, local=.TRUE.)
       ELSE
          unit_nr = -1
-      ENDIF
+      END IF
 
       mp_group = logger%para_env%group
       CALL mp_environ(numnodes, mynode, mp_group)
@@ -384,8 +384,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iscf
       LOGICAL, INTENT(IN)                                :: extra_scf
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'external_scf_method', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'external_scf_method'
 
       TYPE(cp2k_csr_interop_type)                        :: imagp_mat, ks_mat, p_mat, s_mat
 
@@ -408,7 +407,7 @@ CONTAINS
       transport_env%params%boltzmann = boltzmann
       transport_env%params%h_bar = h_bar
       transport_env%params%iscf = iscf
-      transport_env%params%extra_scf = extra_scf
+      transport_env%params%extra_scf = LOGICAL(extra_scf, C_BOOL) ! C_BOOL and Fortran logical don't have the same size
 
       CALL csr_interop_nullify(s_mat)
       CALL csr_interop_nullify(ks_mat)
@@ -452,8 +451,7 @@ CONTAINS
       TYPE(dbcsr_csr_type), INTENT(INOUT)            :: csr_mat
       TYPE(cp2k_csr_interop_type), INTENT(INOUT)      :: csr_interop_mat
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'convert_dbcsr_to_csr_interop', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'convert_dbcsr_to_csr_interop'
 
       INTEGER                                  :: handle, mepos, num_pe, mp_group
       INTEGER, ALLOCATABLE, DIMENSION(:)       :: nrows_local_all, first_row_all
@@ -515,7 +513,7 @@ CONTAINS
       csr_interop_mat%nze_local = csr_mat%nze_local
       IF (csr_mat%nze_total > HUGE(csr_interop_mat%nze_total)) THEN
          CPABORT("overflow in nze")
-      ENDIF
+      END IF
       csr_interop_mat%nze_total = INT(csr_mat%nze_total, KIND=KIND(csr_interop_mat%nze_total))
       csr_interop_mat%nrows_local = csr_mat%nrows_local
       csr_interop_mat%data_type = csr_mat%nzval_local%data_type
@@ -555,8 +553,7 @@ CONTAINS
       TYPE(dbcsr_csr_type), INTENT(INOUT)                      :: csr_mat
       TYPE(dbcsr_type), INTENT(INOUT)                    :: dbcsr_mat
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'convert_csr_interop_to_dbcsr', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'convert_csr_interop_to_dbcsr'
 
       INTEGER                                            :: data_type, handle, ncols_total, &
                                                             nrows_local, nrows_total, nze_local, &
@@ -594,7 +591,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief extraxts zeff (effective nuclear charges per atom) and nsgf (the size
-!>   of spherical Gaussian basis functions per atom) from qs_env and intializes
+!>   of spherical Gaussian basis functions per atom) from qs_env and initializes
 !>   the corresponding arrays in transport_env%params
 !> \param[in] qs_env qs environment
 !> \param[inout] transport_env transport environment
@@ -603,9 +600,6 @@ CONTAINS
    SUBROUTINE transport_set_contact_params(qs_env, transport_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(transport_env_type), INTENT(INOUT)            :: transport_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'transport_set_contact_params', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, iat, ikind, natom, nkind
       INTEGER, DIMENSION(:), POINTER                     :: atom_list
@@ -656,8 +650,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'transport_current', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'transport_current'
 
       CHARACTER(len=14)                                  :: ext
       CHARACTER(len=2)                                   :: sdir
@@ -669,9 +662,9 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_g, rho_r
-      TYPE(pw_p_type), POINTER                           :: gs, rs
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: gs, rs
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, rho_r
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_subsys_type), POINTER                      :: subsys
       TYPE(section_vals_type), POINTER                   :: dft_section
@@ -708,11 +701,8 @@ CONTAINS
                current_env%gauge = -1
                current_env%gauge_init = .FALSE.
 
-               NULLIFY (rs, gs)
-               ALLOCATE (rs, gs)
-               NULLIFY (rs%pw, gs%pw)
-               CALL pw_pool_create_pw(auxbas_pw_pool, rs%pw, use_data=REALDATA3D, in_space=REALSPACE)
-               CALL pw_pool_create_pw(auxbas_pw_pool, gs%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+               CALL pw_pool_create_pw(auxbas_pw_pool, rs, use_data=REALDATA3D, in_space=REALSPACE)
+               CALL pw_pool_create_pw(auxbas_pw_pool, gs, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
                NULLIFY (zero)
                ALLOCATE (zero)
@@ -721,8 +711,8 @@ CONTAINS
                CALL dbcsr_set(zero, 0.0_dp)
 
                DO dir = 1, 3
-                  CALL pw_zero(rs%pw)
-                  CALL pw_zero(gs%pw)
+                  CALL pw_zero(rs)
+                  CALL pw_zero(gs)
                   CALL calculate_jrho_resp(zero, transport_env%dm_imag, &
                                            zero, zero, dir, dir, rs, gs, qs_env, current_env, &
                                            retain_rsgrid=.TRUE.)
@@ -739,7 +729,7 @@ CONTAINS
                   unit_nr = cp_print_key_unit_nr(logger, dft_section, "TRANSPORT%PRINT%CURRENT", &
                                                  extension=ext, file_status="REPLACE", file_action="WRITE", &
                                                  log_filename=.FALSE., mpi_io=mpi_io)
-                  CALL cp_pw_to_cube(rs%pw, unit_nr, "Transport current", particles=particles, &
+                  CALL cp_pw_to_cube(rs, unit_nr, "Transport current", particles=particles, &
                                      stride=section_get_ivals(dft_section, "TRANSPORT%PRINT%CURRENT%STRIDE"), &
                                      mpi_io=mpi_io)
                   CALL cp_print_key_finished_output(unit_nr, logger, dft_section, "TRANSPORT%PRINT%CURRENT", &
@@ -747,9 +737,8 @@ CONTAINS
                END DO
 
                CALL dbcsr_deallocate_matrix(zero)
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, rs%pw)
-               CALL pw_pool_give_back_pw(auxbas_pw_pool, gs%pw)
-               DEALLOCATE (rs, gs)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, rs)
+               CALL pw_pool_give_back_pw(auxbas_pw_pool, gs)
             END IF
          END IF
 
@@ -767,8 +756,7 @@ CONTAINS
    SUBROUTINE qs_scf_post_transport(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_post_transport', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_post_transport'
 
       INTEGER                                            :: handle
       TYPE(section_vals_type), POINTER                   :: input
@@ -787,4 +775,3 @@ CONTAINS
    END SUBROUTINE qs_scf_post_transport
 
 END MODULE transport
-

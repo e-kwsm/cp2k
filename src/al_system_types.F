@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -62,8 +64,6 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(section_vals_type), POINTER                   :: section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'al_init', routineP = moduleN//':'//routineN
-
       NULLIFY (al%nvt)
       NULLIFY (al%map_info)
       al%loc_num_al = 0
@@ -84,9 +84,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE al_thermo_create(al)
       TYPE(al_system_type), POINTER                      :: al
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'al_thermo_create', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: seed
@@ -111,13 +108,11 @@ CONTAINS
    SUBROUTINE al_dealloc(al)
       TYPE(al_system_type), POINTER                      :: al
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'al_dealloc', routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(al)) THEN
          CALL al_thermo_dealloc(al%nvt)
          CALL release_map_info_type(al%map_info)
          DEALLOCATE (al)
-      ENDIF
+      END IF
 
    END SUBROUTINE al_dealloc
 
@@ -129,12 +124,9 @@ CONTAINS
    SUBROUTINE al_thermo_dealloc(nvt)
       TYPE(al_thermo_type), DIMENSION(:), POINTER        :: nvt
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'al_thermo_dealloc', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(nvt)) THEN
          DEALLOCATE (nvt)
-      ENDIF
+      END IF
    END SUBROUTINE al_thermo_dealloc
 
 END MODULE al_system_types

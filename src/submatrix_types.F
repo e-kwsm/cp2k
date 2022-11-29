@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 MODULE submatrix_types
@@ -89,8 +91,8 @@ CONTAINS
             this%darr(1:this%allocated) = tmp
             DEALLOCATE (tmp)
             this%allocated = this%allocated*extvec_alloc_factor
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       this%elements = this%elements + 1
       this%darr(this%elements) = elem
@@ -121,7 +123,7 @@ CONTAINS
          CALL this%data(MODULO(elem, set_modulus))%insert(elem)
          this%sorted_up_to_date = .FALSE.
          this%elements = this%elements + 1
-      ENDIF
+      END IF
 
    END SUBROUTINE set_insert
 
@@ -135,7 +137,7 @@ CONTAINS
 
       DO i = 0, set_modulus - 1
          CALL this%data(i)%reset
-      ENDDO
+      END DO
       IF (ALLOCATED(this%sorted)) DEALLOCATE (this%sorted)
       this%elements = 0
       this%sorted_up_to_date = .FALSE.
@@ -160,8 +162,8 @@ CONTAINS
          IF (this%data(idx)%darr(i) .EQ. elem) THEN
             found = .TRUE.
             EXIT
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
    END FUNCTION set_find
 
@@ -212,8 +214,8 @@ CONTAINS
          IF (this%data(i)%elements .GT. 0) THEN
             this%sorted(idx:idx + this%data(i)%elements - 1) = this%data(i)%darr(1:this%data(i)%elements)
             idx = idx + this%data(i)%elements
-         ENDIF
-      ENDDO
+         END IF
+      END DO
 
       ALLOCATE (tmp(this%elements))
       CALL sort(this%sorted, this%elements, tmp)

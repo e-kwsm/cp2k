@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -52,7 +54,7 @@ MODULE ewald_pw_methods
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief Rescales pw_grids for given box, if nessecary
+!> \brief Rescales pw_grids for given box, if necessary
 !> \param ewald_pw ...
 !> \param ewald_env ...
 !> \param cell_hmat ...
@@ -64,9 +66,6 @@ CONTAINS
       TYPE(ewald_pw_type), POINTER                       :: ewald_pw
       TYPE(ewald_environment_type), POINTER              :: ewald_env
       REAL(KIND=dp), DIMENSION(3, 3)                     :: cell_hmat
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'ewald_pw_grid_update', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ewald_type, o_spline
       REAL(dp)                                           :: alpha
@@ -98,7 +97,7 @@ CONTAINS
          CALL pw_grid_change(cell_hmat, pw_big_pool%pw_grid)
          CALL ewald_pw_rho0_setup(ewald_env, pw_big_pool%pw_grid, dg)
          CALL pw_poisson_release(poisson_env)
-         CALL ewald_pw_set(ewald_pw, pw_big_pool=pw_big_pool, dg=dg, &
+         CALL ewald_pw_set(ewald_pw, pw_big_pool=pw_big_pool, &
                            poisson_env=poisson_env)
       CASE (do_ewald_pme)
          CALL ewald_pw_get(ewald_pw, pw_big_pool=pw_big_pool, &
@@ -112,7 +111,7 @@ CONTAINS
          CALL dg_grid_change(cell_hmat, pw_big_pool%pw_grid, pw_small_pool%pw_grid)
          CALL ewald_pw_rho0_setup(ewald_env, pw_small_pool%pw_grid, dg)
          CALL ewald_pw_set(ewald_pw, pw_big_pool=pw_big_pool, &
-                           pw_small_pool=pw_small_pool, dg=dg, &
+                           pw_small_pool=pw_small_pool, &
                            poisson_env=poisson_env)
       CASE (do_ewald_spme)
          CALL ewald_pw_get(ewald_pw, pw_big_pool=pw_big_pool, &
@@ -155,9 +154,6 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       TYPE(dg_type), POINTER                             :: dg
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ewald_pw_rho0_setup', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ewald_type, grid_index
       REAL(dp)                                           :: alpha
       REAL(dp), POINTER                                  :: gcc(:), zet(:)
@@ -172,7 +168,7 @@ CONTAINS
 
       IF (.NOT. ASSOCIATED(zet)) THEN
          ALLOCATE (zet(1))
-      ENDIF
+      END IF
 
 ! No contracted Gaussians are used here
       NULLIFY (gcc)
@@ -182,7 +178,7 @@ CONTAINS
 
       CALL dg_rho0_init(dg_rho0, pw_grid)
 
-      CALL dg_set(dg, dg_rho0=dg_rho0, grid_index=grid_index)
+      CALL dg_set(dg, grid_index=grid_index)
 
    END SUBROUTINE ewald_pw_rho0_setup
 

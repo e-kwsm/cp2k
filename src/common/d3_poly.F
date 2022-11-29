@@ -1,13 +1,15 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !>   \brief
-!>     Routines to efficently handle dense polynomial in 3 variables up to
+!>     Routines to efficiently handle dense polynomial in 3 variables up to
 !>     a given degree.
-!>     Multiplication, partial evalution, affine transform (change of reference
+!>     Multiplication, partial evaluation, affine transform (change of reference
 !>     system), differentiation are efficiently implemented.
 !>     some functions accept or return several polynomial together,
 !>     these have to have all the same size, and are stored one after the other
@@ -380,8 +382,6 @@ CONTAINS
       INTEGER, INTENT(in), OPTIONAL                      :: np1
       LOGICAL, INTENT(in), OPTIONAL                      :: sumUp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_mult1', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ipoly, iPos, j, myNp1, newGrad, &
                                                             newSize, resPos, resShift_0, size_p1, &
                                                             size_p2
@@ -426,8 +426,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: np1
       LOGICAL, INTENT(in), OPTIONAL                      :: sumUp
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_mult2', routineP = moduleN//':'//routineN
 
       INTEGER :: g1, g1g2, g2, grad1, grad2, i, ipoly, iShift, j, msize_p1, myNp1, newGrad, &
          newSize, shift1, shift2, shiftRes, shiftRes_0, size_p1, size_p2, subG2
@@ -507,8 +505,6 @@ CONTAINS
       INTEGER, INTENT(in), OPTIONAL                      :: np1
       LOGICAL, INTENT(in), OPTIONAL                      :: sumUp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_mult3', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: grad1, grad2, myNp1, newGrad, newSize, &
                                                             size_p1, size_p2
       LOGICAL                                            :: mySumUp
@@ -554,8 +550,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: np1
       LOGICAL, INTENT(in)                                :: sumUp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_mult3b', routineP = moduleN//':'//routineN
-
       INTEGER :: g1, g2, i, i1, i2, ipoly, iShift, j, j1, j2, msize_p1, my_size_p1, newSize, &
          shift1, shift1I, shift1J, shift2, shift2I, shift2J, shiftRes, shiftRes_0, shiftResI, &
          shiftResI_0, shiftResJ, subG2, subGrad
@@ -578,7 +572,7 @@ CONTAINS
          shiftRes = shiftRes + newSize
       END DO
       IF (grad1 > max_grad3 .OR. grad2 > max_grad3) THEN
-         ! one could remove multiplications even more agressively...
+         ! one could remove multiplications even more aggressively...
          msize_p1 = my_size_p1
          DO ipoly = 0, np1 - 1
             shift1 = 1 + ipoly*my_size_p1
@@ -657,7 +651,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: np1
       LOGICAL, INTENT(in)                                :: sumUp
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_mult3ab', routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: grad2 = 1
 
       INTEGER :: g1, g2, i, i1, i2, ipoly, iShift, j1, j2, msize_p1, my_size_p1, newSize, shift1, &
@@ -686,7 +679,7 @@ CONTAINS
          shiftRes = shiftRes + newSize
       END DO
       IF (grad1 > max_grad3 .OR. grad2 > max_grad3) THEN
-         ! one could remove multiplications even more agressively...
+         ! one could remove multiplications even more aggressively...
          msize_p1 = my_size_p1
          DO ipoly = 0, np1 - 1
             shift1 = 1 + ipoly*my_size_p1 + (max_grad3 + 1)*(max_grad3 + 2)*(max_grad3 + 3)/6
@@ -830,8 +823,6 @@ CONTAINS
       INTEGER, INTENT(in), OPTIONAL                      :: minSize
       INTEGER                                            :: res
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_random', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, myMinSize, pSize
       REAL(dp)                                           :: g
 
@@ -866,9 +857,6 @@ CONTAINS
       REAL(dp), DIMENSION(3), INTENT(in)                 :: b
       REAL(dp), DIMENSION(:), INTENT(out)                :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_affine_t3t', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: grad, i, igrad, ii, ii1, ipoly, j, k, minResSize, monoDim1, monoDim2, monoDimAtt, &
          monoDimAtt2, monoFullDim1, monoFullDim2, monoSize1, monoSize2, my_npoly, pcoeff, pIdx, &
@@ -1006,7 +994,7 @@ CONTAINS
                            monoFullDim1 - monoDimAtt2, 1, .FALSE.)
          igrad = igrad + 1
 
-         ! ! alterantive to unrolling
+         ! ! alternative to unrolling
          ! monoG1=monoG2
          ! monoSize1=monoSize2
          ! monoDim1=monoDim2
@@ -1029,8 +1017,6 @@ CONTAINS
       REAL(dp), DIMENSION(3), INTENT(in)                 :: b
       REAL(dp), DIMENSION(:), INTENT(out)                :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_affine_t3', routineP = moduleN//':'//routineN
 
       INTEGER :: grad, i, igrad, ii, ii1, ipoly, j, k, minResSize, monoDim1, monoDim2, monoDimAtt, &
          monoDimAtt2, monoFullDim1, monoFullDim2, monoSize1, monoSize2, my_npoly, pcoeff, pIdx, &
@@ -1168,7 +1154,7 @@ CONTAINS
                            monoFullDim1 - monoDimAtt2, 1, .FALSE.)
          igrad = igrad + 1
 
-         ! ! alterantive to unrolling
+         ! ! alternative to unrolling
          ! monoG1=monoG2
          ! monoSize1=monoSize2
          ! monoDim1=monoDim2
@@ -1189,8 +1175,6 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: x
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_p_eval3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: grad, my_npoly, newSize, size_p
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: xi
@@ -1230,8 +1214,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: npoly, grad
       REAL(dp), DIMENSION(IF_CHECK(grad+1, *)), &
          INTENT(inout)                                   :: xi
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_p_eval3b', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, igrad, ii, ii0, inSize, ipoly, j, &
                                                             msize_p, newSize, pShift, shiftRes, &
@@ -1298,9 +1280,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(in)                 :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_padd_uneval3', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: grad, my_npoly, newSize, size_p
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: xi
 
@@ -1340,9 +1319,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: npoly, grad
       REAL(dp), DIMENSION(IF_CHECK(grad+1, *)), &
          INTENT(inout)                                   :: xi
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_padd_uneval3b', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, igrad, ii, ii0, inSize, ipoly, j, &
                                                             msize_p, newSize, pShift, shiftRes, &
@@ -1407,8 +1383,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_p_eval2', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: grad, my_npoly, newSize, size_p
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: xi
 
@@ -1447,8 +1421,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: npoly
       INTEGER                                            :: grad
       REAL(dp), DIMENSION(IF_CHECK(grad+1, *))           :: xi
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_p_eval2b', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, igrad, ii, ii0, ij, inSize, ipoly, &
                                                             msize_p, newSize, pShift, shiftRes
@@ -1510,9 +1482,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(in)                 :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_padd_uneval2', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: grad, my_npoly, newSize, size_p
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: xi
 
@@ -1551,9 +1520,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: npoly
       INTEGER                                            :: grad
       REAL(dp), DIMENSION(IF_CHECK(grad+1, *))           :: xi
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_padd_uneval2b', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, igrad, ii, ii0, ij, inSize, ipoly, &
                                                             msize_p, newSize, pShift, shiftRes, &
@@ -1614,8 +1580,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_eval1', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ipoly, my_npoly, pShift, size_p
       REAL(dp)                                           :: vv, xx
 
@@ -1649,8 +1613,6 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: x, y
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_eval2', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: grad, i, igrad, ii, ipoly, j, msize_p, &
                                                             my_npoly, pShift, size_p
@@ -1718,8 +1680,6 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: x, y, z
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_eval3', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: grad, i, igrad, ii, ipoly, j, k, &
                                                             msize_p, my_npoly, pShift, size_p
@@ -1793,8 +1753,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(inout)              :: pRes
       INTEGER, INTENT(in), OPTIONAL                      :: npoly
       LOGICAL, INTENT(in), OPTIONAL                      :: sumUp
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_derive3', routineP = moduleN//':'//routineN
 
       INTEGER :: grad, i, igrad, ii, ii2, ipoly, j, k, msize_p, my_npoly, newSize, pShift, size_p, &
          xDerivShift, yDerivShift, yShift, zDerivShift, zShift
@@ -1877,8 +1835,6 @@ CONTAINS
       INTEGER, INTENT(in)                                :: grad
       REAL(dp), DIMENSION(:), INTENT(out)                :: poly_d3
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_cp2k2d3', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: cp_ii, i, j, k, mgrad, mgrad2, sgrad, &
                                                             sgrad2, sgrad2k, sgrad3, sgrad3k, &
                                                             shifti, shiftj, shiftk, size_p
@@ -1927,8 +1883,6 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(out)                :: poly_cp2k
       INTEGER, INTENT(in)                                :: grad
       REAL(dp), DIMENSION(:), INTENT(in)                 :: poly_d3
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'poly_d32cp2k', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: cp_ii, i, j, k, mgrad, mgrad2, sgrad, &
                                                             sgrad2, sgrad2k, sgrad3, sgrad3k, &

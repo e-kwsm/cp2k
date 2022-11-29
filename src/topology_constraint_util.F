@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -90,8 +92,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: input_file, subsys_section
       TYPE(global_constraint_type), POINTER              :: gci
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'topology_constraint_pack', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'topology_constraint_pack'
 
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: molname, name
@@ -167,7 +168,7 @@ CONTAINS
             NULLIFY (lci%lcolv)
             NULLIFY (lci%lg3x3)
             NULLIFY (lci%lg4x6)
-         ENDIF
+         END IF
          CALL set_molecule(molecule, lci=lci)
       END DO
       ALLOCATE (gci)
@@ -617,7 +618,7 @@ CONTAINS
                                    nmolecule=nmolecule, molecule_list=molecule_list, name=molname)
             is_qm = qmmm_ff_precond_only_qm(id1=molname)
             WHERE (molname .EQ. cons_info%fixed_molnames)
-            missed_molname = .FALSE.
+               missed_molname = .FALSE.
             END WHERE
             ! Try to figure out how many atoms of the list belong to this molecule_kind
             nfixed_atoms = 0
@@ -633,7 +634,7 @@ CONTAINS
                         IF ((.NOT. is_qm) .AND. cons_info%fixed_exclude_mm(k)) fix_atom_molname = .FALSE.
                      END IF
                   END DO
-               ENDIF
+               END IF
                DO k = first, last
                   fix_atom_qmmm = .FALSE.
                   IF (PRESENT(qmmm_env)) THEN
@@ -671,7 +672,7 @@ CONTAINS
                            EXIT
                         END IF
                      END DO
-                  ENDIF
+                  END IF
                   DO k = first, last
                      ! FIXED LIST ATOMS
                      fix_fixed_atom = .FALSE.
@@ -902,9 +903,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: colvar_rest
       INTEGER, INTENT(IN)                                :: first_atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_colv_list', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: j, kdim, kk, ncolv_mol
       REAL(KIND=dp)                                      :: rmod
       TYPE(colvar_type), POINTER                         :: local_colvar
@@ -972,9 +970,6 @@ CONTAINS
       TYPE(constraint_info_type), POINTER                :: cons_info
       INTEGER, INTENT(OUT)                               :: ng3x3_restraint
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_g3x3_list', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: j, ng3x3
 
       ng3x3_restraint = 0
@@ -1009,9 +1004,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: ilist
       TYPE(constraint_info_type), POINTER                :: cons_info
       INTEGER, INTENT(OUT)                               :: ng4x6_restraint
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_g4x6_list', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: j, ng4x6
 
@@ -1051,9 +1043,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: ilist
       TYPE(constraint_info_type), POINTER                :: cons_info
       INTEGER, INTENT(OUT)                               :: nvsite_restraint
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_vsite_list', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: j, nvsite
 
@@ -1102,8 +1091,6 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: colvar_func_info
       LOGICAL, INTENT(IN)                                :: use_clv_info
       INTEGER, INTENT(INOUT)                             :: cind
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_lcolv', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ind, k, kk
       REAL(KIND=dp), DIMENSION(:), POINTER               :: r_vals
@@ -1194,8 +1181,6 @@ CONTAINS
       TYPE(g3x3_constraint_type), DIMENSION(:), POINTER  :: g3x3_list
       INTEGER, INTENT(IN)                                :: first_atom, last_atom
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_lg3x3', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: kk
 
       DO kk = 1, SIZE(lg3x3)
@@ -1246,8 +1231,6 @@ CONTAINS
          POINTER                                         :: lg4x6
       TYPE(g4x6_constraint_type), DIMENSION(:), POINTER  :: g4x6_list
       INTEGER, INTENT(IN)                                :: first_atom, last_atom
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_lg4x6', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: kk
 
@@ -1321,8 +1304,7 @@ CONTAINS
       TYPE(molecule_kind_type), DIMENSION(:), POINTER    :: molecule_kind_set
       LOGICAL, DIMENSION(:), POINTER                     :: exclude_qm, exclude_mm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'give_constraint_array', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'give_constraint_array'
 
       CHARACTER(LEN=default_string_length)               :: myname, name
       INTEGER                                            :: handle, i, iglob, isize, k
@@ -1388,9 +1370,6 @@ CONTAINS
    SUBROUTINE print_warning_molname(found, name)
       LOGICAL, INTENT(IN)                                :: found
       CHARACTER(LEN=*), INTENT(IN)                       :: name
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_warning_molname', &
-         routineP = moduleN//':'//routineN
 
       IF (.NOT. found) &
          CALL cp_warn(__LOCATION__, &

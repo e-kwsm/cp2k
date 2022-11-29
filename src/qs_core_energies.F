@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -80,8 +82,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: ecore
       INTEGER, INTENT(IN)                                :: nspin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_gamma', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_gamma'
 
       INTEGER                                            :: handle, ispin
       REAL(KIND=dp)                                      :: etr
@@ -117,8 +118,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: ecore
       INTEGER, INTENT(IN)                                :: nspin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_kp', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_kp'
 
       INTEGER                                            :: handle, ic, ispin, nc
       REAL(KIND=dp)                                      :: etr
@@ -162,8 +162,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: h, p
       REAL(KIND=dp), INTENT(OUT)                         :: ecore
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_1', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ptrace_1'
 
       INTEGER                                            :: handle
 
@@ -200,8 +199,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: molecular
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: E_overlap_core
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ecore_overlap', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ecore_overlap'
 
       INTEGER                                            :: atom_a, atom_b, group, handle, iatom, &
                                                             ikind, jatom, jkind, natom, nkind
@@ -322,8 +320,8 @@ CONTAINS
          DEALLOCATE (atom_of_kind)
       END IF
       IF (calculate_forces .AND. use_virial) THEN
+         virial%pv_ecore_overlap = virial%pv_ecore_overlap + pv_loc
          virial%pv_virial = virial%pv_virial + pv_loc
-         virial%pv_hartree = virial%pv_hartree + pv_loc
       END IF
 
       CALL mp_sum(ecore_overlap, group)
@@ -350,8 +348,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: E_self_core
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ecore_self', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_ecore_self'
 
       INTEGER                                            :: handle, iatom, ikind, iparticle_local, &
                                                             natom, nparticle_local

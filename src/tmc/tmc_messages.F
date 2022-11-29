@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -87,9 +89,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL                                            :: master
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_if_group_master', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(para_env))
 
       master = .FALSE.
@@ -128,8 +127,6 @@ CONTAINS
       TYPE(elem_list_type), OPTIONAL, POINTER            :: list_elem
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: result_count
       LOGICAL, OPTIONAL                                  :: wait_for_message, success
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'tmc_message', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, message_tag, tmp_tag
       LOGICAL                                            :: act_send_recv, flag
@@ -319,7 +316,7 @@ CONTAINS
          END IF
       END IF
 
-      ! handling recived message
+      ! handling received message
       IF (act_send_recv .EQV. recv_msg) THEN
          ! if the element is supposed to be canceled but received message is not canceling receipt do not handle element
          ! (because element could be already deallocated, and hence a new element would be created -> not necessary)
@@ -395,15 +392,13 @@ CONTAINS
    SUBROUTINE create_status_message(m_send)
       TYPE(message_send), POINTER                        :: m_send
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_status_message', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(m_send))
 
       ! nothing to do, send just the message tag
 
       CPASSERT(.NOT. ALLOCATED(m_send%task_int))
       CPASSERT(.NOT. ALLOCATED(m_send%task_real))
+      MARK_USED(m_send)
 
    END SUBROUTINE create_status_message
 
@@ -501,9 +496,6 @@ CONTAINS
       TYPE(tmc_param_type), POINTER                      :: tmc_params
       TYPE(message_send), POINTER                        :: m_send
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_worker_init_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
       CPASSERT(ASSOCIATED(tmc_params))
@@ -550,9 +542,6 @@ CONTAINS
    SUBROUTINE read_worker_init_message(tmc_params, m_send)
       TYPE(tmc_param_type), POINTER                      :: tmc_params
       TYPE(message_send), POINTER                        :: m_send
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_worker_init_message', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: counter
       LOGICAL                                            :: flag
@@ -606,9 +595,6 @@ CONTAINS
       INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: result_count
       TYPE(tmc_param_type), POINTER                      :: tmc_params
       TYPE(message_send), POINTER                        :: m_send
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_start_conf_message', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: counter, i, msg_size_int, msg_size_real
 
@@ -690,9 +676,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_start_conf_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, i
       LOGICAL                                            :: flag
 
@@ -766,9 +749,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_energy_request_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
       CPASSERT(ASSOCIATED(m_send))
@@ -822,9 +802,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_energy_request_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter
 
       CPASSERT(ASSOCIATED(m_send))
@@ -871,9 +848,6 @@ CONTAINS
       TYPE(tree_type), POINTER                           :: elem
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_energy_result_message', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
@@ -938,9 +912,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_energy_result_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter
 
       CPASSERT(ASSOCIATED(elem))
@@ -992,9 +963,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_approx_energy_result_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, msg_size_real
 
       CPASSERT(ASSOCIATED(m_send))
@@ -1037,9 +1005,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_approx_energy_result', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter
 
       CPASSERT(ASSOCIATED(elem))
@@ -1076,9 +1041,6 @@ CONTAINS
       TYPE(tree_type), POINTER                           :: elem
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_NMC_request_massage', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
@@ -1167,9 +1129,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_NMC_request_massage', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, num_dim, rnd_seed_size
 
       CPASSERT(.NOT. ASSOCIATED(elem))
@@ -1178,7 +1137,7 @@ CONTAINS
       CPASSERT(ASSOCIATED(tmc_params))
 
       counter = 0
-      !first integer array with number of dimentions and random seed size
+      !first integer array with number of dimensions and random seed size
       rnd_seed_size = m_send%task_int(1 + m_send%task_int(1) + 1)
 
       IF (.NOT. ASSOCIATED(elem)) THEN
@@ -1245,9 +1204,6 @@ CONTAINS
       TYPE(tree_type), POINTER                           :: elem
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_NMC_result_massage', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
@@ -1375,9 +1331,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_NMC_result_massage', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter
       INTEGER, DIMENSION(:, :), POINTER                  :: acc_counter, mv_counter, &
                                                             subbox_acc_counter, subbox_counter
@@ -1394,7 +1347,7 @@ CONTAINS
       IF (DEBUG .GT. 0) THEN
          IF ((m_send%task_int(counter + 1) .NE. elem%sub_tree_nr) .AND. (m_send%task_int(counter + 3) .NE. elem%nr)) THEN
             CPABORT("read_NMC_result_massage: got result of wrong element")
-         ENDIF
+         END IF
          counter = counter + 2 + 2
       END IF
       ! the molecule information
@@ -1491,9 +1444,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'create_analysis_request_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter, msg_size_int, msg_size_real
 
       CPASSERT(ASSOCIATED(m_send))
@@ -1547,9 +1497,6 @@ CONTAINS
       TYPE(message_send), POINTER                        :: m_send
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_analysis_request_message', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: counter
 
       CPASSERT(ASSOCIATED(m_send))
@@ -1598,9 +1545,6 @@ CONTAINS
       TYPE(tree_type), POINTER                           :: elem
       TYPE(message_send), POINTER                        :: m_send
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_scf_step_ener', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(elem))
       CPASSERT(ASSOCIATED(m_send))
 
@@ -1625,9 +1569,6 @@ CONTAINS
       TYPE(tmc_atom_type), DIMENSION(:), POINTER         :: atoms
       INTEGER                                            :: source
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'communicate_atom_types', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length), &
          ALLOCATABLE, DIMENSION(:)                       :: msg(:)
@@ -1669,9 +1610,6 @@ CONTAINS
       TYPE(elem_array_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: worker_info
       TYPE(tmc_param_type), POINTER                      :: tmc_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'stop_whole_group', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: act_rank, dest_rank, stat
       LOGICAL                                            :: flag

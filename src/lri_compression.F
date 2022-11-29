@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -40,8 +42,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: aval
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: amax
       TYPE(int_container), INTENT(INOUT)                 :: cont
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_comp', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ia, ib, ii, na, nb, nc, nn
       REAL(KIND=dp)                                      :: xm
@@ -135,8 +135,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: aval
       TYPE(int_container), INTENT(INOUT)                 :: cont
       INTEGER                                            :: ival
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'lri_decomp_i', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ia, ib, ii, na, nb, nn
       TYPE(carray), POINTER                              :: ca

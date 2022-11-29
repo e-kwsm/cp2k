@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -49,8 +51,6 @@ MODULE qs_loc_types
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_loc_types'
 
-!****t* qs_loc_types/qs_loc_env_new_type [1.0] *
-
 ! **************************************************************************************************
 !> \brief contains all the info needed by quickstep to calculate
 !>      the spread of a selected set of orbitals and if required
@@ -78,8 +78,7 @@ MODULE qs_loc_types
 !>      04-05 created
 !> \author MI
 ! **************************************************************************************************
-   TYPE qs_loc_env_new_type
-      INTEGER :: ref_count
+   TYPE qs_loc_env_type
       LOGICAL :: molecular_states, do_localize, first_time
       LOGICAL :: wannier_states
       CHARACTER(LEN=default_string_length)        :: tag_mo
@@ -100,10 +99,10 @@ MODULE qs_loc_types
       REAL(KIND=dp)                            :: start_time, target_time
       REAL(KIND=dp)                            :: weights(6)
       INTEGER                                     :: dim_op
-   END TYPE qs_loc_env_new_type
+   END TYPE qs_loc_env_type
 
 ! **************************************************************************************************
-!> \brief A type that holds controling information for the
+!> \brief A type that holds controlling information for the
 !>    calculation of the spread of wfn and the optimization of
 !>    the spread functional
 !> \param ref_count ...
@@ -125,11 +124,13 @@ MODULE qs_loc_types
       INTEGER                              :: min_or_max
       INTEGER                              :: localization_method
       INTEGER                              :: operator_type
-      INTEGER, DIMENSION(2)                :: nloc_states
+      INTEGER, DIMENSION(2)                :: nloc_states, nguess
       INTEGER                              :: set_of_states
       INTEGER, DIMENSION(2, 2)              :: lu_bound_states
       INTEGER                              :: max_iter
       INTEGER                              :: out_each
+      INTEGER                              :: nextra
+      INTEGER                              :: coeff_po_guess, coeff_po_guess_mo_space
       REAL(KIND=dp)                        :: eps_localization
       REAL(KIND=dp)                        :: max_crazy_angle
       REAL(KIND=dp)                        :: crazy_scale
@@ -140,6 +141,7 @@ MODULE qs_loc_types
       LOGICAL                              :: print_centers
       LOGICAL                              :: print_spreads
       LOGICAL                              :: do_homo
+      LOGICAL                              :: do_mixed, do_cg_po
       LOGICAL                              :: loc_restart
       LOGICAL                              :: use_history
       INTEGER, POINTER, DIMENSION(:, :)       :: loc_states
@@ -147,15 +149,12 @@ MODULE qs_loc_types
    END TYPE localized_wfn_control_type
 
 ! *** Public ***
-   PUBLIC :: qs_loc_env_create, qs_loc_env_destroy, &
-             qs_loc_env_release, qs_loc_env_retain, &
+   PUBLIC :: qs_loc_env_create, qs_loc_env_release, &
              get_qs_loc_env, set_qs_loc_env, &
              localized_wfn_control_create, localized_wfn_control_release
-   PUBLIC :: qs_loc_env_new_type, localized_wfn_control_type
+   PUBLIC :: qs_loc_env_type, localized_wfn_control_type
 
 CONTAINS
-
-!****f* qs_loc_types/qs_loc_env_create [1.0] *
 
 ! **************************************************************************************************
 !> \brief ...
@@ -166,16 +165,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qs_loc_env_create(qs_loc_env)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), INTENT(OUT)                 :: qs_loc_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_loc_env_create', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(.NOT. ASSOCIATED(qs_loc_env))
-
-      ALLOCATE (qs_loc_env)
-
-      qs_loc_env%ref_count = 1
       qs_loc_env%tag_mo = ""
       NULLIFY (qs_loc_env%para_env)
       NULLIFY (qs_loc_env%cell)
@@ -189,7 +180,7 @@ CONTAINS
 
    END SUBROUTINE qs_loc_env_create
 
-!****f* qs_loc_types/qs_loc_env_destroy [1.0] *
+!****f* qs_loc_types/qs_loc_env_release [1.0] *
 
 ! **************************************************************************************************
 !> \brief ...
@@ -198,16 +189,11 @@ CONTAINS
 !>      04-05 created
 !> \author MI
 ! **************************************************************************************************
-   SUBROUTINE qs_loc_env_destroy(qs_loc_env)
+   SUBROUTINE qs_loc_env_release(qs_loc_env)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_loc_env_destroy', &
-         routineP = moduleN//':'//routineN
+      TYPE(qs_loc_env_type), INTENT(INOUT)               :: qs_loc_env
 
       INTEGER                                            :: i, ii, j
-
-      CPASSERT(ASSOCIATED(qs_loc_env))
 
       IF (ASSOCIATED(qs_loc_env%cell)) CALL cell_release(qs_loc_env%cell)
       IF (ASSOCIATED(qs_loc_env%local_molecules)) &
@@ -222,6 +208,8 @@ CONTAINS
          DO i = 1, SIZE(qs_loc_env%moloc_coeff, 1)
             ii = LBOUND(qs_loc_env%moloc_coeff, 1) + i - 1
             CALL cp_fm_release(qs_loc_env%moloc_coeff(ii)%matrix)
+            DEALLOCATE (qs_loc_env%moloc_coeff(ii)%matrix)
+            NULLIFY (qs_loc_env%moloc_coeff(ii)%matrix)
          END DO
          DEALLOCATE (qs_loc_env%moloc_coeff)
       END IF
@@ -230,6 +218,8 @@ CONTAINS
          DO i = 1, SIZE(qs_loc_env%op_fm_set, 2)
             DO j = 1, SIZE(qs_loc_env%op_fm_set, 1)
                CALL cp_fm_release(qs_loc_env%op_fm_set(j, i)%matrix)
+               DEALLOCATE (qs_loc_env%op_fm_set(j, i)%matrix)
+               NULLIFY (qs_loc_env%op_fm_set(j, i)%matrix)
             END DO
          END DO
          DEALLOCATE (qs_loc_env%op_fm_set)
@@ -239,60 +229,12 @@ CONTAINS
          DO i = 1, SIZE(qs_loc_env%op_sm_set, 2)
             DO j = 1, SIZE(qs_loc_env%op_sm_set, 1)
                CALL dbcsr_deallocate_matrix(qs_loc_env%op_sm_set(j, i)%matrix)
-            ENDDO
+            END DO
          END DO
          DEALLOCATE (qs_loc_env%op_sm_set)
       END IF
 
-      DEALLOCATE (qs_loc_env)
-
-   END SUBROUTINE qs_loc_env_destroy
-
-!****f* qs_loc_types/qs_loc_env_release [1.0] *
-
-! **************************************************************************************************
-!> \brief ...
-!> \param qs_loc_env ...
-!> \par History
-!>      04-05 created
-!> \author MI
-! **************************************************************************************************
-   SUBROUTINE qs_loc_env_release(qs_loc_env)
-
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_loc_env_release', &
-         routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(qs_loc_env)) THEN
-         CPASSERT(qs_loc_env%ref_count > 0)
-         qs_loc_env%ref_count = qs_loc_env%ref_count - 1
-         IF (qs_loc_env%ref_count == 0) THEN
-            CALL qs_loc_env_destroy(qs_loc_env)
-         END IF
-      END IF
    END SUBROUTINE qs_loc_env_release
-
-!****f* qs_loc_types/qs_loc_env_retain [1.0] *
-
-! **************************************************************************************************
-!> \brief ...
-!> \param qs_loc_env ...
-!> \par History
-!>      04-05 created
-!> \author MI
-! **************************************************************************************************
-   SUBROUTINE qs_loc_env_retain(qs_loc_env)
-
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_loc_env_retain', &
-         routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(qs_loc_env))
-      CPASSERT(qs_loc_env%ref_count > 0)
-      qs_loc_env%ref_count = qs_loc_env%ref_count + 1
-   END SUBROUTINE qs_loc_env_retain
 
 ! **************************************************************************************************
 !> \brief create the localized_wfn_control_type
@@ -303,14 +245,13 @@ CONTAINS
    SUBROUTINE localized_wfn_control_create(localized_wfn_control)
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'localized_wfn_control_create', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(localized_wfn_control))
       ALLOCATE (localized_wfn_control)
 
       localized_wfn_control%ref_count = 1
       localized_wfn_control%nloc_states = 0
+      localized_wfn_control%nextra = 0
+      localized_wfn_control%nguess = 0
       localized_wfn_control%lu_bound_states = 0
       localized_wfn_control%lu_ene_bound = 0.0_dp
       localized_wfn_control%print_cubes = .FALSE.
@@ -333,25 +274,22 @@ CONTAINS
 
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'localized_wfn_control_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(localized_wfn_control)) THEN
          CPASSERT(localized_wfn_control%ref_count > 0)
          localized_wfn_control%ref_count = localized_wfn_control%ref_count - 1
          IF (localized_wfn_control%ref_count == 0) THEN
             IF (ASSOCIATED(localized_wfn_control%loc_states)) THEN
                DEALLOCATE (localized_wfn_control%loc_states)
-            ENDIF
+            END IF
             IF (ASSOCIATED(localized_wfn_control%centers_set(1)%array)) THEN
                DEALLOCATE (localized_wfn_control%centers_set(1)%array)
-            ENDIF
+            END IF
             IF (ASSOCIATED(localized_wfn_control%centers_set(2)%array)) THEN
                DEALLOCATE (localized_wfn_control%centers_set(2)%array)
-            ENDIF
+            END IF
             localized_wfn_control%ref_count = 0
             DEALLOCATE (localized_wfn_control)
-         ENDIF
+         END IF
       END IF
    END SUBROUTINE localized_wfn_control_release
 
@@ -364,15 +302,10 @@ CONTAINS
    SUBROUTINE localized_wfn_control_retain(localized_wfn_control)
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'localized_wfn_control_retain', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(localized_wfn_control))
 
       localized_wfn_control%ref_count = localized_wfn_control%ref_count + 1
    END SUBROUTINE localized_wfn_control_retain
-
-!****f* qs_loc_types/get_qs_loc_env [1.0] *
 
 ! **************************************************************************************************
 !> \brief ...
@@ -394,7 +327,7 @@ CONTAINS
    SUBROUTINE get_qs_loc_env(qs_loc_env, cell, local_molecules, localized_wfn_control, &
                              moloc_coeff, op_sm_set, op_fm_set, para_env, particle_set, weights, dim_op)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), INTENT(IN)                  :: qs_loc_env
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
       TYPE(distribution_1d_type), OPTIONAL, POINTER      :: local_molecules
       TYPE(localized_wfn_control_type), OPTIONAL, &
@@ -411,10 +344,6 @@ CONTAINS
       REAL(dp), DIMENSION(6), OPTIONAL                   :: weights
       INTEGER, OPTIONAL                                  :: dim_op
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_qs_loc_env', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(qs_loc_env))
-
       IF (PRESENT(cell)) cell => qs_loc_env%cell
       IF (PRESENT(moloc_coeff)) moloc_coeff => qs_loc_env%moloc_coeff
       IF (PRESENT(local_molecules)) local_molecules => qs_loc_env%local_molecules
@@ -428,8 +357,6 @@ CONTAINS
       IF (PRESENT(dim_op)) dim_op = qs_loc_env%dim_op
 
    END SUBROUTINE get_qs_loc_env
-
-!****f* qs_loc_types/set_qs_loc_env [1.0] *
 
 ! **************************************************************************************************
 !> \brief ...
@@ -451,7 +378,7 @@ CONTAINS
    SUBROUTINE set_qs_loc_env(qs_loc_env, cell, local_molecules, localized_wfn_control, &
                              moloc_coeff, op_sm_set, op_fm_set, para_env, particle_set, weights, dim_op)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), INTENT(INOUT)               :: qs_loc_env
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell
       TYPE(distribution_1d_type), OPTIONAL, POINTER      :: local_molecules
       TYPE(localized_wfn_control_type), OPTIONAL, &
@@ -468,11 +395,8 @@ CONTAINS
       REAL(dp), DIMENSION(6), OPTIONAL                   :: weights
       INTEGER, OPTIONAL                                  :: dim_op
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_qs_loc_env', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
-      CPASSERT(ASSOCIATED(qs_loc_env))
       IF (PRESENT(cell)) THEN
          CALL cell_retain(cell)
          CALL cell_release(qs_loc_env%cell)
@@ -501,6 +425,8 @@ CONTAINS
          IF (ASSOCIATED(qs_loc_env%moloc_coeff)) THEN
             DO i = 1, SIZE(qs_loc_env%moloc_coeff, 1)
                CALL cp_fm_release(qs_loc_env%moloc_coeff(i)%matrix)
+               DEALLOCATE (qs_loc_env%moloc_coeff(i)%matrix)
+               NULLIFY (qs_loc_env%moloc_coeff(i)%matrix)
             END DO
             DEALLOCATE (qs_loc_env%moloc_coeff)
          END IF

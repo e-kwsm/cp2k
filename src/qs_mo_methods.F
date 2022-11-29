@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,10 +21,8 @@ MODULE qs_mo_methods
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
                                               copy_fm_to_dbcsr,&
                                               cp_dbcsr_m_by_n_from_template,&
-                                              cp_dbcsr_plus_fm_fm_t,&
                                               cp_dbcsr_sm_fm_multiply
-   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale,&
-                                              cp_fm_syrk,&
+   USE cp_fm_basic_linalg,              ONLY: cp_fm_syrk,&
                                               cp_fm_triangular_multiply
    USE cp_fm_cholesky,                  ONLY: cp_fm_cholesky_decompose
    USE cp_fm_diag,                      ONLY: choose_eigv_solver,&
@@ -36,18 +36,22 @@ MODULE qs_mo_methods
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: &
-        dbcsr_copy, dbcsr_get_info, dbcsr_init_p, dbcsr_multiply, dbcsr_p_type, dbcsr_release, &
-        dbcsr_release_p, dbcsr_scale_by_vector, dbcsr_set, dbcsr_type, dbcsr_type_no_symmetry
+   USE dbcsr_api,                       ONLY: dbcsr_copy,&
+                                              dbcsr_get_info,&
+                                              dbcsr_init_p,&
+                                              dbcsr_multiply,&
+                                              dbcsr_p_type,&
+                                              dbcsr_release_p,&
+                                              dbcsr_type,&
+                                              dbcsr_type_no_symmetry
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_max
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE physcon,                         ONLY: evolt
    USE qs_mo_occupation,                ONLY: set_mo_occupation
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
                                               mo_set_type
    USE scf_control_types,               ONLY: scf_control_type
 #include "./base/base_uses.f90"
@@ -57,12 +61,8 @@ MODULE qs_mo_methods
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_mo_methods'
 
    PUBLIC :: make_basis_simple, make_basis_cholesky, make_basis_sv, make_basis_sm, &
-             make_basis_lowdin, calculate_density_matrix, calculate_subspace_eigenvalues, &
+             make_basis_lowdin, calculate_subspace_eigenvalues, &
              calculate_orthonormality, calculate_magnitude, make_mo_eig
-
-   INTERFACE calculate_density_matrix
-      MODULE PROCEDURE calculate_dm_sparse
-   END INTERFACE
 
    INTERFACE calculate_subspace_eigenvalues
       MODULE PROCEDURE subspace_eigenvalues_ks_fm
@@ -85,16 +85,16 @@ CONTAINS
 !>      03.2006 created [Joost VandeVondele]
 ! **************************************************************************************************
    SUBROUTINE make_basis_sm(vmatrix, ncol, matrix_s)
-      TYPE(cp_fm_type), POINTER                          :: vmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: vmatrix
       INTEGER, INTENT(IN)                                :: ncol
       TYPE(dbcsr_type), POINTER                          :: matrix_s
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_sm', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'make_basis_sm'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: overlap_vv, svmatrix
+      TYPE(cp_fm_type)                                   :: overlap_vv, svmatrix
 
       IF (ncol .EQ. 0) RETURN
 
@@ -113,7 +113,7 @@ CONTAINS
       CALL cp_fm_create(overlap_vv, fm_struct_tmp, "overlap_vv")
       CALL cp_fm_struct_release(fm_struct_tmp)
 
-      CALL cp_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, svmatrix, rzero, overlap_vv)
+      CALL parallel_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, svmatrix, rzero, overlap_vv)
       CALL cp_fm_cholesky_decompose(overlap_vv)
       CALL cp_fm_triangular_multiply(overlap_vv, vmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
 
@@ -134,17 +134,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_basis_sv_fm(vmatrix, ncol, svmatrix)
 
-      TYPE(cp_fm_type), POINTER                          :: vmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: vmatrix
       INTEGER, INTENT(IN)                                :: ncol
-      TYPE(cp_fm_type), POINTER                          :: svmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: svmatrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_sv_fm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'make_basis_sv_fm'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: overlap_vv
+      TYPE(cp_fm_type)                                   :: overlap_vv
 
       IF (ncol .EQ. 0) RETURN
 
@@ -160,7 +159,7 @@ CONTAINS
       CALL cp_fm_create(overlap_vv, fm_struct_tmp, "overlap_vv")
       CALL cp_fm_struct_release(fm_struct_tmp)
 
-      CALL cp_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, svmatrix, rzero, overlap_vv)
+      CALL parallel_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, svmatrix, rzero, overlap_vv)
       CALL cp_fm_cholesky_decompose(overlap_vv)
       CALL cp_fm_triangular_multiply(overlap_vv, vmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
       CALL cp_fm_triangular_multiply(overlap_vv, svmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
@@ -187,13 +186,12 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_sv_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_sv_dbcsr'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: fm_svmatrix, fm_vmatrix, overlap_vv
+      TYPE(cp_fm_type)                                   :: fm_svmatrix, fm_vmatrix, overlap_vv
 
       IF (ncol .EQ. 0) RETURN
 
@@ -217,7 +215,7 @@ CONTAINS
       CALL copy_dbcsr_to_fm(vmatrix, fm_vmatrix)
       CALL copy_dbcsr_to_fm(svmatrix, fm_svmatrix)
 
-      CALL cp_gemm('T', 'N', ncol, ncol, n, rone, fm_vmatrix, fm_svmatrix, rzero, overlap_vv)
+      CALL parallel_gemm('T', 'N', ncol, ncol, n, rone, fm_vmatrix, fm_svmatrix, rzero, overlap_vv)
       CALL cp_fm_cholesky_decompose(overlap_vv)
       CALL cp_fm_triangular_multiply(overlap_vv, fm_vmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
       CALL cp_fm_triangular_multiply(overlap_vv, fm_svmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
@@ -248,17 +246,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_basis_cholesky(vmatrix, ncol, ortho)
 
-      TYPE(cp_fm_type), POINTER                          :: vmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: vmatrix
       INTEGER, INTENT(IN)                                :: ncol
-      TYPE(cp_fm_type), POINTER                          :: ortho
+      TYPE(cp_fm_type), INTENT(IN)                       :: ortho
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_cholesky', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_cholesky'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: overlap_vv
+      TYPE(cp_fm_type)                                   :: overlap_vv
 
       IF (ncol .EQ. 0) RETURN
 
@@ -300,18 +297,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_basis_lowdin(vmatrix, ncol, matrix_s)
 
-      TYPE(cp_fm_type), POINTER                          :: vmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: vmatrix
       INTEGER, INTENT(IN)                                :: ncol
       TYPE(dbcsr_type), POINTER                          :: matrix_s
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_lowdin', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'make_basis_lowdin'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global, ndep
       REAL(dp)                                           :: threshold
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: csc, sc, work
+      TYPE(cp_fm_type)                                   :: csc, sc, work
 
       IF (ncol .EQ. 0) RETURN
 
@@ -332,9 +328,9 @@ CONTAINS
       CALL cp_fm_create(work, fm_struct_tmp, "work")
       CALL cp_fm_struct_release(fm_struct_tmp)
 
-      CALL cp_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, sc, rzero, csc)
+      CALL parallel_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, sc, rzero, csc)
       CALL cp_fm_power(csc, work, -0.5_dp, threshold, ndep)
-      CALL cp_gemm('N', 'N', n, ncol, ncol, rone, vmatrix, csc, rzero, sc)
+      CALL parallel_gemm('N', 'N', n, ncol, ncol, rone, vmatrix, csc, rzero, sc)
       CALL cp_fm_to_fm(sc, vmatrix, ncol, 1, 1)
 
       CALL cp_fm_release(csc)
@@ -355,16 +351,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_basis_simple(vmatrix, ncol)
 
-      TYPE(cp_fm_type), POINTER                          :: vmatrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: vmatrix
       INTEGER, INTENT(IN)                                :: ncol
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'make_basis_simple', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'make_basis_simple'
       REAL(KIND=dp), PARAMETER                           :: rone = 1.0_dp, rzero = 0.0_dp
 
       INTEGER                                            :: handle, n, ncol_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: overlap_vv
+      TYPE(cp_fm_type)                                   :: overlap_vv
 
       IF (ncol .EQ. 0) RETURN
 
@@ -381,7 +376,7 @@ CONTAINS
       CALL cp_fm_create(overlap_vv, fm_struct_tmp, "overlap_vv")
       CALL cp_fm_struct_release(fm_struct_tmp)
 
-      CALL cp_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, vmatrix, rzero, overlap_vv)
+      CALL parallel_gemm('T', 'N', ncol, ncol, n, rone, vmatrix, vmatrix, rzero, overlap_vv)
       CALL cp_fm_cholesky_decompose(overlap_vv)
       CALL cp_fm_triangular_multiply(overlap_vv, vmatrix, n_cols=ncol, side='R', invert_tr=.TRUE.)
 
@@ -390,88 +385,6 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE make_basis_simple
-
-! **************************************************************************************************
-!> \brief   Calculate the density matrix
-!> \param mo_set ...
-!> \param density_matrix ...
-!> \param use_dbcsr ...
-!> \param retain_sparsity ...
-!> \date    06.2002
-!> \par History
-!>       - Fractional occupied orbitals (MK)
-!> \author  Joost VandeVondele
-!> \version 1.0
-! **************************************************************************************************
-   SUBROUTINE calculate_dm_sparse(mo_set, density_matrix, use_dbcsr, retain_sparsity)
-
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(dbcsr_type), POINTER                          :: density_matrix
-      LOGICAL, INTENT(IN), OPTIONAL                      :: use_dbcsr, retain_sparsity
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_dm_sparse', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: handle
-      LOGICAL                                            :: my_retain_sparsity, my_use_dbcsr
-      REAL(KIND=dp)                                      :: alpha
-      TYPE(cp_fm_type), POINTER                          :: fm_tmp
-      TYPE(dbcsr_type)                                   :: dbcsr_tmp
-
-      CALL timeset(routineN, handle)
-
-      my_use_dbcsr = .FALSE.
-      IF (PRESENT(use_dbcsr)) my_use_dbcsr = use_dbcsr
-      my_retain_sparsity = .TRUE.
-      IF (PRESENT(retain_sparsity)) my_retain_sparsity = retain_sparsity
-      IF (my_use_dbcsr) THEN
-         IF (.NOT. ASSOCIATED(mo_set%mo_coeff_b)) THEN
-            CPABORT("mo_coeff_b NOT ASSOCIATED")
-         END IF
-      END IF
-
-      CALL dbcsr_set(density_matrix, 0.0_dp)
-
-      IF (.NOT. mo_set%uniform_occupation) THEN ! not all orbitals 1..homo are equally occupied
-
-         IF (my_use_dbcsr) THEN
-            CALL dbcsr_copy(dbcsr_tmp, mo_set%mo_coeff_b)
-            CALL dbcsr_scale_by_vector(dbcsr_tmp, mo_set%occupation_numbers(1:mo_set%homo), &
-                                       side='right')
-            CALL dbcsr_multiply("N", "T", 1.0_dp, mo_set%mo_coeff_b, dbcsr_tmp, &
-                                1.0_dp, density_matrix, retain_sparsity=my_retain_sparsity, &
-                                last_k=mo_set%homo)
-            CALL dbcsr_release(dbcsr_tmp)
-         ELSE
-            NULLIFY (fm_tmp)
-            CALL cp_fm_create(fm_tmp, mo_set%mo_coeff%matrix_struct)
-            CALL cp_fm_to_fm(mo_set%mo_coeff, fm_tmp)
-            CALL cp_fm_column_scale(fm_tmp, mo_set%occupation_numbers(1:mo_set%homo))
-            alpha = 1.0_dp
-            CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=density_matrix, &
-                                       matrix_v=mo_set%mo_coeff, &
-                                       matrix_g=fm_tmp, &
-                                       ncol=mo_set%homo, &
-                                       alpha=alpha)
-            CALL cp_fm_release(fm_tmp)
-         ENDIF
-      ELSE
-         IF (my_use_dbcsr) THEN
-            CALL dbcsr_multiply("N", "T", mo_set%maxocc, mo_set%mo_coeff_b, mo_set%mo_coeff_b, &
-                                1.0_dp, density_matrix, retain_sparsity=my_retain_sparsity, &
-                                last_k=mo_set%homo)
-         ELSE
-            alpha = mo_set%maxocc
-            CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=density_matrix, &
-                                       matrix_v=mo_set%mo_coeff, &
-                                       ncol=mo_set%homo, &
-                                       alpha=alpha)
-         ENDIF
-      ENDIF
-
-      CALL timestop(handle)
-
-   END SUBROUTINE calculate_dm_sparse
 
 ! **************************************************************************************************
 !> \brief computes ritz values of a set of orbitals given a ks_matrix
@@ -493,23 +406,22 @@ CONTAINS
    SUBROUTINE subspace_eigenvalues_ks_fm(orbitals, ks_matrix, evals_arg, ionode, scr, &
                                          do_rotation, co_rotate, co_rotate_dbcsr)
 
-      TYPE(cp_fm_type), POINTER                          :: orbitals
+      TYPE(cp_fm_type), INTENT(IN)                       :: orbitals
       TYPE(dbcsr_type), POINTER                          :: ks_matrix
       REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: evals_arg
       LOGICAL, INTENT(IN), OPTIONAL                      :: ionode
       INTEGER, INTENT(IN), OPTIONAL                      :: scr
       LOGICAL, INTENT(IN), OPTIONAL                      :: do_rotation
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: co_rotate
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: co_rotate
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: co_rotate_dbcsr
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'subspace_eigenvalues_ks_fm', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'subspace_eigenvalues_ks_fm'
 
-      INTEGER                                            :: handle, i, j, ncol_global, nrow_global
+      INTEGER                                            :: handle, i, j, n, ncol_global, nrow_global
       LOGICAL                                            :: compute_evecs, do_rotation_local
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: evals
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: e_vectors, h_block, weighted_vectors, &
+      TYPE(cp_fm_type)                                   :: e_vectors, h_block, weighted_vectors, &
                                                             weighted_vectors2
 
       CALL timeset(routineN, handle)
@@ -517,7 +429,7 @@ CONTAINS
       do_rotation_local = .TRUE.
       IF (PRESENT(do_rotation)) do_rotation_local = do_rotation
 
-      NULLIFY (weighted_vectors, weighted_vectors2, h_block, e_vectors, fm_struct_tmp)
+      NULLIFY (fm_struct_tmp)
       CALL cp_fm_get_info(matrix=orbitals, &
                           ncol_global=ncol_global, &
                           nrow_global=nrow_global)
@@ -529,7 +441,7 @@ CONTAINS
          compute_evecs = .FALSE.
          ! this is not the case, so lets compute evecs always
          compute_evecs = .TRUE.
-      ENDIF
+      END IF
 
       IF (ncol_global .GT. 0) THEN
 
@@ -542,50 +454,49 @@ CONTAINS
          CALL cp_fm_create(h_block, fm_struct_tmp, name="h block")
          IF (compute_evecs) THEN
             CALL cp_fm_create(e_vectors, fm_struct_tmp, name="e vectors")
-         ENDIF
+         END IF
          CALL cp_fm_struct_release(fm_struct_tmp)
 
          ! h subblock and diag
          CALL cp_dbcsr_sm_fm_multiply(ks_matrix, orbitals, weighted_vectors, ncol_global)
 
-         CALL cp_gemm('T', 'N', ncol_global, ncol_global, nrow_global, 1.0_dp, &
-                      orbitals, weighted_vectors, 0.0_dp, h_block)
+         CALL parallel_gemm('T', 'N', ncol_global, ncol_global, nrow_global, 1.0_dp, &
+                            orbitals, weighted_vectors, 0.0_dp, h_block)
 
          ! if eigenvectors are required, go for syevd, otherwise only compute eigenvalues
          IF (compute_evecs) THEN
             CALL choose_eigv_solver(h_block, e_vectors, evals)
          ELSE
             CALL cp_fm_syevx(h_block, eigenvalues=evals)
-         ENDIF
+         END IF
 
          ! rotate the orbitals
          IF (do_rotation_local) THEN
-            CALL cp_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
-                         orbitals, e_vectors, 0.0_dp, weighted_vectors)
+            CALL parallel_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
+                               orbitals, e_vectors, 0.0_dp, weighted_vectors)
             CALL cp_fm_to_fm(weighted_vectors, orbitals)
             IF (PRESENT(co_rotate)) THEN
-               IF (ASSOCIATED(co_rotate)) THEN
-                  CALL cp_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
-                               co_rotate, e_vectors, 0.0_dp, weighted_vectors)
-                  CALL cp_fm_to_fm(weighted_vectors, co_rotate)
-               ENDIF
-            ENDIF
+               CALL parallel_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
+                                  co_rotate, e_vectors, 0.0_dp, weighted_vectors)
+               CALL cp_fm_to_fm(weighted_vectors, co_rotate)
+            END IF
             IF (PRESENT(co_rotate_dbcsr)) THEN
                IF (ASSOCIATED(co_rotate_dbcsr)) THEN
                   CALL cp_fm_create(weighted_vectors2, orbitals%matrix_struct, "weighted_vectors")
                   CALL copy_dbcsr_to_fm(co_rotate_dbcsr, weighted_vectors2)
-                  CALL cp_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
-                               weighted_vectors2, e_vectors, 0.0_dp, weighted_vectors)
+                  CALL parallel_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
+                                     weighted_vectors2, e_vectors, 0.0_dp, weighted_vectors)
                   CALL copy_fm_to_dbcsr(weighted_vectors, co_rotate_dbcsr)
                   CALL cp_fm_release(weighted_vectors2)
-               ENDIF
-            ENDIF
-         ENDIF
+               END IF
+            END IF
+         END IF
 
          ! give output
          IF (PRESENT(evals_arg)) THEN
-            evals_arg(:) = evals(:)
-         ENDIF
+            n = MIN(SIZE(evals_arg), SIZE(evals))
+            evals_arg(1:n) = evals(1:n)
+         END IF
 
          IF (PRESENT(ionode) .OR. PRESENT(scr)) THEN
             IF (.NOT. PRESENT(ionode)) CPABORT("IONODE?")
@@ -603,19 +514,19 @@ CONTAINS
                   CASE (0)
                      WRITE (scr, '(1X,1F16.8)') evals(i:i + j)
                   END SELECT
-               ENDDO
-            ENDIF
-         ENDIF
+               END DO
+            END IF
+         END IF
 
          CALL cp_fm_release(weighted_vectors)
          CALL cp_fm_release(h_block)
          IF (compute_evecs) THEN
             CALL cp_fm_release(e_vectors)
-         ENDIF
+         END IF
 
          DEALLOCATE (evals)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -645,8 +556,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'subspace_eigenvalues_ks_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'subspace_eigenvalues_ks_dbcsr'
 
       INTEGER                                            :: handle, i, j, ncol_global, nrow_global
       LOGICAL                                            :: compute_evecs, do_rotation_local
@@ -671,7 +581,7 @@ CONTAINS
          compute_evecs = .FALSE.
          ! this is not the case, so lets compute evecs always
          compute_evecs = .TRUE.
-      ENDIF
+      END IF
 
       IF (ncol_global .GT. 0) THEN
 
@@ -685,18 +595,11 @@ CONTAINS
                                             sym=dbcsr_type_no_symmetry)
 
 !!!!!!!!!!!!!!XXXXXXXXXXXXXXXXXXX!!!!!!!!!!!!!
-         !CALL cp_fm_create(h_block,fm_struct_tmp, name="h block")
          IF (compute_evecs) THEN
             CALL dbcsr_init_p(e_vectors)
             CALL cp_dbcsr_m_by_n_from_template(e_vectors, template=orbitals, m=ncol_global, n=ncol_global, &
                                                sym=dbcsr_type_no_symmetry)
-!           CALL dbcsr_create(e_vectors, "e_vectors", dist, dbcsr_type_no_symmetry,&
-!                row_blk_size, col_blk_size, 0, 0, dbcsr_type_real_default)
-            !CALL cp_fm_create(e_vectors,fm_struct_tmp, name="e vectors")
-         ENDIF
-!        CALL dbcsr_distribution_release (dist)
-!        CALL array_release (row_blk_size);CALL array_release (col_blk_size)
-         !CALL cp_fm_struct_release(fm_struct_tmp)
+         END IF
 
          ! h subblock and diag
          CALL dbcsr_multiply('N', 'N', 1.0_dp, ks_matrix, orbitals, &
@@ -704,7 +607,7 @@ CONTAINS
          !CALL cp_dbcsr_sm_fm_multiply(ks_matrix,orbitals,weighted_vectors, ncol_global)
 
          CALL dbcsr_multiply('T', 'N', 1.0_dp, orbitals, weighted_vectors, 0.0_dp, h_block)
-         !CALL cp_gemm('T','N',ncol_global,ncol_global,nrow_global,1.0_dp, &
+         !CALL parallel_gemm('T','N',ncol_global,ncol_global,nrow_global,1.0_dp, &
          !                orbitals,weighted_vectors,0.0_dp,h_block)
 
          ! if eigenvectors are required, go for syevd, otherwise only compute eigenvalues
@@ -712,30 +615,30 @@ CONTAINS
             CALL cp_dbcsr_syevd(h_block, e_vectors, evals, para_env=para_env, blacs_env=blacs_env)
          ELSE
             CALL cp_dbcsr_syevx(h_block, eigenvalues=evals, para_env=para_env, blacs_env=blacs_env)
-         ENDIF
+         END IF
 
          ! rotate the orbitals
          IF (do_rotation_local) THEN
             CALL dbcsr_multiply('N', 'N', 1.0_dp, orbitals, e_vectors, 0.0_dp, weighted_vectors)
-            !CALL cp_gemm('N','N',nrow_global,ncol_global,ncol_global,1.0_dp, &
+            !CALL parallel_gemm('N','N',nrow_global,ncol_global,ncol_global,1.0_dp, &
             !             orbitals,e_vectors,0.0_dp,weighted_vectors)
             CALL dbcsr_copy(orbitals, weighted_vectors)
             !CALL cp_fm_to_fm(weighted_vectors,orbitals)
             IF (PRESENT(co_rotate)) THEN
                IF (ASSOCIATED(co_rotate)) THEN
                   CALL dbcsr_multiply('N', 'N', 1.0_dp, co_rotate, e_vectors, 0.0_dp, weighted_vectors)
-                  !CALL cp_gemm('N','N',nrow_global,ncol_global,ncol_global,1.0_dp, &
+                  !CALL parallel_gemm('N','N',nrow_global,ncol_global,ncol_global,1.0_dp, &
                   !     co_rotate,e_vectors,0.0_dp,weighted_vectors)
                   CALL dbcsr_copy(co_rotate, weighted_vectors)
                   !CALL cp_fm_to_fm(weighted_vectors,co_rotate)
-               ENDIF
-            ENDIF
-         ENDIF
+               END IF
+            END IF
+         END IF
 
          ! give output
          IF (PRESENT(evals_arg)) THEN
             evals_arg(:) = evals(:)
-         ENDIF
+         END IF
 
          IF (PRESENT(ionode) .OR. PRESENT(scr)) THEN
             IF (.NOT. PRESENT(ionode)) CPABORT("IONODE?")
@@ -753,22 +656,19 @@ CONTAINS
                   CASE (0)
                      WRITE (scr, '(1X,1F16.8)') evals(i:i + j)
                   END SELECT
-               ENDDO
-            ENDIF
-         ENDIF
+               END DO
+            END IF
+         END IF
 
          CALL dbcsr_release_p(weighted_vectors)
          CALL dbcsr_release_p(h_block)
-         !CALL cp_fm_release(weighted_vectors)
-         !CALL cp_fm_release(h_block)
          IF (compute_evecs) THEN
             CALL dbcsr_release_p(e_vectors)
-            !CALL cp_fm_release(e_vectors)
-         ENDIF
+         END IF
 
          DEALLOCATE (evals)
 
-      ENDIF
+      END IF
 
       CALL timestop(handle)
 
@@ -784,20 +684,19 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_orthonormality(orthonormality, mo_array, matrix_s)
       REAL(KIND=dp)                                      :: orthonormality
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_s
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_orthonormality', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_orthonormality'
 
       INTEGER                                            :: handle, i, ispin, j, k, n, ncol_local, &
                                                             nrow_local, nspin
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: alpha, max_alpha
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: overlap, svec
+      TYPE(cp_fm_type)                                   :: overlap, svec
 
-      NULLIFY (tmp_fm_struct, svec, overlap)
+      NULLIFY (tmp_fm_struct)
 
       CALL timeset(routineN, handle)
 
@@ -807,32 +706,32 @@ CONTAINS
       DO ispin = 1, nspin
          IF (PRESENT(matrix_s)) THEN
             ! get S*C
-            CALL cp_fm_create(svec, mo_array(ispin)%mo_set%mo_coeff%matrix_struct)
-            CALL cp_fm_get_info(mo_array(ispin)%mo_set%mo_coeff, &
+            CALL cp_fm_create(svec, mo_array(ispin)%mo_coeff%matrix_struct)
+            CALL cp_fm_get_info(mo_array(ispin)%mo_coeff, &
                                 nrow_global=n, ncol_global=k)
-            CALL cp_dbcsr_sm_fm_multiply(matrix_s, mo_array(ispin)%mo_set%mo_coeff, &
+            CALL cp_dbcsr_sm_fm_multiply(matrix_s, mo_array(ispin)%mo_coeff, &
                                          svec, k)
             ! get C^T (S*C)
             CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=k, ncol_global=k, &
-                                     para_env=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%para_env, &
-                                     context=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%context)
+                                     para_env=mo_array(ispin)%mo_coeff%matrix_struct%para_env, &
+                                     context=mo_array(ispin)%mo_coeff%matrix_struct%context)
             CALL cp_fm_create(overlap, tmp_fm_struct)
             CALL cp_fm_struct_release(tmp_fm_struct)
-            CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_set%mo_coeff, &
-                         svec, 0.0_dp, overlap)
+            CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_coeff, &
+                               svec, 0.0_dp, overlap)
             CALL cp_fm_release(svec)
          ELSE
             ! orthogonal basis C^T C
-            CALL cp_fm_get_info(mo_array(ispin)%mo_set%mo_coeff, &
+            CALL cp_fm_get_info(mo_array(ispin)%mo_coeff, &
                                 nrow_global=n, ncol_global=k)
             CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=k, ncol_global=k, &
-                                     para_env=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%para_env, &
-                                     context=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%context)
+                                     para_env=mo_array(ispin)%mo_coeff%matrix_struct%para_env, &
+                                     context=mo_array(ispin)%mo_coeff%matrix_struct%context)
             CALL cp_fm_create(overlap, tmp_fm_struct)
             CALL cp_fm_struct_release(tmp_fm_struct)
-            CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_set%mo_coeff, &
-                         mo_array(ispin)%mo_set%mo_coeff, 0.0_dp, overlap)
-         ENDIF
+            CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_coeff, &
+                               mo_array(ispin)%mo_coeff, 0.0_dp, overlap)
+         END IF
          CALL cp_fm_get_info(overlap, nrow_local=nrow_local, ncol_local=ncol_local, &
                              row_indices=row_indices, col_indices=col_indices)
          DO i = 1, nrow_local
@@ -840,11 +739,11 @@ CONTAINS
                alpha = overlap%local_data(i, j)
                IF (row_indices(i) .EQ. col_indices(j)) alpha = alpha - 1.0_dp
                max_alpha = MAX(max_alpha, ABS(alpha))
-            ENDDO
-         ENDDO
+            END DO
+         END DO
          CALL cp_fm_release(overlap)
-      ENDDO
-      CALL mp_max(max_alpha, mo_array(1)%mo_set%mo_coeff%matrix_struct%para_env%group)
+      END DO
+      CALL mp_max(max_alpha, mo_array(1)%mo_coeff%matrix_struct%para_env%group)
       orthonormality = max_alpha
       ! write(*,*) "max deviation from orthonormalization ",orthonormality
 
@@ -863,18 +762,17 @@ CONTAINS
 !> \param mo_mag_max ...
 ! **************************************************************************************************
    SUBROUTINE calculate_magnitude(mo_array, mo_mag_min, mo_mag_max)
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       REAL(KIND=dp)                                      :: mo_mag_min, mo_mag_max
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_magnitude', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_magnitude'
 
       INTEGER                                            :: handle, ispin, k, n, nspin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: evals
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: evecs, overlap
+      TYPE(cp_fm_type)                                   :: evecs, overlap
 
-      NULLIFY (tmp_fm_struct, overlap)
+      NULLIFY (tmp_fm_struct)
 
       CALL timeset(routineN, handle)
 
@@ -882,24 +780,24 @@ CONTAINS
       mo_mag_min = HUGE(0.0_dp)
       mo_mag_max = -HUGE(0.0_dp)
       DO ispin = 1, nspin
-         CALL cp_fm_get_info(mo_array(ispin)%mo_set%mo_coeff, &
+         CALL cp_fm_get_info(mo_array(ispin)%mo_coeff, &
                              nrow_global=n, ncol_global=k)
          ALLOCATE (evals(k))
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=k, ncol_global=k, &
-                                  para_env=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%para_env, &
-                                  context=mo_array(ispin)%mo_set%mo_coeff%matrix_struct%context)
+                                  para_env=mo_array(ispin)%mo_coeff%matrix_struct%para_env, &
+                                  context=mo_array(ispin)%mo_coeff%matrix_struct%context)
          CALL cp_fm_create(overlap, tmp_fm_struct)
          CALL cp_fm_create(evecs, tmp_fm_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_set%mo_coeff, &
-                      mo_array(ispin)%mo_set%mo_coeff, 0.0_dp, overlap)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mo_array(ispin)%mo_coeff, &
+                            mo_array(ispin)%mo_coeff, 0.0_dp, overlap)
          CALL choose_eigv_solver(overlap, evecs, evals)
          mo_mag_min = MIN(MINVAL(evals), mo_mag_min)
          mo_mag_max = MAX(MAXVAL(evals), mo_mag_max)
          CALL cp_fm_release(overlap)
          CALL cp_fm_release(evecs)
          DEALLOCATE (evals)
-      ENDDO
+      END DO
       CALL timestop(handle)
 
    END SUBROUTINE calculate_magnitude
@@ -918,14 +816,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE make_mo_eig(mos, nspins, ks_rmpv, scf_control, mo_derivs, admm_env)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mos
       INTEGER, INTENT(IN)                                :: nspins
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mo_derivs
       TYPE(admm_type), OPTIONAL, POINTER                 :: admm_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'make_mo_eig', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'make_mo_eig'
 
       INTEGER                                            :: handle, homo, ispin, nmo, output_unit
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
@@ -938,13 +836,13 @@ CONTAINS
       output_unit = cp_logger_get_default_io_unit()
 
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, &
                          eigenvalues=mo_eigenvalues, homo=homo, nmo=nmo)
          IF (output_unit > 0) WRITE (output_unit, *) " "
          IF (output_unit > 0) WRITE (output_unit, *) " Eigenvalues of the occupied subspace spin ", ispin
          !      IF (homo .NE. nmo) THEN
          !         IF (output_unit>0) WRITE(output_unit,*)" and ",nmo-homo," added MO eigenvalues"
-         !      ENDIF
+         !      END IF
          IF (output_unit > 0) WRITE (output_unit, *) "---------------------------------------------"
 
          IF (scf_control%use_ot) THEN
@@ -953,7 +851,7 @@ CONTAINS
                mo_coeff_deriv => mo_derivs(ispin)%matrix
             ELSE
                mo_coeff_deriv => NULL()
-            ENDIF
+            END IF
 
             ! ** If we do ADMM, we add have to modify the kohn-sham matrix
             IF (PRESENT(admm_env)) THEN
@@ -972,10 +870,10 @@ CONTAINS
             IF (output_unit > 0) WRITE (output_unit, '(4(1X,1F16.8))') mo_eigenvalues(1:homo)
          END IF
          IF (.NOT. scf_control%diagonalization%mom) &
-            CALL set_mo_occupation(mo_set=mos(ispin)%mo_set, smear=scf_control%smear)
+            CALL set_mo_occupation(mo_set=mos(ispin), smear=scf_control%smear)
          IF (output_unit > 0) WRITE (output_unit, '(T2,A,F12.6)') &
-            "Fermi Energy [eV] :", mos(ispin)%mo_set%mu*evolt
-      ENDDO
+            "Fermi Energy [eV] :", mos(ispin)%mu*evolt
+      END DO
 
       CALL timestop(handle)
 

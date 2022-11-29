@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -58,7 +60,6 @@ MODULE neb_utils
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp
-   USE mathlib,                         ONLY: matvec_3x3
    USE md_run,                          ONLY: qs_mol_dyn
    USE neb_io,                          ONLY: dump_replica_coordinates,&
                                               handle_band_file_names
@@ -106,9 +107,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: iw
       LOGICAL, INTENT(IN), OPTIONAL                      :: rotate
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_replica_distance', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: my_rotate
 
       my_rotate = .FALSE.
@@ -147,22 +145,18 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_replica_coords', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_replica_coords'
 
       CHARACTER(LEN=default_path_length)                 :: filename
-      CHARACTER(LEN=default_string_length)               :: dummy_char
       INTEGER :: handle, i_rep, iatom, ic, input_nr_replica, is, ivar, j, jtarg, n_rep, natom, &
          neb_nr_replica, nr_replica_to_interpolate, nval, nvar, shell_index
-      LOGICAL                                            :: check, explicit, my_end, skip_vel_section
+      LOGICAL                                            :: check, explicit, skip_vel_section
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: distance
       REAL(KIND=dp), DIMENSION(3)                        :: r
       REAL(KIND=dp), DIMENSION(:), POINTER               :: initial_colvars, rptr
-      TYPE(cp_parser_type), POINTER                      :: parser
       TYPE(section_vals_type), POINTER                   :: coord_section, replica_section, &
                                                             vel_section
 
-      NULLIFY (parser)
       CALL timeset(routineN, handle)
       CPASSERT(ASSOCIATED(coords))
       CPASSERT(ASSOCIATED(vels))
@@ -209,34 +203,39 @@ CONTAINS
                END IF
             END DO
          ELSE
-            CALL section_vals_val_get(replica_section, "COORD_FILE_NAME", &
-                                      i_rep_section=i_rep, c_val=filename)
-            CPASSERT(TRIM(filename) /= "")
-            CALL parser_create(parser, filename, para_env=para_env, parse_white_lines=.TRUE.)
-            CALL parser_get_next_line(parser, 1)
-            ! Start parser
-            CALL parser_get_object(parser, natom)
-            CPASSERT((natom == SIZE(particle_set)))
-            CALL parser_get_next_line(parser, 1)
-            DO iatom = 1, natom
-               ! Atom coordinates
-               CALL parser_get_next_line(parser, 1, at_end=my_end)
-               IF (my_end) &
-                  CALL cp_abort(__LOCATION__, &
-                                "Number of lines in XYZ format not equal to the number of atoms."// &
-                                " Error in XYZ format for REPLICA coordinates. Very probably the"// &
-                                " line with title is missing or is empty. Please check the XYZ file and rerun your job!")
-               READ (parser%input_line, *) dummy_char, r(1:3)
-               ic = 3*(iatom - 1)
-               coords%xyz(ic + 1:ic + 3, i_rep) = r(1:3)*bohr
-               ! Initially core and shell positions are set to the atomic positions
-               shell_index = particle_set(iatom)%shell_index
-               IF (shell_index /= 0) THEN
-                  is = 3*(natom + shell_index - 1)
-                  coords%xyz(is + 1:is + 3, i_rep) = coords%xyz(ic + 1:ic + 3, i_rep)
-               END IF
-            END DO
-            CALL parser_release(parser)
+            BLOCK
+               LOGICAL :: my_end
+               CHARACTER(LEN=default_string_length)               :: dummy_char
+               TYPE(cp_parser_type) :: parser
+               CALL section_vals_val_get(replica_section, "COORD_FILE_NAME", &
+                                         i_rep_section=i_rep, c_val=filename)
+               CPASSERT(TRIM(filename) /= "")
+               CALL parser_create(parser, filename, para_env=para_env, parse_white_lines=.TRUE.)
+               CALL parser_get_next_line(parser, 1)
+               ! Start parser
+               CALL parser_get_object(parser, natom)
+               CPASSERT((natom == SIZE(particle_set)))
+               CALL parser_get_next_line(parser, 1)
+               DO iatom = 1, natom
+                  ! Atom coordinates
+                  CALL parser_get_next_line(parser, 1, at_end=my_end)
+                  IF (my_end) &
+                     CALL cp_abort(__LOCATION__, &
+                                   "Number of lines in XYZ format not equal to the number of atoms."// &
+                                   " Error in XYZ format for REPLICA coordinates. Very probably the"// &
+                                   " line with title is missing or is empty. Please check the XYZ file and rerun your job!")
+                  READ (parser%input_line, *) dummy_char, r(1:3)
+                  ic = 3*(iatom - 1)
+                  coords%xyz(ic + 1:ic + 3, i_rep) = r(1:3)*bohr
+                  ! Initially core and shell positions are set to the atomic positions
+                  shell_index = particle_set(iatom)%shell_index
+                  IF (shell_index /= 0) THEN
+                     is = 3*(natom + shell_index - 1)
+                     coords%xyz(is + 1:is + 3, i_rep) = coords%xyz(ic + 1:ic + 3, i_rep)
+                  END IF
+               END DO
+               CALL parser_release(parser)
+            END BLOCK
          END IF
          ! Collective Variables
          IF (neb_env%use_colvar) THEN
@@ -373,8 +372,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER, INTENT(IN)                                :: output_unit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_calc_energy_forces', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'neb_calc_energy_forces'
       CHARACTER(LEN=1), DIMENSION(3), PARAMETER          :: lab = (/"X", "Y", "Z"/)
 
       INTEGER                                            :: handle, i, irep, j, n_int, n_rep, &
@@ -429,8 +427,8 @@ CONTAINS
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, '(T2,A,I5,A,I5,A)') &
                         "NEB| REPLICA Nr.", irep + j, "- Energy and Forces"
-                     WRITE (output_unit, '(T2,A,T42,A,9X,F15.9)') &
-                        "NEB|", " Total Energy: ", rep_env%f(rep_env%ndim + 1, j + 1)
+                     WRITE (output_unit, '(T2,A,T43,A,T57,F24.12)') &
+                        "NEB|", "Total energy:", rep_env%f(rep_env%ndim + 1, j + 1)
                      WRITE (output_unit, '(T2,"NEB|",T10,"ATOM",T33,3(9X,A,7X))') lab(1), lab(2), lab(3)
                      DO i = 1, SIZE(particle_set)
                         WRITE (output_unit, '(T2,"NEB|",T12,A,T30,3(2X,F15.9))') &
@@ -446,8 +444,8 @@ CONTAINS
                   IF (output_unit > 0) THEN
                      WRITE (output_unit, '(/,T2,A,I5,A,I5,A)') &
                         "NEB| REPLICA Nr.", irep + j, "- Energy, Collective Variables,  Forces"
-                     WRITE (output_unit, '(T2,A,T42,A,9X,F15.9)') &
-                        "NEB|", " Total Energy: ", rep_env%f(rep_env%ndim + 1, j + 1)
+                     WRITE (output_unit, '(T2,A,T43,A,T57,F24.12)') &
+                        "NEB|", "Total energy:", rep_env%f(rep_env%ndim + 1, j + 1)
                      WRITE (output_unit, &
                             '(T2,"NEB|",T10,"CV Nr.",12X,"Expected COLVAR",5X,"Present COLVAR",10X,"Forces")')
                      DO i = 1, n_int
@@ -513,8 +511,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: irep, n_rep_neb
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: cvalues, Mmatrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perform_replica_md', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'perform_replica_md'
 
       INTEGER                                            :: handle, handle2, ierr, j, n_el
       LOGICAL                                            :: explicit
@@ -589,8 +586,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: irep, n_rep_neb
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: cvalues, Mmatrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'perform_replica_geo', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'perform_replica_geo'
 
       INTEGER                                            :: handle, handle2, ierr, j, n_el
       LOGICAL                                            :: explicit
@@ -670,8 +666,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: energies
       INTEGER, INTENT(IN)                                :: iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_tangent', routineP = moduleN//':'//routineN
-
       REAL(KINd=dp)                                      :: distance0, distance1, distance2, DVmax, &
                                                             Dvmin
 
@@ -734,8 +728,6 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: tag
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: Mmatrix
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_neb_force', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: j, my_tag, nsize_wrk
       REAL(KIND=dp)                                      :: distance1, distance2, fac, tmp
@@ -852,9 +844,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(IN)         :: array3
       REAL(KIND=dp)                                      :: value
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'dot_product_band', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: nsize_int
       LOGICAL                                            :: check
 
@@ -893,9 +882,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), OPTIONAL              :: distances
       INTEGER, INTENT(IN)                                :: number_of_replica
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'reorient_images', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, k, kind
       LOGICAL                                            :: check
       REAL(KIND=dp)                                      :: xtmp
@@ -916,7 +902,7 @@ CONTAINS
             DO k = 1, SIZE(vels%xyz, 1)/3
                kind = (k - 1)*3
                tmp = vels%xyz(kind + 1:kind + 3, i)
-               CALL matvec_3x3(vels%xyz(kind + 1:kind + 3, i), TRANSPOSE(rot), tmp)
+               vels%xyz(kind + 1:kind + 3, i) = MATMUL(TRANSPOSE(rot), tmp)
             END DO
          END IF
          IF (PRESENT(distances)) THEN
@@ -947,9 +933,6 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: smoothing
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: coords, sline
       REAL(KIND=dp), DIMENSION(:)                        :: distances
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'reparametrize_images', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, j
       REAL(KIND=dp)                                      :: avg_distance, xtmp
@@ -1011,9 +994,6 @@ CONTAINS
       TYPE(neb_type), POINTER                            :: neb_env
       TYPE(neb_var_type), POINTER                        :: Dcoords, forces
       LOGICAL                                            :: converged
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'check_convergence', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=3), DIMENSION(4)                     :: labels
       INTEGER                                            :: iw

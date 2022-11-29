@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -59,7 +61,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'al_particles', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'al_particles'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: my_shell_adiabatic
@@ -107,7 +109,7 @@ CONTAINS
                          particle_set, local_molecules, local_particles, vel)
          IF (debug_this_module) &
             CALL dump_vel(molecule_kind_set, molecule_set, local_molecules, particle_set, vel, "post 2nd OU")
-      ENDIF
+      END IF
 
       ! Recompute the final kinetic energy for the region to thermostat
       CALL ke_region_particles(map_info, particle_set, molecule_kind_set, &
@@ -147,8 +149,9 @@ CONTAINS
                IF (PRESENT(vel)) THEN
                   WRITE (unit=*, fmt='("VEL ",A20," IPART ",I6," V ",3F20.10)') TRIM(label), ipart, vel(:, ipart)
                ELSE
-                  WRITE (unit=*, fmt='("VEL ",A20," IPART ",I6," V ",3F20.10)') TRIM(label), ipart, particle_set(ipart)%v(:)
-               ENDIF
+                  WRITE (unit=*, fmt='("PARTICLE_SET%VEL ",A20," IPART ",I6," V ",3F20.10)') TRIM(label), &
+                     ipart, particle_set(ipart)%v(:)
+               END IF
             END DO
          END DO
       END DO
@@ -179,10 +182,8 @@ CONTAINS
       TYPE(distribution_1d_type), POINTER                :: local_molecules, local_particles
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'al_OU_step', routineP = moduleN//':'//routineN
-
       INTEGER :: first_atom, i, ii, ikind, imap, imol, imol_local, ipart, iparticle_kind, &
-         iparticle_local, last_atom, nmol_local, nparticle, nparticle_kind, nparticle_local
+         iparticle_local, jj, last_atom, nmol_local, nparticle, nparticle_kind, nparticle_local
       LOGICAL                                            :: check, present_vel
       REAL(KIND=dp)                                      :: mass
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: w(:, :)
@@ -201,7 +202,7 @@ CONTAINS
          ELSE
             map_info%v_scale(imap) = 1.0_dp
             map_info%s_kin(imap) = 0.0_dp
-         ENDIF
+         END IF
          ! magnitude of random force, not including 1/sqrt(mass) part
       END DO
 
@@ -239,12 +240,16 @@ CONTAINS
                atomic_kind => particle_set(ipart)%atomic_kind
                CALL get_atomic_kind(atomic_kind=atomic_kind, mass=mass)
                IF (present_vel) THEN
-                  vel(:, ipart) = vel(:, ipart)*map_info%v_scale(ii) + &
-                                  map_info%s_kin(ii)/SQRT(mass)*w(:, ipart)
+                  DO jj = 1, 3
+                     vel(jj, ipart) = vel(jj, ipart)*map_info%p_scale(jj, ii)%point + &
+                                      map_info%p_kin(jj, ii)%point/SQRT(mass)*w(jj, ipart)
+                  END DO
                ELSE
-                  particle_set(ipart)%v(:) = particle_set(ipart)%v(:)*map_info%v_scale(ii) + &
-                                             map_info%s_kin(ii)/SQRT(mass)*w(:, ipart)
-               ENDIF
+                  DO jj = 1, 3
+                     particle_set(ipart)%v(jj) = particle_set(ipart)%v(jj)*map_info%p_scale(jj, ii)%point + &
+                                                 map_info%p_kin(jj, ii)%point/SQRT(mass)*w(jj, ipart)
+                  END DO
+               END IF
             END DO
          END DO
       END DO
@@ -265,9 +270,6 @@ CONTAINS
       TYPE(map_info_type), POINTER                       :: map_info
       LOGICAL, INTENT(in)                                :: set_half_step_vel_factors
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'al_NH_quarter_step', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, imap
       REAL(KIND=dp)                                      :: decay, delta_K
 
@@ -281,13 +283,13 @@ CONTAINS
             IF (set_half_step_vel_factors) THEN
                decay = EXP(-0.5_dp*al%dt*al%nvt(i)%chi)
                map_info%v_scale(imap) = decay
-            ENDIF
+            END IF
          ELSE
             al%nvt(i)%chi = 0.0_dp
             IF (set_half_step_vel_factors) THEN
                map_info%v_scale(imap) = 1.0_dp
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END DO
 
    END SUBROUTINE al_NH_quarter_step

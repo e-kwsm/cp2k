@@ -40,6 +40,7 @@ it will always add in the header lines.
 
 use strict;
 use warnings;
+use open qw(:std :utf8);
 use Pod::Usage qw(pod2usage);
 use Getopt::Long;
 
@@ -61,7 +62,7 @@ my $count = 0;
 while (my $currline = <>) { # While there are still lines to read
     # We want to strip out any double sets (i.e. lines next to each other of lines starting ! ****
     if ($currline =~ m/^!\s+\*+/i) {
-        my $nextline = <>;  	# If we get a match read in the next line
+        my $nextline = <>;  # If we get a match read in the next line
         while ($nextline eq $currline) {  # Keep reading until we find a different line
             $count += 1;  # Count up how many lines get stripped out
             $nextline = <>;

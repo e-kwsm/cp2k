@@ -1,0 +1,8 @@
+{
+    "description": "Optimized GPU backend (ROCM)",
+    "requires": [
+        "../common",
+        "../../offload",
+    ],
+    "archive": "libcp2kgridrocm",
+}

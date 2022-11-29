@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,9 +50,6 @@ CONTAINS
    SUBROUTINE create_buffer_type(buffer)
       TYPE(buffer_type), POINTER                         :: buffer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_buffer_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(buffer))
       ALLOCATE (buffer)
       buffer%size = buffer_size
@@ -73,9 +72,6 @@ CONTAINS
    RECURSIVE SUBROUTINE release_buffer_type(buffer)
       TYPE(buffer_type), POINTER                         :: buffer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'release_buffer_type', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(buffer))
       DEALLOCATE (buffer%input_lines)
       DEALLOCATE (buffer%input_line_numbers)
@@ -96,9 +92,6 @@ CONTAINS
    RECURSIVE SUBROUTINE copy_buffer_type(buffer_in, buffer_out, force)
       TYPE(buffer_type), POINTER                         :: buffer_in, buffer_out
       LOGICAL, INTENT(IN), OPTIONAL                      :: force
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'copy_buffer_type', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
       LOGICAL                                            :: my_force
@@ -136,9 +129,6 @@ CONTAINS
    SUBROUTINE initialize_sub_buffer(sub_buffer, buffer)
       TYPE(buffer_type), POINTER                         :: sub_buffer, buffer
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'initialize_sub_buffer', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(buffer))
       CPASSERT(.NOT. ASSOCIATED(sub_buffer))
       CALL create_buffer_type(sub_buffer)
@@ -155,9 +145,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE finalize_sub_buffer(sub_buffer, buffer)
       TYPE(buffer_type), POINTER                         :: sub_buffer, buffer
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'finalize_sub_buffer', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(buffer))
       CPASSERT(ASSOCIATED(sub_buffer))

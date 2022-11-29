@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -19,8 +21,7 @@ MODULE embed_main
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE embed_environment,               ONLY: embed_init
    USE embed_types,                     ONLY: embed_env_create,&
-                                              embed_env_type,&
-                                              set_embed_env
+                                              embed_env_type
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: default_path_length
@@ -50,15 +51,14 @@ CONTAINS
    SUBROUTINE embed_create_force_env(embed_env, root_section, para_env, &
                                      force_env_section, n_subforce_eval, use_motion_section)
 
-      TYPE(embed_env_type), POINTER                      :: embed_env
+      TYPE(embed_env_type), INTENT(OUT)                  :: embed_env
       TYPE(section_vals_type), POINTER                   :: root_section
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(section_vals_type), POINTER                   :: force_env_section
       INTEGER, INTENT(IN)                                :: n_subforce_eval
       LOGICAL, INTENT(IN)                                :: use_motion_section
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'embed_create_force_env', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'embed_create_force_env'
 
       CHARACTER(len=default_path_length)                 :: c_val, input_file_path, output_file_path
       INTEGER                                            :: group_size_wish, handle, i, lp, &
@@ -106,7 +106,7 @@ CONTAINS
          CALL mp_comm_split(para_env%group, embed_env%new_group, embed_env%ngroups, embed_env%group_distribution, &
                             n_subgroups=ngroup_wish, &
                             group_partition=group_partition)
-      ENDIF
+      END IF
       IF (output_unit > 0) THEN
          WRITE (output_unit, FMT="(T2,A,T71,I10)") "EMBED_ENV| Number of created MPI groups:", embed_env%ngroups
          WRITE (output_unit, FMT="(T2,A)", ADVANCE="NO") "EMBED_ENV| Task to group correspondence:"
@@ -116,7 +116,7 @@ CONTAINS
                "  (", i, " : ", embed_env%group_distribution(i), ")"
          END DO
          WRITE (output_unit, *)
-      ENDIF
+      END IF
       IF (ASSOCIATED(group_partition)) THEN
          DEALLOCATE (group_partition)
       END IF
@@ -172,7 +172,6 @@ CONTAINS
       END DO
 
       ! *** initializations for the setup of the EMBED environment ***
-      CALL set_embed_env(embed_env)
       CALL embed_init(embed_env, root_section, para_env, force_env_section, &
                       use_motion_section)
       CALL timestop(handle)

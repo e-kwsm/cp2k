@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -60,7 +62,7 @@ MODULE qs_dftb_matrices
                                               qs_ks_env_type,&
                                               set_ks_env
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: get_iterator_info,&
                                               neighbor_list_iterate,&
                                               neighbor_list_iterator_create,&
@@ -98,8 +100,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       LOGICAL, INTENT(IN)                                :: calculate_forces
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_dftb_matrices', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_dftb_matrices'
 
       INTEGER :: after, atom_a, atom_b, handle, i, iatom, ic, icol, ikind, img, irow, iw, jatom, &
          jkind, l1, l2, la, lb, llm, lmaxi, lmaxj, m, n1, n2, n_urpoly, natom, natorb_a, natorb_b, &
@@ -366,7 +367,7 @@ CONTAINS
                         CPASSERT(ASSOCIATED(dsblocks(i + 1)%block))
                         dsblocks(i + 1)%block = dsblocks(i + 1)%block + dsblock
                      END IF
-                  ENDDO
+                  END DO
                   IF (use_virial) THEN
 !deb iatom=jatom f0=0.5*f0
                      IF (iatom == jatom) f0 = 0.5_dp*f0
@@ -434,12 +435,12 @@ CONTAINS
          DO img = 1, nimg
             CALL dbcsr_finalize(matrix_s(i, img)%matrix)
          END DO
-      ENDDO
+      END DO
       DO i = 1, SIZE(matrix_h, 1)
          DO img = 1, nimg
             CALL dbcsr_finalize(matrix_h(i, img)%matrix)
          END DO
-      ENDDO
+      END DO
 
       ! set repulsive energy
       CALL mp_sum(erep, para_env%group)
@@ -508,8 +509,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb_ks_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'build_dftb_ks_matrix'
 
       INTEGER                                            :: atom_a, handle, iatom, ikind, img, &
                                                             ispin, natom, nkind, nspins, &
@@ -524,7 +524,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix, matrix_h, matrix_p, matrix_s
       TYPE(dbcsr_type), POINTER                          :: mo_coeff
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_dftb_atom_type), POINTER                   :: dftb_kind
       TYPE(qs_energy_type), POINTER                      :: energy
@@ -644,17 +643,20 @@ CONTAINS
       ! here we compute dE/dC if needed. Assumes dE/dC is H_{ks}C (plus occupation numbers)
       IF (qs_env%requires_mo_derivs .AND. .NOT. just_energy) THEN
          CPASSERT(SIZE(ks_matrix, 2) == 1)
-         CALL get_qs_env(qs_env, mo_derivs=mo_derivs, mos=mo_array)
-         DO ispin = 1, SIZE(mo_derivs)
-            CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, &
-                            mo_coeff_b=mo_coeff, occupation_numbers=occupation_numbers)
-            IF (.NOT. mo_array(ispin)%mo_set%use_mo_coeff_b) THEN
-               CPABORT("")
-            ENDIF
-            CALL dbcsr_multiply('n', 'n', 1.0_dp, ks_matrix(ispin, 1)%matrix, mo_coeff, &
-                                0.0_dp, mo_derivs(ispin)%matrix)
-         ENDDO
-      ENDIF
+         BLOCK
+            TYPE(mo_set_type), DIMENSION(:), POINTER :: mo_array
+            CALL get_qs_env(qs_env, mo_derivs=mo_derivs, mos=mo_array)
+            DO ispin = 1, SIZE(mo_derivs)
+               CALL get_mo_set(mo_set=mo_array(ispin), &
+                               mo_coeff_b=mo_coeff, occupation_numbers=occupation_numbers)
+               IF (.NOT. mo_array(ispin)%use_mo_coeff_b) THEN
+                  CPABORT("")
+               END IF
+               CALL dbcsr_multiply('n', 'n', 1.0_dp, ks_matrix(ispin, 1)%matrix, mo_coeff, &
+                                   0.0_dp, mo_derivs(ispin)%matrix)
+            END DO
+         END BLOCK
+      END IF
 
       CALL timestop(handle)
 
@@ -672,8 +674,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: nderivative
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_dftb_overlap', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_dftb_overlap'
 
       INTEGER :: handle, i, iatom, icol, ikind, indder, irow, j, jatom, jkind, l1, l2, la, lb, &
          llm, lmaxi, lmaxj, m, n1, n2, natom, natorb_a, natorb_b, ngrd, ngrdcut, nkind
@@ -828,7 +829,7 @@ CONTAINS
                         dsblocks(indder)%block = dsblocks(indder)%block + &
                                                  (dsblock1(:, :, i) - 2.0_dp*sblock)/ddr**2
                      END IF
-                  ENDDO
+                  END DO
 
                   IF (nderivative .GT. 1) THEN
                      DO i = 1, 2
@@ -863,7 +864,7 @@ CONTAINS
 
       DO i = 1, SIZE(matrix_s, 1)
          CALL dbcsr_finalize(matrix_s(i)%matrix)
-      ENDDO
+      END DO
 
       CALL timestop(handle)
 
@@ -885,9 +886,6 @@ CONTAINS
       CHARACTER(LEN=*)                                   :: mnames
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_matrices1', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(1)                                       :: symmetry_type
       CHARACTER(LEN=default_string_length)               :: matnames
@@ -975,9 +973,6 @@ CONTAINS
       CHARACTER(LEN=*)                                   :: mnames
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'setup_matrices2', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(1)                                       :: symmetry_type
       CHARACTER(LEN=default_string_length)               :: matnames

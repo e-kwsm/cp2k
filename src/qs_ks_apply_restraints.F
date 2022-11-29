@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -32,7 +34,7 @@ MODULE qs_ks_apply_restraints
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE s_square_methods,                ONLY: s2_restraint
@@ -63,9 +65,6 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: calculate_forces
       TYPE(cdft_control_type), POINTER                   :: cdft_control
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_ks_cdft_constraint', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iatom, igroup, natom
       LOGICAL                                            :: do_kpoints
       REAL(KIND=dp)                                      :: inv_vol
@@ -84,7 +83,8 @@ CONTAINS
             IF (cdft_control%need_pot) THEN
                ! First SCF iteraration => allocate storage
                DO igroup = 1, SIZE(cdft_control%group)
-                  CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%group(igroup)%weight%pw, &
+                  ALLOCATE (cdft_control%group(igroup)%weight)
+                  CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%group(igroup)%weight, &
                                          use_data=REALDATA3D, in_space=REALSPACE)
                   ! Sanity check
                   IF (cdft_control%group(igroup)%constraint_type /= cdft_charge_constraint &
@@ -96,7 +96,7 @@ CONTAINS
                   IF (.NOT. ASSOCIATED(cdft_control%charge)) &
                      ALLOCATE (cdft_control%charge(cdft_control%natoms))
                   DO iatom = 1, cdft_control%natoms
-                     CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%charge(iatom)%pw, &
+                     CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%charge(iatom), &
                                             use_data=REALDATA3D, in_space=REALSPACE)
                   END DO
                END IF
@@ -107,8 +107,8 @@ CONTAINS
                                 "The number of constraint atoms exceeds the total number of atoms.")
             ELSE
                DO igroup = 1, SIZE(cdft_control%group)
-                  inv_vol = 1.0_dp/cdft_control%group(igroup)%weight%pw%pw_grid%dvol
-                  CALL pw_scale(cdft_control%group(igroup)%weight%pw, inv_vol)
+                  inv_vol = 1.0_dp/cdft_control%group(igroup)%weight%pw_grid%dvol
+                  CALL pw_scale(cdft_control%group(igroup)%weight, inv_vol)
                END DO
             END IF
             ! Build/Integrate CDFT constraints with selected population analysis method
@@ -118,7 +118,7 @@ CONTAINS
                CALL hirshfeld_constraint(qs_env, calc_pot=cdft_control%need_pot, calculate_forces=calculate_forces)
             END IF
             DO igroup = 1, SIZE(cdft_control%group)
-               CALL pw_scale(cdft_control%group(igroup)%weight%pw, cdft_control%group(igroup)%weight%pw%pw_grid%dvol)
+               CALL pw_scale(cdft_control%group(igroup)%weight, cdft_control%group(igroup)%weight%pw_grid%dvol)
             END DO
             IF (cdft_control%need_pot) cdft_control%need_pot = .FALSE.
          CASE DEFAULT
@@ -150,9 +150,6 @@ CONTAINS
       TYPE(qs_rho_type), POINTER                         :: rho
       REAL(KIND=dp)                                      :: mulliken_order_p
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_ks_mulliken_restraint', &
-         routineP = moduleN//':'//routineN
-
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ksmat, rho_ao
 
       energy%mulliken = 0.0_dp
@@ -173,9 +170,9 @@ CONTAINS
             CALL mulliken_restraint(dft_control%qs_control%mulliken_restraint_control, &
                                     para_env, matrix_s(1, 1)%matrix, rho_ao, energy=energy%mulliken, &
                                     ks_matrix=ksmat, order_p=mulliken_order_p)
-         ENDIF
+         END IF
 
-      ENDIF
+      END IF
 
    END SUBROUTINE qs_ks_mulliken_restraint
 
@@ -197,14 +194,11 @@ CONTAINS
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_ks_s2_restraint', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: fm_mo_derivs
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mo_derivs, smat
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mo_array
 
       NULLIFY (fm_mo_derivs, mo_array, mo_coeff, mo_derivs)
 
@@ -216,14 +210,16 @@ CONTAINS
          CPASSERT(qs_env%requires_mo_derivs)
          ! forces are not implemented (not difficult, but ... )
          CPASSERT(.NOT. calculate_forces)
+         MARK_USED(calculate_forces)
          CALL get_qs_env(qs_env, mo_derivs=mo_derivs, mos=mo_array)
 
          ALLOCATE (fm_mo_derivs(SIZE(mo_derivs, 1))) !fm->dbcsr
          DO i = 1, SIZE(mo_derivs, 1) !fm->dbcsr
-            CALL get_mo_set(mo_set=mo_array(i)%mo_set, mo_coeff=mo_coeff) !fm->dbcsr
+            CALL get_mo_set(mo_set=mo_array(i), mo_coeff=mo_coeff) !fm->dbcsr
+            ALLOCATE (fm_mo_derivs(i)%matrix)
             CALL cp_fm_create(fm_mo_derivs(i)%matrix, mo_coeff%matrix_struct) !fm->dbcsr
             CALL copy_dbcsr_to_fm(mo_derivs(i)%matrix, fm_mo_derivs(i)%matrix) !fm->dbcsr
-         ENDDO !fm->dbcsr
+         END DO !fm->dbcsr
 
          smat => matrix_s(:, 1)
          CALL s2_restraint(mo_array, smat, fm_mo_derivs, energy%s2_restraint, &
@@ -231,12 +227,12 @@ CONTAINS
 
          DO i = 1, SIZE(mo_derivs, 1) !fm->dbcsr
             CALL copy_fm_to_dbcsr(fm_mo_derivs(i)%matrix, mo_derivs(i)%matrix) !fm->dbcsr
-         ENDDO !fm->dbcsr
+         END DO !fm->dbcsr
          DEALLOCATE (fm_mo_derivs) !fm->dbcsr
 
       ELSE
          energy%s2_restraint = 0.0_dp
-      ENDIF
+      END IF
    END SUBROUTINE qs_ks_s2_restraint
 
 END MODULE qs_ks_apply_restraints

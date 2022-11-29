@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -52,17 +54,13 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(section_vals_type), POINTER                   :: base_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'print_basis_set_file', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=2)                                   :: element_symbol
       CHARACTER(LEN=default_string_length)               :: bname, filename
       INTEGER                                            :: ikind, iunit, nkind, ounit
       INTEGER, SAVE                                      :: ncalls = 0
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(gto_basis_set_type), POINTER                  :: aux_fit_basis, lri_aux_basis, orb_basis, &
-                                                            ri_aux_basis, ri_hfx_basis, &
-                                                            ri_hxc_basis, ri_xas_basis
+      TYPE(gto_basis_set_type), POINTER :: aux_fit_basis, lri_aux_basis, orb_basis, &
+         p_lri_aux_basis, ri_aux_basis, ri_hfx_basis, ri_hxc_basis, ri_xas_basis
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
 
@@ -83,18 +81,19 @@ CONTAINS
             "# TITLE ", "Basis set file created by "//TRIM(cp2k_version)//" (revision "//TRIM(compile_revision)//")", &
             "# AUTHOR", TRIM(r_user_name)//"@"//TRIM(r_host_name)//" "//r_datx(1:19)
 
-      ENDIF
+      END IF
 
       CALL get_qs_env(qs_env, qs_kind_set=qs_kind_set, nkind=nkind)
       DO ikind = 1, nkind
          qs_kind => qs_kind_set(ikind)
          CALL get_qs_kind(qs_kind, element_symbol=element_symbol)
-         NULLIFY (orb_basis, ri_aux_basis, lri_aux_basis, aux_fit_basis)
+         NULLIFY (orb_basis, ri_aux_basis, lri_aux_basis, p_lri_aux_basis, aux_fit_basis)
          CALL get_qs_kind(qs_kind, basis_set=orb_basis, basis_type="ORB")
          CALL get_qs_kind(qs_kind, basis_set=ri_aux_basis, basis_type="RI_AUX")
          CALL get_qs_kind(qs_kind, basis_set=ri_hxc_basis, basis_type="RI_HXC")
          CALL get_qs_kind(qs_kind, basis_set=ri_hfx_basis, basis_type="RI_HFX")
          CALL get_qs_kind(qs_kind, basis_set=lri_aux_basis, basis_type="LRI_AUX")
+         CALL get_qs_kind(qs_kind, basis_set=p_lri_aux_basis, basis_type="P_LRI_AUX")
          CALL get_qs_kind(qs_kind, basis_set=aux_fit_basis, basis_type="AUX_FIT")
          CALL get_qs_kind(qs_kind, basis_set=ri_xas_basis, basis_type="RI_XAS")
          IF (ounit > 0) THEN
@@ -114,6 +113,10 @@ CONTAINS
                bname = "local_lri_aux"
                CALL basis_out(lri_aux_basis, element_symbol, bname, iunit)
             END IF
+            IF (ASSOCIATED(p_lri_aux_basis)) THEN
+               bname = "local_p_lri_aux"
+               CALL basis_out(p_lri_aux_basis, element_symbol, bname, iunit)
+            END IF
             IF (ASSOCIATED(aux_fit_basis)) THEN
                bname = "local_aux_fit"
                CALL basis_out(aux_fit_basis, element_symbol, bname, iunit)
@@ -125,13 +128,13 @@ CONTAINS
             IF (ASSOCIATED(ri_hfx_basis)) THEN
                bname = "local_ri_hfx"
                CALL basis_out(ri_hfx_basis, element_symbol, bname, iunit)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
       END DO
 
       IF (ounit > 0) THEN
          CALL close_file(iunit)
-      ENDIF
+      END IF
 
    END SUBROUTINE print_basis_set_file
 
@@ -148,8 +151,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: basis
       CHARACTER(LEN=*), INTENT(IN)                       :: element_symbol, bname
       INTEGER, INTENT(IN)                                :: iunit
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_out', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ipgf, iset, ishell, ll, nset
       INTEGER, DIMENSION(0:9)                            :: lset

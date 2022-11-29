@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -37,13 +39,12 @@ CONTAINS
 !> \brief computes properties for a given hamilonian using the current wfn
 !> \param qs_env ...
 !> \param wf_type ...
+!> \param do_mp2 ...
 ! **************************************************************************************************
-   SUBROUTINE qs_scf_compute_properties(qs_env, wf_type)
+   SUBROUTINE qs_scf_compute_properties(qs_env, wf_type, do_mp2)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       CHARACTER(6), OPTIONAL                             :: wf_type
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_scf_compute_properties', &
-         routineP = moduleN//':'//routineN
+      LOGICAL, OPTIONAL                                  :: do_mp2
 
       LOGICAL                                            :: explicit
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -68,10 +69,14 @@ CONTAINS
          CALL optimize_lri_basis(qs_env)
       ELSE
          IF (PRESENT(wf_type)) THEN
-            CALL scf_post_calculation_gpw(qs_env, wf_type=wf_type)
+            IF (PRESENT(do_mp2)) THEN
+               CALL scf_post_calculation_gpw(qs_env, wf_type=wf_type, do_mp2=do_mp2)
+            ELSE
+               CALL scf_post_calculation_gpw(qs_env, wf_type=wf_type)
+            END IF
          ELSE
             CALL scf_post_calculation_gpw(qs_env)
-         ENDIF
+         END IF
       END IF
 
       CALL calculate_band_structure(qs_env)

@@ -1,4 +1,4 @@
-&GLOBAL                                                                                           
+&GLOBAL
   PROJECT  h_h_pbe_pbe0_triplet
   PRINT_LEVEL MEDIUM
   RUN_TYPE ENERGY
@@ -14,37 +14,37 @@
        &MAPPING
           &FORCE_EVAL_EMBED
              &FRAGMENT 1
-                1 1  
+                1 1
              &END
              &FRAGMENT 2
-                2 2  
+                2 2
              &END
              &FRAGMENT 3
-                1 2  
+                1 2
              &END
           &END
           &FORCE_EVAL 1
              &FRAGMENT 1
                 1 1
-                MAP 1 
+                MAP 1
               &END
           &END
           &FORCE_EVAL 2
              &FRAGMENT 1
                 1 1
-                MAP 2 
+                MAP 2
              &END
           &END
           &FORCE_EVAL 3
              &FRAGMENT 1
                 1 2
-                MAP 3 
+                MAP 3
               &END
           &END
           &FORCE_EVAL 4
              &FRAGMENT 1
                 1 1
-                MAP 2 
+                MAP 2
              &END
           &END
        &END
@@ -54,18 +54,18 @@
       ABC [angstrom]  5.000   5.000  5.000
     &END CELL
     &KIND H
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q1
     &END KIND
     &KIND O
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q6
     &END KIND
     &COORD
-  H      1.75  2.75  0.0   
-  H      1.75  4.25  0.0    
+  H      1.75  2.75  0.0
+  H      1.75  4.25  0.0
     &END
   &END SUBSYS
 &END FORCE_EVAL
@@ -111,12 +111,12 @@
       ABC [angstrom]  5.000   5.000  5.000
     &END CELL
     &KIND H
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q1
     &END KIND
     &COORD
-  H      1.75  2.75  0.0   
+  H      1.75  2.75  0.0
     &END
   &END SUBSYS
 &END FORCE_EVAL
@@ -163,12 +163,12 @@
       ABC [angstrom]  5.000   5.000  5.000
     &END CELL
     &KIND H
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q1
     &END KIND
     &COORD
-  H      1.75  4.25  0.0    
+  H      1.75  4.25  0.0
     &END
   &END SUBSYS
 &END FORCE_EVAL
@@ -227,13 +227,13 @@
       ABC [angstrom]  5.000   5.000  5.000
     &END CELL
     &KIND H
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q1
     &END KIND
     &COORD
-  H      1.75  2.75  0.0   
-  H      1.75  4.25  0.0    
+  H      1.75  2.75  0.0
+  H      1.75  4.25  0.0
     &END
   &END SUBSYS
 &END FORCE_EVAL
@@ -293,12 +293,12 @@
       ABC [angstrom]  5.000   5.000  5.000
     &END CELL
     &KIND H
-      BASIS_SET  cc-TZ
-      RI_AUX_BASIS_SET  RI_TZ
+      BASIS_SET ORB  cc-TZ
+      BASIS_SET RI_AUX  RI_TZ
       POTENTIAL  GTH-HF-q1
     &END KIND
     &COORD
-  H      1.75  4.25 0.0    
+  H      1.75  4.25 0.0
     &END
   &END SUBSYS
 &END FORCE_EVAL

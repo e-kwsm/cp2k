@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,7 +47,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: iter_count
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'charge_mixing', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'charge_mixing'
 
       INTEGER                                            :: handle, ia, ii, imin, inow, nbuffer, ns, &
                                                             nvec
@@ -123,9 +125,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: imin, ns
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mix_charges_only', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, ii
 
       charges = 0.0_dp
@@ -154,8 +153,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), INTENT(INOUT)      :: charges
       INTEGER, INTENT(IN)                                :: inow, nvec, ns
       TYPE(cp_para_env_type), POINTER                    :: para_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'broyden_mixing', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ia, ii, imin, j, nbuffer, nv
       REAL(KIND=dp)                                      :: alpha, maxw, minw, omega0, rskip, wdf, &
@@ -204,7 +201,7 @@ CONTAINS
          mixing_store%wbroy(nv) = wfac/mixing_store%wbroy(nv)
       ELSE
          mixing_store%wbroy(nv) = maxw
-      ENDIF
+      END IF
       IF (mixing_store%wbroy(nv) < minw) mixing_store%wbroy(nv) = minw
 
       ! dfbroy

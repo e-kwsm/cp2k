@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -76,9 +78,6 @@ CONTAINS
       TYPE(atom_ecppot_type), OPTIONAL                   :: ecp_pot
       TYPE(atom_upfpot_type), OPTIONAL                   :: upf_pot
       REAL(KIND=dp), DIMENSION(3)                        :: error
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'sgp_construction', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, n
       LOGICAL                                            :: is_ecp, is_upf
@@ -190,9 +189,6 @@ CONTAINS
       TYPE(atom_p_type), DIMENSION(:, :), POINTER        :: atom_info
       TYPE(section_vals_type), POINTER                   :: input_section
       INTEGER, INTENT(IN)                                :: iw
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_sgp_construction', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, n, ppot_type
       LOGICAL                                            :: do_transform, explicit, is_ecp, is_upf
@@ -348,8 +344,6 @@ CONTAINS
       TYPE(atom_sgp_potential_type)                      :: sgp_pot
       TYPE(atom_basis_type)                              :: basis
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ecp_sgp_constr', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ia, ir, j, k, l, n, na, nl, nr
       REAL(KIND=dp)                                      :: alpha, eee, ei
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: al, cl, cpot, pgauss
@@ -444,8 +438,6 @@ CONTAINS
       TYPE(atom_upfpot_type)                             :: upf_pot
       TYPE(atom_sgp_potential_type)                      :: sgp_pot
       TYPE(atom_basis_type)                              :: basis
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'upf_sgp_constr', routineP = moduleN//':'//routineN
 
       CHARACTER(len=4)                                   :: ptype
       INTEGER                                            :: ia, ib, ipa, ipb, ir, la, lb, na, nl, &
@@ -700,8 +692,8 @@ CONTAINS
             CALL release_atom_basis(gbasis)
             DEALLOCATE (pgauss, pproa, pprob)
             DEALLOCATE (al, cl, smat, sinv, tmat, cmat)
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       IF (upf_pot%core_correction) THEN
          sgp_pot%has_nlcc = .TRUE.
@@ -758,9 +750,6 @@ CONTAINS
 
       TYPE(atom_sgp_potential_type)                      :: sgp_pot
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'atom_sgp_release', &
-         routineP = moduleN//':'//routineN
-
       IF (ASSOCIATED(sgp_pot%a_nonlocal)) DEALLOCATE (sgp_pot%a_nonlocal)
       IF (ASSOCIATED(sgp_pot%h_nonlocal)) DEALLOCATE (sgp_pot%h_nonlocal)
       IF (ASSOCIATED(sgp_pot%c_nonlocal)) DEALLOCATE (sgp_pot%c_nonlocal)
@@ -788,8 +777,6 @@ CONTAINS
       TYPE(atom_upfpot_type)                             :: upf_pot
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: cutpotu
       REAL(KIND=dp), INTENT(IN)                          :: ac_local
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'upfints', routineP = moduleN//':'//routineN
 
       CHARACTER(len=4)                                   :: ptype
       INTEGER                                            :: i, j, k1, k2, la, lb, m, n
@@ -887,8 +874,6 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
       TYPE(atom_ecppot_type)                             :: ecp_pot
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ecpints', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, k, l, m, n
       REAL(KIND=dp)                                      :: alpha
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: cpot
@@ -931,8 +916,6 @@ CONTAINS
       TYPE(atom_basis_type), INTENT(INOUT)               :: basis
       TYPE(atom_sgp_potential_type)                      :: sgp_pot
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: cutpots
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'sgpints', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i, ia, j, l, m, n, na
       REAL(KIND=dp)                                      :: a, c, zval
@@ -1009,7 +992,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: vlocal, r
       REAL(KIND=dp), INTENT(IN)                          :: z
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'erffit', routineP = moduleN//':'//routineN
       REAL(KIND=dp), PARAMETER                           :: rcut = 1.4_dp
 
       INTEGER                                            :: i, j, m, m1
@@ -1079,8 +1061,6 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: method
       REAL(KIND=dp)                                      :: errloc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pplocal_error', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ia, ib, ir, ix, la, na
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: tv
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: rmat, sinv, smat
@@ -1136,7 +1116,7 @@ CONTAINS
          sinv = 0.0_dp
          CALL get_pseudo_inverse_diag(smat(1:nl, 1:nl), sinv(1:nl, 1:nl), 1.e-12_dp)
          cl(1:nl) = MATMUL(sinv(1:nl, 1:nl), tv(1:nl))
-      ENDIF
+      END IF
       !
       vgauss = 0.0_dp
       DO ir = 1, nl

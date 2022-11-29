@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -87,8 +89,6 @@ MODULE helium_types
 ! ***************************************************************************
    TYPE helium_solvent_type
 
-      INTEGER                           :: id_nr !< identification number of this data structure
-      INTEGER                           :: ref_count !< reference count of this data structure
       TYPE(section_vals_type), POINTER  :: input !< input data structure (the whole tree)
       TYPE(cp_logger_type), POINTER     :: logger
 
@@ -135,6 +135,7 @@ MODULE helium_types
       INTEGER       :: worm_tail_min, worm_tail_max
       INTEGER       :: worm_swap_min, worm_swap_max
       INTEGER       :: worm_open_close_min, worm_open_close_max
+      INTEGER       :: worm_max_open_cycles
       REAL(KIND=dp) :: worm_open_close_scale
       REAL(KIND=dp) :: worm_ln_openclose_scale
       LOGICAL       :: worm_allow_open, worm_show_statistics
@@ -171,10 +172,13 @@ MODULE helium_types
       ! helium variables
       !
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: pos !< position of the helium atoms DIM(3,atoms,beads)
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: savepos !< saved position of the helium atoms DIM(3,atoms,beads)
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: work !< same dimensions as pos
       !
       INTEGER, DIMENSION(:), POINTER :: permutation !< current permutation state DIM(atoms)
+      INTEGER, DIMENSION(:), POINTER :: savepermutation !< saved permutation state DIM(atoms)
       INTEGER, DIMENSION(:), POINTER :: iperm !< inverse of the current permutation state DIM(atoms)
+      INTEGER, DIMENSION(:), POINTER :: saveiperm !< saved inverse of the current permutation state DIM(atoms)
       INTEGER, DIMENSION(:), POINTER :: ptable !< proposed cyclic permutation, DIM(max_cycle)
       INTEGER(KIND=int_8)              :: accepts !< number of accepted new configurations
       !
@@ -353,9 +357,6 @@ CONTAINS
 
       TYPE(int_arr_ptr), DIMENSION(:), POINTER           :: int_arr_p
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_destroy_int_arr_ptr', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ip
 
 ! deallocate memory used by each component of the pointer array
@@ -384,9 +385,6 @@ CONTAINS
    SUBROUTINE helium_destroy_real_arr_ptr(real_arr_p)
 
       TYPE(real_arr_ptr), DIMENSION(:), POINTER          :: real_arr_p
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'helium_destroy_real_arr_ptr', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ip
 

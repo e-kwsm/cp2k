@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -33,7 +35,6 @@
 ! **************************************************************************************************
 MODULE pw_grids
    USE ISO_C_BINDING,                   ONLY: C_F_POINTER,&
-                                              C_INT,&
                                               C_LOC,&
                                               C_PTR,&
                                               C_SIZE_T
@@ -46,6 +47,9 @@ MODULE pw_grids
    USE message_passing,                 ONLY: &
         mp_allgather, mp_cart_coords, mp_cart_create, mp_cart_rank, mp_comm_compare, mp_comm_dup, &
         mp_comm_free, mp_comm_self, mp_dims_create, mp_environ, mp_max, mp_min, mp_sum
+   USE offload_api,                     ONLY: offload_activate_chosen_device,&
+                                              offload_free_pinned_mem,&
+                                              offload_malloc_pinned_mem
    USE pw_grid_info,                    ONLY: pw_find_cutoff,&
                                               pw_grid_bounds_from_n,&
                                               pw_grid_init_setup
@@ -70,27 +74,6 @@ MODULE pw_grids
    INTEGER :: grid_tag = 0
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'pw_grids'
 
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
-   INTERFACE
-      INTEGER(C_INT) FUNCTION cudaHostAlloc(buffer, length, flag) &
-         BIND(C, name="cudaHostAlloc")
-         IMPORT
-         IMPLICIT NONE
-         TYPE(C_PTR)              :: buffer
-         INTEGER(C_SIZE_T), VALUE :: length
-         INTEGER(C_INT), VALUE    :: flag
-      END FUNCTION cudaHostAlloc
-   END INTERFACE
-
-   INTERFACE
-      INTEGER(C_INT) FUNCTION cudaFreeHost(buffer) BIND(C, name="cudaFreeHost")
-         IMPORT
-         IMPLICIT NONE
-         TYPE(C_PTR), VALUE :: buffer
-      END FUNCTION cudaFreeHost
-   END INTERFACE
-#endif
-
    ! Distribution in g-space can be
    INTEGER, PARAMETER, PUBLIC               :: do_pw_grid_blocked_false = 0, &
                                                do_pw_grid_blocked_true = 1, &
@@ -111,8 +94,6 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       INTEGER, INTENT(in)                                :: pe_group
       LOGICAL, INTENT(IN), OPTIONAL                      :: local
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_create', routineP = moduleN//':'//routineN
 
       LOGICAL                                            :: my_local
 
@@ -224,9 +205,6 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), OPTIONAL, POINTER       :: gvectors
       REAL(dp), DIMENSION(:), OPTIONAL, POINTER          :: gsquare
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_pw_grid_info', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(pw_grid%ref_count > 0)
 
       IF (PRESENT(id_nr)) id_nr = pw_grid%id_nr
@@ -264,9 +242,6 @@ CONTAINS
       INTEGER, DIMENSION(2, 3), INTENT(IN), OPTIONAL     :: bounds
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: cutoff
       LOGICAL, INTENT(IN), OPTIONAL                      :: spherical
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'set_pw_grid_info', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(pw_grid%ref_count > 0)
 
@@ -333,7 +308,7 @@ CONTAINS
       INTEGER, DIMENSION(2), INTENT(in), OPTIONAL        :: rs_dims
       INTEGER, INTENT(in), OPTIONAL                      :: iounit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_setup', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_grid_setup'
 
       INTEGER                                            :: handle, my_icommensurate, &
                                                             my_ncommensurate
@@ -427,7 +402,7 @@ CONTAINS
       CALL pw_grid_setup_internal(cell_hmat, cell_h_inv, cell_deth, pw_grid, bounds_local=bounds_local, &
                                   blocked=blocked, ref_grid=ref_grid, rs_dims=rs_dims, iounit=iounit)
 
-#if defined ( __PW_CUDA )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_grid_create_ghatmap(pw_grid)
 #endif
 
@@ -435,8 +410,8 @@ CONTAINS
 
    END SUBROUTINE pw_grid_setup
 
-#if defined ( __PW_CUDA )
-! **************************************************************************************************
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+   ! **************************************************************************************************
 !> \brief sets up a combined index for CUDA gather and scatter
 !> \param pw_grid ...
 !> \author Gloess Andreas (xx-Dec-2012)
@@ -560,8 +535,7 @@ CONTAINS
       INTEGER, DIMENSION(2), INTENT(in), OPTIONAL        :: rs_dims
       INTEGER, INTENT(in), OPTIONAL                      :: iounit
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_setup_internal', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_setup_internal'
 
       INTEGER                                            :: handle, ires, n(3)
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: yz_mask
@@ -685,8 +659,6 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       INTEGER, INTENT(IN)                                :: info
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_print', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       INTEGER(KIND=int_8)                                :: n(3)
       REAL(KIND=dp)                                      :: rv(3, 3)
@@ -697,7 +669,7 @@ CONTAINS
 !
 
       IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
-         IF (info >= 0) THEN
+         IF (info > 0) THEN
             WRITE (info, '(/,A,T71,I10)') &
                " PW_GRID| Information for grid number ", pw_grid%id_nr
             IF (pw_grid%reference > 0) THEN
@@ -744,7 +716,7 @@ CONTAINS
          n(3) = MINVAL(pw_grid%para%nyzray)
          rv(:, 3) = REAL(n, KIND=dp)
 
-         IF (pw_grid%para%group_head .AND. info >= 0) THEN
+         IF (pw_grid%para%group_head .AND. info > 0) THEN
             WRITE (info, '(/,A,T71,I10)') &
                " PW_GRID| Information for grid number ", pw_grid%id_nr
             IF (pw_grid%reference > 0) THEN
@@ -818,8 +790,7 @@ CONTAINS
       INTEGER, INTENT(IN), OPTIONAL                      :: blocked
       INTEGER, DIMENSION(2), INTENT(in), OPTIONAL        :: rs_dims
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_distribute', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_distribute'
 
       INTEGER                                            :: blocked_local, coor(2), gmax, handle, i, &
                                                             i1, i2, ip, ipl, ipp, itmp, j, l, lby, &
@@ -848,7 +819,7 @@ CONTAINS
          blocked_local = blocked
       ELSE
          blocked_local = do_pw_grid_blocked_free
-      ENDIF
+      END IF
 
       pw_grid%para%blocked = .FALSE.
 
@@ -902,9 +873,9 @@ CONTAINS
                   pw_grid%para%rs_dims(2) = np/pw_grid%para%rs_dims(1)
                ELSE
                   pw_grid%para%rs_dims(1) = np/pw_grid%para%rs_dims(2)
-               ENDIF
-            ENDIF
-         ENDIF
+               END IF
+            END IF
+         END IF
          ! reset if the distribution can not be fulfilled
          IF (PRODUCT(pw_grid%para%rs_dims) .NE. np) pw_grid%para%rs_dims = (/0, 0/)
          ! reset if the distribution can not be dealt with (/1,np/)
@@ -921,17 +892,17 @@ CONTAINS
                   itmp = pw_grid%para%rs_dims(1)
                   pw_grid%para%rs_dims(1) = pw_grid%para%rs_dims(2)
                   pw_grid%para%rs_dims(2) = itmp
-               ENDIF
+               END IF
                ! but should avoid having the first index 1 in all cases
                IF (pw_grid%para%rs_dims(1) == 1) THEN
                   itmp = pw_grid%para%rs_dims(1)
                   pw_grid%para%rs_dims(1) = pw_grid%para%rs_dims(2)
                   pw_grid%para%rs_dims(2) = itmp
-               ENDIF
+               END IF
             ELSE
                pw_grid%para%rs_dims = (/np, 1/)
-            ENDIF
-         ENDIF
+            END IF
+         END IF
 
          ! now fix the blocking if we have a choice
          SELECT CASE (blocked_local)
@@ -944,7 +915,7 @@ CONTAINS
                blocking = .FALSE.
             ELSE
                blocking = .TRUE.
-            ENDIF
+            END IF
          CASE DEFAULT
             CPABORT("")
          END SELECT
@@ -1276,8 +1247,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: yz_mask
       INTEGER, DIMENSION(:, :), INTENT(OUT)              :: yz_index
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'order_mask', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i1, i2, ic, icount, ii, im, jc, jj
 
 !NB load balance
@@ -1300,8 +1269,8 @@ CONTAINS
             yz_index(1, icount) = ii
             yz_index(2, icount) = jj
             icount = icount + 1
-         ENDIF
-      ENDIF
+         END IF
+      END IF
       DO im = 1, MAX(ic + 1, jc + 1)
          ii = ic - im
          DO jj = jc - im, jc + im
@@ -1310,8 +1279,8 @@ CONTAINS
                   yz_index(1, icount) = ii
                   yz_index(2, icount) = jj
                   icount = icount + 1
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          END DO
          ii = ic + im
          DO jj = jc - im, jc + im
@@ -1320,8 +1289,8 @@ CONTAINS
                   yz_index(1, icount) = ii
                   yz_index(2, icount) = jj
                   icount = icount + 1
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          END DO
          jj = jc - im
          DO ii = ic - im + 1, ic + im - 1
@@ -1330,8 +1299,8 @@ CONTAINS
                   yz_index(1, icount) = ii
                   yz_index(2, icount) = jj
                   icount = icount + 1
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          END DO
          jj = jc + im
          DO ii = ic - im + 1, ic + im - 1
@@ -1340,8 +1309,8 @@ CONTAINS
                   yz_index(1, icount) = ii
                   yz_index(2, icount) = jj
                   icount = icount + 1
-               ENDIF
-            ENDIF
+               END IF
+            END IF
          END DO
       END DO
 
@@ -1381,7 +1350,7 @@ CONTAINS
          length_x = 0
          length_y = 0
          length_z = 0
-      ENDIF
+      END IF
 
       length_x = length_x*twopi
       length_y = length_y*twopi
@@ -1408,8 +1377,6 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       REAL(KIND=dp), INTENT(IN)                          :: cutoff
       INTEGER, DIMENSION(:, :), INTENT(OUT)              :: yz_mask
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_count', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: l, m, mm, n, n_upperlimit, nlim(2), nn
       INTEGER(KIND=int_8)                                :: gpt
@@ -1464,7 +1431,7 @@ CONTAINS
       IF (pw_grid%para%mode == PW_MODE_DISTRIBUTED) THEN
          CALL mp_sum(gpt, pw_grid%para%group)
          CALL mp_sum(yz_mask, pw_grid%para%group)
-      ENDIF
+      END IF
       pw_grid%ngpts_cut = gpt
 
    END SUBROUTINE pw_grid_count
@@ -1485,7 +1452,7 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       REAL(KIND=dp), INTENT(IN)                          :: cutoff
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_assign', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_grid_assign'
 
       INTEGER                                            :: gpt, handle, i, ip, l, lby, lbz, ll, m, &
                                                             mm, n, n_upperlimit, nn
@@ -1616,7 +1583,7 @@ CONTAINS
          gpt_global = gpt
          CALL mp_sum(gpt_global, pw_grid%para%group)
          CPASSERT(pw_grid%ngpts_cut == gpt_global)
-      ENDIF
+      END IF
 
       pw_grid%have_g0 = .FALSE.
       pw_grid%first_gne0 = 1
@@ -1726,14 +1693,12 @@ CONTAINS
       INTEGER, INTENT(IN)                      :: ng
       INTEGER, DIMENSION(:, :), INTENT(IN)     :: bounds
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_allocate', &
-                                     routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_allocate'
 
       INTEGER                                    :: nmaps
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       INTEGER(KIND=C_SIZE_T)                     :: length
       TYPE(C_PTR)                                :: cptr_g_hatmap
-      INTEGER(C_INT), PARAMETER                  :: cudaHostAllocDefault = 0
       INTEGER                                    :: stat
 #endif
 
@@ -1747,13 +1712,13 @@ CONTAINS
 
       nmaps = 1
       IF (pw_grid%grid_span == HALFSPACE) nmaps = 2
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
+      CALL offload_activate_chosen_device()
+
       length = INT(int_size*MAX(ng, 1)*MAX(nmaps, 1), KIND=C_SIZE_T)
-      stat = cudaHostAlloc(cptr_g_hatmap, length, cudaHostAllocDefault)
+      stat = offload_malloc_pinned_mem(cptr_g_hatmap, length)
       CPASSERT(stat == 0)
       CALL c_f_pointer(cptr_g_hatmap, pw_grid%g_hatmap, (/MAX(ng, 1), MAX(nmaps, 1)/))
-#elif defined ( __PW_CUDA ) && defined ( __PW_CUDA_NO_HOSTALLOC )
-      ALLOCATE (pw_grid%g_hatmap(ng, nmaps))
 #else
       ALLOCATE (pw_grid%g_hatmap(1, 1))
 #endif
@@ -1799,7 +1764,7 @@ CONTAINS
       TYPE(pw_grid_type), INTENT(INOUT)                  :: pw_grid
       TYPE(pw_grid_type), INTENT(IN), OPTIONAL           :: ref_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_sort', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_grid_sort'
 
       INTEGER                                            :: handle, i, ig, ih, ip, is, it, ng, ngr
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: idx
@@ -1823,12 +1788,12 @@ CONTAINS
          real_tmp(1, i) = pw_grid%g(1, idx(i))
          real_tmp(2, i) = pw_grid%g(2, idx(i))
          real_tmp(3, i) = pw_grid%g(3, idx(i))
-      ENDDO
+      END DO
       DO i = 1, ng
          pw_grid%g(1, i) = real_tmp(1, i)
          pw_grid%g(2, i) = real_tmp(2, i)
          pw_grid%g(3, i) = real_tmp(3, i)
-      ENDDO
+      END DO
       DEALLOCATE (real_tmp)
 
       ALLOCATE (int_tmp(3, ng))
@@ -1836,12 +1801,12 @@ CONTAINS
          int_tmp(1, i) = pw_grid%g_hat(1, idx(i))
          int_tmp(2, i) = pw_grid%g_hat(2, idx(i))
          int_tmp(3, i) = pw_grid%g_hat(3, idx(i))
-      ENDDO
+      END DO
       DO i = 1, ng
          pw_grid%g_hat(1, i) = int_tmp(1, i)
          pw_grid%g_hat(2, i) = int_tmp(2, i)
          pw_grid%g_hat(3, i) = int_tmp(3, i)
-      ENDDO
+      END DO
       DEALLOCATE (int_tmp)
 
       DEALLOCATE (idx)
@@ -1979,7 +1944,7 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(IN)               :: g_hat
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: idx
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'sort_shells', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'sort_shells'
       REAL(KIND=dp), PARAMETER                           :: small = 5.e-16_dp
 
       INTEGER                                            :: handle, ig, ng, s1, s2
@@ -2025,8 +1990,6 @@ CONTAINS
       INTEGER, DIMENSION(:), INTENT(INOUT)               :: idx
       INTEGER, INTENT(IN)                                :: s1, s2
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'redist', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ii, n1, n2, n3, ns
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: indl
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: slen
@@ -2070,7 +2033,7 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       INTEGER, DIMENSION(:, :), INTENT(OUT)              :: yz
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_remap', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_grid_remap'
 
       INTEGER                                            :: gpt, handle, i, ip, is, j, m, n, ny, nz
       INTEGER, DIMENSION(:), POINTER                     :: mapm, mapn
@@ -2142,8 +2105,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: cell_hmat
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_change', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: gpt
       REAL(KIND=dp)                                      :: cell_deth, l, m, n
       REAL(KIND=dp), DIMENSION(3, 3)                     :: cell_h_inv
@@ -2191,8 +2152,6 @@ CONTAINS
    SUBROUTINE pw_grid_retain(pw_grid)
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_retain', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(pw_grid))
       CPASSERT(pw_grid%ref_count > 0)
       pw_grid%ref_count = pw_grid%ref_count + 1
@@ -2211,10 +2170,7 @@ CONTAINS
 
       TYPE(pw_grid_type), POINTER              :: pw_grid
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pw_grid_release', &
-                                     routineP = moduleN//':'//routineN
-
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       INTEGER, POINTER :: dummy_ptr
       INTEGER          :: stat
 #endif
@@ -2236,9 +2192,9 @@ CONTAINS
                DEALLOCATE (pw_grid%g_hat)
             END IF
             IF (ASSOCIATED(pw_grid%g_hatmap)) THEN
-#if defined ( __PW_CUDA ) && !defined ( __PW_CUDA_NO_HOSTALLOC )
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
                dummy_ptr => pw_grid%g_hatmap(1, 1)
-               stat = cudaFreeHost(c_loc(dummy_ptr))
+               stat = offload_free_pinned_mem(c_loc(dummy_ptr))
                CPASSERT(stat == 0)
 #else
                DEALLOCATE (pw_grid%g_hatmap)
@@ -2296,4 +2252,3 @@ CONTAINS
    END SUBROUTINE pw_grid_release
 
 END MODULE pw_grids
-

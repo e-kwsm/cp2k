@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief Calculation of the local potential contribution of the nonadditive kinetic energy
@@ -94,8 +96,7 @@ CONTAINS
          POINTER                                         :: sab_orb
       TYPE(dbcsr_distribution_type), POINTER             :: dbcsr_dist
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_tnadd_mat', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_tnadd_mat'
       INTEGER, PARAMETER                                 :: nexp_max = 10
 
       INTEGER :: atom_a, atom_b, atom_c, handle, i, iatom, icol, ikind, img, imol, inode, irow, &
@@ -130,12 +131,12 @@ CONTAINS
          CALL timeset(routineN//"_forces", handle)
       ELSE
          CALL timeset(routineN, handle)
-      ENDIF
+      END IF
 
       NULLIFY (matrix_kg)
       IF (ASSOCIATED(kg_env%tnadd_mat)) THEN
          CALL dbcsr_deallocate_matrix_set(kg_env%tnadd_mat)
-      ENDIF
+      END IF
       sac_kin => kg_env%sac_kin
       atom_to_molecule => kg_env%atom_to_molecule
 
@@ -335,7 +336,7 @@ CONTAINS
                                    0.0_dp, pab(1, 1, iset, jset), SIZE(pab, 1))
                      END DO
                   END DO
-               ENDIF
+               END IF
             END IF
             END IF
          END IF
@@ -477,7 +478,7 @@ CONTAINS
 
       DO i = 1, SIZE(matrix_kg)
          CALL dbcsr_finalize(matrix_kg(i)%matrix)
-      ENDDO
+      END DO
       kg_env%tnadd_mat => matrix_kg
 
       DEALLOCATE (atom_of_kind, basis_set_list)

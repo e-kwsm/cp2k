@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 ! **************************************************************************************************
 !> \brief General overlap type integrals containers
@@ -78,9 +80,6 @@ CONTAINS
 
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_sap_int', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, j, k
       TYPE(clist_type), POINTER                          :: clist
 
@@ -131,8 +130,6 @@ CONTAINS
       TYPE(alist_type), INTENT(OUT), POINTER             :: alist
       INTEGER, INTENT(IN)                                :: atom
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_alist', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
       NULLIFY (alist)
@@ -175,7 +172,7 @@ CONTAINS
          DO i = 1, inn
             i0 = ilist(i)
             blk_out(i, j) = blk_in(i0, j0)
-         ENDDO
+         END DO
          DO i = inn1, in, 4
             i0 = ilist(i)
             i1 = ilist(i + 1)
@@ -185,8 +182,8 @@ CONTAINS
             blk_out(i + 1, j) = blk_in(i1, j0)
             blk_out(i + 2, j) = blk_in(i2, j0)
             blk_out(i + 3, j) = blk_in(i3, j0)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
    END SUBROUTINE alist_pre_align_blk
 
 ! **************************************************************************************************
@@ -216,7 +213,7 @@ CONTAINS
          DO i = 1, inn
             i0 = ilist(i)
             blk_out(i0, j0) = blk_out(i0, j0) + blk_in(i, j)
-         ENDDO
+         END DO
          DO i = inn1, in, 4
             i0 = ilist(i)
             i1 = ilist(i + 1)
@@ -226,8 +223,8 @@ CONTAINS
             blk_out(i1, j0) = blk_out(i1, j0) + blk_in(i + 1, j)
             blk_out(i2, j0) = blk_out(i2, j0) + blk_in(i + 2, j)
             blk_out(i3, j0) = blk_out(i3, j0) + blk_in(i + 3, j)
-         ENDDO
-      ENDDO
+         END DO
+      END DO
    END SUBROUTINE alist_post_align_blk
 
 ! **************************************************************************************************
@@ -237,12 +234,11 @@ CONTAINS
    SUBROUTINE sap_sort(sap_int)
       TYPE(sap_int_type), DIMENSION(:), POINTER          :: sap_int
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'sap_sort', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iac, na
 
 ! *** Set up a sorting index
 
+!$OMP PARALLEL DEFAULT(NONE) SHARED(sap_int) PRIVATE(iac,na)
 !$OMP DO
       DO iac = 1, SIZE(sap_int)
          IF (.NOT. ASSOCIATED(sap_int(iac)%alist)) CYCLE
@@ -251,7 +247,7 @@ CONTAINS
          sap_int(iac)%asort(1:na) = sap_int(iac)%alist(1:na)%aatom
          CALL sort(sap_int(iac)%asort, na, sap_int(iac)%aindex)
       END DO
-!$OMP END DO
+!$OMP END PARALLEL
 
    END SUBROUTINE sap_sort
 
@@ -283,12 +279,12 @@ CONTAINS
          OPTIONAL, POINTER                               :: particle_set
       TYPE(cell_type), INTENT(IN), OPTIONAL, POINTER     :: cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_sap_ints', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_sap_ints'
 
       INTEGER :: first_col, handle, i, iac, iatom, ikind, ilist, iset, j, jneighbor, katom, kkind, &
-         l, lc_max, lc_min, ldai, ldsab, lppnl, maxco, maxder, maxl, maxlgto, maxlppnl, maxppnl, &
-         maxsgf, na, nb, ncoa, ncoc, nkind, nlist, nneighbor, nnl, np, nppnl, nprjc, nseta, nsgfa, &
-         prjc, sgfa, slot
+         l, lc_max, lc_min, ldai, ldai_nl, ldsab, lppnl, maxco, maxder, maxl, maxlgto, maxlppnl, &
+         maxppnl, maxsgf, na, nb, ncoa, ncoc, nkind, nlist, nneighbor, nnl, np, nppnl, nprjc, &
+         nseta, nsgfa, prjc, sgfa, slot
       INTEGER, DIMENSION(3)                              :: cell_c
       INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, npgfa, nprj_ppnl, &
                                                             nsgf_seta
@@ -323,14 +319,14 @@ CONTAINS
       my_momentmode = .FALSE.
       IF (PRESENT(moment_mode)) THEN
          my_momentmode = moment_mode
-      ENDIF
+      END IF
 
       my_ref = .FALSE.
       IF (PRESENT(refpoint)) THEN
          CPASSERT((PRESENT(cell) .AND. PRESENT(particle_set))) ! need these as well if refpoint is provided
          rf = refpoint
          my_ref = .TRUE.
-      ENDIF
+      END IF
 
       CALL get_qs_kind_set(qs_kind_set, &
                            maxco=maxco, &
@@ -343,9 +339,14 @@ CONTAINS
       CALL init_orbital_pointers(maxl + nder + 1)
 
       ldsab = MAX(maxco, ncoset(maxlppnl), maxsgf, maxppnl)
-      ldai = ncoset(maxl + nder + 1)
+      IF (.NOT. my_momentmode) THEN
+         ldai = ncoset(maxl + nder + 1)
+      ELSE
+         ldai = maxco
+      END IF
 
       !set up direct access to basis and potential
+      ldai_nl = 0
       NULLIFY (gpotential, spotential)
       ALLOCATE (basis_set(nkind), gpotential(nkind), spotential(nkind))
       DO ikind = 1, nkind
@@ -360,8 +361,10 @@ CONTAINS
          NULLIFY (spotential(ikind)%sgp_potential)
          IF (ASSOCIATED(gth_potential)) THEN
             gpotential(ikind)%gth_potential => gth_potential
+            ldai_nl = MAX(ldai_nl, ncoset(gth_potential%lprj_ppnl_max))
          ELSE IF (ASSOCIATED(sgp_potential)) THEN
             spotential(ikind)%sgp_potential => sgp_potential
+            ldai_nl = MAX(ldai_nl, sgp_potential%n_nonlocal*ncoset(sgp_potential%lmax))
          END IF
       END DO
 
@@ -404,7 +407,7 @@ CONTAINS
       !calculate the overlap integrals <a|pp>
 !$OMP PARALLEL &
 !$OMP DEFAULT (NONE) &
-!$OMP SHARED  (basis_set, gpotential, spotential, maxder, ncoset, my_momentmode, &
+!$OMP SHARED  (basis_set, gpotential, spotential, maxder, ncoset, my_momentmode, ldai_nl, &
 !$OMP          sap_ppnl, sap_int, nkind, ldsab, ldai, nder, nco, my_ref, cell, particle_set, rf) &
 !$OMP PRIVATE (ikind, kkind, iatom, katom, nlist, ilist, nneighbor, jneighbor, &
 !$OMP          cell_c, rac, iac, first_sgfa, la_max, la_min, npgfa, nseta, nsgfa, nsgf_seta, &
@@ -417,7 +420,11 @@ CONTAINS
       ! allocate work storage
       ALLOCATE (sab(ldsab, ldsab*maxder), work(ldsab, ldsab*maxder))
       sab = 0.0_dp
-      ALLOCATE (ai_work(ldai, ldai, ncoset(nder + 1)))
+      IF (.NOT. my_momentmode) THEN
+         ALLOCATE (ai_work(ldai, ldai, ncoset(nder + 1)))
+      ELSE
+         ALLOCATE (ai_work(ldai, ldai_nl, ncoset(nder + 1)))
+      END IF
       ai_work = 0.0_dp
 
 !$OMP DO SCHEDULE(GUIDED)
@@ -489,7 +496,7 @@ CONTAINS
          ELSE
             raf(:) = -rac
             rcf(:) = (/0._dp, 0._dp, 0._dp/)
-         ENDIF
+         END IF
 
          dac = NORM2(rac)
          clist => sap_int(iac)%alist(ilist)%clist(jneighbor)
@@ -527,7 +534,7 @@ CONTAINS
                   ELSE
                      CALL overlap(la_max(iset), la_min(iset), npgfa(iset), rpgfa(:, iset), zeta(:, iset), &
                                   lc_max, lc_min, 1, rprjc, zetc, rac, dac, sab, nder, .TRUE., ai_work, ldai)
-                  ENDIF
+                  END IF
                   IF (my_momentmode .AND. nder >= 1) THEN
                      CALL moment(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
                                  lc_max, 1, zetc, rprjc, nder, raf, rcf, ai_work)
@@ -537,8 +544,8 @@ CONTAINS
                      DO i = 1, maxder - 1
                         first_col = i*ldsab
                         sab(1:na, first_col + 1:first_col + np) = ai_work(1:na, 1:np, i)
-                     ENDDO
-                  ENDIF
+                     END DO
+                  END IF
 
                   ! *** Transformation step projector functions (cartesian->spherical) ***
                   na = ncoa
@@ -575,7 +582,7 @@ CONTAINS
                ELSE
                   CALL overlap(la_max(iset), la_min(iset), npgfa(iset), rpgfa(:, iset), zeta(:, iset), &
                                lppnl, 0, nnl, radp, a_nl, rac, dac, sab, nder, .TRUE., ai_work, ldai)
-               ENDIF
+               END IF
                IF (my_momentmode .AND. nder >= 1) THEN
                   CALL moment(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
                               lppnl, nnl, a_nl, radp, nder, raf, rcf, ai_work)
@@ -584,8 +591,8 @@ CONTAINS
                   DO i = 1, maxder - 1
                      first_col = i*ldsab
                      sab(1:na, first_col:first_col + nprjc - 1) = ai_work(1:na, 1:nprjc, i)
-                  ENDDO
-               ENDIF
+                  END DO
+               END IF
 
                na = nsgf_seta(iset)
                nb = nppnl
@@ -611,7 +618,7 @@ CONTAINS
          clist%maxach = MAXVAL(ABS(clist%achint(:, :, 1)))
          IF (.NOT. dogth) DEALLOCATE (radp)
 
-      ENDDO
+      END DO
 
       DEALLOCATE (sab, ai_work, work)
 

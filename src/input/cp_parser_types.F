@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -54,7 +56,6 @@ MODULE cp_parser_types
 
    ! Private parameters
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_parser_types'
-   INTEGER, SAVE, PRIVATE               :: last_parser_id = 0
 
    ! Global variables
    CHARACTER(LEN=1), PARAMETER, PUBLIC   :: default_continuation_character = CHAR(92) ! backslash
@@ -76,7 +77,6 @@ MODULE cp_parser_types
 !> \author fawzi
 ! **************************************************************************************************
    TYPE cp_parser_type
-      INTEGER                                        :: id_nr, ref_count
       CHARACTER(LEN=default_string_length)           :: end_section, start_section
       CHARACTER(LEN=10)                              :: separators
       CHARACTER(LEN=1)                               :: comment_character(2), &
@@ -101,21 +101,6 @@ MODULE cp_parser_types
 CONTAINS
 
 ! **************************************************************************************************
-!> \brief retains the given parser
-!> \param parser the parser to retain
-!> \author fawzi
-! **************************************************************************************************
-   SUBROUTINE parser_retain(parser)
-      TYPE(cp_parser_type), POINTER                      :: parser
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'parser_retain', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(parser))
-      CPASSERT(parser%ref_count > 0)
-      parser%ref_count = parser%ref_count + 1
-   END SUBROUTINE parser_retain
-
-! **************************************************************************************************
 !> \brief   releases the parser
 !> \param parser ...
 !> \date    14.02.2001
@@ -123,28 +108,20 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE parser_release(parser)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_release', routineP = moduleN//':'//routineN
-
-      IF (ASSOCIATED(parser)) THEN
-         CPASSERT(parser%ref_count > 0)
-         parser%ref_count = parser%ref_count - 1
-         IF (parser%ref_count == 0) THEN
-            IF (parser%input_unit >= 0) THEN
-               CALL close_file(unit_number=parser%input_unit)
-            END IF
-            CALL cp_para_env_release(parser%para_env)
-            CALL release_inpp_type(parser%inpp)
-            CALL release_ilist_type(parser%ilist)
-            CALL release_buffer_type(parser%buffer)
-            CALL release_status_type(parser%status)
-            IF (ASSOCIATED(parser%initial_variables)) THEN
-               DEALLOCATE (parser%initial_variables)
-            ENDIF
-            DEALLOCATE (parser)
-         END IF
+      IF (parser%input_unit >= 0) THEN
+         CALL close_file(unit_number=parser%input_unit)
       END IF
+      CALL cp_para_env_release(parser%para_env)
+      CALL release_inpp_type(parser%inpp)
+      CALL release_ilist_type(parser%ilist)
+      CALL release_buffer_type(parser%buffer)
+      CALL release_status_type(parser%status)
+      IF (ASSOCIATED(parser%initial_variables)) THEN
+         DEALLOCATE (parser%initial_variables)
+      END IF
+
    END SUBROUTINE parser_release
 
 ! **************************************************************************************************
@@ -169,7 +146,7 @@ CONTAINS
    SUBROUTINE parser_create(parser, file_name, unit_nr, para_env, end_section_label, &
                             separator_chars, comment_char, continuation_char, quote_char, &
                             section_char, parse_white_lines, initial_variables, apply_preprocessing)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(OUT)                  :: parser
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: file_name
       INTEGER, INTENT(in), OPTIONAL                      :: unit_nr
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
@@ -179,14 +156,6 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: parse_white_lines
       CHARACTER(len=*), DIMENSION(:, :), OPTIONAL        :: initial_variables
       LOGICAL, INTENT(IN), OPTIONAL                      :: apply_preprocessing
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_create', routineP = moduleN//':'//routineN
-
-      CPASSERT(.NOT. ASSOCIATED(parser))
-      ALLOCATE (parser)
-      last_parser_id = last_parser_id + 1
-      parser%id_nr = last_parser_id
-      parser%ref_count = 1
 
       parser%input_unit = -1
       parser%input_file_name = ""
@@ -246,8 +215,8 @@ CONTAINS
          IF (SIZE(initial_variables, 2) > 0) THEN
             ALLOCATE (parser%initial_variables(2, SIZE(initial_variables, 2)))
             parser%initial_variables = initial_variables
-         ENDIF
-      ENDIF
+         END IF
+      END IF
 
       parser%input_line_number = 0
       parser%icol = 0
@@ -272,11 +241,8 @@ CONTAINS
 !> \author  Teodoro Laino [tlaino]
 ! **************************************************************************************************
    SUBROUTINE parser_reset(parser)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'parser_reset', routineP = moduleN//':'//routineN
-
-      CPASSERT(ASSOCIATED(parser))
       ! Rewind units
       IF (parser%input_unit > 0) REWIND (parser%input_unit)
       ! Restore initial settings

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -45,16 +47,18 @@ CONTAINS
 !> \param max_iter ...
 !> \param eps_grad ...
 !> \param eps1 ...
+!> \param iolevel ...
 !> \param iw ...
 ! **************************************************************************************************
-   SUBROUTINE mao_optimize(mao_coef, matrix_q, matrix_smm, electra, max_iter, eps_grad, eps1, iw)
+   SUBROUTINE mao_optimize(mao_coef, matrix_q, matrix_smm, electra, max_iter, eps_grad, eps1, &
+                           iolevel, iw)
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mao_coef, matrix_q, matrix_smm
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: electra
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: eps_grad, eps1
-      INTEGER, INTENT(IN)                                :: iw
+      INTEGER, INTENT(IN)                                :: iolevel, iw
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mao_optimize', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'mao_optimize'
 
       INTEGER                                            :: handle, i, ispin, iter, nspin
       INTEGER, DIMENSION(:), POINTER                     :: col_blk_sizes, mao_sizes_a, mao_sizes_b
@@ -80,7 +84,7 @@ CONTAINS
       ! initialize MAO coeficients from diagonal blocks of the Q matrix
       DO ispin = 1, nspin
          CALL mao_initialization(mao_coef(ispin)%matrix, &
-                                 matrix_q(ispin)%matrix, matrix_smm(1)%matrix, eps1)
+                                 matrix_q(ispin)%matrix, matrix_smm(1)%matrix, eps1, iolevel, iw)
       END DO
       ! check for mao sizes
       spin_warning = .FALSE.
@@ -121,6 +125,7 @@ CONTAINS
             END IF
             CALL dbcsr_release(binv)
          END DO
+         IF (iw > 0) WRITE (UNIT=iw, FMT="(A)")
       ELSE
          ! optimize MAOs
          NULLIFY (mao_grad)

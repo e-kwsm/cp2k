@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -56,10 +58,8 @@ MODULE pint_qtb
 
 CONTAINS
 
-   ! ***************************************************************************
-   !> \brief initializes the data for a QTB run
-   ! ***************************************************************************
-! **************************************************************************************************
+! ***************************************************************************
+!> \brief initializes the data for a QTB run
 !> \brief ...
 !> \param qtb_therm ...
 !> \param pint_env ...
@@ -68,11 +68,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_init(qtb_therm, pint_env, normalmode_env, section)
       TYPE(qtb_therm_type), POINTER                      :: qtb_therm
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
       TYPE(normalmode_env_type), POINTER                 :: normalmode_env
       TYPE(section_vals_type), POINTER                   :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_init', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=rng_record_length)                   :: rng_record
       INTEGER                                            :: i, j, p
@@ -83,11 +81,10 @@ CONTAINS
 
       IF (pint_env%propagator%prop_kind /= propagator_rpmd) THEN
          CPABORT("QTB is designed to work with the RPMD propagator only")
-      ENDIF
+      END IF
 
       pint_env%e_qtb = 0.0_dp
       ALLOCATE (qtb_therm)
-      qtb_therm%ref_count = 1
       qtb_therm%thermostat_energy = 0.0_dp
 
       !Get input parameters
@@ -97,6 +94,7 @@ CONTAINS
       CALL section_vals_val_get(section, "LAMBCUT", r_val=qtb_therm%lambcut)
       CALL section_vals_val_get(section, "FP", i_val=qtb_therm%fp)
       CALL section_vals_val_get(section, "NF", i_val=qtb_therm%nf)
+      CALL section_vals_val_get(section, "THERMOSTAT_ENERGY", r_val=qtb_therm%thermostat_energy)
 
       p = pint_env%p
       dti2 = 0.5_dp*pint_env%dt
@@ -160,7 +158,7 @@ CONTAINS
       REAL(kind=dp), DIMENSION(:, :), INTENT(IN)         :: masses
       TYPE(qtb_therm_type), POINTER                      :: qtb_therm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_step', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'pint_qtb_step'
 
       INTEGER                                            :: handle, i, ibead, idim
       REAL(KIND=dp)                                      :: delta_ekin
@@ -214,82 +212,55 @@ CONTAINS
       CALL timestop(handle)
    END SUBROUTINE pint_qtb_step
 
-   ! ***************************************************************************
-   !> \brief releases the qtb environment
-   !> \param qtb_therm qtb data to be released
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
-!> \param qtb_therm ...
+! ***************************************************************************
+!> \brief releases the qtb environment
+!> \param qtb_therm qtb data to be released
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_release(qtb_therm)
 
-      TYPE(qtb_therm_type), POINTER                      :: qtb_therm
+      TYPE(qtb_therm_type), INTENT(INOUT)                :: qtb_therm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_release', &
-         routineP = moduleN//':'//routineN
+      DEALLOCATE (qtb_therm%c1)
+      DEALLOCATE (qtb_therm%c2)
+      DEALLOCATE (qtb_therm%g_fric)
+      DEALLOCATE (qtb_therm%massfact)
+      DEALLOCATE (qtb_therm%rf)
+      DEALLOCATE (qtb_therm%h)
+      DEALLOCATE (qtb_therm%r)
+      DEALLOCATE (qtb_therm%cpt)
+      DEALLOCATE (qtb_therm%step)
+      DEALLOCATE (qtb_therm%rng_status)
 
-      IF (ASSOCIATED(qtb_therm)) THEN
-         qtb_therm%ref_count = qtb_therm%ref_count - 1
-         IF (qtb_therm%ref_count == 0) THEN
-            DEALLOCATE (qtb_therm%c1)
-            DEALLOCATE (qtb_therm%c2)
-            DEALLOCATE (qtb_therm%g_fric)
-            DEALLOCATE (qtb_therm%massfact)
-            DEALLOCATE (qtb_therm%rf)
-            DEALLOCATE (qtb_therm%h)
-            DEALLOCATE (qtb_therm%r)
-            DEALLOCATE (qtb_therm%cpt)
-            DEALLOCATE (qtb_therm%step)
-            DEALLOCATE (qtb_therm%rng_status)
-            DEALLOCATE (qtb_therm)
-         END IF
-      END IF
-      NULLIFY (qtb_therm)
-
-      RETURN
    END SUBROUTINE pint_qtb_release
 
-   ! ***************************************************************************
-   !> \brief returns the qtb kinetic energy contribution
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief returns the qtb kinetic energy contribution
 !> \param pint_env ...
 ! **************************************************************************************************
    SUBROUTINE pint_calc_qtb_energy(pint_env)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_calc_qtb_energy', &
-         routineP = moduleN//':'//routineN
+      TYPE(pint_env_type), INTENT(INOUT)                 :: pint_env
 
       IF (ASSOCIATED(pint_env%qtb_therm)) THEN
          pint_env%e_qtb = pint_env%qtb_therm%thermostat_energy
       END IF
 
-      RETURN
-
    END SUBROUTINE pint_calc_qtb_energy
 
-   ! ***************************************************************************
-   !> \brief initialize the QTB random forces
-   !> \author Fabien Brieuc
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief initialize the QTB random forces
 !> \param pint_env ...
 !> \param normalmode_env ...
 !> \param qtb_therm ...
 !> \param restart ...
+!> \author Fabien Brieuc
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_forces_init(pint_env, normalmode_env, qtb_therm, restart)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       TYPE(normalmode_env_type), POINTER                 :: normalmode_env
       TYPE(qtb_therm_type), POINTER                      :: qtb_therm
       LOGICAL                                            :: restart
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_forces_init', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_forces_init'
 
       COMPLEX(KIND=dp)                                   :: tmp1
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: filter
@@ -384,7 +355,7 @@ CONTAINS
                filter(0) = SQRT(p*kT)*(1.0_dp, 0.0_dp)
             ELSE
                filter(0) = SQRT(p*kT*fp1(1))*(1.0_dp, 0.0_dp)
-            ENDIF
+            END IF
             DO i = 1, nf/2
                w = i*dw
                tmp = 0.5_dp*w*h
@@ -455,18 +426,15 @@ CONTAINS
       CALL timestop(handle)
    END SUBROUTINE pint_qtb_forces_init
 
-   ! ***************************************************************************
-   !> \brief control the generation of the first random forces in the case
-   !> of a restart
-   !> \author Fabien Brieuc
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief control the generation of the first random forces in the case
+!> of a restart
 !> \param pint_env ...
 !> \param qtb_therm ...
+!> \author Fabien Brieuc
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_restart(pint_env, qtb_therm)
-      TYPE(pint_env_type), POINTER                       :: pint_env
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
       TYPE(qtb_therm_type), POINTER                      :: qtb_therm
 
       INTEGER                                            :: begin, i, ibead, idim, istep
@@ -525,35 +493,26 @@ CONTAINS
 
    END SUBROUTINE pint_qtb_restart
 
-   ! ***************************************************************************
-   !> \brief compute the f_P^(0) function necessary for coupling QTB with PIMD
-   !> \param fp stores the computed function on the grid used for the generation
-   !> of the filter h
-   !> \param fp1 stores the computed function on an larger and finer grid
-   !> \param dw angular frequency step
-   !> \author Fabien Brieuc
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief compute the f_P^(0) function necessary for coupling QTB with PIMD
 !> \param pint_env ...
-!> \param fp ..
-!> \param fp1 ..
-!> \param dw ...
+!> \param fp stores the computed function on the grid used for the generation
+!> of the filter h
+!> \param fp1 stores the computed function on an larger and finer grid
+!> \param dw angular frequency step
 !> \param aa ...
 !> \param bb ...
 !> \param log_unit ...
 !> \param ibead ...
 !> \param print_level ...
+!> \author Fabien Brieuc
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_computefp0(pint_env, fp, fp1, dw, aa, bb, log_unit, ibead, print_level)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      REAL(KIND=dp), DIMENSION(:)                        :: fp
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: fp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: fp1
-      REAL(KIND=dp)                                      :: dw, aa, bb
-      INTEGER                                            :: log_unit, ibead, print_level
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_computefp0', &
-         routineP = moduleN//':'//routineN
+      REAL(KIND=dp), INTENT(IN)                          :: dw, aa, bb
+      INTEGER, INTENT(IN)                                :: log_unit, ibead, print_level
 
       CHARACTER(len=200)                                 :: line
       INTEGER                                            :: i, j, k, n, niter, nx, p
@@ -667,7 +626,7 @@ CONTAINS
                                      (xk(k, j) - x(kk(k, j)))
                      ELSE
                         fpxk(k, j) = aa*xk(k, j) + bb
-                     ENDIF
+                     END IF
                   END DO
                END DO
             END DO
@@ -722,7 +681,7 @@ CONTAINS
                fp(j) = aa*x1 + bb
             ELSE IF (k <= 0) THEN
                CALL pint_write_line("QTB| error in fp computation x < xmin")
-               CPABORT("Error in fp computation (x < xmin) in intialization of QTB random forces")
+               CPABORT("Error in fp computation (x < xmin) in initialization of QTB random forces")
             ELSE
                xx = xmin + (k - 1)*dx
                IF (x1 > xx) THEN
@@ -737,35 +696,26 @@ CONTAINS
 
    END SUBROUTINE pint_qtb_computefp0
 
-   ! ***************************************************************************
-   !> \brief compute the f_P^(1) function necessary for coupling QTB with PIMD
-   !> \param fp stores the computed function on the grid used for the generation
-   !> of the filter h
-   !> \param fp1 stores the computed function on an larger and finer grid
-   !> \param dw angular frequency step
-   !> \author Fabien Brieuc
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief compute the f_P^(1) function necessary for coupling QTB with PIMD
 !> \param pint_env ...
-!> \param fp ..
-!> \param fp1 ..
-!> \param dw ...
+!> \param fp stores the computed function on the grid used for the generation
+!> of the filter h
+!> \param fp1 stores the computed function on an larger and finer grid
+!> \param dw angular frequency step
 !> \param aa ...
 !> \param bb ...
 !> \param log_unit ...
 !> \param ibead ...
 !> \param print_level ...
+!> \author Fabien Brieuc
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_computefp1(pint_env, fp, fp1, dw, aa, bb, log_unit, ibead, print_level)
-      TYPE(pint_env_type), POINTER                       :: pint_env
-      REAL(KIND=dp), DIMENSION(:)                        :: fp
+      TYPE(pint_env_type), INTENT(IN)                    :: pint_env
+      REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: fp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: fp1
       REAL(KIND=dp)                                      :: dw, aa, bb
-      INTEGER                                            :: log_unit, ibead, print_level
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_computefp1', &
-         routineP = moduleN//':'//routineN
+      INTEGER, INTENT(IN)                                :: log_unit, ibead, print_level
 
       CHARACTER(len=200)                                 :: line
       INTEGER                                            :: i, j, k, n, niter, nx, p
@@ -937,12 +887,8 @@ CONTAINS
 
    END SUBROUTINE pint_qtb_computefp1
 
-   ! ***************************************************************************
-   !> \brief perform a simple linear regression - y(x) = a*x + b
-   !> \author Fabien Brieuc
-   ! ***************************************************************************
-! **************************************************************************************************
-!> \brief ...
+! ***************************************************************************
+!> \brief perform a simple linear regression - y(x) = a*x + b
 !> \param y ...
 !> \param x ...
 !> \param a ...
@@ -950,14 +896,12 @@ CONTAINS
 !> \param r2 ...
 !> \param log_unit ...
 !> \param print_level ...
+!> \author Fabien Brieuc
 ! **************************************************************************************************
    SUBROUTINE pint_qtb_linreg(y, x, a, b, r2, log_unit, print_level)
       REAL(KIND=dp), DIMENSION(:)                        :: y, x
       REAL(KIND=dp)                                      :: a, b, r2
       INTEGER                                            :: log_unit, print_level
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_linreg', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(len=200)                                 :: line
       INTEGER                                            :: i, n
@@ -1016,8 +960,6 @@ CONTAINS
       INTEGER                                            :: n
       TYPE(fft_plan_type)                                :: plan
       COMPLEX(KIND=dp), DIMENSION(n)                     :: z_out, z_in
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pint_qtb_fft', routineP = moduleN//':'//routineN
 
       INTEGER                                            :: stat
 

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -66,9 +68,6 @@ CONTAINS
       INTEGER                                            :: env_id
       LOGICAL                                            :: exact_approx_pot
       TYPE(tmc_env_type), POINTER                        :: tmc_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_potential_energy', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ierr
       LOGICAL                                            :: flag
@@ -159,9 +158,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3), INTENT(OUT), OPTIONAL :: abc
       REAL(KIND=dp), DIMENSION(3), OPTIONAL              :: vec
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_scaled_cell', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: new_scaled_cell
       TYPE(cell_type), POINTER                           :: tmp_cell
 
@@ -206,9 +202,6 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: scaled_hmat
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: box_scale
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_cell_scaling', &
-         routineP = moduleN//':'//routineN
-
       REAL(KIND=dp), DIMENSION(3)                        :: abc_new, abc_orig
       TYPE(cell_type), POINTER                           :: tmp_cell
 
@@ -240,9 +233,6 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: box_scale
       REAL(KIND=dp)                                      :: res
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'nearest_distance', &
-         routineP = moduleN//':'//routineN
 
       REAL(KIND=dp), DIMENSION(3)                        :: dist_vec
       REAL(KIND=dp), DIMENSION(:), POINTER               :: tmp_box_scale
@@ -277,8 +267,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:)                        :: pos
       REAL(KIND=dp), DIMENSION(:), POINTER               :: center
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'geometrical_center', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'geometrical_center'
 
       INTEGER                                            :: handle, i
 
@@ -312,7 +301,7 @@ CONTAINS
       TYPE(tmc_atom_type), DIMENSION(:), OPTIONAL        :: atoms
       REAL(KIND=dp), DIMENSION(:), POINTER               :: center
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'center_of_mass', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'center_of_mass'
 
       INTEGER                                            :: handle, i
       REAL(KIND=dp)                                      :: mass_sum, mass_tmp
@@ -361,8 +350,6 @@ CONTAINS
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
       REAL(KIND=dp), DIMENSION(3, 2, 3)                  :: rnd_seed
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'init_vel', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: kB, mass_tmp, rnd1, rnd2
 
@@ -398,8 +385,6 @@ CONTAINS
       TYPE(tmc_atom_type), DIMENSION(:), POINTER         :: atoms
       REAL(KIND=dp)                                      :: ekin
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_e_kin', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
       REAL(KIND=dp)                                      :: mass_tmp
 
@@ -426,9 +411,6 @@ CONTAINS
    SUBROUTINE three_point_extrapolate(v1, v2, v3, extrapolate, res_err)
       REAL(KIND=dp)                            :: v1, v2, v3
       REAL(KIND=dp), INTENT(OUT)               :: extrapolate, res_err
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'three_point_extrapolate', &
-                                     routineP = moduleN//':'//routineN
 
       REAL(KIND=dp)                            :: e1, e2, e3
       REAL(KIND=dp)                            :: a, b, c, d12, d23, ddd
@@ -464,7 +446,7 @@ CONTAINS
          ! fewer is maybe more stable
          extrapolate = a**7*b + c
          res_err = e3 - extrapolate
-      ENDIF
+      END IF
       CPASSERT(extrapolate .NE. HUGE(extrapolate))
    CONTAINS
 ! **************************************************************************************************
@@ -481,7 +463,7 @@ CONTAINS
             tmp = x2
             x2 = x1
             x1 = tmp
-         ENDIF
+         END IF
       END SUBROUTINE swap
    END SUBROUTINE three_point_extrapolate
 
@@ -541,8 +523,7 @@ CONTAINS
       TYPE(tmc_param_type), POINTER                      :: tmc_params
       REAL(KIND=dp)                                      :: prob
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_estimated_prob', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'compute_estimated_prob'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: E_mu_tmp, E_n_mu, E_n_sigma, E_o_mu, &
@@ -619,9 +600,6 @@ CONTAINS
    SUBROUTINE get_subtree_efficiency(tmc_env, eff)
       TYPE(tmc_env_type), POINTER                        :: tmc_env
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eff
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_subtree_efficiency', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: i
 

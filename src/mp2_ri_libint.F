@@ -1,10 +1,12 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Rountines to calculate the 3 and 2 center ERI's needed in the RI
+!> \brief Routines to calculate the 3 and 2 center ERI's needed in the RI
 !>        approximation using libint
 !> \par History
 !>      08.2013 created [Mauro Del Ben]
@@ -25,16 +27,13 @@ MODULE mp2_ri_libint
                                               open_file
    USE cp_fm_basic_linalg,              ONLY: cp_fm_triangular_invert
    USE cp_fm_cholesky,                  ONLY: cp_fm_cholesky_decompose
-   USE cp_fm_diag,                      ONLY: choose_eigv_solver
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_submatrix,&
                                               cp_fm_release,&
-                                              cp_fm_set_all,&
                                               cp_fm_set_submatrix,&
-                                              cp_fm_to_fm,&
                                               cp_fm_type
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE gamma,                           ONLY: init_md_ftable
@@ -105,7 +104,7 @@ CONTAINS
                             Lai)
       INTEGER                                            :: dimen, RI_dimen, occupied, natom
       TYPE(mp2_biel_type)                                :: mp2_biel
-      TYPE(mp2_type), POINTER                            :: mp2_env
+      TYPE(mp2_type)                                     :: mp2_env
       REAL(KIND=dp), DIMENSION(dimen, dimen)             :: C
       INTEGER, DIMENSION(:)                              :: kind_of
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: RI_basis_parameter
@@ -116,7 +115,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: Lai
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'libint_ri_mp2', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'libint_ri_mp2'
 
       INTEGER                                            :: handle, nkind
 
@@ -166,9 +165,6 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: RI_index_table
       INTEGER                                            :: RI_dimen
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: basis_S0
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_RI_basis_set', &
-         routineP = moduleN//':'//routineN
 
       INTEGER :: co_counter, counter, i, iatom, ikind, ipgf, iset, j, k, la, max_am_kind, &
          max_coeff, max_nsgfl, max_pgf, max_pgf_kind, max_set, nl_count, nset, nseta, offset_a, &
@@ -358,9 +354,6 @@ CONTAINS
    SUBROUTINE release_RI_basis_set(RI_basis_parameter, basis_S0)
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: RI_basis_parameter, basis_S0
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'release_RI_basis_set', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i
 
 ! RI basis
@@ -415,7 +408,7 @@ CONTAINS
                               RI_basis_parameter, RI_basis_info, RI_index_table, RI_dimen, basis_S0, &
                               Lai)
 
-      TYPE(mp2_type), POINTER                            :: mp2_env
+      TYPE(mp2_type)                                     :: mp2_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(mp2_biel_type)                                :: mp2_biel
@@ -429,8 +422,7 @@ CONTAINS
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: basis_S0
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: Lai
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_lai_libint', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'calc_lai_libint'
 
       INTEGER :: counter_L_blocks, handle, i, i_list_kl, i_set_list_kl, i_set_list_kl_start, &
          i_set_list_kl_stop, iatom, iatom_end, iatom_start, iiB, ikind, info_chol, iset, jatom, &
@@ -467,7 +459,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_L
-      TYPE(cp_fm_type), POINTER                          :: fm_matrix_L
+      TYPE(cp_fm_type)                                   :: fm_matrix_L
       TYPE(cp_libint_t)                                  :: private_lib
       TYPE(hfx_basis_type), DIMENSION(:), POINTER        :: basis_parameter
       TYPE(hfx_pgf_list), ALLOCATABLE, DIMENSION(:)      :: pgf_list_ij, pgf_list_kl
@@ -493,7 +485,7 @@ CONTAINS
 
       ln_10 = LOG(10.0_dp)
 
-      !! initalize some counters
+      !! initialize some counters
       neris_tmp = 0_int_8
       neris_total = 0_int_8
       nprim_ints = 0_int_8
@@ -681,7 +673,6 @@ CONTAINS
       NULLIFY (blacs_env)
       CALL cp_blacs_env_create(blacs_env=blacs_env, para_env=para_env)
 
-      NULLIFY (fm_matrix_L)
       NULLIFY (fm_struct_L)
       CALL cp_fm_struct_create(fm_struct_L, context=blacs_env, nrow_global=RI_dimen, &
                                ncol_global=RI_dimen, para_env=para_env)
@@ -1005,8 +996,8 @@ CONTAINS
 
       TYPE(cell_type), POINTER                           :: cell
       TYPE(qs_environment_type), INTENT(IN), POINTER     :: qs_env
-      TYPE(mp2_type), INTENT(IN), POINTER                :: mp2_env
-      TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
+      TYPE(mp2_type), INTENT(INOUT)                      :: mp2_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
       TYPE(hfx_potential_type), INTENT(OUT)              :: mp2_potential_parameter
       TYPE(hfx_type), POINTER                            :: actual_x_data
       LOGICAL, INTENT(OUT)                               :: do_periodic
@@ -1042,8 +1033,7 @@ CONTAINS
          POINTER                                         :: RI_basis_parameter
       TYPE(hfx_basis_info_type), INTENT(IN), OPTIONAL    :: RI_basis_info
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'prepare_integral_calc', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'prepare_integral_calc'
 
       INTEGER                                            :: handle, i_thread, ii, ikind, irep, &
                                                             l_max, n_threads, ncos_max, nkind, &
@@ -1069,11 +1059,11 @@ CONTAINS
       l_max = 0
       DO ikind = 1, nkind
          l_max = MAX(l_max, MAXVAL(qs_env%x_data(1, 1)%basis_parameter(ikind)%lmax))
-      ENDDO
+      END DO
       IF (PRESENT(RI_basis_parameter)) THEN
          DO ikind = 1, nkind
             l_max = MAX(l_max, MAXVAL(RI_basis_parameter(ikind)%lmax))
-         ENDDO
+         END DO
       END IF
       l_max = 4*l_max
       CALL init_md_ftable(l_max)
@@ -1201,9 +1191,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE get_potential_parameters(mp2_env, l_max, para_env, mp2_potential_parameter)
 
-      TYPE(mp2_type), POINTER                            :: mp2_env
+      TYPE(mp2_type)                                     :: mp2_env
       INTEGER, INTENT(IN)                                :: l_max
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_para_env_type), INTENT(IN)                 :: para_env
       TYPE(hfx_potential_type), INTENT(OUT)              :: mp2_potential_parameter
 
       INTEGER                                            :: unit_id
@@ -1255,8 +1245,8 @@ CONTAINS
          DO iset = 1, nseta
             ncos_max = MAX(ncos_max, ncoset(la_max(iset)))
             nsgf_max = MAX(nsgf_max, nsgfa(iset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE get_ncos_and_ncsgf
 
@@ -1303,48 +1293,9 @@ CONTAINS
             ! the maximum value after multiplication with sphi_b
             max_contraction(jset, jatom) = MAXVAL((/(SUM(ABS(sphi_b(1:ncob, i))), i=sgfb, sgfb + nsgfb(jset) - 1)/))
             max_pgf = MAX(max_pgf, npgfb(jset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
    END SUBROUTINE get_max_contraction
-
-! **************************************************************************************************
-!> \brief ...
-!> \param matrix ...
-!> \param size_matrix ...
-!> \return ...
-! **************************************************************************************************
-   FUNCTION calc_cond_num(matrix, size_matrix) RESULT(cond_num)
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: matrix
-      INTEGER, INTENT(IN)                                :: size_matrix
-      REAL(KIND=dp)                                      :: cond_num
-
-      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: evals
-      TYPE(cp_fm_type), POINTER                          :: matrix_diag, matrix_work
-
-      ! create a work matrix that later contains the eigenvectors (not needed here)
-      NULLIFY (matrix_diag)
-      NULLIFY (matrix_work)
-
-      CALL cp_fm_create(matrix_diag, matrix%matrix_struct, name="fm_matrix_diag")
-      CALL cp_fm_create(matrix_work, matrix%matrix_struct, name="fm_matrix_work")
-
-      CALL cp_fm_set_all(matrix=matrix_diag, alpha=0.0_dp)
-      CALL cp_fm_set_all(matrix=matrix_work, alpha=0.0_dp)
-
-      CALL cp_fm_to_fm(source=matrix, destination=matrix_diag)
-
-      ALLOCATE (evals(size_matrix))
-
-      evals = 0.0_dp
-      CALL choose_eigv_solver(matrix=matrix_diag, eigenvectors=matrix_work, eigenvalues=evals)
-
-      cond_num = MAXVAL(ABS(evals))/MINVAL(ABS(evals))
-
-      CALL cp_fm_release(matrix_diag)
-      CALL cp_fm_release(matrix_work)
-
-      DEALLOCATE (evals)
-   END FUNCTION calc_cond_num
 
 END MODULE mp2_ri_libint

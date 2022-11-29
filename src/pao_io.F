@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -88,9 +90,6 @@ CONTAINS
       TYPE(pao_env_type), POINTER                        :: pao
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_read_restart', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_string_length)               :: param
       INTEGER                                            :: iatom, ikind, natoms
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom2kind
@@ -120,7 +119,7 @@ CONTAINS
 
          ! check cell
          IF (MAXVAL(ABS(hmat - cell%hmat)) > 1e-10) &
-            CPWARN("Restarting from differnt cell")
+            CPWARN("Restarting from different cell")
 
          ! check parametrization
          IF (TRIM(param) .NE. TRIM(ADJUSTL(id2str(pao%parameterization)))) &
@@ -129,7 +128,7 @@ CONTAINS
          ! check kinds
          DO ikind = 1, SIZE(kinds)
             CALL pao_kinds_ensure_equal(pao, qs_env, ikind, kinds(ikind))
-         ENDDO
+         END DO
 
          ! check number of atoms
          IF (SIZE(positions, 1) /= natoms) &
@@ -139,17 +138,17 @@ CONTAINS
          DO iatom = 1, natoms
             IF (atom2kind(iatom) /= particle_set(iatom)%atomic_kind%kind_number) &
                CPABORT("Restart atomic kinds do not match.")
-         ENDDO
+         END DO
 
          ! check positions, warning only
          diff = 0.0_dp
          DO iatom = 1, natoms
             diff = MAX(diff, MAXVAL(ABS(positions(iatom, :) - particle_set(iatom)%r)))
-         ENDDO
+         END DO
          IF (diff > 1e-10) &
             CPWARN("Restarting from different atom positions")
 
-      ENDIF
+      END IF
 
       ! scatter xblocks across ranks to fill pao%matrix_X
       ! this could probably be done more efficiently
@@ -160,15 +159,15 @@ CONTAINS
             CPASSERT(row_blk_sizes(iatom) == SIZE(xblocks(iatom)%p, 1))
             CPASSERT(col_blk_sizes(iatom) == SIZE(xblocks(iatom)%p, 2))
             buffer = xblocks(iatom)%p
-         ENDIF
+         END IF
          CALL mp_bcast(buffer, para_env%source, para_env%group)
          CALL dbcsr_get_block_p(matrix=pao%matrix_X, row=iatom, col=iatom, block=block_X, found=found)
          IF (ASSOCIATED(block_X)) &
             block_X = buffer
          DEALLOCATE (buffer)
-      ENDDO
+      END DO
 
-      ! ALLOCATABLEs deallocate themselfs
+      ! ALLOCATABLEs deallocate themselves
 
    END SUBROUTINE pao_read_restart
 
@@ -192,8 +191,6 @@ CONTAINS
       REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: positions
       TYPE(pao_ioblock_type), ALLOCATABLE, DIMENSION(:)  :: xblocks
       INTEGER, DIMENSION(2), INTENT(OUT), OPTIONAL       :: ml_range
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_read_raw', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: label, str_in
       INTEGER                                            :: i1, i2, iatom, ikind, ipot, natoms, &
@@ -291,7 +288,7 @@ CONTAINS
             CPASSERT(ALLOCATED(kinds))
             DO ikind = 1, nkinds
                IF (TRIM(kinds(ikind)%name) .EQ. TRIM(str_in)) EXIT
-            ENDDO
+            END DO
             CPASSERT(ALLOCATED(atom2kind) .AND. ALLOCATED(positions))
             atom2kind(iatom) = ikind
             positions(iatom, :) = pos_in/angstrom
@@ -313,7 +310,7 @@ CONTAINS
          ELSE
             !CPWARN("Skipping restart header with label: "//TRIM(label))
             READ (unit_nr, fmt=*) label ! just read again and ignore
-         ENDIF
+         END IF
       END DO
       CALL close_file(unit_number=unit_nr)
 
@@ -379,7 +376,7 @@ CONTAINS
             CPWARN("PAO_POT_BETA does not match")
          IF (pao_kind%pao_potentials(ipot)%weight /= pao_potentials(ipot)%weight) &
             CPWARN("PAO_POT_WEIGHT does not match")
-      ENDDO
+      END DO
 
    END SUBROUTINE pao_kinds_ensure_equal
 
@@ -395,7 +392,7 @@ CONTAINS
       REAL(dp)                                           :: energy
 
       CHARACTER(len=*), PARAMETER :: printkey_section = 'DFT%LS_SCF%PAO%PRINT%RESTART', &
-         routineN = 'pao_write_restart', routineP = moduleN//':'//routineN
+         routineN = 'pao_write_restart'
 
       INTEGER                                            :: handle, unit_max, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -427,7 +424,7 @@ CONTAINS
 
          CALL pao_write_diagonal_blocks(para_env, pao%matrix_X, "Xblock", unit_nr)
 
-      ENDIF
+      END IF
 
       ! close file
       IF (unit_nr > 0) WRITE (unit_nr, '(A)') "THE_END"
@@ -468,15 +465,15 @@ CONTAINS
                mpi_buffer(:, :) = local_block(:, :)
          ELSE
             mpi_buffer(:, :) = 0.0_dp
-         ENDIF
+         END IF
 
          CALL mp_sum(mpi_buffer, para_env%group)
          IF (unit_nr > 0) THEN
             WRITE (unit_nr, fmt="(A,1X,I10,1X)", advance='no') label, iatom
             WRITE (unit_nr, *) mpi_buffer
-         ENDIF
+         END IF
          DEALLOCATE (mpi_buffer)
-      ENDDO
+      END DO
 
       ! flush
       IF (unit_nr > 0) FLUSH (unit_nr)
@@ -495,9 +492,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       REAL(dp)                                           :: energy
       INTEGER, INTENT(IN)                                :: unit_nr
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'write_restart_header', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: kindname
       INTEGER                                            :: iatom, ikind, ipot, nparams, &
@@ -540,8 +534,8 @@ CONTAINS
             WRITE (unit_nr, "(1X,I3)", advance='no') pao_potentials(ipot)%max_projector
             WRITE (unit_nr, "(1X,F20.16)", advance='no') pao_potentials(ipot)%beta
             WRITE (unit_nr, "(1X,F20.16)") pao_potentials(ipot)%weight
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! write cell
       WRITE (unit_nr, fmt="(A,5X)", advance='no') "Cell"
@@ -553,7 +547,7 @@ CONTAINS
          kindname = particle_set(iatom)%atomic_kind%name
          WRITE (unit_nr, fmt="(A,5X,I10,5X,A,1X)", advance='no') "Atom ", iatom, TRIM(kindname)
          WRITE (unit_nr, *) particle_set(iatom)%r*angstrom
-      ENDDO
+      END DO
 
    END SUBROUTINE write_restart_header
 
@@ -567,8 +561,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(ls_scf_env_type), TARGET                      :: ls_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_write_ks_matrix_csr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_write_ks_matrix_csr'
 
       CHARACTER(LEN=default_path_length)                 :: file_name, fileformat
       INTEGER                                            :: handle, ispin, output_unit, unit_nr
@@ -643,8 +636,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(ls_scf_env_type), TARGET                      :: ls_scf_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'pao_write_s_matrix_csr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'pao_write_s_matrix_csr'
 
       CHARACTER(LEN=default_path_length)                 :: file_name, fileformat
       INTEGER                                            :: handle, output_unit, unit_nr

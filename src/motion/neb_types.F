@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -80,8 +82,6 @@ CONTAINS
       TYPE(neb_type), POINTER                            :: neb_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: full_allocation
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_var_create', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: neb_nr_replica
       LOGICAL                                            :: allocate_all
 
@@ -122,9 +122,6 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE neb_var_release(neb_var)
       TYPE(neb_var_type), POINTER                        :: neb_var
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'neb_var_release', &
-         routineP = moduleN//':'//routineN
 
       CPASSERT(ASSOCIATED(neb_var))
       IF (ASSOCIATED(neb_var%xyz)) THEN

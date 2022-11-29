@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -42,8 +44,7 @@ CONTAINS
       INTEGER                                            :: ierr
       LOGICAL, OPTIONAL                                  :: print_warning
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_rpa_minimax_coeff', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_rpa_minimax_coeff'
 
       CHARACTER(LEN=512)                                 :: error_msg
       CHARACTER(LEN=64)                                  :: Rc_cha
@@ -10122,8 +10123,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(INOUT)                       :: E_range
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: aw
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_rpa_minimax_coeff_larger_grid', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_rpa_minimax_coeff_larger_grid'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: E_ratio

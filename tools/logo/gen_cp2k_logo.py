@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 # Generates the CP2K Logo
 #
@@ -65,7 +64,7 @@ def gen_povray():
         output += "  }\n"
         output += "}\n"
 
-    f = open("logo.pov", "w")
+    f = open("logo.pov", "w", encoding="utf8")
     f.write(output)
     f.close()
 

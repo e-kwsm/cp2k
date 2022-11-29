@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -91,13 +93,12 @@ CONTAINS
 !>   * 02.2017 created [Sergey Chulkov]
 ! **************************************************************************************************
    SUBROUTINE negf_copy_fm_submat_to_dbcsr(fm, matrix, atomlist_row, atomlist_col, subsys)
-      TYPE(cp_fm_type), POINTER                          :: fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm
       TYPE(dbcsr_type), POINTER                          :: matrix
       INTEGER, DIMENSION(:), INTENT(in)                  :: atomlist_row, atomlist_col
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_fm_submat_to_dbcsr', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_fm_submat_to_dbcsr'
 
       INTEGER :: first_sgf_col, first_sgf_row, handle, iatom_col, iatom_row, icol, irow, &
          natoms_col, natoms_row, ncols, nparticles, nrows
@@ -110,7 +111,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(fm))
       CPASSERT(ASSOCIATED(matrix))
       CPASSERT(ASSOCIATED(subsys))
 
@@ -181,14 +181,13 @@ CONTAINS
    SUBROUTINE negf_copy_sym_dbcsr_to_fm_submat(matrix, fm, atomlist_row, atomlist_col, subsys, &
                                                mpi_comm_global, do_upper_diag, do_lower)
       TYPE(dbcsr_type), POINTER                          :: matrix
-      TYPE(cp_fm_type), POINTER                          :: fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm
       INTEGER, DIMENSION(:), INTENT(in)                  :: atomlist_row, atomlist_col
       TYPE(qs_subsys_type), POINTER                      :: subsys
       INTEGER, INTENT(in)                                :: mpi_comm_global
       LOGICAL, INTENT(in)                                :: do_upper_diag, do_lower
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_sym_dbcsr_to_fm_submat', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_sym_dbcsr_to_fm_submat'
 
       INTEGER :: handle, iatom_col, iatom_row, icol, irow, natoms_col, natoms_row, ncols_fm, &
          nparticles, nrows_fm, offset_sgf_col, offset_sgf_row
@@ -203,7 +202,6 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       CPASSERT(ASSOCIATED(matrix))
-      CPASSERT(ASSOCIATED(fm))
       CPASSERT(ASSOCIATED(subsys))
 
       CALL qs_subsys_get(subsys, particle_set=particle_set, qs_kind_set=qs_kind_set)
@@ -297,7 +295,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE negf_copy_contact_matrix(fm_cell0, fm_cell1, direction_axis, matrix_kp, index_to_cell, &
                                        atom_list0, atom_list1, subsys, mpi_comm_global, is_same_cell, matrix_ref)
-      TYPE(cp_fm_type), POINTER                          :: fm_cell0, fm_cell1
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_cell0, fm_cell1
       INTEGER, INTENT(in)                                :: direction_axis
       TYPE(dbcsr_p_type), DIMENSION(:), INTENT(in)       :: matrix_kp
       INTEGER, DIMENSION(:, :), INTENT(in)               :: index_to_cell
@@ -307,8 +305,7 @@ CONTAINS
       INTEGER, DIMENSION(:, :), INTENT(inout)            :: is_same_cell
       TYPE(dbcsr_type), OPTIONAL, POINTER                :: matrix_ref
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_contact_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_copy_contact_matrix'
 
       INTEGER                                            :: direction_axis_abs, handle, iatom_col, &
                                                             iatom_row, image, natoms, nimages, &
@@ -322,8 +319,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(fm_cell0))
-      CPASSERT(ASSOCIATED(fm_cell1))
       CPASSERT(ASSOCIATED(subsys))
 
       nimages = SIZE(index_to_cell, 2)
@@ -504,8 +499,7 @@ CONTAINS
       TYPE(negf_atom_map_type), DIMENSION(:), INTENT(in) :: atom_map
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_reference_contact_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'negf_reference_contact_matrix'
 
       INTEGER                                            :: handle, i1, i2, iatom_col, iatom_row, &
                                                             icol, iproc, irow, max_atom, &
@@ -746,8 +740,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: nimages
       INTEGER, DIMENSION(3, nimages), INTENT(out)        :: index_to_cell
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_cell_to_index', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'invert_cell_to_index'
 
       INTEGER                                            :: handle, i1, i2, i3, image
       INTEGER, DIMENSION(3)                              :: lbounds, ubounds
@@ -788,9 +781,6 @@ CONTAINS
       INTEGER, DIMENSION(3), INTENT(in)                  :: cell
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       INTEGER                                            :: image
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_index_by_cell', &
-         routineP = moduleN//':'//routineN
 
       IF (LBOUND(cell_to_index, 1) <= cell(1) .AND. UBOUND(cell_to_index, 1) >= cell(1) .AND. &
           LBOUND(cell_to_index, 2) <= cell(2) .AND. UBOUND(cell_to_index, 2) >= cell(2) .AND. &

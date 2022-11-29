@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -23,6 +25,7 @@ MODULE structure_factor_types
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER :: shell_ex, shell_ey, shell_ez
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER :: core_ex, core_ey, core_ez
       INTEGER, DIMENSION(:, :), POINTER :: centre, core_centre, shell_centre
+      REAL(KIND=dp), DIMENSION(:, :), POINTER :: delta, core_delta, shell_delta
       INTEGER :: lb(3)
    END TYPE structure_factor_type
 

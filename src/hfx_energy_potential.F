@@ -1,95 +1,98 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
-!> \brief Rountines to calculate HFX energy and potential
+!> \brief Routines to calculate HFX energy and potential
 !> \par History
 !>      11.2006 created [Manuel Guidon]
 !> \author Manuel Guidon
 ! **************************************************************************************************
 MODULE hfx_energy_potential
-   USE atomic_kind_types,               ONLY: atomic_kind_type,&
-                                              get_atomic_kind_set
-   USE bibliography,                    ONLY: cite_reference,&
-                                              guidon2008,&
-                                              guidon2009
-   USE cell_types,                      ONLY: cell_type,&
-                                              pbc
-   USE cp_control_types,                ONLY: dft_control_type
-   USE cp_files,                        ONLY: close_file,&
-                                              open_file
-   USE cp_log_handling,                 ONLY: cp_get_default_logger,&
-                                              cp_logger_type
-   USE cp_output_handling,              ONLY: cp_p_file,&
-                                              cp_print_key_finished_output,&
-                                              cp_print_key_should_output,&
-                                              cp_print_key_unit_nr
-   USE cp_para_types,                   ONLY: cp_para_env_type
-   USE dbcsr_api,                       ONLY: dbcsr_copy,&
-                                              dbcsr_dot,&
-                                              dbcsr_get_matrix_type,&
-                                              dbcsr_p_type,&
-                                              dbcsr_type_antisymmetric
-   USE gamma,                           ONLY: init_md_ftable
-   USE hfx_communication,               ONLY: distribute_ks_matrix,&
-                                              get_atomic_block_maps,&
-                                              get_full_density
-   USE hfx_compression_methods,         ONLY: hfx_add_mult_cache_elements,&
-                                              hfx_add_single_cache_element,&
-                                              hfx_decompress_first_cache,&
-                                              hfx_flush_last_cache,&
-                                              hfx_get_mult_cache_elements,&
-                                              hfx_get_single_cache_element,&
-                                              hfx_reset_cache_and_container
-   USE hfx_contract_block,              ONLY: contract_block
-   USE hfx_libint_interface,            ONLY: evaluate_eri
-   USE hfx_load_balance_methods,        ONLY: collect_load_balance_info,&
-                                              hfx_load_balance,&
-                                              hfx_update_load_balance
-   USE hfx_pair_list_methods,           ONLY: build_atomic_pair_list,&
-                                              build_pair_list,&
-                                              build_pair_list_pgf,&
-                                              build_pgf_product_list,&
-                                              pgf_product_list_size
-   USE hfx_screening_methods,           ONLY: calc_pair_dist_radii,&
-                                              calc_screening_functions,&
-                                              update_pmax_mat
-   USE hfx_types,                       ONLY: &
-        alloc_containers, dealloc_containers, hfx_basis_info_type, hfx_basis_type, hfx_cache_type, &
-        hfx_cell_type, hfx_container_type, hfx_create_neighbor_cells, hfx_distribution, &
-        hfx_general_type, hfx_init_container, hfx_load_balance_type, hfx_memory_type, hfx_p_kind, &
-        hfx_pgf_list, hfx_pgf_product_list, hfx_potential_type, hfx_reset_memory_usage_counter, &
-        hfx_screen_coeff_type, hfx_screening_type, hfx_task_list_type, hfx_type, init_t_c_g0_lmax, &
-        log_zero, pair_list_type, pair_set_list_type
-   USE input_constants,                 ONLY: do_potential_mix_cl_trunc,&
-                                              do_potential_truncated,&
-                                              hfx_do_eval_energy
-   USE input_section_types,             ONLY: section_vals_type
-   USE kinds,                           ONLY: default_string_length,&
-                                              dp,&
-                                              int_8
-   USE kpoint_types,                    ONLY: get_kpoint_info,&
-                                              kpoint_type
-   USE libint_wrapper,                  ONLY: cp_libint_t
-   USE machine,                         ONLY: m_flush,&
-                                              m_memory,&
-                                              m_walltime
-   USE mathconstants,                   ONLY: fac
-   USE message_passing,                 ONLY: mp_max,&
-                                              mp_sum,&
-                                              mp_sync
-   USE orbital_pointers,                ONLY: nco,&
-                                              ncoset,&
-                                              nso
-   USE particle_types,                  ONLY: particle_type
-   USE qs_environment_types,            ONLY: get_qs_env,&
-                                              qs_environment_type
-   USE qs_ks_types,                     ONLY: get_ks_env,&
-                                              qs_ks_env_type
-   USE t_c_g0,                          ONLY: init
-   USE util,                            ONLY: sort
+   USE admm_types, ONLY: get_admm_env
+   USE atomic_kind_types, ONLY: atomic_kind_type, &
+                                get_atomic_kind_set
+   USE bibliography, ONLY: cite_reference, &
+                           guidon2008, &
+                           guidon2009
+   USE cell_types, ONLY: cell_type, &
+                         pbc
+   USE cp_control_types, ONLY: dft_control_type
+   USE cp_files, ONLY: close_file, &
+                       open_file
+   USE cp_log_handling, ONLY: cp_get_default_logger, &
+                              cp_logger_type
+   USE cp_output_handling, ONLY: cp_p_file, &
+                                 cp_print_key_finished_output, &
+                                 cp_print_key_should_output, &
+                                 cp_print_key_unit_nr
+   USE cp_para_types, ONLY: cp_para_env_type
+   USE dbcsr_api, ONLY: dbcsr_copy, &
+                        dbcsr_dot, &
+                        dbcsr_get_matrix_type, &
+                        dbcsr_p_type, &
+                        dbcsr_type_antisymmetric
+   USE gamma, ONLY: init_md_ftable
+   USE hfx_communication, ONLY: distribute_ks_matrix, &
+                                get_atomic_block_maps, &
+                                get_full_density
+   USE hfx_compression_methods, ONLY: hfx_add_mult_cache_elements, &
+                                      hfx_add_single_cache_element, &
+                                      hfx_decompress_first_cache, &
+                                      hfx_flush_last_cache, &
+                                      hfx_get_mult_cache_elements, &
+                                      hfx_get_single_cache_element, &
+                                      hfx_reset_cache_and_container
+   USE hfx_contract_block, ONLY: contract_block
+   USE hfx_libint_interface, ONLY: evaluate_eri
+   USE hfx_load_balance_methods, ONLY: collect_load_balance_info, &
+                                       hfx_load_balance, &
+                                       hfx_update_load_balance
+   USE hfx_pair_list_methods, ONLY: build_atomic_pair_list, &
+                                    build_pair_list, &
+                                    build_pair_list_pgf, &
+                                    build_pgf_product_list, &
+                                    pgf_product_list_size
+   USE hfx_screening_methods, ONLY: calc_pair_dist_radii, &
+                                    calc_screening_functions, &
+                                    update_pmax_mat
+   USE hfx_types, ONLY: &
+      alloc_containers, dealloc_containers, hfx_basis_info_type, hfx_basis_type, hfx_cache_type, &
+      hfx_cell_type, hfx_container_type, hfx_create_neighbor_cells, hfx_distribution, &
+      hfx_general_type, hfx_init_container, hfx_load_balance_type, hfx_memory_type, hfx_p_kind, &
+      hfx_pgf_list, hfx_pgf_product_list, hfx_potential_type, hfx_reset_memory_usage_counter, &
+      hfx_screen_coeff_type, hfx_screening_type, hfx_task_list_type, hfx_type, init_t_c_g0_lmax, &
+      log_zero, pair_list_type, pair_set_list_type
+   USE input_constants, ONLY: do_potential_mix_cl_trunc, &
+                              do_potential_truncated, &
+                              hfx_do_eval_energy
+   USE input_section_types, ONLY: section_vals_type
+   USE kinds, ONLY: default_string_length, &
+                    dp, &
+                    int_8
+   USE kpoint_types, ONLY: get_kpoint_info, &
+                           kpoint_type
+   USE libint_wrapper, ONLY: cp_libint_t
+   USE machine, ONLY: m_flush, &
+                      m_memory, &
+                      m_walltime
+   USE mathconstants, ONLY: fac
+   USE message_passing, ONLY: mp_max, &
+                              mp_sum, &
+                              mp_sync
+   USE orbital_pointers, ONLY: nco, &
+                               ncoset, &
+                               nso
+   USE particle_types, ONLY: particle_type
+   USE qs_environment_types, ONLY: get_qs_env, &
+                                   qs_environment_type
+   USE qs_ks_types, ONLY: get_ks_env, &
+                          qs_ks_env_type
+   USE t_c_g0, ONLY: init
+   USE util, ONLY: sort
 
 !$ USE OMP_LIB, ONLY: omp_get_max_threads, omp_get_thread_num, omp_get_num_threads
 
@@ -147,62 +150,61 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: distribute_fock_matrix
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_four_center', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'integrate_four_center'
 
       CHARACTER(len=default_string_length)               :: eps_scaling_str, eps_schwarz_min_str
       INTEGER :: act_atomic_block_offset, act_set_offset, atomic_offset_ac, atomic_offset_ad, &
-         atomic_offset_bc, atomic_offset_bd, bin, bits_max_val, buffer_left, buffer_size, &
-         buffer_start, cache_size, current_counter, handle, handle_bin, handle_dist_ks, &
-         handle_getP, handle_load, handle_main, i, i_list_ij, i_list_kl, i_set_list_ij, &
-         i_set_list_ij_start, i_set_list_ij_stop, i_set_list_kl, i_set_list_kl_start, &
-         i_set_list_kl_stop, i_thread, iatom, iatom_block, iatom_end, iatom_start, ikind, img, &
-         iset, iw, j, jatom, jatom_block, jatom_end, jatom_start, jkind, jset, katom, katom_block, &
-         katom_end
+                 atomic_offset_bc, atomic_offset_bd, bin, bits_max_val, buffer_left, buffer_size, &
+                 buffer_start, cache_size, current_counter, handle, handle_bin, handle_dist_ks, &
+                 handle_getP, handle_load, handle_main, i, i_list_ij, i_list_kl, i_set_list_ij, &
+                 i_set_list_ij_start, i_set_list_ij_stop, i_set_list_kl, i_set_list_kl_start, &
+                 i_set_list_kl_stop, i_thread, iatom, iatom_block, iatom_end, iatom_start, ikind, img, &
+                 iset, iw, j, jatom, jatom_block, jatom_end, jatom_start, jkind, jset, katom, katom_block, &
+                 katom_end
       INTEGER :: katom_start, kind_kind_idx, kkind, kset, l_max, latom, latom_block, latom_end, &
-         latom_start, lkind, lset, ma, max_am, max_pgf, max_set, mb, my_bin_id, my_bin_size, &
-         my_thread_id, n_threads, natom, nbits, ncob, ncos_max, nints, nkimages, nkind, &
-         nneighbors, nseta, nsetb, nsgf_max, nspins, pa, sgfb, shm_task_counter, shm_total_bins, &
-         sphi_a_u1, sphi_a_u2, sphi_a_u3, sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, &
-         sphi_c_u3, sphi_d_u1, sphi_d_u2, sphi_d_u3, swap_id, tmp_i4, unit_id
+                 latom_start, lkind, lset, ma, max_am, max_pgf, max_set, mb, my_bin_id, my_bin_size, &
+                 my_thread_id, n_threads, natom, nbits, ncob, ncos_max, nints, nkimages, nkind, &
+                 nneighbors, nseta, nsetb, nsgf_max, nspins, pa, sgfb, shm_task_counter, shm_total_bins, &
+                 sphi_a_u1, sphi_a_u2, sphi_a_u3, sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, &
+                 sphi_c_u3, sphi_d_u1, sphi_d_u2, sphi_d_u3, swap_id, tmp_i4, unit_id
       INTEGER(int_8) :: atom_block, counter, estimate_to_store_int, max_val_memory, &
-         mb_size_buffers, mb_size_f, mb_size_p, mem_compression_counter, &
-         mem_compression_counter_disk, mem_eris, mem_eris_disk, mem_max_val, memsize_after, &
-         memsize_before, my_current_counter, my_istart, n_processes, nblocks, ncpu, neris_disk, &
-         neris_incore, neris_onthefly, neris_tmp, neris_total, nprim_ints, &
-         shm_mem_compression_counter, shm_neris_disk, shm_neris_incore, shm_neris_onthefly, &
-         shm_neris_total, shm_nprim_ints, shm_stor_count_int_disk, shm_stor_count_max_val, &
-         shm_storage_counter_integrals, stor_count_int_disk
+                        mb_size_buffers, mb_size_f, mb_size_p, mem_compression_counter, &
+                        mem_compression_counter_disk, mem_eris, mem_eris_disk, mem_max_val, memsize_after, &
+                        memsize_before, my_current_counter, my_istart, n_processes, nblocks, ncpu, neris_disk, &
+                        neris_incore, neris_onthefly, neris_tmp, neris_total, nprim_ints, &
+                        shm_mem_compression_counter, shm_neris_disk, shm_neris_incore, shm_neris_onthefly, &
+                        shm_neris_total, shm_nprim_ints, shm_stor_count_int_disk, shm_stor_count_max_val, &
+                        shm_storage_counter_integrals, stor_count_int_disk
       INTEGER(int_8) :: stor_count_max_val, storage_counter_integrals, subtr_size_mb, tmp_block, &
-         tmp_i8(8)
+                        tmp_i8(8)
       INTEGER(int_8), ALLOCATABLE, DIMENSION(:)          :: tmp_task_list_cost
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of, last_sgf_global, nimages, &
                                                             tmp_index
       INTEGER, DIMENSION(:), POINTER :: la_max, la_min, lb_max, lb_min, lc_max, lc_min, ld_max, &
-         ld_min, npgfa, npgfb, npgfc, npgfd, nsgfa, nsgfb, nsgfc, nsgfd, shm_block_offset
+                                        ld_min, npgfa, npgfb, npgfc, npgfd, nsgfa, nsgfb, nsgfc, nsgfd, shm_block_offset
       INTEGER, DIMENSION(:, :), POINTER :: first_sgfb, nsgfl_a, nsgfl_b, nsgfl_c, nsgfl_d, &
-         offset_ac_set, offset_ad_set, offset_bc_set, offset_bd_set, shm_atomic_block_offset
+                                           offset_ac_set, offset_ad_set, offset_bc_set, offset_bd_set, shm_atomic_block_offset
       INTEGER, DIMENSION(:, :), POINTER, SAVE            :: shm_is_assoc_atomic_block
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       INTEGER, DIMENSION(:, :, :, :), POINTER            :: shm_set_offset
       INTEGER, SAVE                                      :: shm_number_of_p_entries
       LOGICAL :: bins_left, buffer_overflow, do_disk_storage, do_dynamic_load_balancing, do_it, &
-         do_kpoints, do_p_screening, do_periodic, do_print_load_balance_info, is_anti_symmetric, &
-         ks_fully_occ, my_geo_change, treat_lsd_in_core, use_disk_storage
+                 do_kpoints, do_p_screening, do_periodic, do_print_load_balance_info, is_anti_symmetric, &
+                 ks_fully_occ, my_geo_change, treat_lsd_in_core, use_disk_storage
       LOGICAL, DIMENSION(:, :), POINTER                  :: shm_atomic_pair_list
       REAL(dp) :: afac, bintime_start, bintime_stop, cartesian_estimate, compression_factor, &
-         compression_factor_disk, ene_x_aa, ene_x_aa_diag, ene_x_bb, ene_x_bb_diag, eps_schwarz, &
-         eps_storage, etmp, fac, hf_fraction, ln_10, log10_eps_schwarz, log10_pmax, &
-         max_contraction_val, max_val1, max_val2, max_val2_set, pmax_atom, pmax_blocks, &
-         pmax_entry, ra(3), rab2, rb(3), rc(3), rcd2, rd(3), screen_kind_ij, screen_kind_kl, &
-         spherical_estimate, symm_fac
+                  compression_factor_disk, ene_x_aa, ene_x_aa_diag, ene_x_bb, ene_x_bb_diag, eps_schwarz, &
+                  eps_storage, etmp, fac, hf_fraction, ln_10, log10_eps_schwarz, log10_pmax, &
+                  max_contraction_val, max_val1, max_val2, max_val2_set, pmax_atom, pmax_blocks, &
+                  pmax_entry, ra(3), rab2, rb(3), rc(3), rcd2, rd(3), screen_kind_ij, screen_kind_kl, &
+                  spherical_estimate, symm_fac
       REAL(dp), ALLOCATABLE, DIMENSION(:) :: ee_buffer1, ee_buffer2, ee_primitives_tmp, ee_work, &
-         ee_work2, kac_buf, kad_buf, kbc_buf, kbd_buf, pac_buf, pad_buf, pbc_buf, pbd_buf, &
-         primitive_integrals
+                                             ee_work2, kac_buf, kad_buf, kbc_buf, kbd_buf, pac_buf, pad_buf, pbc_buf, pbd_buf, &
+                                             primitive_integrals
       REAL(dp), DIMENSION(:), POINTER                    :: p_work
       REAL(dp), DIMENSION(:, :), POINTER :: full_density_alpha, full_density_beta, full_ks_alpha, &
-         full_ks_beta, max_contraction, ptr_p_1, ptr_p_2, ptr_p_3, ptr_p_4, shm_pmax_atom, &
-         shm_pmax_block, sphi_b, zeta, zetb, zetc, zetd
+                                            full_ks_beta, max_contraction, ptr_p_1, ptr_p_2, ptr_p_3, ptr_p_4, shm_pmax_atom, &
+                                            shm_pmax_block, sphi_b, zeta, zetb, zetc, zetd
       REAL(dp), DIMENSION(:, :, :), POINTER              :: sphi_a_ext_set, sphi_b_ext_set, &
                                                             sphi_c_ext_set, sphi_d_ext_set
       REAL(dp), DIMENSION(:, :, :, :), POINTER           :: sphi_a_ext, sphi_b_ext, sphi_c_ext, &
@@ -247,7 +249,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
 
-      NULLIFY (dft_control)
+      NULLIFY (dft_control, matrix_ks_aux_fit_hfx)
 
       CALL timeset(routineN, handle)
 
@@ -278,8 +280,7 @@ CONTAINS
                                            "HF_INFO")
       END IF
 
-      CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, cell=cell, &
-                      matrix_ks_aux_fit_hfx=matrix_ks_aux_fit_hfx)
+      CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, cell=cell)
 
       NULLIFY (cell_to_index)
       CALL get_qs_env(qs_env=qs_env, do_kpoints=do_kpoints)
@@ -294,7 +295,7 @@ CONTAINS
       l_max = 0
       DO ikind = 1, nkind
          l_max = MAX(l_max, MAXVAL(x_data(1, 1)%basis_parameter(ikind)%lmax))
-      ENDDO
+      END DO
       l_max = 4*l_max
       CALL init_md_ftable(l_max)
 
@@ -444,7 +445,7 @@ CONTAINS
       ncpu = para_env%num_pe
       n_processes = ncpu*n_threads
 
-      !! initalize some counters
+      !! initialize some counters
       neris_total = 0_int_8
       neris_incore = 0_int_8
       neris_disk = 0_int_8
@@ -464,19 +465,19 @@ CONTAINS
                       atomic_kind_set=atomic_kind_set, &
                       particle_set=particle_set, &
                       dft_control=dft_control)
+      IF (dft_control%do_admm) CALL get_admm_env(qs_env%admm_env, matrix_ks_aux_fit_hfx=matrix_ks_aux_fit_hfx)
 
       do_p_screening = screening_parameter%do_initial_p_screening
       ! Special treatment for MP2 with initial density screening
       IF (do_p_screening) THEN
-         nspins = dft_control%nspins
          IF (ASSOCIATED(qs_env%mp2_env)) THEN
-            IF ((qs_env%mp2_env%ri_mp2%free_hfx_buffer)) THEN
+            IF ((qs_env%mp2_env%ri_grad%free_hfx_buffer)) THEN
                do_p_screening = ((qs_env%mp2_env%p_screen) .AND. (qs_env%mp2_env%not_last_hfx))
             ELSE
                do_p_screening = .FALSE.
-            ENDIF
-         ENDIF
-      ENDIF
+            END IF
+         END IF
+      END IF
       max_set = basis_info%max_set
       natom = SIZE(particle_set, 1)
 
@@ -501,8 +502,8 @@ CONTAINS
          DO iset = 1, nseta
             ncos_max = MAX(ncos_max, ncoset(la_max(iset)))
             nsgf_max = MAX(nsgf_max, nsgfa(iset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
       !! Allocate the arrays for the integrals.
       ALLOCATE (primitive_integrals(nsgf_max**4))
       primitive_integrals = 0.0_dp
@@ -543,8 +544,8 @@ CONTAINS
             ! the maximum value after multiplication with sphi_b
             max_contraction(jset, jatom) = MAXVAL((/(SUM(ABS(sphi_b(1:ncob, i))), i=sgfb, sgfb + nsgfb(jset) - 1)/))
             max_pgf = MAX(max_pgf, npgfb(jset))
-         ENDDO
-      ENDDO
+         END DO
+      END DO
 
       ! ** Allocate buffers for pgf_lists
       nneighbors = SIZE(actual_x_data%neighbor_cells)
@@ -663,11 +664,11 @@ CONTAINS
       counter = 0_int_8
       do_disk_storage = memory_parameter%do_disk_storage
       IF (do_disk_storage) THEN
-         maxval_container_disk => actual_x_data%maxval_container_disk
-         maxval_cache_disk => actual_x_data%maxval_cache_disk
+         maxval_container_disk => actual_x_data%store_ints%maxval_container_disk
+         maxval_cache_disk => actual_x_data%store_ints%maxval_cache_disk
 
-         integral_containers_disk => actual_x_data%integral_containers_disk
-         integral_caches_disk => actual_x_data%integral_caches_disk
+         integral_containers_disk => actual_x_data%store_ints%integral_containers_disk
+         integral_caches_disk => actual_x_data%store_ints%integral_caches_disk
       END IF
 
       IF (my_geo_change) THEN
@@ -878,7 +879,7 @@ CONTAINS
 !$OMP BARRIER
 
       !! Start caluclating integrals of the form (ab|cd) or (ij|kl)
-      !! In order to do so, there is a main four-loop structre that takes into account the two symmetries
+      !! In order to do so, there is a main four-loop structure that takes into account the two symmetries
       !!
       !!   (ab|cd) = (ba|cd) = (ab|dc) = (ba|dc)
       !!
@@ -910,7 +911,7 @@ CONTAINS
       !! This tells the process where to start the main loops and how many bunches of integrals it has to
       !! calculate. The original parallelization is a simple modulo distribution that is binned and
       !! optimized in the load_balance routines. Since the Monte Carlo routines can swap processors,
-      !! we need to know which was the inital cpu_id.
+      !! we need to know which was the initial cpu_id.
       !! Furthermore, the indices iatom, jatom, katom, latom have to be set to istart, jstart, kstart and
       !! lstart only the first time the loop is executed. All subsequent loops have to start with one or
       !! iatom and katom respectively. Therefore, we use flags like first_j_loop etc.
@@ -928,12 +929,12 @@ CONTAINS
       IF (.NOT. memory_parameter%do_all_on_the_fly) THEN
          !! IF new md step -> reinitialize containers
          IF (my_geo_change) THEN
-            CALL dealloc_containers(actual_x_data, hfx_do_eval_energy)
-            CALL alloc_containers(actual_x_data, my_bin_size, hfx_do_eval_energy)
+            CALL dealloc_containers(actual_x_data%store_ints, memory_parameter%actual_memory_usage)
+            CALL alloc_containers(actual_x_data%store_ints, my_bin_size)
 
             DO bin = 1, my_bin_size
-               maxval_container => actual_x_data%maxval_container(bin)
-               integral_containers => actual_x_data%integral_containers(:, bin)
+               maxval_container => actual_x_data%store_ints%maxval_container(bin)
+               integral_containers => actual_x_data%store_ints%integral_containers(:, bin)
                CALL hfx_init_container(maxval_container, memory_parameter%actual_memory_usage, .FALSE.)
                DO i = 1, 64
                   CALL hfx_init_container(integral_containers(i), memory_parameter%actual_memory_usage, .FALSE.)
@@ -944,10 +945,10 @@ CONTAINS
          !! Decompress the first cache for maxvals and integrals
          IF (.NOT. my_geo_change) THEN
             DO bin = 1, my_bin_size
-               maxval_cache => actual_x_data%maxval_cache(bin)
-               maxval_container => actual_x_data%maxval_container(bin)
-               integral_caches => actual_x_data%integral_caches(:, bin)
-               integral_containers => actual_x_data%integral_containers(:, bin)
+               maxval_cache => actual_x_data%store_ints%maxval_cache(bin)
+               maxval_container => actual_x_data%store_ints%maxval_container(bin)
+               integral_caches => actual_x_data%store_ints%integral_caches(:, bin)
+               integral_containers => actual_x_data%store_ints%integral_containers(:, bin)
                CALL hfx_decompress_first_cache(bits_max_val, maxval_cache, maxval_container, &
                                                memory_parameter%actual_memory_usage, .FALSE.)
                DO i = 1, 64
@@ -1026,11 +1027,11 @@ CONTAINS
 !$OMP BARRIER
 
       IF (my_bin_size > 0) THEN
-         maxval_container => actual_x_data%maxval_container(1)
-         maxval_cache => actual_x_data%maxval_cache(1)
+         maxval_container => actual_x_data%store_ints%maxval_container(1)
+         maxval_cache => actual_x_data%store_ints%maxval_cache(1)
 
-         integral_containers => actual_x_data%integral_containers(:, 1)
-         integral_caches => actual_x_data%integral_caches(:, 1)
+         integral_containers => actual_x_data%store_ints%integral_containers(:, 1)
+         integral_caches => actual_x_data%store_ints%integral_caches(:, 1)
       END IF
 
 !$OMP BARRIER
@@ -1075,7 +1076,7 @@ CONTAINS
             actual_x_data%distribution_energy(bin)%time_other_scf = 0.0_dp
             actual_x_data%distribution_energy(bin)%time_forces = 0.0_dp
          END DO
-      ENDIF
+      END IF
 !$OMP END MASTER
 !$OMP BARRIER
 
@@ -1103,11 +1104,11 @@ CONTAINS
                my_thread_id = shm_task_list(shm_task_counter)%thread_id
                my_bin_id = shm_task_list(shm_task_counter)%bin_id
                IF (.NOT. memory_parameter%do_all_on_the_fly) THEN
-                  maxval_cache => x_data(irep, my_thread_id)%maxval_cache(my_bin_id)
-                  maxval_container => x_data(irep, my_thread_id)%maxval_container(my_bin_id)
-                  integral_caches => x_data(irep, my_thread_id)%integral_caches(:, my_bin_id)
-                  integral_containers => x_data(irep, my_thread_id)%integral_containers(:, my_bin_id)
-               ENDIF
+                  maxval_cache => x_data(irep, my_thread_id)%store_ints%maxval_cache(my_bin_id)
+                  maxval_container => x_data(irep, my_thread_id)%store_ints%maxval_container(my_bin_id)
+                  integral_caches => x_data(irep, my_thread_id)%store_ints%integral_caches(:, my_bin_id)
+                  integral_containers => x_data(irep, my_thread_id)%store_ints%integral_containers(:, my_bin_id)
+               END IF
                distribution_energy => x_data(irep, my_thread_id)%distribution_energy(my_bin_id)
                do_it = .TRUE.
                bins_left = .TRUE.
@@ -1671,7 +1672,7 @@ CONTAINS
                            CALL print_integrals( &
                               iatom, jatom, katom, latom, shm_set_offset, shm_atomic_block_offset, &
                               iset, jset, kset, lset, nsgfa(iset), nsgfb(jset), nsgfc(kset), nsgfd(lset), primitive_integrals)
-                        ENDIF
+                        END IF
                         IF (.NOT. is_anti_symmetric) THEN
                            !! Update Kohn-Sham matrix
                            CALL update_fock_matrix( &
@@ -1727,7 +1728,7 @@ CONTAINS
          ELSE
             distribution_energy%time_other_scf = &
                distribution_energy%time_other_scf + bintime_stop - bintime_start
-         ENDIF
+         END IF
 !$OMP MASTER
          CALL timestop(handle_bin)
 !$OMP END MASTER
@@ -2074,10 +2075,10 @@ CONTAINS
       IF (my_geo_change) THEN
          IF (.NOT. memory_parameter%do_all_on_the_fly) THEN
             DO bin = 1, my_bin_size
-               maxval_cache => actual_x_data%maxval_cache(bin)
-               maxval_container => actual_x_data%maxval_container(bin)
-               integral_caches => actual_x_data%integral_caches(:, bin)
-               integral_containers => actual_x_data%integral_containers(:, bin)
+               maxval_cache => actual_x_data%store_ints%maxval_cache(bin)
+               maxval_container => actual_x_data%store_ints%maxval_container(bin)
+               integral_caches => actual_x_data%store_ints%integral_caches(:, bin)
+               integral_containers => actual_x_data%store_ints%integral_containers(:, bin)
                CALL hfx_flush_last_cache(bits_max_val, maxval_cache, maxval_container, memory_parameter%actual_memory_usage, &
                                          .FALSE.)
                DO i = 1, 64
@@ -2090,10 +2091,10 @@ CONTAINS
       !! reset all caches except we calculate all on the fly
       IF (.NOT. memory_parameter%do_all_on_the_fly) THEN
          DO bin = 1, my_bin_size
-            maxval_cache => actual_x_data%maxval_cache(bin)
-            maxval_container => actual_x_data%maxval_container(bin)
-            integral_caches => actual_x_data%integral_caches(:, bin)
-            integral_containers => actual_x_data%integral_containers(:, bin)
+            maxval_cache => actual_x_data%store_ints%maxval_cache(bin)
+            maxval_container => actual_x_data%store_ints%maxval_container(bin)
+            integral_caches => actual_x_data%store_ints%integral_caches(:, bin)
+            integral_containers => actual_x_data%store_ints%integral_containers(:, bin)
 
             CALL hfx_reset_cache_and_container(maxval_cache, maxval_container, memory_parameter%actual_memory_usage, .FALSE.)
             DO i = 1, 64
@@ -2268,9 +2269,9 @@ CONTAINS
       TYPE(cp_libint_t)                                  :: lib
       REAL(dp), INTENT(IN)                               :: ra(3), rb(3), rc(3), rd(3)
       INTEGER, INTENT(IN) :: npgfa, npgfb, npgfc, npgfd, la_min, la_max, lb_min, lb_max, lc_min, &
-         lc_max, ld_min, ld_max, nsgfa, nsgfb, nsgfc, nsgfd, sphi_a_u1, sphi_a_u2, sphi_a_u3, &
-         sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, sphi_d_u2, &
-         sphi_d_u3
+                             lc_max, ld_min, ld_max, nsgfa, nsgfb, nsgfc, nsgfd, sphi_a_u1, sphi_a_u2, sphi_a_u3, &
+                             sphi_b_u1, sphi_b_u2, sphi_b_u3, sphi_c_u1, sphi_c_u2, sphi_c_u3, sphi_d_u1, sphi_d_u2, &
+                             sphi_d_u3
       REAL(dp), DIMENSION(1:npgfa), INTENT(IN)           :: zeta
       REAL(dp), DIMENSION(1:npgfb), INTENT(IN)           :: zetb
       REAL(dp), DIMENSION(1:npgfc), INTENT(IN)           :: zetc
@@ -2291,8 +2292,8 @@ CONTAINS
          DIMENSION(:), INTENT(INOUT)                     :: pgf_product_list
       INTEGER, DIMENSION(0:), INTENT(IN)                 :: nsgfl_a, nsgfl_b, nsgfl_c, nsgfl_d
       REAL(dp), INTENT(IN) :: sphi_a_ext(sphi_a_u1, sphi_a_u2, sphi_a_u3), &
-         sphi_b_ext(sphi_b_u1, sphi_b_u2, sphi_b_u3), sphi_c_ext(sphi_c_u1, sphi_c_u2, sphi_c_u3), &
-         sphi_d_ext(sphi_d_u1, sphi_d_u2, sphi_d_u3)
+                              sphi_b_ext(sphi_b_u1, sphi_b_u2, sphi_b_u3), sphi_c_ext(sphi_c_u1, sphi_c_u2, sphi_c_u3), &
+                              sphi_d_ext(sphi_d_u1, sphi_d_u2, sphi_d_u3)
       REAL(dp), DIMENSION(*)                             :: ee_work, ee_work2, ee_buffer1, &
                                                             ee_buffer2, ee_primitives_tmp
       INTEGER, DIMENSION(*)                              :: nimages
@@ -2300,8 +2301,8 @@ CONTAINS
       REAL(dp), DIMENSION(:), POINTER                    :: p_work
 
       INTEGER :: ipgf, jpgf, kpgf, la, lb, lc, ld, list_ij, list_kl, lpgf, max_l, ncoa, ncob, &
-         ncoc, ncod, nelements_ij, nelements_kl, nproducts, nsgfla, nsgflb, nsgflc, nsgfld, nsoa, &
-         nsob, nsoc, nsod, s_offset_a, s_offset_b, s_offset_c, s_offset_d
+                 ncoc, ncod, nelements_ij, nelements_kl, nproducts, nsgfla, nsgflb, nsgflc, nsgfld, nsoa, &
+                 nsob, nsoc, nsod, s_offset_a, s_offset_b, s_offset_c, s_offset_d
       REAL(dp)                                           :: EtaInv, tmp_max, ZetaInv
 
       CALL build_pair_list_pgf(npgfa, npgfb, pgf_list_ij, zeta, zetb, screen1, screen2, &
@@ -2965,5 +2966,6 @@ CONTAINS
 
    END SUBROUTINE print_integrals
 
-#include "hfx_get_pmax_val.f90"
+   #:include "hfx_get_pmax_val.fypp"
+
 END MODULE hfx_energy_potential

@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -48,7 +50,7 @@ MODULE thermostat_methods
    USE input_constants,                 ONLY: &
         do_region_global, do_thermo_al, do_thermo_csvr, do_thermo_gle, do_thermo_nose, &
         do_thermo_same_as_part, npe_f_ensemble, npe_i_ensemble, npt_f_ensemble, npt_i_ensemble, &
-        nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble
+        npt_ia_ensemble, nve_ensemble, nvt_adiabatic_ensemble, nvt_ensemble
    USE input_section_types,             ONLY: section_vals_get,&
                                               section_vals_get_subs_vals,&
                                               section_vals_remove_values,&
@@ -115,9 +117,6 @@ CONTAINS
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(section_vals_type), POINTER                   :: global_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_thermostats', &
-         routineP = moduleN//':'//routineN
-
       CHARACTER(LEN=default_path_length)                 :: binary_restart_file_name
       INTEGER                                            :: n_rep, region, thermostat_type
       LOGICAL :: apply_general_thermo, apply_thermo_adiabatic, apply_thermo_baro, &
@@ -139,6 +138,7 @@ CONTAINS
          work_section
 
       NULLIFY (qmmm_env, cell)
+      ALLOCATE (thermostats)
       CALL allocate_thermostats(thermostats)
       adiabatic_fast_section => section_vals_get_subs_vals(md_section, "ADIABATIC_DYNAMICS%THERMOSTAT_FAST")
       adiabatic_slow_section => section_vals_get_subs_vals(md_section, "ADIABATIC_DYNAMICS%THERMOSTAT_SLOW")
@@ -160,6 +160,7 @@ CONTAINS
       apply_thermo_adiabatic = (simpar%ensemble == nvt_adiabatic_ensemble)
 
       apply_thermo_baro = (simpar%ensemble == npt_f_ensemble) .OR. &
+                          (simpar%ensemble == npt_ia_ensemble) .OR. &
                           (simpar%ensemble == npt_i_ensemble) .AND. &
                           (.NOT. apply_thermo_adiabatic)
 
@@ -170,6 +171,7 @@ CONTAINS
                            (simpar%ensemble == nvt_ensemble) .OR. &
                            (simpar%ensemble == npt_f_ensemble) .OR. &
                            (simpar%ensemble == npt_i_ensemble) .OR. &
+                           (simpar%ensemble == npt_ia_ensemble) .OR. &
                            (simpar%ensemble == npe_i_ensemble) .OR. &
                            (simpar%ensemble == npe_f_ensemble) .AND. &
                            (.NOT. apply_thermo_adiabatic)
@@ -192,8 +194,10 @@ CONTAINS
                             print_section, particles, gci)
          IF (explicit_adiabatic_fast .AND. explicit_adiabatic_slow) THEN
             IF (apply_thermo_adiabatic) THEN
+               ALLOCATE (thermostats%thermostat_fast)
                CALL create_thermostat_type(thermostats%thermostat_fast, simpar, adiabatic_fast_section, &
                                            label="FAST")
+               ALLOCATE (thermostats%thermostat_slow)
                CALL create_thermostat_type(thermostats%thermostat_slow, simpar, adiabatic_slow_section, &
                                            label="SLOW")
                CALL setup_adiabatic_thermostat_info(thermostats%thermostat_info_fast, &
@@ -217,14 +221,16 @@ CONTAINS
                                         molecules%els, molecule_kinds%els, para_env, globenv, &
                                         thermostats%thermostat_slow%nhc, nose_section=work_section, gci=gci, &
                                         save_mem=save_mem)
-            ENDIF
+            END IF
          ELSE
             CALL cp_warn(__LOCATION__, &
                          "Adiabatic Thermostat has been defined but the ensemble provided "// &
                          "does not support thermostat for Particles! Ignoring thermostat input.")
          END IF
          CALL release_thermostat_info(thermostats%thermostat_info_fast)
+         DEALLOCATE (thermostats%thermostat_info_fast)
          CALL release_thermostat_info(thermostats%thermostat_info_slow)
+         DEALLOCATE (thermostats%thermostat_info_fast)
       ELSE
          region = do_region_global
          region_sections => section_vals_get_subs_vals(thermo_part_section, "DEFINE_REGION")
@@ -239,6 +245,7 @@ CONTAINS
          ! For constant temperature ensembles the thermostat is activated by default
          IF (explicit_part) THEN
             IF (apply_general_thermo) THEN
+               ALLOCATE (thermostats%thermostat_part)
                CALL create_thermostat_type(thermostats%thermostat_part, simpar, thermo_part_section, &
                                            label="PARTICLES")
                ! Initialize thermostat
@@ -293,6 +300,7 @@ CONTAINS
                ! The thermostat is activated only if explicitely required
                ! It can be used to thermalize the shell-core motion when the temperature is not constant (nve, npe)
                IF (apply_thermo_shell) THEN
+                  ALLOCATE (thermostats%thermostat_shell)
                   CALL create_thermostat_type(thermostats%thermostat_shell, simpar, thermo_shell_section, &
                                               label="SHELL")
                   CALL get_atomic_kind_set(atomic_kind_set=atomic_kinds%els, shell_adiabatic=shell_adiabatic)
@@ -326,7 +334,9 @@ CONTAINS
                                   "Continuing calculation ignoring the thermostat info! No Thermostat "// &
                                   "applied to Shells!")
                      CALL release_thermostat_type(thermostats%thermostat_shell)
+                     DEALLOCATE (thermostats%thermostat_shell)
                      CALL release_thermostat_info(thermostats%thermostat_info_shell)
+                     DEALLOCATE (thermostats%thermostat_info_shell)
                   END IF
                ELSE
                   CALL cp_warn(__LOCATION__, &
@@ -356,6 +366,7 @@ CONTAINS
                work_section => thermo_baro_section
                IF (thermostat_type == do_thermo_same_as_part) work_section => thermo_part_section
 
+               ALLOCATE (thermostats%thermostat_baro)
                CALL create_thermostat_type(thermostats%thermostat_baro, simpar, work_section, skip_region=.TRUE., &
                                            label="BAROSTAT")
                ! Initialize thermostat
@@ -390,9 +401,11 @@ CONTAINS
 
          ! Release the thermostats info..
          CALL release_thermostat_info(thermostats%thermostat_info_part)
+         DEALLOCATE (thermostats%thermostat_info_part)
          CALL release_thermostat_info(thermostats%thermostat_info_shell)
+         DEALLOCATE (thermostats%thermostat_info_shell)
 
-      ENDIF ! Adiabitic_NVT screening
+      END IF ! Adiabitic_NVT screening
       ! If no thermostats have been allocated deallocate the full structure
       IF ((.NOT. ASSOCIATED(thermostats%thermostat_part)) .AND. &
           (.NOT. ASSOCIATED(thermostats%thermostat_shell)) .AND. &
@@ -400,6 +413,7 @@ CONTAINS
           (.NOT. ASSOCIATED(thermostats%thermostat_fast)) .AND. &
           (.NOT. ASSOCIATED(thermostats%thermostat_slow))) THEN
          CALL release_thermostats(thermostats)
+         DEALLOCATE (thermostats)
       END IF
 
    END SUBROUTINE create_thermostats
@@ -415,9 +429,6 @@ CONTAINS
    SUBROUTINE update_thermo_baro_section(thermostat, section)
       TYPE(thermostat_type), POINTER                     :: thermostat
       TYPE(section_vals_type), POINTER                   :: section
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'update_thermo_baro_section', &
-         routineP = moduleN//':'//routineN
 
       TYPE(section_vals_type), POINTER                   :: work_section
 
@@ -457,9 +468,6 @@ CONTAINS
       TYPE(simpar_type), POINTER                         :: simpar
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'thermostat_info', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: iw
       REAL(KIND=dp)                                      :: kin_energy, pot_energy, tmp
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -470,39 +478,44 @@ CONTAINS
       ! Total Tehrmostat Energy
       CALL get_thermostat_energies(thermostat, pot_energy, kin_energy, para_env)
       IF (iw > 0) THEN
-         WRITE (iw, '( /,A )') ' THERMOSTAT| Thermostat Info for '//TRIM(label)
+         WRITE (iw, '(/,T2,A)') &
+            'THERMOSTAT| Thermostat information for '//TRIM(label)
          SELECT CASE (thermostat%type_of_thermostat)
          CASE (do_thermo_nose)
-            WRITE (iw, '( A,T63,A )') ' THERMOSTAT| Type of thermostat', 'Nose-Hoover-Chains'
-            WRITE (iw, '( A,T77,I4 )') ' THERMOSTAT| Nose-Hoover-Chain length ', thermostat%nhc%nhc_len
-            tmp = cp_unit_from_cp2k(thermostat%nhc%tau_nhc, "fs")
-            WRITE (iw, '( A,A4,A,T71,F10.2 )') &
-               ' THERMOSTAT| Nose-Hoover-Chain time constant [', 'fs', '] ', tmp
-            WRITE (iw, '( A,T77,I4 )') ' THERMOSTAT| Order of Yoshida integrator ', &
-               thermostat%nhc%nyosh
-            WRITE (iw, '( A,T77,I4 )') ' THERMOSTAT| Number of multiple time steps', &
-               thermostat%nhc%nc
-            WRITE (iw, '( A,T69,F12.6 )') ' THERMOSTAT| Initial Potential Energy', &
-               pot_energy
-            WRITE (iw, '( A,T69,F12.6 )') ' THERMOSTAT| Initial Kinetic Energy', &
-               kin_energy
+            WRITE (iw, '(T2,A,T63,A)') &
+               'THERMOSTAT| Type of thermostat', 'Nose-Hoover-Chains'
+            WRITE (iw, '(T2,A,T71,I10)') &
+               'THERMOSTAT| Nose-Hoover-Chain length', thermostat%nhc%nhc_len
+            tmp = cp_unit_from_cp2k(thermostat%nhc%tau_nhc, 'fs')
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'THERMOSTAT| Nose-Hoover-Chain time constant [fs]', tmp
+            WRITE (iw, '(T2,A,T71,I10)') &
+               'THERMOSTAT| Order of Yoshida integrator', thermostat%nhc%nyosh
+            WRITE (iw, '(T2,A,T71,I10)') &
+               'THERMOSTAT| Number of multiple time steps', thermostat%nhc%nc
+            WRITE (iw, '(T2,A,T61,E20.12)') &
+               'THERMOSTAT| Initial potential energy', pot_energy, &
+               'THERMOSTAT| Initial kinetic energy', kin_energy
          CASE (do_thermo_csvr)
-            WRITE (iw, '( A,T44,A )') ' THERMOSTAT| Type of thermostat', 'Canonical Sampling/Velocity Rescaling'
-            tmp = cp_unit_from_cp2k(thermostat%csvr%tau_csvr, "fs")*0.5_dp*simpar%dt
-            WRITE (iw, '( A,A4,A,T71,F10.2 )') &
-               ' THERMOSTAT| CSVR time constant [', 'fs', '] ', tmp
-            WRITE (iw, '( A,T69,F12.6 )') &
-               ' THERMOSTAT| Initial Kinetic Energy ', kin_energy
+            WRITE (iw, '(T2,A,T44,A)') &
+               'THERMOSTAT| Type of thermostat', 'Canonical Sampling/Velocity Rescaling'
+            tmp = cp_unit_from_cp2k(thermostat%csvr%tau_csvr, 'fs')*0.5_dp*simpar%dt
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'THERMOSTAT| CSVR time constant [fs]', tmp
+            WRITE (iw, '(T2,A,T61,E20.12)') &
+               'THERMOSTAT| Initial kinetic energy', kin_energy
          CASE (do_thermo_al)
-            WRITE (iw, '( A,T44,A )') ' THERMOSTAT| Type of thermostat', 'Adaptive Langevin'
-            tmp = cp_unit_from_cp2k(thermostat%al%tau_nh, "fs")
-            WRITE (iw, '( A,A4,A,T71,F10.2 )') &
-               ' THERMOSTAT| AD_LANGEVIN NH time constant [', 'fs', '] ', tmp
-            tmp = cp_unit_from_cp2k(thermostat%al%tau_langevin, "fs")
-            WRITE (iw, '( A,A4,A,T71,F10.2 )') &
-               ' THERMOSTAT| AD_LANGEVIN Langevin time constant [', 'fs', '] ', tmp
+            WRITE (iw, '(T2,A,T44,A)') &
+               'THERMOSTAT| Type of thermostat', 'Adaptive Langevin'
+            tmp = cp_unit_from_cp2k(thermostat%al%tau_nh, 'fs')
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'THERMOSTAT| Time constant of Nose-Hoover part [fs]', tmp
+            tmp = cp_unit_from_cp2k(thermostat%al%tau_langevin, 'fs')
+            WRITE (iw, '(T2,A,T61,F20.6)') &
+               'THERMOSTAT| Time constant of Langevin part [fs]', tmp
          END SELECT
-         WRITE (iw, '( A,/ )') ' THERMOSTAT| End of Thermostat Info for '//TRIM(label)
+         WRITE (iw, '(T2,A)') &
+            'THERMOSTAT| End of thermostat information for '//TRIM(label)
       END IF
       CALL cp_print_key_finished_output(iw, logger, section, "PRINT%THERMOSTAT_INFO")
 
@@ -521,9 +534,6 @@ CONTAINS
       TYPE(thermostat_type), POINTER                     :: thermostat
       TYPE(npt_info_type), DIMENSION(:, :), POINTER      :: npt
       INTEGER, INTENT(IN)                                :: group
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_thermostat_baro', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(thermostat)) THEN
          IF (thermostat%type_of_thermostat == do_thermo_nose) THEN
@@ -575,9 +585,6 @@ CONTAINS
                                                             core_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :), shell_vel(:, :), &
                                                             core_vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_thermostat_particles', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(thermostat)) THEN
          IF (thermostat%type_of_thermostat == do_thermo_nose) THEN
@@ -636,9 +643,6 @@ CONTAINS
                                                             core_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :), shell_vel(:, :), &
                                                             core_vel(:, :)
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_thermostat_shells', &
-         routineP = moduleN//':'//routineN
 
       IF (ASSOCIATED(thermostat)) THEN
          IF (thermostat%type_of_thermostat == do_thermo_nose) THEN

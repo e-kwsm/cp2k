@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -63,11 +65,10 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(section_vals_type), POINTER                   :: lri_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lri_env_init', routineP = moduleN//':'//routineN
-
       REAL(KIND=dp), DIMENSION(:), POINTER               :: radii
 
       NULLIFY (lri_env)
+      ALLOCATE (lri_env)
       CALL lri_env_create(lri_env)
 
       ! init keywords
@@ -127,8 +128,6 @@ CONTAINS
       TYPE(lri_environment_type), POINTER                :: lri_env
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lri_env_basis', routineP = moduleN//':'//routineN
-
       INTEGER :: i, i1, i2, iat, ikind, ip, ipgf, iset, ishell, jp, l, lmax_ikind_orb, &
          lmax_ikind_ri, maxl_orb, maxl_ri, n1, n2, natom, nbas, nkind, nribas, nspin
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of
@@ -149,6 +148,8 @@ CONTAINS
          CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, basis_type="ORB")
          IF (ri_type == "LRI") THEN
             CALL get_qs_kind(qs_kind_set(ikind), basis_set=ri_basis_set, basis_type="LRI_AUX")
+         ELSE IF (ri_type == "P_LRI") THEN
+            CALL get_qs_kind(qs_kind_set(ikind), basis_set=ri_basis_set, basis_type="P_LRI_AUX")
          ELSE IF (ri_type == "RI") THEN
             CALL get_qs_kind(qs_kind_set(ikind), basis_set=ri_basis_set, basis_type="RI_HXC")
          ELSE
@@ -166,14 +167,14 @@ CONTAINS
          maxl_ri = MAX(maxl_ri, lmax_ikind_ri)
       END DO
 
-      IF (ri_type == "LRI") THEN
+      IF ((ri_type == "LRI") .OR. (ri_type == "P_LRI")) THEN
          ! CG coefficients needed for lri integrals
          IF (ASSOCIATED(lri_env%cg_shg)) THEN
             CALL get_clebsch_gordon_coefficients(lri_env%cg_shg%cg_coeff, &
                                                  lri_env%cg_shg%cg_none0_list, &
                                                  lri_env%cg_shg%ncg_none0, &
                                                  maxl_orb, maxl_ri)
-         ENDIF
+         END IF
          CALL lri_basis_init(lri_env)
          ! distant pair approximation
          IF (lri_env%distant_pair_approximation) THEN
@@ -215,7 +216,7 @@ CONTAINS
                         DO ipgf = 1, orb_basis_set%npgf(iset)
                            gcc = orb_basis_set%gcc(ipgf, ishell, iset)
                            zeta = orb_basis_set%zet(ipgf, iset)
-                           rad = exp_radius(l, zeta, 1.e-5_dp, gcc)
+                           rad = exp_radius(l, zeta, 1.e-5_dp, gcc, rlow=xradius)
                            xradius = MAX(xradius, rad)
                         END DO
                         lri_env%wbas(i)%vec(i1:i2) = xradius
@@ -335,8 +336,6 @@ CONTAINS
    SUBROUTINE lri_basis_init(lri_env)
       TYPE(lri_environment_type), POINTER                :: lri_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'lri_basis_init', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ikind, nkind
       INTEGER, DIMENSION(:, :, :), POINTER               :: orb_index, ri_index
       REAL(KIND=dp)                                      :: delta
@@ -419,9 +418,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: basis
       REAL(dp), DIMENSION(:), POINTER                    :: norm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_norm_s_func', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ipgf, iset, isgf, ishell, jpgf, l, nbas
       REAL(KIND=dp)                                      :: aai, aaj, cci, ccj, expa, ppl
 
@@ -464,9 +460,6 @@ CONTAINS
 
       TYPE(gto_basis_set_type), POINTER                  :: basis
       REAL(dp), DIMENSION(:), POINTER                    :: norm
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_norm_radial', &
-         routineP = moduleN//':'//routineN
 
       INTEGER                                            :: ipgf, iset, isgf, ishell, jpgf, l, nbas
       REAL(KIND=dp)                                      :: aai, aaj, cci, ccj, expa, ppl
@@ -511,8 +504,6 @@ CONTAINS
       TYPE(gto_basis_set_type), POINTER                  :: basis
       REAL(dp), DIMENSION(:), POINTER                    :: int_aux, norm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_int', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ipgf, iset, isgf, ishell, l, nbas
       REAL(KIND=dp)                                      :: aa, cc, pp
 
@@ -552,8 +543,6 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: ovlp
       REAL(dp), DIMENSION(:), POINTER                    :: norm
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'basis_ovlp', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: ipgf, iset, isgf, ishell, jpgf, jset, &
                                                             jsgf, jshell, l, li, lj, m_i, m_j, nbas
       REAL(KIND=dp)                                      :: aai, aaj, cci, ccj, expa, norm_i, &
@@ -590,7 +579,7 @@ CONTAINS
                                     ovlp(isgf, jsgf) = ovlp(isgf, jsgf) + norm_i*norm_j*ppl*cci*ccj*oo
                                  END DO
                               END DO
-                           ENDIF
+                           END IF
                         END DO
                      END DO
                   END IF

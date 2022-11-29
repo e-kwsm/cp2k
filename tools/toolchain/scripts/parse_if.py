@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf8 -*-
+#!/usr/bin/env python3
 
 
 import sys
@@ -24,7 +23,7 @@ class Parser:
         """
         switch should be a tuple (key, val)
         ParseSingleIf(string, switch) will replace in string the
-        first occurance of IF_key(A|B) with A if val = True;
+        first occurrence of IF_key(A|B) with A if val = True;
         B if val = False
         """
         init = string.find("IF_" + switch[0])
@@ -62,9 +61,9 @@ class Parser:
 
     def ParseIf(self, string, switch):
         """
-ParseIf(string, switch) will replace in string recursively
-occurance of IF_key(A|B) statements with A if val = True;
-B if val = False
+        ParseIf(string, switch) will replace in string recursively
+        occurance of IF_key(A|B) statements with A if val = True;
+        B if val = False
         """
         result = string
         while result.find("IF_" + switch[0]) > -1:
@@ -73,9 +72,9 @@ B if val = False
 
     def ParseString(self, string):
         """
-ParseString(string) will parse in string recursively
-all of IF_key(A|B) statements for all (key, val) pairs
-in dictionary self.mSwitches
+        ParseString(string) will parse in string recursively
+        all of IF_key(A|B) statements for all (key, val) pairs
+        in dictionary self.mSwitches
         """
         result = string
         for switch in self.mSwitches.items():
@@ -136,10 +135,13 @@ if __name__ == "__main__":
     # default list of switches used by the parser
     switches = {
         "MPI": False,
-        "OMP": False,
         "CUDA": False,
+        "HIP": False,
+        "OPENCL": False,
         "WARNALL": False,
         "DEBUG": False,
+        "ASAN": False,
+        "STATIC": False,
         "VALGRIND": False,
         "COVERAGE": False,
     }

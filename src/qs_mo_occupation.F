@@ -1,6 +1,8 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
@@ -21,7 +23,7 @@ MODULE qs_mo_occupation
    USE kahan_sum,                       ONLY: accurate_sum
    USE kinds,                           ONLY: dp
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type,&
+                                              has_uniform_occupation,&
                                               mo_set_type,&
                                               set_mo_set
    USE scf_control_types,               ONLY: smear_type
@@ -56,11 +58,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_mo_occupation_3(mo_array, smear)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(2), INTENT(INOUT)     :: mo_array
       TYPE(smear_type), POINTER                          :: smear
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_3', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_3'
 
       INTEGER                                            :: all_nmo, handle, homo_a, homo_b, i, &
                                                             lfomo_a, lfomo_b, nmo_a, nmo_b, &
@@ -72,14 +73,12 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: all_eigval, all_occ
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigval_a, eigval_b, occ_a, occ_b
 
-      CPASSERT(ASSOCIATED(mo_array))
-      CPASSERT((SIZE(mo_array) == 2))
       CALL timeset(routineN, handle)
 
       NULLIFY (eigval_a, eigval_b, occ_a, occ_b)
-      CALL get_mo_set(mo_set=mo_array(1)%mo_set, nmo=nmo_a, eigenvalues=eigval_a, &
+      CALL get_mo_set(mo_set=mo_array(1), nmo=nmo_a, eigenvalues=eigval_a, &
                       occupation_numbers=occ_a)
-      CALL get_mo_set(mo_set=mo_array(2)%mo_set, nmo=nmo_b, eigenvalues=eigval_b, &
+      CALL get_mo_set(mo_set=mo_array(2), nmo=nmo_b, eigenvalues=eigval_b, &
                       occupation_numbers=occ_b)
       all_nmo = nmo_a + nmo_b
       ALLOCATE (all_eigval(all_nmo))
@@ -168,9 +167,9 @@ CONTAINS
          END IF
       END DO
 
-      CALL set_mo_set(mo_set=mo_array(1)%mo_set, kTS=kTS/2.0_dp, mu=mu, n_el_f=nelec_a, &
+      CALL set_mo_set(mo_set=mo_array(1), kTS=kTS/2.0_dp, mu=mu, n_el_f=nelec_a, &
                       lfomo=lfomo_a, homo=homo_a, uniform_occupation=.FALSE.)
-      CALL set_mo_set(mo_set=mo_array(2)%mo_set, kTS=kTS/2.0_dp, mu=mu, n_el_f=nelec_b, &
+      CALL set_mo_set(mo_set=mo_array(2), kTS=kTS/2.0_dp, mu=mu, n_el_f=nelec_b, &
                       lfomo=lfomo_b, homo=homo_b, uniform_occupation=.FALSE.)
 
       CALL timestop(handle)
@@ -196,43 +195,36 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_mo_occupation_2(mo_array, smear, eval_deriv, tot_zeff_corr)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(INOUT)     :: mo_array
       TYPE(smear_type), POINTER                          :: smear
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: eval_deriv
       REAL(KIND=dp), OPTIONAL                            :: tot_zeff_corr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_2', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_2'
 
       INTEGER                                            :: handle, i, lumo_a, lumo_b, &
                                                             multiplicity_new, multiplicity_old, &
                                                             nelec
       REAL(KIND=dp)                                      :: nelec_f, threshold
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigval_a, eigval_b
-      TYPE(mo_set_type), POINTER                         :: mo_set_a, mo_set_b
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(mo_array))
-      mo_set_a => mo_array(1)%mo_set
-      CPASSERT(ASSOCIATED(mo_set_a))
       ! Fall back for the case that we have only one MO set
       IF (SIZE(mo_array) == 1) THEN
          IF (PRESENT(eval_deriv)) THEN
 ! Change of MO occupancy to account for CORE_CORRECTION is not yet implemented
-            CALL set_mo_occupation_1(mo_set_a, smear=smear, eval_deriv=eval_deriv)
+            CALL set_mo_occupation_1(mo_array(1), smear=smear, eval_deriv=eval_deriv)
          ELSE
             IF (PRESENT(tot_zeff_corr)) THEN
-               CALL set_mo_occupation_1(mo_set_a, smear=smear, tot_zeff_corr=tot_zeff_corr)
+               CALL set_mo_occupation_1(mo_array(1), smear=smear, tot_zeff_corr=tot_zeff_corr)
             ELSE
-               CALL set_mo_occupation_1(mo_set_a, smear=smear)
-            ENDIF
+               CALL set_mo_occupation_1(mo_array(1), smear=smear)
+            END IF
          END IF
          CALL timestop(handle)
          RETURN
       END IF
-      CPASSERT((SIZE(mo_array) == 2))
-      mo_set_b => mo_array(2)%mo_set
 
       IF (smear%do_smear) THEN
          IF (smear%fixed_mag_mom < 0.0_dp) THEN
@@ -243,7 +235,7 @@ CONTAINS
                             "correction compared to the reference system. "// &
                             "Use FIXED_MAGNETIC_MOMENT >= 0.0 if using SMEAR keyword "// &
                             "to correct the electron density")
-            ENDIF
+            END IF
             IF (smear%fixed_mag_mom /= -1.0_dp) THEN
                CPASSERT(.NOT. (PRESENT(eval_deriv)))
                CALL set_mo_occupation_3(mo_array, smear=smear)
@@ -251,54 +243,54 @@ CONTAINS
                RETURN
             END IF
          ELSE
-            nelec_f = mo_set_a%n_el_f + mo_set_b%n_el_f
-            IF (ABS((mo_set_a%n_el_f - mo_set_b%n_el_f) - smear%fixed_mag_mom) > smear%eps_fermi_dirac*nelec_f) THEN
-               mo_set_a%n_el_f = nelec_f/2.0_dp + smear%fixed_mag_mom/2.0_dp
-               mo_set_b%n_el_f = nelec_f/2.0_dp - smear%fixed_mag_mom/2.0_dp
+            nelec_f = mo_array(1)%n_el_f + mo_array(2)%n_el_f
+            IF (ABS((mo_array(1)%n_el_f - mo_array(2)%n_el_f) - smear%fixed_mag_mom) > smear%eps_fermi_dirac*nelec_f) THEN
+               mo_array(1)%n_el_f = nelec_f/2.0_dp + smear%fixed_mag_mom/2.0_dp
+               mo_array(2)%n_el_f = nelec_f/2.0_dp - smear%fixed_mag_mom/2.0_dp
             END IF
             CPASSERT(.NOT. (PRESENT(eval_deriv)))
             IF (PRESENT(tot_zeff_corr)) THEN
-               CALL set_mo_occupation_1(mo_set_a, smear=smear, tot_zeff_corr=tot_zeff_corr)
-               CALL set_mo_occupation_1(mo_set_b, smear=smear, tot_zeff_corr=tot_zeff_corr)
+               CALL set_mo_occupation_1(mo_array(1), smear=smear, tot_zeff_corr=tot_zeff_corr)
+               CALL set_mo_occupation_1(mo_array(2), smear=smear, tot_zeff_corr=tot_zeff_corr)
             ELSE
-               CALL set_mo_occupation_1(mo_set_a, smear=smear)
-               CALL set_mo_occupation_1(mo_set_b, smear=smear)
-            ENDIF
+               CALL set_mo_occupation_1(mo_array(1), smear=smear)
+               CALL set_mo_occupation_1(mo_array(2), smear=smear)
+            END IF
          END IF
       END IF
 
-      IF (.NOT. ((mo_set_a%flexible_electron_count > 0.0_dp) .AND. &
-                 (mo_set_b%flexible_electron_count > 0.0_dp))) THEN
+      IF (.NOT. ((mo_array(1)%flexible_electron_count > 0.0_dp) .AND. &
+                 (mo_array(2)%flexible_electron_count > 0.0_dp))) THEN
          IF (PRESENT(eval_deriv)) THEN
-            CALL set_mo_occupation_1(mo_set_a, smear=smear, eval_deriv=eval_deriv)
-            CALL set_mo_occupation_1(mo_set_b, smear=smear, eval_deriv=eval_deriv)
+            CALL set_mo_occupation_1(mo_array(1), smear=smear, eval_deriv=eval_deriv)
+            CALL set_mo_occupation_1(mo_array(2), smear=smear, eval_deriv=eval_deriv)
          ELSE
             IF (PRESENT(tot_zeff_corr)) THEN
-               CALL set_mo_occupation_1(mo_set_a, smear=smear, tot_zeff_corr=tot_zeff_corr)
-               CALL set_mo_occupation_1(mo_set_b, smear=smear, tot_zeff_corr=tot_zeff_corr)
+               CALL set_mo_occupation_1(mo_array(1), smear=smear, tot_zeff_corr=tot_zeff_corr)
+               CALL set_mo_occupation_1(mo_array(2), smear=smear, tot_zeff_corr=tot_zeff_corr)
             ELSE
-               CALL set_mo_occupation_1(mo_set_a, smear=smear)
-               CALL set_mo_occupation_1(mo_set_b, smear=smear)
-            ENDIF
+               CALL set_mo_occupation_1(mo_array(1), smear=smear)
+               CALL set_mo_occupation_1(mo_array(2), smear=smear)
+            END IF
          END IF
          CALL timestop(handle)
          RETURN
       END IF
 
-      nelec = mo_set_a%nelectron + mo_set_b%nelectron
+      nelec = mo_array(1)%nelectron + mo_array(2)%nelectron
 
-      multiplicity_old = mo_set_a%nelectron - mo_set_b%nelectron + 1
+      multiplicity_old = mo_array(1)%nelectron - mo_array(2)%nelectron + 1
 
-      IF (mo_set_a%nelectron >= mo_set_a%nmo) &
+      IF (mo_array(1)%nelectron >= mo_array(1)%nmo) &
          CALL cp_warn(__LOCATION__, &
                       "All alpha MOs are occupied. Add more alpha MOs to "// &
                       "allow for a higher multiplicity")
-      IF ((mo_set_b%nelectron >= mo_set_b%nmo) .AND. (mo_set_b%nelectron /= mo_set_a%nelectron)) &
+      IF ((mo_array(2)%nelectron >= mo_array(2)%nmo) .AND. (mo_array(2)%nelectron /= mo_array(1)%nelectron)) &
          CALL cp_warn(__LOCATION__, "All beta MOs are occupied. Add more beta MOs to "// &
                       "allow for a lower multiplicity")
 
-      eigval_a => mo_set_a%eigenvalues
-      eigval_b => mo_set_b%eigenvalues
+      eigval_a => mo_array(1)%eigenvalues
+      eigval_b => mo_array(2)%eigenvalues
 
       lumo_a = 1
       lumo_b = 1
@@ -307,13 +299,13 @@ CONTAINS
       DO i = 1, nelec
          ! Threshold is needed to ensure a preference for alpha occupation in the case
          ! of degeneracy
-         threshold = MAX(mo_set_a%flexible_electron_count, mo_set_b%flexible_electron_count)
+         threshold = MAX(mo_array(1)%flexible_electron_count, mo_array(2)%flexible_electron_count)
          IF ((eigval_a(lumo_a) - threshold) < eigval_b(lumo_b)) THEN
             lumo_a = lumo_a + 1
          ELSE
             lumo_b = lumo_b + 1
          END IF
-         IF (lumo_a > mo_set_a%nmo) THEN
+         IF (lumo_a > mo_array(1)%nmo) THEN
             IF (i /= nelec) &
                CALL cp_warn(__LOCATION__, &
                             "All alpha MOs are occupied. Add more alpha MOs to "// &
@@ -323,7 +315,7 @@ CONTAINS
                lumo_b = lumo_b + 1
             END IF
          END IF
-         IF (lumo_b > mo_set_b%nmo) THEN
+         IF (lumo_b > mo_array(2)%nmo) THEN
             IF (lumo_b < lumo_a) &
                CALL cp_warn(__LOCATION__, &
                             "All beta MOs are occupied. Add more beta MOs to "// &
@@ -335,23 +327,23 @@ CONTAINS
          END IF
       END DO
 
-      mo_set_a%homo = lumo_a - 1
-      mo_set_b%homo = lumo_b - 1
+      mo_array(1)%homo = lumo_a - 1
+      mo_array(2)%homo = lumo_b - 1
 
-      IF (mo_set_b%homo > mo_set_a%homo) THEN
+      IF (mo_array(2)%homo > mo_array(1)%homo) THEN
          CALL cp_warn(__LOCATION__, &
                       "More beta ("// &
-                      TRIM(ADJUSTL(cp_to_string(mo_set_b%homo)))// &
+                      TRIM(ADJUSTL(cp_to_string(mo_array(2)%homo)))// &
                       ") than alpha ("// &
-                      TRIM(ADJUSTL(cp_to_string(mo_set_a%homo)))// &
+                      TRIM(ADJUSTL(cp_to_string(mo_array(1)%homo)))// &
                       ") MOs are occupied. Resorting to low spin state")
-         mo_set_a%homo = nelec/2 + MODULO(nelec, 2)
-         mo_set_b%homo = nelec/2
+         mo_array(1)%homo = nelec/2 + MODULO(nelec, 2)
+         mo_array(2)%homo = nelec/2
       END IF
 
-      mo_set_a%nelectron = mo_set_a%homo
-      mo_set_b%nelectron = mo_set_b%homo
-      multiplicity_new = mo_set_a%nelectron - mo_set_b%nelectron + 1
+      mo_array(1)%nelectron = mo_array(1)%homo
+      mo_array(2)%nelectron = mo_array(2)%homo
+      multiplicity_new = mo_array(1)%nelectron - mo_array(2)%nelectron + 1
 
       IF (multiplicity_new /= multiplicity_old) &
          CALL cp_warn(__LOCATION__, &
@@ -360,16 +352,16 @@ CONTAINS
                       TRIM(ADJUSTL(cp_to_string(multiplicity_new))))
 
       IF (PRESENT(eval_deriv)) THEN
-         CALL set_mo_occupation_1(mo_set_a, smear=smear, eval_deriv=eval_deriv)
-         CALL set_mo_occupation_1(mo_set_b, smear=smear, eval_deriv=eval_deriv)
+         CALL set_mo_occupation_1(mo_array(1), smear=smear, eval_deriv=eval_deriv)
+         CALL set_mo_occupation_1(mo_array(2), smear=smear, eval_deriv=eval_deriv)
       ELSE
          IF (PRESENT(tot_zeff_corr)) THEN
-            CALL set_mo_occupation_1(mo_set_a, smear=smear, tot_zeff_corr=tot_zeff_corr)
-            CALL set_mo_occupation_1(mo_set_b, smear=smear, tot_zeff_corr=tot_zeff_corr)
+            CALL set_mo_occupation_1(mo_array(1), smear=smear, tot_zeff_corr=tot_zeff_corr)
+            CALL set_mo_occupation_1(mo_array(2), smear=smear, tot_zeff_corr=tot_zeff_corr)
          ELSE
-            CALL set_mo_occupation_1(mo_set_a, smear=smear)
-            CALL set_mo_occupation_1(mo_set_b, smear=smear)
-         ENDIF
+            CALL set_mo_occupation_1(mo_array(1), smear=smear)
+            CALL set_mo_occupation_1(mo_array(2), smear=smear)
+         END IF
       END IF
 
       CALL timestop(handle)
@@ -396,14 +388,13 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_mo_occupation_1(mo_set, smear, eval_deriv, xas_env, tot_zeff_corr)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(INOUT)                   :: mo_set
       TYPE(smear_type), OPTIONAL, POINTER                :: smear
       REAL(KIND=dp), DIMENSION(:), OPTIONAL, POINTER     :: eval_deriv
       TYPE(xas_environment_type), OPTIONAL, POINTER      :: xas_env
       REAL(KIND=dp), OPTIONAL                            :: tot_zeff_corr
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_1', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'set_mo_occupation_1'
 
       INTEGER                                            :: handle, i_first, imo, ir, irmo, nmo, &
                                                             nomo, xas_estate
@@ -416,7 +407,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(mo_set))
       CPASSERT(ASSOCIATED(mo_set%eigenvalues))
       CPASSERT(ASSOCIATED(mo_set%occupation_numbers))
       mo_set%occupation_numbers(:) = 0.0_dp
@@ -431,13 +421,13 @@ CONTAINS
       occ_estate = 0.0_dp
       IF (PRESENT(xas_env)) THEN
          CALL get_xas_env(xas_env=xas_env, xas_nelectron=xas_nelectron, occ_estate=occ_estate, xas_estate=xas_estate)
-         nomo = INT(xas_nelectron + 1 - occ_estate)
-         IF (MOD(xas_nelectron + 1 - occ_estate, 1.0_dp) > EPSILON(0.0_dp)) nomo = nomo + 1
+         nomo = CEILING(xas_nelectron + 1.0 - occ_estate - EPSILON(0.0_dp))
 
          mo_set%occupation_numbers(1:nomo) = mo_set%maxocc
          IF (xas_estate > 0) mo_set%occupation_numbers(xas_estate) = occ_estate
          el_count = SUM(mo_set%occupation_numbers(1:nomo))
-        IF (el_count > xas_nelectron) mo_set%occupation_numbers(nomo) = mo_set%occupation_numbers(nomo) - (el_count - xas_nelectron)
+         IF (el_count > xas_nelectron) &
+            mo_set%occupation_numbers(nomo) = mo_set%occupation_numbers(nomo) - (el_count - xas_nelectron)
          el_count = SUM(mo_set%occupation_numbers(1:nomo))
          is_large = ABS(el_count - xas_nelectron) > xas_nelectron*EPSILON(el_count)
          CPASSERT(.NOT. is_large)
@@ -474,8 +464,8 @@ CONTAINS
                         mo_set%occupation_numbers(nomo - ir) = -delectron
                      ELSE
                         mo_set%occupation_numbers(nomo - ir) = 0.0_dp
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
                   nomo = nomo - irmo
                   IF (mo_set%occupation_numbers(nomo) == 0.0_dp) nomo = nomo - 1
                ELSEIF (delectron < 0.0_dp) THEN
@@ -483,7 +473,7 @@ CONTAINS
                ELSE
                   mo_set%occupation_numbers(nomo) = 0.0_dp
                   nomo = nomo - 1
-               ENDIF
+               END IF
             ELSEIF (total_zeff_corr > 0.0_dp) THEN
 ! add electron density to the mos
                delectron = total_zeff_corr - REAL(mo_set%maxocc, KIND=dp)
@@ -497,15 +487,15 @@ CONTAINS
                         mo_set%occupation_numbers(nomo + ir) = delectron + REAL(mo_set%maxocc, KIND=dp)
                      ELSE
                         mo_set%occupation_numbers(nomo + ir) = REAL(mo_set%maxocc, KIND=dp)
-                     ENDIF
-                  ENDDO
+                     END IF
+                  END DO
                   nomo = nomo + irmo
                ELSE
                   mo_set%occupation_numbers(nomo + 1) = total_zeff_corr
                   nomo = nomo + 1
-               ENDIF
-            ENDIF
-         ENDIF
+               END IF
+            END IF
+         END IF
       END IF
       nmo = SIZE(mo_set%eigenvalues)
 
@@ -680,7 +670,7 @@ CONTAINS
       END IF ! do smear
 
       ! zeros don't count as uniform
-      mo_set%uniform_occupation = ALL(mo_set%occupation_numbers == mo_set%maxocc)
+      mo_set%uniform_occupation = has_uniform_occupation(mo_set=mo_set)
 
       CALL timestop(handle)
 

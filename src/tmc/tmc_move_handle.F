@@ -1,11 +1,13 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright (C) 2000 - 2020  CP2K developers group                                               !
+!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!                                                                                                  !
+!   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
 
 ! **************************************************************************************************
 !> \brief acceptance ratio handling of the different Monte Carlo Moves types
-!>        For each move type and each temperature average acceptence is
+!>        For each move type and each temperature average acceptance is
 !>        determined.
 !>        For each move is a weight (mv_weight) defined, which defines the
 !>        probability to perform the move.
@@ -70,9 +72,6 @@ CONTAINS
    SUBROUTINE read_init_move_types(tmc_params, tmc_section)
       TYPE(tmc_param_type), POINTER                      :: tmc_params
       TYPE(section_vals_type), POINTER                   :: tmc_section
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'read_init_move_types', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: inp_kind_name
       INTEGER                                            :: i, i_rep, i_tmp, ind, n_items, &
@@ -158,7 +157,7 @@ CONTAINS
 
          ! get the sizes, probs, etc. for each move type and convert units
          DO i_tmp = 1, n_items + n_NMC_items
-            ! select the corect section
+            ! select the correct section
             IF (i_tmp .GT. n_items) THEN
                i_rep = i_tmp - n_items
                IF (i_rep .EQ. 1) THEN
@@ -331,8 +330,6 @@ CONTAINS
       TYPE(tmc_move_type), POINTER                       :: move_types
       INTEGER, DIMENSION(:), POINTER                     :: mol_array
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'check_moves', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: atom_j, list_i, ref_k
       LOGICAL                                            :: found
 
@@ -409,9 +406,6 @@ CONTAINS
    SUBROUTINE finalize_mv_types(tmc_params)
       TYPE(tmc_param_type), POINTER                      :: tmc_params
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'finalize_mv_types', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(tmc_params))
       CALL move_types_release(tmc_params%move_types)
       IF (ASSOCIATED(tmc_params%nmc_move_types)) &
@@ -433,9 +427,6 @@ CONTAINS
       LOGICAL                                            :: init
       INTEGER                                            :: file_io
       TYPE(tmc_param_type), POINTER                      :: tmc_params
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'print_move_types', &
-         routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=10)                                  :: c_t
       CHARACTER(LEN=50)                                  :: FMT_c, FMT_i, FMT_r
@@ -717,7 +708,7 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: acc, subbox
       LOGICAL, INTENT(IN)                                :: prob_opt
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'prob_update', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'prob_update'
 
       INTEGER                                            :: change_res, change_sb_type, change_type, &
                                                             conf_moved, handle, mv_type
@@ -827,8 +818,6 @@ CONTAINS
       INTEGER, DIMENSION(:, :), OPTIONAL                 :: mv_counter, acc_counter, subbox_counter, &
                                                             subbox_acc_counter
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'add_mv_prob', routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(move_types))
       CPASSERT(PRESENT(mv_counter) .OR. PRESENT(subbox_counter))
 
@@ -858,9 +847,6 @@ CONTAINS
    SUBROUTINE clear_move_probs(move_types)
       TYPE(tmc_move_type), POINTER                       :: move_types
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'clear_move_probs', &
-         routineP = moduleN//':'//routineN
-
       CPASSERT(ASSOCIATED(move_types))
 
       move_types%acc_prob(:, :) = 0.5_dp
@@ -884,8 +870,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: rnd
       INTEGER                                            :: mv_type
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'select_random_move_type', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'select_random_move_type'
 
       INTEGER                                            :: handle, i
       REAL(KIND=dp)                                      :: rnd_mv, total_moves
