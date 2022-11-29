@@ -18,7 +18,6 @@ MODULE preconditioner_apply
                                               cp_fm_get_info,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE dbcsr_api,                       ONLY: &
         dbcsr_copy, dbcsr_iterator_blocks_left, dbcsr_iterator_next_block, dbcsr_iterator_start, &
         dbcsr_iterator_stop, dbcsr_iterator_type, dbcsr_multiply, dbcsr_release, dbcsr_type
@@ -31,6 +30,7 @@ MODULE preconditioner_apply
                                               ot_precond_solver_inv_chol,&
                                               ot_precond_solver_update
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE preconditioner_types,            ONLY: preconditioner_type
 #include "./base/base_uses.f90"
 
@@ -52,7 +52,7 @@ CONTAINS
    SUBROUTINE apply_preconditioner_fm(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
       CHARACTER(len=*), PARAMETER :: routineN = 'apply_preconditioner_fm'
 
@@ -135,7 +135,7 @@ CONTAINS
    SUBROUTINE apply_full_single(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_single'
 
@@ -144,8 +144,8 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       CALL cp_fm_get_info(matrix_in, nrow_global=n, ncol_global=k)
-      CALL cp_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_in, 0.0_dp, matrix_out)
+      CALL parallel_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_in, 0.0_dp, matrix_out)
       CALL timestop(handle)
 
    END SUBROUTINE apply_full_single
@@ -186,12 +186,12 @@ CONTAINS
    SUBROUTINE apply_full_direct(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_direct'
 
       INTEGER                                            :: handle, k, n
-      TYPE(cp_fm_type), POINTER                          :: work
+      TYPE(cp_fm_type)                                   :: work
 
       CALL timeset(routineN, handle)
 
@@ -217,7 +217,7 @@ CONTAINS
    SUBROUTINE apply_full_all(preconditioner_env, matrix_in, matrix_out)
 
       TYPE(preconditioner_type)                          :: preconditioner_env
-      TYPE(cp_fm_type), POINTER                          :: matrix_in, matrix_out
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_in, matrix_out
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'apply_full_all'
 
@@ -225,8 +225,9 @@ CONTAINS
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: dum
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
-      TYPE(cp_fm_type), POINTER                          :: matrix_tmp
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
+      TYPE(cp_fm_type)                                   :: matrix_tmp
 
       CALL timeset(routineN, handle)
 
@@ -237,8 +238,8 @@ CONTAINS
                           row_indices=row_indices, col_indices=col_indices, local_data=local_data)
 
       !
-      CALL cp_gemm('T', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_in, 0.0_dp, matrix_tmp)
+      CALL parallel_gemm('T', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_in, 0.0_dp, matrix_tmp)
 
       ! do the right scaling
       DO j = 1, ncol_local
@@ -250,8 +251,8 @@ CONTAINS
       END DO
 
       ! mult back
-      CALL cp_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
-                   matrix_tmp, 0.0_dp, matrix_out)
+      CALL parallel_gemm('N', 'N', n, k, n, 1.0_dp, preconditioner_env%fm, &
+                         matrix_tmp, 0.0_dp, matrix_out)
 
       CALL cp_fm_release(matrix_tmp)
 

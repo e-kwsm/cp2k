@@ -294,9 +294,6 @@ CONTAINS
 
       TYPE(section_type), POINTER                        :: section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'create_dcdr_section', &
-         routineP = moduleN//':'//routineN
-
       LOGICAL                                            :: failure
       TYPE(keyword_type), POINTER                        :: keyword
       TYPE(section_type), POINTER                        :: print_key, subsection
@@ -1386,6 +1383,14 @@ CONTAINS
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
+      CALL keyword_create(keyword, __LOCATION__, name="ADMM_KERNEL_XC_CORRECTION", &
+                          description="Use/Ignore ADMM correction xc functional for TD kernel."// &
+                          "XC correction functional is defined in ground state XC section.", &
+                          n_var=1, type_of_var=logical_t, &
+                          default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
       CALL keyword_create(keyword, __LOCATION__, name="ADMM_KERNEL_CORRECTION_SYMMETRIC", &
                           description="ADMM correction functional in kernel is applied symmetrically."// &
                           "Original implementation is using a non-symmetric formula.", &
@@ -1598,6 +1603,27 @@ CONTAINS
       CALL section_add_subsection(subsection, print_key)
       CALL section_release(print_key)
 
+      CALL cp_print_key_section_create(print_key, __LOCATION__, name="FORCES", &
+                                       description="Controls the calculation and printing of excited state forces."// &
+                                       "Prints difference in forces between excited state and ground state!", &
+                                       print_level=debug_print_level, filename="TDFORCE")
+      CALL keyword_create(keyword, __LOCATION__, name="LIST", &
+                          description="Specifies a list of states for the force calculations.", &
+                          usage="LIST {integer} {integer} .. {integer}", repeats=.TRUE., &
+                          n_var=-1, type_of_var=integer_t)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL keyword_create(keyword, __LOCATION__, name="THRESHOLD", &
+                          description="Threshold for oszillator strength to screen states.", &
+                          usage="Threshold 0.01", &
+                          n_var=1, &
+                          type_of_var=real_t, &
+                          default_r_val=0.0_dp)
+      CALL section_add_keyword(print_key, keyword)
+      CALL keyword_release(keyword)
+      CALL section_add_subsection(subsection, print_key)
+      CALL section_release(print_key)
+
       CALL section_add_subsection(section, subsection)
       CALL section_release(subsection)
 
@@ -1642,21 +1668,33 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="EPS_TD_FILTER", &
                           description="Threshold for filtering the transition density matrix", &
-                          usage="EPS_TD_FILTER", default_r_val=1.e-10_dp)
+                          usage="EPS_TD_FILTER epsf", default_r_val=1.e-10_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="MATAGA_NISHIMOTO_CEXP", &
                           description="Exponent used in Mataga-Nishimoto formula for Coulomb (alpha). "// &
                           "Default value is method dependent!", &
-                          usage="MATAGA_NISHIMOTO_CEXP", default_r_val=-99.0_dp)
+                          usage="MATAGA_NISHIMOTO_CEXP cexp", default_r_val=-99.0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="MATAGA_NISHIMOTO_XEXP", &
                           description="Exponent used in Mataga-Nishimoto formula for Exchange (beta). "// &
                           "Default value is method dependent!", &
-                          usage="MATAGA_NISHIMOTO_XEXP", default_r_val=-99.0_dp)
+                          usage="MATAGA_NISHIMOTO_XEXP xexp", default_r_val=-99.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_CUT", &
+                          description="Maximum range of short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_CUT rcut", default_r_val=20.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="COULOMB_SR_EPS", &
+                          description="Threshold for short range part of Coulomb interaction.", &
+                          usage="COULOMB_SR_EPS sreps", default_r_val=1.e-03_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

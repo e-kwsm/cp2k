@@ -21,7 +21,6 @@ typedef struct {
   int row;
   int col;
   int offset;
-  float norm;
 } dbm_block_t;
 
 /*******************************************************************************
@@ -33,8 +32,10 @@ typedef struct {
   int nblocks_allocated;
   dbm_block_t *blocks;
 
-  int hashtable_size;
-  int *hashtable; // maps row/col to block numbers
+  int hashtable_size;  // should be a power of two
+  int hashtable_mask;  // should be hashtable_size - 1, ie. a bit-mask
+  int hashtable_prime; // should be a coprime of hashtable_size
+  int *hashtable;      // maps row/col to block numbers
 
   int data_promised;  // referenced by a dbm_block_t.offset, but not yet
                       // allocated
@@ -50,6 +51,12 @@ typedef struct {
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_shard_init(dbm_shard_t *shard);
+
+/*******************************************************************************
+ * \brief Internal routine for copying content of shard_b into shard_a.
+ * \author Ole Schuett
+ ******************************************************************************/
+void dbm_shard_copy(dbm_shard_t *shard_a, const dbm_shard_t *shard_b);
 
 /*******************************************************************************
  * \brief Internal routine for releasing a shard.

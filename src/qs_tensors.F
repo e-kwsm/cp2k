@@ -9,6 +9,8 @@
 !> \brief Utility methods to build 3-center integral tensors of various types.
 ! **************************************************************************************************
 MODULE qs_tensors
+   USE OMP_LIB,                         ONLY: omp_get_num_threads,&
+                                              omp_get_thread_num
    USE ai_contraction,                  ONLY: block_add
    USE ai_contraction_sphi,             ONLY: ab_contract,&
                                               libxsmm_abc_contract
@@ -35,7 +37,8 @@ MODULE qs_tensors
    USE dbt_api,                         ONLY: &
         dbt_blk_sizes, dbt_clear, dbt_copy, dbt_create, dbt_destroy, dbt_filter, dbt_get_block, &
         dbt_get_info, dbt_get_num_blocks, dbt_get_nze_total, dbt_get_stored_coordinates, &
-        dbt_ndims, dbt_put_block, dbt_reserve_blocks, dbt_reserved_block_indices, dbt_type
+        dbt_iterator_next_block, dbt_iterator_num_blocks, dbt_iterator_start, dbt_iterator_stop, &
+        dbt_iterator_type, dbt_ndims, dbt_put_block, dbt_reserve_blocks, dbt_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
    USE distribution_2d_types,           ONLY: distribution_2d_type
    USE gamma,                           ONLY: init_md_ftable
@@ -623,10 +626,11 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'alloc_block_3c'
 
-      INTEGER                                            :: handle, i, i_img, iatom, ikind, iproc, &
-                                                            j_img, jatom, jcell, jkind, katom, &
-                                                            kcell, kkind, natom, nimg, op_ij, &
-                                                            op_jk, op_pos_prv
+      INTEGER                                            :: handle, i_img, iatom, ikind, j_img, &
+                                                            jatom, jcell, jkind, katom, kcell, &
+                                                            kkind, natom, nimg, op_ij, op_jk, &
+                                                            op_pos_prv
+      INTEGER(int_8)                                     :: a, b, nblk_per_thread
       INTEGER(int_8), ALLOCATABLE, DIMENSION(:, :)       :: nblk
       INTEGER, DIMENSION(3)                              :: cell_j, cell_k, kp_index_lbounds, &
                                                             kp_index_ubounds
@@ -806,24 +810,23 @@ CONTAINS
       END DO
       CALL neighbor_list_3c_iterator_destroy(nl_3c_iter)
 
+!TODO: Parallelize creation of block list.
+!$OMP PARALLEL DEFAULT(NONE) SHARED(t3c,nimg,nblk,alloc_i,alloc_j,alloc_k) &
+!$OMP PRIVATE(i_img,j_img,nblk_per_thread,A,b)
       DO j_img = 1, nimg
          DO i_img = 1, nimg
             IF (ALLOCATED(alloc_i(i_img, j_img)%array)) THEN
-               DO i = 1, SIZE(alloc_i(i_img, j_img)%array)
-                  CALL dbt_get_stored_coordinates(t3c(i_img, j_img), &
-                                                  [alloc_i(i_img, j_img)%array(i), alloc_j(i_img, j_img)%array(i), &
-                                                   alloc_k(i_img, j_img)%array(i)], &
-                                                  iproc)
-                  CPASSERT(iproc .EQ. para_env%mepos)
-               END DO
-
+               nblk_per_thread = nblk(i_img, j_img)/omp_get_num_threads() + 1
+               a = omp_get_thread_num()*nblk_per_thread + 1
+               b = MIN(a + nblk_per_thread, nblk(i_img, j_img))
                CALL dbt_reserve_blocks(t3c(i_img, j_img), &
-                                       alloc_i(i_img, j_img)%array, &
-                                       alloc_j(i_img, j_img)%array, &
-                                       alloc_k(i_img, j_img)%array)
+                                       alloc_i(i_img, j_img)%array(a:b), &
+                                       alloc_j(i_img, j_img)%array(a:b), &
+                                       alloc_k(i_img, j_img)%array(a:b))
             END IF
          END DO
       END DO
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 
@@ -2532,8 +2535,9 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'build_2c_integrals'
 
-      INTEGER :: handle, iatom, ibasis, icol, ikind, imax, img, irow, iset, jatom, jkind, jset, &
-         m_max, maxli, maxlj, natom, ncoi, ncoj, nimg, nseti, nsetj, op_prv, sgfi, sgfj, unit_id
+      INTEGER :: handle, i_diag, iatom, ibasis, icol, ikind, imax, img, irow, iset, jatom, jkind, &
+         jset, m_max, maxli, maxlj, natom, ncoi, ncoj, nimg, nseti, nsetj, op_prv, sgfi, sgfj, &
+         unit_id
       INTEGER, DIMENSION(3)                              :: cell
       INTEGER, DIMENSION(:), POINTER                     :: lmax_i, lmax_j, lmin_i, lmin_j, npgfi, &
                                                             npgfj, nsgfi, nsgfj
@@ -2541,7 +2545,7 @@ CONTAINS
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       LOGICAL                                            :: do_kpoints_prv, do_symmetric, found, &
                                                             trans
-      REAL(KIND=dp)                                      :: dab
+      REAL(KIND=dp)                                      :: dab, regularization_RI
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: sij, sij_contr, sij_rs
       REAL(KIND=dp), DIMENSION(3)                        :: ri, rij, rj
       REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_i, set_radius_j
@@ -2576,6 +2580,7 @@ CONTAINS
       IF (do_kpoints_prv) THEN
          nimg = dft_control%nimages
          CALL get_kpoint_info(kpoints, cell_to_index=cell_to_index)
+         regularization_RI = qs_env%mp2_env%ri_rpa_im_time%regularization_RI
       ELSE
          nimg = 1
       END IF
@@ -2711,6 +2716,15 @@ CONTAINS
 
                   DEALLOCATE (sij_contr)
 
+                  ! RI regularization
+                  IF (do_kpoints_prv .AND. cell(1) == 0 .AND. cell(2) == 0 .AND. cell(3) == 0 .AND. &
+                      iatom == jatom .AND. iset == jset) THEN
+                     DO i_diag = 1, nsgfi(iset)
+                        sij_rs(i_diag, i_diag) = sij_rs(i_diag, i_diag) + &
+                                                 regularization_RI*MAX(1.0_dp, 1.0_dp/MINVAL(zeti(:, iset)))
+                     END DO
+                  END IF
+
                   CALL block_add("IN", sij_rs, &
                                  nsgfi(iset), nsgfj(jset), block_t%block, &
                                  sgfi, sgfj, trans=trans)
@@ -2750,7 +2764,8 @@ CONTAINS
       REAL(dp), INTENT(INOUT)                            :: memory
 
       INTEGER                                            :: buffer_left, buffer_size, buffer_start, &
-                                                            i, memory_usage, nbits, nints
+                                                            i, iblk, memory_usage, nbits, nblk, &
+                                                            nints, offset, shared_offset
       INTEGER(int_8)                                     :: estimate_to_store_int, &
                                                             storage_counter_integrals
       INTEGER, DIMENSION(3)                              :: ind
@@ -2758,6 +2773,7 @@ CONTAINS
       REAL(dp)                                           :: spherical_estimate
       REAL(dp), ALLOCATABLE, DIMENSION(:, :, :), TARGET  :: blk_data
       REAL(dp), DIMENSION(:), POINTER                    :: blk_data_1d
+      TYPE(dbt_iterator_type)                            :: iter
       TYPE(hfx_cache_type), DIMENSION(:), POINTER        :: integral_caches
       TYPE(hfx_cache_type), POINTER                      :: maxval_cache
       TYPE(hfx_container_type), DIMENSION(:), POINTER    :: integral_containers
@@ -2779,7 +2795,21 @@ CONTAINS
 
       IF (ALLOCATED(blk_indices)) DEALLOCATE (blk_indices)
       ALLOCATE (blk_indices(dbt_get_num_blocks(tensor), 3))
-      CALL dbt_reserved_block_indices(tensor, blk_indices)
+      shared_offset = 0
+!$OMP PARALLEL DEFAULT(NONE) SHARED(tensor,blk_indices,shared_offset) &
+!$OMP PRIVATE(iter,ind,offset,nblk,iblk)
+      CALL dbt_iterator_start(iter, tensor)
+      nblk = dbt_iterator_num_blocks(iter)
+!$OMP CRITICAL
+      offset = shared_offset
+      shared_offset = shared_offset + nblk
+!$OMP END CRITICAL
+      DO iblk = 1, nblk
+         CALL dbt_iterator_next_block(iter, ind)
+         blk_indices(offset + iblk, :) = ind(:)
+      END DO
+      CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       ! Can not use the tensor iterator here because the order of the blocks is not guaranteed.
       DO i = 1, SIZE(blk_indices, 1)
@@ -2860,8 +2890,9 @@ CONTAINS
       TYPE(hfx_compression_type), INTENT(INOUT)          :: compressed
       REAL(dp), INTENT(IN)                               :: eps
 
-      INTEGER                                            :: buffer_left, buffer_size, buffer_start, &
-                                                            i, memory_usage, nbits, nints
+      INTEGER                                            :: A, b, buffer_left, buffer_size, &
+                                                            buffer_start, i, memory_usage, nbits, &
+                                                            nblk_per_thread, nints
       INTEGER(int_8)                                     :: estimate_to_store_int
       INTEGER, DIMENSION(3)                              :: blk_size, ind
       REAL(dp)                                           :: spherical_estimate
@@ -2886,7 +2917,13 @@ CONTAINS
                                          memory_usage, .FALSE.)
       END DO
 
-      CALL dbt_reserve_blocks(tensor, blk_indices)
+!TODO: Parallelize creation of block list.
+!$OMP PARALLEL DEFAULT(NONE) SHARED(tensor,blk_indices) PRIVATE(nblk_per_thread,A,b)
+      nblk_per_thread = SIZE(blk_indices, 1)/omp_get_num_threads() + 1
+      a = omp_get_thread_num()*nblk_per_thread + 1
+      b = MIN(a + nblk_per_thread, SIZE(blk_indices, 1))
+      CALL dbt_reserve_blocks(tensor, blk_indices(a:b, :))
+!$OMP END PARALLEL
 
       ! Can not use the tensor iterator here because the order of the blocks is not guaranteed.
       DO i = 1, SIZE(blk_indices, 1)

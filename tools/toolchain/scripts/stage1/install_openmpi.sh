@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-openmpi_ver="4.1.1"
-openmpi_sha256="d80b9219e80ea1f8bcfe5ad921bd9014285c4948c5965f4156a3831e60776444"
+openmpi_ver="4.1.4"
+openmpi_sha256="e166dbe876e13a50c2882e11193fecbc4362e89e6e7b6deeb69bf095c0f4fc4c"
 openmpi_pkg="openmpi-${openmpi_ver}.tar.gz"
 
 source "${SCRIPT_DIR}"/common_vars.sh
@@ -39,8 +36,7 @@ case "${with_openmpi}" in
       if [ -f ${openmpi_pkg} ]; then
         echo "${openmpi_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${openmpi_sha256} \
-          "https://www.cp2k.org/static/downloads/${openmpi_pkg}"
+        download_pkg_from_cp2k_org "${openmpi_sha256}" "${openmpi_pkg}"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       [ -d openmpi-${openmpi_ver} ] && rm -rf openmpi-${openmpi_ver}
@@ -84,7 +80,7 @@ case "${with_openmpi}" in
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
     OPENMPI_CFLAGS="-I'${pkg_install_dir}/include'"
-    OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding OpenMPI from system paths ===================="
@@ -115,7 +111,7 @@ case "${with_openmpi}" in
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
     OPENMPI_CFLAGS="-I'${pkg_install_dir}/include'"
-    OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "${with_openmpi}" != "__DONTUSE__" ]; then

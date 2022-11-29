@@ -15,25 +15,44 @@
 !> \author MI
 ! **************************************************************************************************
 MODULE hfx_admm_utils
-   USE admm_dm_types,                   ONLY: admm_dm_create,&
-                                              admm_dm_type
+   USE admm_dm_types,                   ONLY: admm_dm_create
    USE admm_methods,                    ONLY: scale_dm
    USE admm_types,                      ONLY: admm_env_create,&
                                               admm_gapw_type,&
-                                              admm_type
+                                              admm_type,&
+                                              get_admm_env
    USE atomic_kind_types,               ONLY: atomic_kind_type
    USE basis_set_container_types,       ONLY: add_basis_set_to_container
    USE basis_set_types,                 ONLY: copy_gto_basis_set,&
+                                              get_gto_basis_set,&
                                               gto_basis_set_type
+   USE cell_types,                      ONLY: cell_type
+   USE cp_blacs_env,                    ONLY: cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type
+   USE cp_dbcsr_operations,             ONLY: cp_dbcsr_m_by_n_from_row_template,&
+                                              dbcsr_allocate_matrix_set,&
+                                              dbcsr_deallocate_matrix_set
+   USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
+                                              cp_fm_struct_release,&
+                                              cp_fm_struct_type
+   USE cp_fm_types,                     ONLY: cp_fm_create,&
+                                              cp_fm_get_info,&
+                                              cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
-                                              cp_logger_type
+                                              cp_logger_type,&
+                                              cp_to_string
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_add,&
                                               dbcsr_copy,&
+                                              dbcsr_create,&
+                                              dbcsr_init_p,&
                                               dbcsr_p_type,&
-                                              dbcsr_set
+                                              dbcsr_set,&
+                                              dbcsr_type,&
+                                              dbcsr_type_no_symmetry
+   USE distribution_1d_types,           ONLY: distribution_1d_type
+   USE distribution_2d_types,           ONLY: distribution_2d_type
    USE external_potential_types,        ONLY: copy_potential
    USE hfx_derivatives,                 ONLY: derivatives_four_center
    USE hfx_energy_potential,            ONLY: integrate_four_center
@@ -45,8 +64,8 @@ MODULE hfx_admm_utils
         do_admm_aux_exch_func_bee, do_admm_aux_exch_func_bee_libxc, do_admm_aux_exch_func_default, &
         do_admm_aux_exch_func_default_libxc, do_admm_aux_exch_func_none, &
         do_admm_aux_exch_func_opt, do_admm_aux_exch_func_opt_libxc, do_admm_aux_exch_func_pbex, &
-        do_admm_aux_exch_func_pbex_libxc, do_potential_coulomb, do_potential_long, &
-        do_potential_mix_cl, do_potential_mix_cl_trunc, do_potential_short, &
+        do_admm_aux_exch_func_pbex_libxc, do_admm_aux_exch_func_sx_libxc, do_potential_coulomb, &
+        do_potential_long, do_potential_mix_cl, do_potential_mix_cl_trunc, do_potential_short, &
         do_potential_truncated, xc_funct_no_shortcut, xc_none
    USE input_section_types,             ONLY: section_vals_duplicate,&
                                               section_vals_get,&
@@ -57,29 +76,53 @@ MODULE hfx_admm_utils
                                               section_vals_val_get,&
                                               section_vals_val_set
    USE kinds,                           ONLY: dp
+   USE kpoint_types,                    ONLY: kpoint_type
+   USE molecule_types,                  ONLY: molecule_type
    USE particle_types,                  ONLY: particle_type
+   USE paw_proj_set_types,              ONLY: get_paw_proj_set,&
+                                              paw_proj_set_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
    USE pw_poisson_types,                ONLY: pw_poisson_type
    USE pw_pool_types,                   ONLY: pw_pool_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type,&
                                               set_qs_env
    USE qs_interactions,                 ONLY: init_interaction_radii
    USE qs_kind_types,                   ONLY: get_qs_kind,&
+                                              get_qs_kind_set,&
                                               init_gapw_basis_set,&
                                               init_gapw_nlcc,&
                                               qs_kind_type
-   USE qs_ks_types,                     ONLY: qs_ks_env_type,&
-                                              set_ks_env
+   USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_local_rho_types,              ONLY: local_rho_set_create
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: allocate_mo_set,&
+                                              get_mo_set,&
+                                              init_mo_set,&
+                                              mo_set_type
+   USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type,&
+                                              release_neighbor_list_sets
+   USE qs_neighbor_lists,               ONLY: atom2d_build,&
+                                              atom2d_cleanup,&
+                                              build_neighbor_lists,&
+                                              local_atoms_type,&
+                                              pair_radius_setup,&
+                                              write_neighbor_lists
+   USE qs_oce_methods,                  ONLY: build_oce_matrices
+   USE qs_oce_types,                    ONLY: allocate_oce_set,&
+                                              create_oce_set
+   USE qs_overlap,                      ONLY: build_overlap_matrix
    USE qs_rho_atom_methods,             ONLY: init_rho_atom
-   USE qs_rho_types,                    ONLY: qs_rho_get,&
+   USE qs_rho_methods,                  ONLY: qs_rho_rebuild
+   USE qs_rho_types,                    ONLY: qs_rho_create,&
+                                              qs_rho_get,&
                                               qs_rho_type
    USE rt_propagation_types,            ONLY: rt_prop_type
+   USE task_list_methods,               ONLY: generate_qs_task_list
+   USE task_list_types,                 ONLY: allocate_task_list,&
+                                              deallocate_task_list
    USE virial_types,                    ONLY: virial_type
    USE xc_adiabatic_utils,              ONLY: rescale_xc_potential
 #include "./base/base_uses.f90"
@@ -98,65 +141,47 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 !> \param qs_env ...
-!> \param do_mp2_hfx ...
 ! **************************************************************************************************
-   SUBROUTINE hfx_admm_init(qs_env, do_mp2_hfx)
+   SUBROUTINE hfx_admm_init(qs_env)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      LOGICAL, INTENT(in), OPTIONAL                      :: do_mp2_hfx
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_admm_init'
 
-      INTEGER                                            :: handle, n_rep_hf, natoms, nspins
-      LOGICAL                                            :: do_hfx, my_do_mp2_hfx, s_mstruct_changed
-      TYPE(admm_dm_type), POINTER                        :: admm_dm
+      INTEGER                                            :: handle, ispin, n_rep_hf, nao_aux_fit, &
+                                                            natoms, nelectron, nmo
+      LOGICAL                                            :: s_mstruct_changed
+      REAL(dp)                                           :: maxocc
       TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
+      TYPE(cp_fm_struct_type), POINTER                   :: aux_fit_fm_struct
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff_aux_fit
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s_aux_fit, matrix_s_aux_fit_vs_orb
+      TYPE(dbcsr_type), POINTER                          :: mo_coeff_b
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_aux_fit
-      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_aux_fit
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
-      TYPE(qs_rho_type), POINTER                         :: rho, rho_aux_fit
+      TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(section_vals_type), POINTER                   :: hfx_sections, input, xc_section
 
-      my_do_mp2_hfx = .FALSE.
-      IF (PRESENT(do_mp2_hfx)) my_do_mp2_hfx = do_mp2_hfx
-
       CALL timeset(routineN, handle)
-      NULLIFY (admm_env, admm_dm, hfx_sections, mos, mos_aux_fit, para_env, &
-               particle_set, xc_section, matrix_s_aux_fit, &
-               matrix_s_aux_fit_vs_orb, rho, rho_aux_fit, ks_env, dft_control, &
-               input)
+      NULLIFY (admm_env, hfx_sections, mos, mos_aux_fit, para_env, &
+               mo_coeff_aux_fit, xc_section, rho, ks_env, dft_control, input, &
+               qs_kind_set, mo_coeff_b, aux_fit_fm_struct, blacs_env)
 
       CALL get_qs_env(qs_env, &
-                      mos_aux_fit=mos_aux_fit, &
                       mos=mos, &
                       admm_env=admm_env, &
-                      admm_dm=admm_dm, &
-                      matrix_s_aux_fit=matrix_s_aux_fit, &
-                      matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb, &
                       para_env=para_env, &
+                      blacs_env=blacs_env, &
                       s_mstruct_changed=s_mstruct_changed, &
                       rho=rho, &
-                      rho_aux_fit=rho_aux_fit, &
                       ks_env=ks_env, &
                       dft_control=dft_control, &
                       input=input)
 
-      nspins = dft_control%nspins
-
-      IF (my_do_mp2_hfx) THEN
-         hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%WF_CORRELATION%RI_RPA%HF")
-      ELSE
-         hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%HF")
-      END IF
-
-      CALL section_vals_get(hfx_sections, explicit=do_hfx)
-
-      !! ** ADMM can only be used with HFX
-      IF (.NOT. do_hfx) &
-         CPABORT("Wavefunction fitting requested without Hartree-Fock.")
+      hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%HF")
 
       CALL section_vals_get(hfx_sections, n_repetition=n_rep_hf)
       IF (n_rep_hf > 1) &
@@ -164,19 +189,79 @@ CONTAINS
 
       IF (.NOT. ASSOCIATED(admm_env)) THEN
          ! setup admm environment
-         CALL get_qs_env(qs_env, input=input, particle_set=particle_set)
-         natoms = SIZE(particle_set, 1)
-         CALL admm_env_create(admm_env, dft_control%admm_control, mos, mos_aux_fit, &
-                              para_env, natoms)
+         CALL get_qs_env(qs_env, input=input, natom=natoms, qs_kind_set=qs_kind_set)
+         CALL get_qs_kind_set(qs_kind_set, nsgf=nao_aux_fit, basis_type="AUX_FIT")
+         CALL admm_env_create(admm_env, dft_control%admm_control, mos, para_env, natoms, nao_aux_fit)
          CALL set_qs_env(qs_env, admm_env=admm_env)
          xc_section => section_vals_get_subs_vals(input, "DFT%XC")
-         CALL create_admm_xc_section(qs_env=qs_env, xc_section=xc_section, &
+         CALL create_admm_xc_section(x_data=qs_env%x_data, xc_section=xc_section, &
                                      admm_env=admm_env)
 
          ! Initialize the GAPW data types
          IF (dft_control%qs_control%gapw .OR. dft_control%qs_control%gapw_xc) &
             CALL init_admm_gapw(qs_env)
 
+         ! ADMM neighbor lists and overlap matrices
+         CALL admm_init_hamiltonians(admm_env, qs_env)
+
+         !The aux_fit task list and densities
+         ALLOCATE (admm_env%rho_aux_fit)
+         CALL qs_rho_create(admm_env%rho_aux_fit)
+         ALLOCATE (admm_env%rho_aux_fit_buffer)
+         CALL qs_rho_create(admm_env%rho_aux_fit_buffer)
+         CALL admm_update_s_mstruct(admm_env, qs_env)
+         IF (admm_env%do_gapw) CALL update_admm_gapw(qs_env)
+
+         !The ADMM KS matrices
+         CALL admm_alloc_ks_matrices(admm_env, qs_env)
+
+         !The aux_fit MOs and derivatives
+         ALLOCATE (mos_aux_fit(dft_control%nspins))
+         DO ispin = 1, dft_control%nspins
+            CALL get_mo_set(mo_set=mos(ispin), nmo=nmo, nelectron=nelectron, maxocc=maxocc)
+            CALL allocate_mo_set(mo_set=mos_aux_fit(ispin), &
+                                 nao=nao_aux_fit, &
+                                 nmo=nmo, &
+                                 nelectron=nelectron, &
+                                 n_el_f=REAL(nelectron, dp), &
+                                 maxocc=maxocc, &
+                                 flexible_electron_count=dft_control%relax_multiplicity)
+         END DO
+         admm_env%mos_aux_fit => mos_aux_fit
+
+         DO ispin = 1, dft_control%nspins
+            CALL get_mo_set(mo_set=mos(ispin), nmo=nmo)
+            CALL cp_fm_struct_create(aux_fit_fm_struct, context=blacs_env, para_env=para_env, &
+                                     nrow_global=nao_aux_fit, ncol_global=nmo)
+            CALL get_mo_set(mos_aux_fit(ispin), mo_coeff=mo_coeff_aux_fit, mo_coeff_b=mo_coeff_b)
+            IF (.NOT. ASSOCIATED(mo_coeff_aux_fit)) THEN
+               CALL init_mo_set(mos_aux_fit(ispin), fm_struct=aux_fit_fm_struct, &
+                                name="qs_env%mo_aux_fit"//TRIM(ADJUSTL(cp_to_string(ispin))))
+            END IF
+            CALL cp_fm_struct_release(aux_fit_fm_struct)
+
+            IF (.NOT. ASSOCIATED(mo_coeff_b)) THEN
+               CALL cp_fm_get_info(mos_aux_fit(ispin)%mo_coeff, ncol_global=nmo)
+               CALL dbcsr_init_p(mos_aux_fit(ispin)%mo_coeff_b)
+               CALL cp_dbcsr_m_by_n_from_row_template(mos_aux_fit(ispin)%mo_coeff_b, &
+                                                      template=admm_env%matrix_s_aux_fit(1)%matrix, &
+                                                      n=nmo, sym=dbcsr_type_no_symmetry)
+            END IF
+         END DO
+
+         IF (qs_env%requires_mo_derivs) THEN
+            ALLOCATE (admm_env%mo_derivs_aux_fit(dft_control%nspins))
+            DO ispin = 1, dft_control%nspins
+               CALL get_mo_set(admm_env%mos_aux_fit(ispin), mo_coeff=mo_coeff_aux_fit)
+               CALL cp_fm_create(admm_env%mo_derivs_aux_fit(ispin), mo_coeff_aux_fit%matrix_struct)
+            END DO
+         END IF
+
+      ELSE IF (s_mstruct_changed) THEN
+         CALL admm_init_hamiltonians(admm_env, qs_env)
+         CALL admm_update_s_mstruct(admm_env, qs_env)
+         CALL admm_alloc_ks_matrices(admm_env, qs_env)
+         IF (admm_env%do_gapw) CALL update_admm_gapw(qs_env)
       END IF
 
       IF (admm_env%do_gapw .AND. dft_control%do_admm_dm) THEN
@@ -187,9 +272,8 @@ CONTAINS
          CPABORT("GAPW ADMM not implemented for real-time propagation.")
       END IF
 
-      IF (dft_control%do_admm_dm .AND. .NOT. ASSOCIATED(admm_dm)) THEN
-         CALL admm_dm_create(admm_dm, dft_control%admm_control, nspins=nspins, natoms=natoms)
-         CALL set_ks_env(ks_env, admm_dm=admm_dm)
+      IF (dft_control%do_admm_dm .AND. .NOT. ASSOCIATED(admm_env%admm_dm)) THEN
+         CALL admm_dm_create(admm_env%admm_dm, dft_control%admm_control, nspins=dft_control%nspins, natoms=natoms)
       END IF
 
       CALL timestop(handle)
@@ -292,6 +376,330 @@ CONTAINS
    END SUBROUTINE init_admm_gapw
 
 ! **************************************************************************************************
+!> \brief Builds the ADMM nmeighbor lists and overlap matrix on the model of qs_energies_init_hamiltonians()
+!> \param admm_env ...
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE admm_init_hamiltonians(admm_env, qs_env)
+
+      TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'admm_init_hamiltonians'
+
+      INTEGER                                            :: handle, ikind, nkind
+      LOGICAL                                            :: mic, molecule_only
+      LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: aux_fit_present, orb_present
+      REAL(dp)                                           :: subcells
+      REAL(dp), ALLOCATABLE, DIMENSION(:)                :: aux_fit_radius, orb_radius
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: pair_radius
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(distribution_1d_type), POINTER                :: distribution_1d
+      TYPE(distribution_2d_type), POINTER                :: distribution_2d
+      TYPE(gto_basis_set_type), POINTER                  :: aux_fit_basis_set, orb_basis_set
+      TYPE(kpoint_type), POINTER                         :: kpoints
+      TYPE(local_atoms_type), ALLOCATABLE, DIMENSION(:)  :: atom2d
+      TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+      TYPE(section_vals_type), POINTER                   :: neighbor_list_section
+
+      NULLIFY (particle_set, cell, kpoints, distribution_1d, distribution_2d, molecule_set, &
+               atomic_kind_set, dft_control, neighbor_list_section, aux_fit_basis_set, orb_basis_set, &
+               ks_env, para_env, qs_kind_set)
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(qs_env, nkind=nkind, particle_set=particle_set, cell=cell, kpoints=kpoints, &
+                      local_particles=distribution_1d, distribution_2d=distribution_2d, &
+                      molecule_set=molecule_set, atomic_kind_set=atomic_kind_set, &
+                      dft_control=dft_control, para_env=para_env, qs_kind_set=qs_kind_set)
+      ALLOCATE (orb_present(nkind), aux_fit_present(nkind))
+      ALLOCATE (orb_radius(nkind), aux_fit_radius(nkind), pair_radius(nkind, nkind))
+      aux_fit_radius(:) = 0.0_dp
+
+      molecule_only = .FALSE.
+      IF (dft_control%qs_control%do_kg) molecule_only = .TRUE.
+      mic = molecule_only
+      IF (kpoints%nkp > 0) THEN
+         mic = .FALSE.
+      ELSEIF (dft_control%qs_control%semi_empirical) THEN
+         mic = .TRUE.
+      END IF
+
+      CALL section_vals_val_get(qs_env%input, "DFT%SUBCELLS", r_val=subcells)
+      neighbor_list_section => section_vals_get_subs_vals(qs_env%input, "DFT%PRINT%NEIGHBOR_LISTS")
+
+      ALLOCATE (atom2d(nkind))
+      CALL atom2d_build(atom2d, distribution_1d, distribution_2d, atomic_kind_set, &
+                        molecule_set, molecule_only, particle_set=particle_set)
+
+      DO ikind = 1, nkind
+         CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, basis_type="ORB")
+         IF (ASSOCIATED(orb_basis_set)) THEN
+            orb_present(ikind) = .TRUE.
+            CALL get_gto_basis_set(gto_basis_set=orb_basis_set, kind_radius=orb_radius(ikind))
+         ELSE
+            orb_present(ikind) = .FALSE.
+         END IF
+
+         CALL get_qs_kind(qs_kind_set(ikind), basis_set=aux_fit_basis_set, basis_type="AUX_FIT")
+         IF (ASSOCIATED(aux_fit_basis_set)) THEN
+            aux_fit_present(ikind) = .TRUE.
+            CALL get_gto_basis_set(gto_basis_set=aux_fit_basis_set, kind_radius=aux_fit_radius(ikind))
+         ELSE
+            aux_fit_present(ikind) = .FALSE.
+         END IF
+      END DO
+
+      CALL pair_radius_setup(aux_fit_present, aux_fit_present, aux_fit_radius, aux_fit_radius, pair_radius)
+      CALL build_neighbor_lists(admm_env%sab_aux_fit, particle_set, atom2d, cell, pair_radius, &
+                                mic=mic, molecular=molecule_only, subcells=subcells, nlname="sab_aux_fit")
+      CALL build_neighbor_lists(admm_env%sab_aux_fit_asymm, particle_set, atom2d, cell, pair_radius, &
+                                mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
+                                nlname="sab_aux_fit_asymm")
+      CALL pair_radius_setup(aux_fit_present, orb_present, aux_fit_radius, orb_radius, pair_radius)
+      CALL build_neighbor_lists(admm_env%sab_aux_fit_vs_orb, particle_set, atom2d, cell, pair_radius, &
+                                mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
+                                nlname="sab_aux_fit_vs_orb")
+
+      CALL write_neighbor_lists(admm_env%sab_aux_fit, particle_set, cell, para_env, neighbor_list_section, &
+                                "/SAB_AUX_FIT", "sab_aux_fit", "AUX_FIT_ORBITAL AUX_FIT_ORBITAL")
+      CALL write_neighbor_lists(admm_env%sab_aux_fit_vs_orb, particle_set, cell, para_env, neighbor_list_section, &
+                                "/SAB_AUX_FIT_VS_ORB", "sab_aux_fit_vs_orb", "ORBITAL AUX_FIT_ORBITAL")
+
+      CALL atom2d_cleanup(atom2d)
+
+      !The ADMM overlap matrices (initially in qs_core_hamiltonian.F)
+      CALL get_qs_env(qs_env, ks_env=ks_env)
+
+      IF (ASSOCIATED(admm_env%matrix_s_aux_fit)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_s_aux_fit)
+      CALL build_overlap_matrix(ks_env, matrix_s=admm_env%matrix_s_aux_fit, &
+                                matrix_name="AUX_FIT_OVERLAP", &
+                                basis_type_a="AUX_FIT", &
+                                basis_type_b="AUX_FIT", &
+                                sab_nl=admm_env%sab_aux_fit)
+      IF (ASSOCIATED(admm_env%matrix_s_aux_fit_vs_orb)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_s_aux_fit_vs_orb)
+      CALL build_overlap_matrix(ks_env, matrix_s=admm_env%matrix_s_aux_fit_vs_orb, &
+                                matrix_name="MIXED_OVERLAP", &
+                                basis_type_a="AUX_FIT", &
+                                basis_type_b="ORB", &
+                                sab_nl=admm_env%sab_aux_fit_vs_orb)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE admm_init_hamiltonians
+
+! **************************************************************************************************
+!> \brief Updates the ADMM task_list and density based on the model of qs_env_update_s_mstruct()
+!> \param admm_env ...
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE admm_update_s_mstruct(admm_env, qs_env)
+
+      TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'admm_update_s_mstruct'
+
+      INTEGER                                            :: handle
+      LOGICAL                                            :: skip_load_balance_distributed
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+
+      NULLIFY (ks_env, dft_control)
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(qs_env, ks_env=ks_env, dft_control=dft_control)
+
+      !The aux_fit task_list
+      skip_load_balance_distributed = dft_control%qs_control%skip_load_balance_distributed
+      IF (ASSOCIATED(admm_env%task_list_aux_fit)) CALL deallocate_task_list(admm_env%task_list_aux_fit)
+      CALL allocate_task_list(admm_env%task_list_aux_fit)
+      CALL generate_qs_task_list(ks_env, admm_env%task_list_aux_fit, &
+                                 reorder_rs_grid_ranks=.FALSE., soft_valid=.FALSE., basis_type="AUX_FIT", &
+                                 skip_load_balance_distributed=skip_load_balance_distributed, &
+                                 sab_orb_external=admm_env%sab_aux_fit)
+
+      !The aux_fit densities
+      CALL qs_rho_rebuild(admm_env%rho_aux_fit, qs_env=qs_env, admm=.TRUE.)
+      CALL qs_rho_rebuild(admm_env%rho_aux_fit_buffer, qs_env=qs_env, admm=.TRUE.)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE admm_update_s_mstruct
+
+! **************************************************************************************************
+!> \brief Update the admm_gapw_env internals to the current qs_env (i.e. atomic positions)
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE update_admm_gapw(qs_env)
+
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'update_admm_gapw'
+
+      INTEGER                                            :: handle, ikind, nkind
+      LOGICAL                                            :: paw_atom
+      LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: aux_present, oce_present
+      REAL(dp)                                           :: subcells
+      REAL(dp), ALLOCATABLE, DIMENSION(:)                :: aux_radius, oce_radius
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: pair_radius
+      TYPE(admm_gapw_type), POINTER                      :: admm_gapw_env
+      TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(distribution_1d_type), POINTER                :: distribution_1d
+      TYPE(distribution_2d_type), POINTER                :: distribution_2d
+      TYPE(gto_basis_set_type), POINTER                  :: aux_fit_basis
+      TYPE(local_atoms_type), ALLOCATABLE, DIMENSION(:)  :: atom2d
+      TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         POINTER                                         :: sap_oce
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(paw_proj_set_type), POINTER                   :: paw_proj
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: admm_kind_set, qs_kind_set
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+
+      NULLIFY (ks_env, qs_kind_set, admm_kind_set, aux_fit_basis, cell, distribution_1d)
+      NULLIFY (distribution_2d, paw_proj, particle_set, molecule_set, admm_env, admm_gapw_env)
+      NULLIFY (dft_control, atomic_kind_set, sap_oce)
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(qs_env, ks_env=ks_env, qs_kind_set=qs_kind_set, admm_env=admm_env, &
+                      dft_control=dft_control)
+      admm_gapw_env => admm_env%admm_gapw_env
+      admm_kind_set => admm_gapw_env%admm_kind_set
+      nkind = SIZE(qs_kind_set)
+
+      !Update the task lisft for the AUX_FIT_SOFT basis
+      IF (ASSOCIATED(admm_gapw_env%task_list)) CALL deallocate_task_list(admm_gapw_env%task_list)
+      CALL allocate_task_list(admm_gapw_env%task_list)
+
+      !note: we set soft_valid to .FALSE. want to use AUX_FIT_SOFT and not the normal ORB SOFT basis
+      CALL generate_qs_task_list(ks_env, admm_gapw_env%task_list, reorder_rs_grid_ranks=.FALSE., &
+                                 soft_valid=.FALSE., basis_type="AUX_FIT_SOFT", &
+                                 skip_load_balance_distributed=dft_control%qs_control%skip_load_balance_distributed, &
+                                 sab_orb_external=admm_env%sab_aux_fit)
+
+      !Update the precomputed oce integrals
+      !a sap_oce neighbor list is required => build it here
+      ALLOCATE (aux_present(nkind), oce_present(nkind))
+      aux_present = .FALSE.; oce_present = .FALSE.
+      ALLOCATE (aux_radius(nkind), oce_radius(nkind))
+      aux_radius = 0.0_dp; oce_radius = 0.0_dp
+
+      DO ikind = 1, nkind
+         CALL get_qs_kind(qs_kind_set(ikind), basis_set=aux_fit_basis, basis_type="AUX_FIT")
+         IF (ASSOCIATED(aux_fit_basis)) THEN
+            aux_present(ikind) = .TRUE.
+            CALL get_gto_basis_set(aux_fit_basis, kind_radius=aux_radius(ikind))
+         END IF
+
+         !note: get oce info from admm_kind_set
+         CALL get_qs_kind(admm_kind_set(ikind), paw_atom=paw_atom, paw_proj_set=paw_proj)
+         IF (paw_atom) THEN
+            oce_present(ikind) = .TRUE.
+            CALL get_paw_proj_set(paw_proj, rcprj=oce_radius(ikind))
+         END IF
+      END DO
+
+      ALLOCATE (pair_radius(nkind, nkind))
+      pair_radius = 0.0_dp
+      CALL pair_radius_setup(aux_present, oce_present, aux_radius, oce_radius, pair_radius)
+
+      CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set, cell=cell, &
+                      distribution_2d=distribution_2d, local_particles=distribution_1d, &
+                      particle_set=particle_set, molecule_set=molecule_set)
+      CALL section_vals_val_get(qs_env%input, "DFT%SUBCELLS", r_val=subcells)
+
+      ALLOCATE (atom2d(nkind))
+      CALL atom2d_build(atom2d, distribution_1d, distribution_2d, atomic_kind_set, &
+                        molecule_set, .FALSE., particle_set)
+      CALL build_neighbor_lists(sap_oce, particle_set, atom2d, cell, pair_radius, &
+                                subcells=subcells, operator_type="ABBA", nlname="AUX_PAW-PRJ")
+      CALL atom2d_cleanup(atom2d)
+
+      !actually compute the oce matrices
+      CALL create_oce_set(admm_gapw_env%oce)
+      CALL allocate_oce_set(admm_gapw_env%oce, nkind)
+
+      !always compute the derivative, cheap anyways
+      CALL build_oce_matrices(admm_gapw_env%oce%intac, calculate_forces=.TRUE., nder=1, &
+                              qs_kind_set=admm_kind_set, particle_set=particle_set, &
+                              sap_oce=sap_oce, eps_fit=dft_control%qs_control%gapw_control%eps_fit)
+
+      CALL release_neighbor_list_sets(sap_oce)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE update_admm_gapw
+
+! **************************************************************************************************
+!> \brief Allocates the various ADMM KS matrices
+!> \param admm_env ...
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE admm_alloc_ks_matrices(admm_env, qs_env)
+
+      TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'admm_alloc_ks_matrices'
+
+      INTEGER                                            :: handle, ispin
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s_aux_fit
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      NULLIFY (dft_control, matrix_s_aux_fit)
+
+      CALL timeset(routineN, handle)
+
+      CALL get_qs_env(qs_env, dft_control=dft_control)
+
+      matrix_s_aux_fit => admm_env%matrix_s_aux_fit
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit)
+      CALL dbcsr_allocate_matrix_set(admm_env%matrix_ks_aux_fit, dft_control%nspins)
+      DO ispin = 1, dft_control%nspins
+         ALLOCATE (admm_env%matrix_ks_aux_fit(ispin)%matrix)
+         CALL dbcsr_create(admm_env%matrix_ks_aux_fit(ispin)%matrix, template=matrix_s_aux_fit(1)%matrix, &
+                           name="KOHN-SHAM_MATRIX for ADMM")
+         CALL dbcsr_copy(admm_env%matrix_ks_aux_fit(ispin)%matrix, matrix_s_aux_fit(1)%matrix)
+         CALL dbcsr_set(admm_env%matrix_ks_aux_fit(ispin)%matrix, 0.0_dp)
+      END DO
+
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit_dft)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit_dft)
+      CALL dbcsr_allocate_matrix_set(admm_env%matrix_ks_aux_fit_dft, dft_control%nspins)
+      DO ispin = 1, dft_control%nspins
+         ALLOCATE (admm_env%matrix_ks_aux_fit_dft(ispin)%matrix)
+         CALL dbcsr_create(admm_env%matrix_ks_aux_fit_dft(ispin)%matrix, template=matrix_s_aux_fit(1)%matrix, &
+                           name="KOHN-SHAM_MATRIX for ADMM")
+         CALL dbcsr_copy(admm_env%matrix_ks_aux_fit_dft(ispin)%matrix, matrix_s_aux_fit(1)%matrix)
+         CALL dbcsr_set(admm_env%matrix_ks_aux_fit_dft(ispin)%matrix, 0.0_dp)
+      END DO
+
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit_hfx)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit_hfx)
+      CALL dbcsr_allocate_matrix_set(admm_env%matrix_ks_aux_fit_hfx, dft_control%nspins)
+      DO ispin = 1, dft_control%nspins
+         ALLOCATE (admm_env%matrix_ks_aux_fit_hfx(ispin)%matrix)
+         CALL dbcsr_create(admm_env%matrix_ks_aux_fit_hfx(ispin)%matrix, template=matrix_s_aux_fit(1)%matrix, &
+                           name="KOHN-SHAM_MATRIX for ADMM")
+         CALL dbcsr_copy(admm_env%matrix_ks_aux_fit_hfx(ispin)%matrix, matrix_s_aux_fit(1)%matrix)
+         CALL dbcsr_set(admm_env%matrix_ks_aux_fit_hfx(ispin)%matrix, 0.0_dp)
+      END DO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE admm_alloc_ks_matrices
+
+! **************************************************************************************************
 !> \brief Add the hfx contributions to the Hamiltonian
 !>
 !> \param qs_env ...
@@ -314,7 +722,7 @@ CONTAINS
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(qs_energy_type), POINTER                      :: energy
       LOGICAL, INTENT(in)                                :: calculate_forces, just_energy
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: v_rspace_new, v_tau_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER               :: v_rspace_new, v_tau_rspace
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_ks_matrix'
 
@@ -329,10 +737,11 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: matrix_ks_1d, matrix_ks_aux_fit, &
          matrix_ks_aux_fit_hfx, matrix_ks_aux_fit_im, matrix_ks_im, rho_ao_1d, rho_ao_resp
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_h, matrix_ks_orb, rho_ao_orb
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_h, matrix_h_im, matrix_ks_orb, &
+                                                            rho_ao_orb
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mo_array
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
@@ -346,25 +755,24 @@ CONTAINS
 
       NULLIFY (auxbas_pw_pool, dft_control, hfx_sections, input, &
                para_env, poisson_env, pw_env, virial, matrix_ks_im, &
-               matrix_ks_orb, rho_ao_orb, matrix_h, matrix_ks_aux_fit, &
+               matrix_ks_orb, rho_ao_orb, matrix_h, matrix_h_im, matrix_ks_aux_fit, &
                matrix_ks_aux_fit_im, matrix_ks_aux_fit_hfx)
 
       CALL get_qs_env(qs_env=qs_env, &
                       dft_control=dft_control, &
                       input=input, &
                       matrix_h_kp=matrix_h, &
+                      matrix_h_im_kp=matrix_h_im, &
                       para_env=para_env, &
                       pw_env=pw_env, &
                       virial=virial, &
                       matrix_ks_im=matrix_ks_im, &
-                      matrix_ks_aux_fit=matrix_ks_aux_fit, &
-                      matrix_ks_aux_fit_im=matrix_ks_aux_fit_im, &
-                      matrix_ks_aux_fit_hfx=matrix_ks_aux_fit_hfx, &
                       s_mstruct_changed=s_mstruct_changed, &
                       x_data=x_data)
 
       IF (dft_control%do_admm) THEN
-         CALL get_qs_env(qs_env=qs_env, mos_aux_fit=mo_array)
+         CALL get_admm_env(qs_env%admm_env, mos_aux_fit=mo_array, matrix_ks_aux_fit=matrix_ks_aux_fit, &
+                           matrix_ks_aux_fit_im=matrix_ks_aux_fit_im, matrix_ks_aux_fit_hfx=matrix_ks_aux_fit_hfx)
       ELSE
          CALL get_qs_env(qs_env=qs_env, mos=mo_array)
       END IF
@@ -373,6 +781,8 @@ CONTAINS
       nimages = dft_control%nimages
 
       use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
+
+      IF (use_virial .AND. calculate_forces) virial%pv_fock_4c = 0.0_dp
 
       hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%HF")
       CALL section_vals_get(hfx_sections, n_repetition=n_rep_hf)
@@ -413,8 +823,7 @@ CONTAINS
 
          ! fetch the correct matrices for normal HFX or ADMM
          IF (dft_control%do_admm) THEN
-            CALL get_qs_env(qs_env=qs_env, matrix_ks_aux_fit=matrix_ks_1d, &
-                            rho_aux_fit=rho_orb)
+            CALL get_admm_env(qs_env%admm_env, matrix_ks_aux_fit=matrix_ks_1d, rho_aux_fit=rho_orb)
             ns = SIZE(matrix_ks_1d)
             matrix_ks_orb(1:ns, 1:1) => matrix_ks_1d(1:ns)
          ELSE
@@ -452,15 +861,7 @@ CONTAINS
             IF (dft_control%do_admm) THEN
                CALL scale_dm(qs_env, rho_ao_orb, scale_back=.FALSE.)
             END IF
-            IF (ASSOCIATED(qs_env%mp2_env)) THEN
-               IF (dft_control%do_admm) THEN
-                  CALL get_qs_env(qs_env, matrix_p_mp2_admm=rho_ao_resp)
-               ELSE
-                  CALL get_qs_env(qs_env, matrix_p_mp2=rho_ao_resp)
-               END IF
-            ELSE
-               NULLIFY (rho_ao_resp)
-            END IF
+            NULLIFY (rho_ao_resp)
 
             IF (x_data(irep, 1)%do_hfx_ri) THEN
 
@@ -553,6 +954,15 @@ CONTAINS
 
             !! If required, the calculation of the forces will be done later with adiabatic rescaling
             IF (do_adiabatic_rescaling) hf_energy(irep) = ehfx + ehfxrt
+
+            IF (dft_control%rtp_control%velocity_gauge) THEN
+               CPASSERT(ASSOCIATED(matrix_h_im))
+               DO ispin = 1, nspins
+                  CALL dbcsr_add(matrix_ks_im(ispin)%matrix, matrix_h_im(1, 1)%matrix, &
+                                 1.0_dp, 1.0_dp)
+               END DO
+            END IF
+
          END IF
 
          IF (.NOT. qs_env%run_rtp) THEN
@@ -620,7 +1030,7 @@ CONTAINS
 !>        Ex,hf = Ex,hf' + (cfun-cfun')
 !>        for all cases of operators.
 !>
-!> \param qs_env the qs environment
+!> \param x_data ...
 !> \param xc_section the original xc_section
 !> \param admm_env the ADMM environment
 !> \par History
@@ -628,8 +1038,8 @@ CONTAINS
 !>      05.2021 simplify for case of no correction [JGH]
 !> \author Manuel Guidon
 ! **************************************************************************************************
-   SUBROUTINE create_admm_xc_section(qs_env, xc_section, admm_env)
-      TYPE(qs_environment_type), POINTER                 :: qs_env
+   SUBROUTINE create_admm_xc_section(x_data, xc_section, admm_env)
+      TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
       TYPE(section_vals_type), POINTER                   :: xc_section
       TYPE(admm_type), POINTER                           :: admm_env
 
@@ -646,8 +1056,6 @@ CONTAINS
 
       logger => cp_get_default_logger()
       NULLIFY (admm_env%xc_section_aux, admm_env%xc_section_primary)
-
-      CALL get_qs_env(qs_env)
 
       !! ** Duplicate existing xc-section
       CALL section_vals_duplicate(xc_section, admm_env%xc_section_aux)
@@ -677,8 +1085,13 @@ CONTAINS
          CALL section_vals_remove_values(xc_fun)
       END DO
 
-      hfx_potential_type = qs_env%x_data(1, 1)%potential_parameter%potential_type
-      hfx_fraction = qs_env%x_data(1, 1)%general_parameter%fraction
+      IF (ASSOCIATED(x_data)) THEN
+         hfx_potential_type = x_data(1, 1)%potential_parameter%potential_type
+         hfx_fraction = x_data(1, 1)%general_parameter%fraction
+      ELSE
+         CPWARN("ADMM requested without a DFT%XC%HF section. It will be ignored for the SCF.")
+         admm_env%aux_exch_func = do_admm_aux_exch_func_none
+      END IF
 
       !in case of no admm exchange corr., no auxiliary exchange functional needed
       IF (admm_env%aux_exch_func == do_admm_aux_exch_func_none) THEN
@@ -697,7 +1110,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "PBE%SCALE_C", &
                                       r_val=0.0_dp)
          CASE (do_potential_short)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             CALL section_vals_val_set(xc_fun_section, "XWPBE%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "XWPBE%SCALE_X", &
@@ -707,7 +1120,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "XWPBE%OMEGA", &
                                       r_val=omega)
          CASE (do_potential_truncated)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%SCALE_X", &
@@ -721,7 +1134,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "XWPBE%SCALE_X0", &
                                       r_val=-hfx_fraction)
          CASE (do_potential_long)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             CALL section_vals_val_set(xc_fun_section, "XWPBE%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "XWPBE%SCALE_X", &
@@ -731,9 +1144,9 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "XWPBE%OMEGA", &
                                       r_val=omega)
          CASE (do_potential_mix_cl)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             CALL section_vals_val_set(xc_fun_section, "XWPBE%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "XWPBE%SCALE_X", &
@@ -743,10 +1156,10 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "XWPBE%OMEGA", &
                                       r_val=omega)
          CASE (do_potential_mix_cl_trunc)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%SCALE_X", &
@@ -798,7 +1211,7 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_short)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -826,7 +1239,7 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_long)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -862,7 +1275,7 @@ CONTAINS
                                          r_val=omega)
             END IF
          CASE (do_potential_truncated)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -915,10 +1328,10 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_mix_cl_trunc)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -982,9 +1395,9 @@ CONTAINS
                                          r_val=omega)
             END IF
          CASE (do_potential_mix_cl)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1033,7 +1446,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "GGA_X_PBE%SCALE", &
                                       r_val=-hfx_fraction)
          CASE (do_potential_short)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%SCALE", &
@@ -1041,7 +1454,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%_OMEGA", &
                                       r_val=omega)
          CASE (do_potential_truncated)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%SCALE_X", &
@@ -1053,7 +1466,7 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%SCALE", &
                                       r_val=-hfx_fraction)
          CASE (do_potential_long)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%SCALE", &
@@ -1065,9 +1478,9 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "GGA_X_PBE%SCALE", &
                                       r_val=-hfx_fraction)
          CASE (do_potential_mix_cl)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "GGA_X_WPBEH%SCALE", &
@@ -1079,10 +1492,10 @@ CONTAINS
             CALL section_vals_val_set(xc_fun_section, "GGA_X_PBE%SCALE", &
                                       r_val=-hfx_fraction*(scale_longrange + scale_coulomb))
          CASE (do_potential_mix_cl_trunc)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%_SECTION_PARAMETERS_", &
                                       l_val=.TRUE.)
             CALL section_vals_val_set(xc_fun_section, "PBE_HOLE_T_C_LR%SCALE_X", &
@@ -1134,7 +1547,7 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_short)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1160,7 +1573,7 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_long)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
+            omega = x_data(1, 1)%potential_parameter%omega
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1211,7 +1624,7 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_truncated)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1263,10 +1676,10 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_mix_cl_trunc)
-            cutoff_radius = qs_env%x_data(1, 1)%potential_parameter%cutoff_radius
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            cutoff_radius = x_data(1, 1)%potential_parameter%cutoff_radius
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1345,9 +1758,9 @@ CONTAINS
                                          r_val=scale_x)
             END IF
          CASE (do_potential_mix_cl)
-            omega = qs_env%x_data(1, 1)%potential_parameter%omega
-            scale_coulomb = qs_env%x_data(1, 1)%potential_parameter%scale_coulomb
-            scale_longrange = qs_env%x_data(1, 1)%potential_parameter%scale_longrange
+            omega = x_data(1, 1)%potential_parameter%omega
+            scale_coulomb = x_data(1, 1)%potential_parameter%scale_coulomb
+            scale_longrange = x_data(1, 1)%potential_parameter%scale_longrange
             ifun = 0
             funct_found = .FALSE.
             DO
@@ -1485,6 +1898,7 @@ CONTAINS
 
       ELSE IF (admm_env%aux_exch_func == do_admm_aux_exch_func_pbex_libxc .OR. &
                admm_env%aux_exch_func == do_admm_aux_exch_func_opt_libxc .OR. &
+               admm_env%aux_exch_func == do_admm_aux_exch_func_sx_libxc .OR. &
                admm_env%aux_exch_func == do_admm_aux_exch_func_bee_libxc) THEN
 #if defined(__LIBXC)
          IF (admm_env%aux_exch_func == do_admm_aux_exch_func_pbex_libxc) THEN
@@ -1493,6 +1907,8 @@ CONTAINS
             name_x_func = 'GGA_X_OPTX'
          ELSE IF (admm_env%aux_exch_func == do_admm_aux_exch_func_bee_libxc) THEN
             name_x_func = 'GGA_X_B88'
+         ELSE IF (admm_env%aux_exch_func == do_admm_aux_exch_func_sx_libxc) THEN
+            name_x_func = 'LDA_X'
          END IF
          !primary basis
          CALL section_vals_val_set(xc_fun_section, TRIM(name_x_func)//"%_SECTION_PARAMETERS_", &
@@ -1631,14 +2047,19 @@ CONTAINS
 !> \param qs_env    Quickstep environment
 !> \param update_energy whether to update energy (default: yes)
 !> \param recalc_integrals whether to recalculate integrals (default: value of HF%TREAT_LSD_IN_CORE)
+!> \param external_hfx_sections ...
+!> \param external_x_data ...
 !> \note
 !>     Simplified version of subroutine hfx_ks_matrix()
 ! **************************************************************************************************
-   SUBROUTINE tddft_hfx_matrix(matrix_ks, rho_ao, qs_env, update_energy, recalc_integrals)
+   SUBROUTINE tddft_hfx_matrix(matrix_ks, rho_ao, qs_env, update_energy, recalc_integrals, &
+                               external_hfx_sections, external_x_data)
       TYPE(dbcsr_p_type), DIMENSION(:), INTENT(INOUT), &
          TARGET                                          :: matrix_ks, rho_ao
       TYPE(qs_environment_type), POINTER                 :: qs_env
       LOGICAL, INTENT(IN), OPTIONAL                      :: update_energy, recalc_integrals
+      TYPE(section_vals_type), OPTIONAL, POINTER         :: external_hfx_sections
+      TYPE(hfx_type), DIMENSION(:, :), OPTIONAL, TARGET  :: external_x_data
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddft_hfx_matrix'
 
@@ -1669,6 +2090,9 @@ CONTAINS
 
       ! This should probably be the HF section from the TDDFPT XC section!
       hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%HF")
+
+      IF (PRESENT(external_hfx_sections)) hfx_sections => external_hfx_sections
+      IF (PRESENT(external_x_data)) x_data => external_x_data
 
       my_update_energy = .TRUE.
       IF (PRESENT(update_energy)) my_update_energy = update_energy

@@ -3,7 +3,7 @@
 # author: Ole Schuett
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import argparse
 import io
 
@@ -20,28 +20,50 @@ def main() -> None:
         with OutputFile(f"Dockerfile.prod_{version}", args.check) as f:
             f.write(toolchain_full() + production(version))
 
-    with OutputFile(f"Dockerfile.test_openmpi-psmp", args.check) as f:
-        f.write(toolchain_full(mpi_mode="openmpi") + regtest("psmp"))
+        with OutputFile(f"Dockerfile.test_generic_{version}", args.check) as f:
+            f.write(toolchain_full(target_cpu="generic") + regtest(version))
 
-    with OutputFile(f"Dockerfile.test_fedora-psmp", args.check) as f:
-        f.write(toolchain_full(base_image="fedora:33") + regtest("psmp"))
+        with OutputFile(f"Dockerfile.prod_generic_{version}", args.check) as f:
+            f.write(toolchain_full(target_cpu="generic") + production(version))
+
+    with OutputFile(f"Dockerfile.test_openmpi-psmp", args.check) as f:
+        # Also testing --with-gcc=install here, see github.com/cp2k/cp2k/issues/2062 .
+        f.write(toolchain_full(mpi_mode="openmpi", with_gcc="install"))
+        f.write(regtest("psmp"))
+
+    with OutputFile(f"Dockerfile.test_intel-psmp", args.check) as f:
+        f.write(toolchain_intel() + regtest("psmp"))
+
+    with OutputFile(f"Dockerfile.test_nvhpc", args.check) as f:
+        f.write(toolchain_nvhpc())
 
     with OutputFile(f"Dockerfile.test_minimal", args.check) as f:
         f.write(toolchain_full() + regtest("sdbg", "minimal"))
+
+    with OutputFile(f"Dockerfile.test_cmake", args.check) as f:
+        f.write(toolchain_full() + install_cp2k_cmake())
+
+    for version in "ssmp", "psmp":
+        with OutputFile(f"Dockerfile.test_asan-{version}", args.check) as f:
+            f.write(toolchain_full() + regtest(version, "local_asan"))
 
     for version in "sdbg", "pdbg":
         with OutputFile(f"Dockerfile.test_coverage-{version}", args.check) as f:
             f.write(toolchain_full() + coverage(version))
 
-    for gcc_version in 7, 8, 9, 10:
+    for gcc_version in 7, 8, 9, 10, 11, 12:
         with OutputFile(f"Dockerfile.test_gcc{gcc_version}", args.check) as f:
-            f.write(toolchain_ubuntu_nompi(gcc_version=gcc_version) + regtest("ssmp"))
+            img = "ubuntu:22.04" if gcc_version > 8 else "ubuntu:20.04"
+            f.write(toolchain_ubuntu_nompi(base_image=img, gcc_version=gcc_version))
+            f.write(regtest("ssmp"))
 
     with OutputFile("Dockerfile.test_i386", args.check) as f:
-        f.write(
-            toolchain_ubuntu_nompi(base_image="i386/debian:11", libvori=False)
-            + regtest("ssmp")
-        )
+        f.write(toolchain_ubuntu_nompi(base_image="i386/debian:11", libvori=False))
+        f.write(regtest("ssmp"))
+
+    with OutputFile("Dockerfile.test_arm64-psmp", args.check) as f:
+        f.write(toolchain_full(base_image="arm64v8/ubuntu:22.04", with_libxsmm="no"))
+        f.write(regtest("psmp"))
 
     with OutputFile(f"Dockerfile.test_performance", args.check) as f:
         f.write(toolchain_full() + performance())
@@ -63,10 +85,8 @@ def main() -> None:
         with OutputFile(f"Dockerfile.test_hip_rocm_{gpu_ver}", args.check) as f:
             # ROCm containers require --device, which is not available for docker build.
             # https://rocmdocs.amd.com/en/latest/ROCm_Virtualization_Containers/ROCm-Virtualization-&-Containers.html#docker-hub
-            f.write(
-                toolchain_hip_rocm(gpu_ver=gpu_ver)
-                + regtest_postponed("psmp", "local_hip")
-            )
+            f.write(toolchain_hip_rocm(gpu_ver=gpu_ver))
+            f.write(regtest_postponed("psmp", "local_hip"))
 
         with OutputFile(f"Dockerfile.build_hip_rocm_{gpu_ver}", args.check) as f:
             f.write(toolchain_hip_rocm(gpu_ver=gpu_ver) + build("psmp", "local_hip"))
@@ -90,14 +110,14 @@ def main() -> None:
 
 
 # ======================================================================================
-def regtest(version: str, arch: str = "local") -> str:
+def regtest(version: str, arch: str = "local", testopts: str = "") -> str:
     return (
         install_cp2k(version=version, arch=arch)
-        + fr"""
+        + rf"""
 # Run regression tests.
-ARG TESTOPTS
+ARG TESTOPTS="{testopts}"
 COPY ./tools/docker/scripts/test_regtest.sh ./
-RUN /bin/bash -c " \
+RUN /bin/bash -o pipefail -c " \
     TESTOPTS="${{TESTOPTS}}" \
     ./test_regtest.sh '{arch}' '{version}' |& tee report.log && \
     rm -rf regtesting"
@@ -110,7 +130,7 @@ RUN /bin/bash -c " \
 def regtest_postponed(version: str, arch: str = "local") -> str:
     return (
         install_cp2k(version=version, arch=arch)
-        + fr"""
+        + rf"""
 # Postpone running the regression tests until the container is executed.
 ARG TESTOPTS
 COPY ./tools/docker/scripts/test_regtest.sh ./
@@ -126,7 +146,7 @@ CMD ["./test_regtest.sh", "{arch}", "{version}"]
 def build(version: str, arch: str = "local") -> str:
     return (
         install_cp2k(version=version, arch=arch)
-        + fr"""
+        + rf"""
 # Run build test.
 COPY ./tools/docker/scripts/test_build.sh .
 RUN ./test_build.sh "{arch}" "{version}" 2>&1 | tee report.log
@@ -139,7 +159,7 @@ RUN ./test_build.sh "{arch}" "{version}" 2>&1 | tee report.log
 def performance(arch: str = "local") -> str:
     return (
         install_cp2k(version="psmp", arch=arch)
-        + fr"""
+        + rf"""
 # Run performance test for {arch}.
 COPY ./benchmarks ./benchmarks
 COPY ./tools/docker/scripts/test_performance.sh  \
@@ -154,8 +174,8 @@ RUN ./test_performance.sh "{arch}" 2>&1 | tee report.log
 # ======================================================================================
 def coverage(version: str) -> str:
     return (
-        install_cp2k(version=version, arch="local_coverage")
-        + fr"""
+        install_cp2k(version=version, arch="local_coverage", revision=True)
+        + rf"""
 # Run coverage test for {version}.
 COPY ./tools/docker/scripts/test_coverage.sh .
 RUN ./test_coverage.sh "{version}" 2>&1 | tee report.log
@@ -168,7 +188,7 @@ RUN ./test_coverage.sh "{version}" 2>&1 | tee report.log
 def conventions() -> str:
     return (
         install_cp2k(version="psmp", arch="local_warn")
-        + fr"""
+        + rf"""
 # Run test for conventions.
 COPY ./arch/Linux-x86-64-gfortran.dumpast ./arch/
 COPY ./tools/conventions ./tools/conventions
@@ -185,7 +205,7 @@ RUN /bin/bash -ec " \
 def manual() -> str:
     return (
         install_cp2k(version="psmp", arch="local", revision=True)
-        + fr"""
+        + rf"""
 # Generate manual.
 COPY ./tools/manual ./tools/manual
 COPY ./tools/input_editing ./tools/input_editing
@@ -199,8 +219,8 @@ RUN ./test_manual.sh 2>&1 | tee report.log
 # ======================================================================================
 def precommit() -> str:
     return (
-        fr"""
-FROM ubuntu:20.04
+        rf"""
+FROM ubuntu:22.04
 
 # Install dependencies.
 WORKDIR /opt/cp2k-precommit
@@ -222,7 +242,7 @@ RUN ./tools/docker/scripts/test_precommit.sh 2>&1 | tee report.log
 def test_3rd_party(name: str) -> str:
     return (
         install_cp2k(version="sdbg", arch="local")
-        + fr"""
+        + rf"""
 # Run test for {name}.
 COPY ./tools/docker/scripts/test_{name}.sh .
 RUN ./test_{name}.sh 2>&1 | tee report.log
@@ -234,8 +254,8 @@ RUN ./test_{name}.sh 2>&1 | tee report.log
 # ======================================================================================
 def test_without_build(name: str) -> str:
     return (
-        fr"""
-FROM ubuntu:20.04
+        rf"""
+FROM ubuntu:22.04
 
 # Install dependencies.
 WORKDIR /opt/cp2k
@@ -264,6 +284,7 @@ def print_cached_report() -> str:
     return r"""
 # Output the report if the image is old and was therefore pulled from the build cache.
 CMD cat $(find ./report.log -mmin +10) | sed '/^Summary:/ s/$/ (cached)/'
+ENTRYPOINT []
 
 #EOF
 """
@@ -273,7 +294,7 @@ CMD cat $(find ./report.log -mmin +10) | sed '/^Summary:/ s/$/ (cached)/'
 def production(version: str, arch: str = "local") -> str:
     return (
         install_cp2k(version=version, arch=arch, revision=True, prod=True)
-        + fr"""
+        + rf"""
 # Run regression tests.
 ARG TESTOPTS
 RUN /bin/bash -c " \
@@ -321,18 +342,24 @@ def install_cp2k(
     run_lines.append("echo 'Compiling cp2k...'")
     run_lines.append("source /opt/cp2k-toolchain/install/setup")
 
+    build_command = f"make -j ARCH={arch} VERSION={version}"
     if prod:
-        run_lines.append(f"make -j ARCH={arch} VERSION={version}")
+        run_lines.append(build_command)
+        run_lines.append(f"ln -sf ./cp2k.{version} ./exe/{arch}/cp2k")
+        run_lines.append(f"ln -sf ./cp2k_shell.{version} ./exe/{arch}/cp2k_shell")
         run_lines.append(f"rm -rf lib obj exe/{arch}/libcp2k_unittest.{version}")
     else:
-        run_lines.append(
-            f"( make -j ARCH={arch} VERSION={version} &> /dev/null || true )"
-        )
+        run_lines.append(f"( {build_command} &> /dev/null || true )")
+
+    # Ensure MPI is dynamically linked, which is needed e.g. for Shifter.
+    if version.startswith("p"):
+        binary = f"./exe/{arch}/cp2k.{version}"
+        run_lines.append(f"( [ ! -f {binary} ] || ldd {binary} | grep -q libmpi )")
 
     input_block = "\n".join(input_lines)
     run_block = " && \\\n    ".join(run_lines)
 
-    return fr"""
+    return rf"""
 # Install CP2K using {arch}.{version}.
 WORKDIR /opt/cp2k
 {input_block}
@@ -345,17 +372,60 @@ COPY ./tools/regtesting ./tools/regtesting
 
 
 # ======================================================================================
-def toolchain_full(base_image: str = "ubuntu:20.04", mpi_mode: str = "mpich") -> str:
+def install_cp2k_cmake() -> str:
+    # TODO: This is a draft and does not yet actually work.
+
+    return rf"""
+
+COPY ./tools/build_utils/fypp /bin/fypp
+# temporary solution we build dbcsr without using the cloned repo. It will eventually be moved inside the toolchain
+COPY ./tools/docker/scripts/install_dbcsr.sh ./scripts/
+RUN  ./scripts/install_dbcsr.sh && rm -rf ./build
+
+# Install CP2K using CMake.
+
+WORKDIR /opt/cp2k
+COPY ./src ./src
+COPY ./exts ./exts
+COPY ./tools/build_utils ./tools/build_utils
+COPY ./cmake ./cmake
+COPY ./CMakeLists.txt .
+COPY ./cp2k.pc.in .
+WORKDIR ./build
+RUN /bin/bash -c " \
+    echo 'Compiling cp2k...' && \
+    ls /opt/cp2k-toolchain/install/scalapack-2.2.1 && \
+    ls /opt/cp2k-toolchain/install/fftw-3.3.10/lib && \
+    source /opt/cp2k-toolchain/install/setup && \
+    export PKG_CONFIG_PATH=/opt/cp2k-toolchain/install/libxsmm-1.17/lib:/opt/cp2k-toolchain/install/openblas-0.3.21/lib/pkgconfig:/opt/cp2k-toolchain/install/libxc-6.0.0/lib/pkgconfig:/opt/cp2k-toolchain/install/fftw-3.3.10/lib/pkgconfig:/opt/cp2k-toolchain/install/libint-v2.6.0-cp2k-lmax-5/lib/pkgconfig:/opt/cp2k-toolchain/install/plumed-2.8.0/lib/pkgconfig:/opt/cp2k-toolchain/install/superlu_dist-6.1.0/lib/pkgconfig && \
+    cmake -DCP2K_USE_COSMA=OFF -DCP2K_USE_LIBXSMM=NO -DSCALAPACK_ROOT=/opt/cp2k-toolchain/install/scalapack-2.2.1 -DCP2K_BLAS_VENDOR=OpenBLAS -DLibXC_ROOT=/opt/cp2k-toolchain/install/libxc-6.0.0 -DLibint2_ROOT=/opt/cp2k-toolchain/install/libint-v2.6.0-cp2k-lmax-5 -DDBCSR_ROOT=/opt/cp2k-toolchain/install/DBCSR-2.4.1 -DCP2K_USE_SPGLIB=ON -DCP2K_USE_LIBINT2=NO -DCP2K_USE_LIBXC=ON -DLibSPG_ROOT=/opt/cp2k-toolchain/install/spglib-1.16.2 .. && \
+    make -j"
+COPY ./data ./data
+COPY ./tests ./tests
+COPY ./tools/regtesting ./tools/regtesting
+
+RUN echo "\nSummary: Compilation works fine.\nStatus: OK\n"
+
+#EOF
+"""
+
+
+# ======================================================================================
+def toolchain_full(
+    base_image: str = "ubuntu:22.04", with_gcc: str = "system", **kwargs: str
+) -> str:
     return f"\nFROM {base_image}\n\n" + install_toolchain(
-        base_image=base_image, install_all=None, mpi_mode=mpi_mode
+        base_image=base_image, install_all="", with_gcc=with_gcc, **kwargs
     )
 
 
 # ======================================================================================
 def toolchain_ubuntu_nompi(
-    base_image: str = "ubuntu:20.04", gcc_version: int = 10, libvori: bool = True,
+    base_image: str = "ubuntu:22.04",
+    gcc_version: int = 10,
+    libvori: bool = True,
 ) -> str:
-    return fr"""
+    return rf"""
 FROM {base_image}
 
 # Install Ubuntu packages.
@@ -371,10 +441,10 @@ RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true && \
     libhdf5-dev \
    && rm -rf /var/lib/apt/lists/*
 
-# Create links.
-RUN ln -sf gcc-{gcc_version}      /usr/bin/gcc  && \
-    ln -sf g++-{gcc_version}      /usr/bin/g++  && \
-    ln -sf gfortran-{gcc_version} /usr/bin/gfortran
+# Create links in /usr/local/bin to overrule links in /usr/bin.
+RUN ln -sf /usr/bin/gcc-{gcc_version}      /usr/local/bin/gcc  && \
+    ln -sf /usr/bin/g++-{gcc_version}      /usr/local/bin/g++  && \
+    ln -sf /usr/bin/gfortran-{gcc_version} /usr/local/bin/gfortran
 
 """ + install_toolchain(
         base_image="ubuntu",
@@ -393,13 +463,86 @@ RUN ln -sf gcc-{gcc_version}      /usr/bin/gcc  && \
 
 
 # ======================================================================================
+def toolchain_intel() -> str:
+    return rf"""
+FROM intel/oneapi-hpckit:2022.2-devel-ubuntu20.04
+
+# Without this cp2k segfaults right after startup.
+# See https://github.com/cp2k/cp2k/issues/1936
+ENV I_MPI_FABRICS='shm'
+
+""" + install_toolchain(
+        base_image="ubuntu",
+        with_intel="",
+        with_intelmpi="",
+        with_libint="no",  # https://github.com/cp2k/cp2k/issues/1999
+        with_elpa="no",  # MPI does not provide a sufficient threading level for OpenMP.
+        with_quip="no",  # Intel compiler is currently not supported.
+        with_spfft="no",  # Spawns infinite chain of mpiicpc sub-processes.
+        with_sirius="no",  # Requires spfft.
+    )
+
+
+# ======================================================================================
+def toolchain_nvhpc() -> str:
+    return rf"""
+FROM ubuntu:22.04
+
+# Install Ubuntu packages.
+RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
+    apt-transport-https \
+    ca-certificates \
+    dirmngr \
+    gnupg2 \
+    libopenblas-dev \
+    make \
+    nano \
+    python3 \
+    wget \
+   && rm -rf /var/lib/apt/lists/*
+
+RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/hpc-sdk/ubuntu/DEB-GPG-KEY-NVIDIA-HPC-SDK
+RUN echo 'deb https://developer.download.nvidia.com/hpc-sdk/ubuntu/amd64 /' > /etc/apt/sources.list.d/nvhpc.list
+
+# Install NVIDIA's HPC SDK but only keep the compilers to reduce Docker image size.
+RUN apt-get update -qq && \
+    apt-get install -qq --no-install-recommends nvhpc-22-11 && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /opt/nvidia/hpc_sdk/Linux_x86_64/22.11/math_libs && \
+    rm -rf /opt/nvidia/hpc_sdk/Linux_x86_64/22.11/comm_libs && \
+    rm -rf /opt/nvidia/hpc_sdk/Linux_x86_64/22.11/profilers && \
+    rm -rf /opt/nvidia/hpc_sdk/Linux_x86_64/22.11/cuda
+
+ENV PATH ${{PATH}}:/opt/nvidia/hpc_sdk/Linux_x86_64/22.11/compilers/bin
+
+# Install CP2K using Linux-x86-64-nvhpc.ssmp.
+WORKDIR /opt/cp2k
+COPY ./Makefile .
+COPY ./src ./src
+COPY ./exts ./exts
+COPY ./data ./data
+COPY ./tests ./tests
+COPY ./tools/build_utils ./tools/build_utils
+COPY ./tools/regtesting ./tools/regtesting
+COPY ./arch/Linux-x86-64-nvhpc.ssmp /opt/cp2k/arch/
+
+# This takes over an hour!
+RUN make -j ARCH=Linux-x86-64-nvhpc VERSION=ssmp cp2k
+"""
+
+
+# ======================================================================================
 def toolchain_cuda(gpu_ver: str) -> str:
-    return fr"""
-FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
+    return rf"""
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Setup CUDA environment.
 ENV CUDA_PATH /usr/local/cuda
 ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+
+# Disable JIT cache as there seems to be an issue with file locking on overlayfs.
+# See also https://github.com/cp2k/cp2k/pull/2337
+ENV CUDA_CACHE_DISABLE 1
 
 # Install Ubuntu packages.
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -415,8 +558,8 @@ RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
 
 # ======================================================================================
 def toolchain_hip_cuda(gpu_ver: str) -> str:
-    return fr"""
-FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
+    return rf"""
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Setup CUDA environment.
 ENV CUDA_PATH /usr/local/cuda
@@ -425,6 +568,10 @@ ENV HIP_PLATFORM nvidia
 ENV ROCM_VER 4.5.2
 ENV HIP_DIR /opt/HIP-rocm-4.5.2
 ENV HIPAMD_DIR /opt/hipamd-rocm-4.5.2
+
+# Disable JIT cache as there seems to be an issue with file locking on overlayfs.
+# See also https://github.com/cp2k/cp2k/pull/2337
+ENV CUDA_CACHE_DISABLE 1
 
 RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
     && apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -463,7 +610,7 @@ RUN wget -q https://github.com/ROCm-Developer-Tools/HIP/archive/refs/tags/rocm-$
 
 RUN cd ${{HIPAMD_DIR}} \
     && mkdir -p build \
-    && cd  build \
+    && cd build \
     && mkdir /opt/rocm-${{ROCM_VER}} \
     && cmake -DHIP_COMMON_DIR=${{HIP_DIR}} -DHIP_PLATFORM=nvidia -DCMAKE_INSTALL_PREFIX=/opt/rocm-${{ROCM_VER}}/hip .. > /dev/null 2>&1 \
     && make -j > /dev/null 2>&1 \
@@ -490,6 +637,10 @@ RUN cd hipFFT-rocm-* \
     && make install > /dev/null 2>&1 \
     && rm -rf hipFFT*
 
+# Workaround for HIP installer.
+RUN cp -f /opt/hipBLAS-rocm-${{ROCM_VER}}/build/library/src/libhipblas.so /opt/rocm-${{ROCM_VER}}/hipblas/lib/ && \
+    cp -f /opt/hipFFT-rocm-${{ROCM_VER}}/build/library/libhipfft.so /opt/rocm-${{ROCM_VER}}/hipfft/lib/
+
 # This is the alternative installation path via Ubuntu packages.
 ## https://rocmdocs.amd.com/en/latest/Installation_Guide/Installation-Guide.html#ubuntu
 ## https://rocmdocs.amd.com/en/latest/Installation_Guide/HIP-Installation.html#nvidia-platform
@@ -503,7 +654,7 @@ RUN cd hipFFT-rocm-* \
 # Setup HIP environment.
 ENV ROCM_PATH /opt/rocm-${{ROCM_VER}}
 ENV PATH ${{PATH}}:${{ROCM_PATH}}/hip/bin
-ENV LD_LIBRARY_PATH ${{LD_LIBRARY_PATH}}:${{ROCM_PATH}}/hip/lib:${{ROCM_PATH}}/hipblas/lib:${{ROCM_PATH}}/hipfft/lib:${{ROCM_PATH}}/hipfft/lib64:${{ROCM_PATH}}/hipblas/lib64
+ENV LD_LIBRARY_PATH ${{LD_LIBRARY_PATH}}:${{ROCM_PATH}}/lib
 ENV HIP_PLATFORM nvidia
 RUN hipconfig
 
@@ -514,8 +665,8 @@ RUN hipconfig
 
 # ======================================================================================
 def toolchain_hip_rocm(gpu_ver: str) -> str:
-    return fr"""
-FROM rocm/dev-ubuntu-20.04:4.5.2-complete
+    return rf"""
+FROM rocm/dev-ubuntu-22.04:5.3.2-complete
 
 # Install some Ubuntu packages.
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -538,17 +689,17 @@ RUN hipconfig
 
 
 # ======================================================================================
-def install_toolchain(base_image: str, **kwargs: Optional[str]) -> str:
+def install_toolchain(base_image: str, **kwargs: str) -> str:
     install_args = []
     for k, v in kwargs.items():
         k = k.replace("_", "-")
-        if v is not None:
+        if v != "":
             install_args.append(f"    --{k}={v} \\")
         else:
             install_args.append(f"    --{k} \\")
     install_args_str = "\n".join(install_args)
 
-    return fr"""
+    return rf"""
 # Install requirements for the toolchain.
 WORKDIR /opt/cp2k-toolchain
 COPY ./tools/toolchain/install_requirements*.sh ./
@@ -622,7 +773,7 @@ class OutputFile:
         output_path = Path(__file__).parent / self.filename
         if self.check:
             assert output_path.read_text(encoding="utf8") == self.content.getvalue()
-            print(f"File {output_path} is consisted with generator script.")
+            print(f"File {output_path} is consistent with generator script.")
         else:
             output_path.write_text(self.content.getvalue(), encoding="utf8")
             print(f"Wrote {output_path}")

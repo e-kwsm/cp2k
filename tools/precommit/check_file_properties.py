@@ -54,7 +54,6 @@ FLAG_EXCEPTIONS = (
     r"__PILAENV_BLOCKSIZE",
     r"__PW_CUDA_NO_HOSTALLOC",
     r"__PW_CUDA_NO_HOSTALLOC",
-    r"__RELEASE_VERSION",
     r"__T_C_G0",
     r"__YUKAWA",
     r"__cplusplus",
@@ -85,7 +84,7 @@ BANNER_F = """\
 !--------------------------------------------------------------------------------------------------!
 """
 
-BANNER_FYPP = """\
+BANNER_SHELL = """\
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
 #!   Copyright 2000-{:d} CP2K developers group <https://cp2k.org>                                  !
@@ -102,6 +101,7 @@ BANNER_C = """\
 /*  SPDX-License-Identifier: {:s}                                 */
 /*----------------------------------------------------------------------------*/
 """
+
 
 C_EXTENSIONS = (".c", ".cu", ".cpp", ".cc", ".h", ".hpp")
 
@@ -154,14 +154,20 @@ def check_file(path: pathlib.Path) -> typing.List[str]:
     if fn_ext not in (".pot", ".patch") and basefn != "Makefile" and "\t" in content:
         warnings += [f"{path}: contains tab character"]
 
+    if fn_ext == ".cu" and "#if defined(_OMP_H)\n#error" not in content:
+        warnings += [f"{path}: misses check against OpenMP usage"]
+
     # check banner
     year = datetime.utcnow().year
     bsd_licensed = any(str(path).startswith(d) for d in BSD_DIRECTORIES)
     spdx = "BSD-3-Clause    " if bsd_licensed else "GPL-2.0-or-later"
     if fn_ext == ".F" and not content.startswith(BANNER_F.format(year, spdx)):
         warnings += [f"{path}: Copyright banner malformed"]
-    if fn_ext == ".fypp" and not content.startswith(BANNER_FYPP.format(year, spdx)):
+    if fn_ext == ".fypp" and not content.startswith(BANNER_SHELL.format(year, spdx)):
         warnings += [f"{path}: Copyright banner malformed"]
+    if fn_ext == ".cmake" or path.name == "CMakeLists.txt":
+        if not content.startswith(BANNER_SHELL.format(year, spdx)):
+            warnings += [f"{path}: Copyright banner malformed"]
     if fn_ext in C_EXTENSIONS and not content.startswith(BANNER_C.format(year, spdx)):
         warnings += [f"{path}: Copyright banner malformed"]
 
@@ -198,6 +204,8 @@ def check_file(path: pathlib.Path) -> typing.List[str]:
     flags = {flag for flag in flags if not FLAG_EXCEPTIONS_RE.match(flag)}
 
     for flag in sorted(flags):
+        if flag == "_OMP_H" and fn_ext == ".cu":
+            continue
         if flag not in get_install_txt():
             warnings += [f"{path}: Flag '{flag}' not mentioned in INSTALL.md"]
         if flag not in get_flags_src():

@@ -1,16 +1,13 @@
 # A set of tools used in the toolchain installer, intended to be used
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 # shellcheck shell=bash
 
 # by sourcing this file inside other scripts.
 
 SYS_INCLUDE_PATH=${SYS_INCLUDE_PATH:-"/usr/local/include:/usr/include"}
-SYS_LIB_PATH=${SYS_LIB_PATH:-"/user/local/lib64:/usr/local/lib:/usr/lib64:/usr/lib:/lib64:/lib"}
+SYS_LIB_PATH=${SYS_LIB_PATH:-"/usr/local/lib64:/usr/local/lib:/usr/lib64:/usr/lib:/lib64:/lib"}
 INCLUDE_PATHS=${INCLUDE_PATHS:-"CPATH SYS_INCLUDE_PATH"}
 LIB_PATHS=${LIB_PATHS:-"LIBRARY_PATH LD_LIBRARY_PATH LD_RUN_PATH SYS_LIB_PATH"}
 time_start=$(date +%s)
@@ -145,8 +142,10 @@ reverse() (
 get_nprocs() {
   if [ -n "${NPROCS_OVERWRITE}" ]; then
     echo ${NPROCS_OVERWRITE} | sed 's/^0*//'
-  elif $(command -v nproc >&- 2>&-); then
+  elif $(command -v nproc > /dev/null 2>&1); then
     echo $(nproc --all)
+  elif $(command -v sysctl > /dev/null 2>&1); then
+    echo $(sysctl -n hw.ncpu)
   else
     echo 1
   fi
@@ -301,7 +300,7 @@ add_lib_from_paths() {
     fi
     echo "Found lib directory $__found_target"
     eval __ldflags=\$"${__ldflags_name}"
-    __ldflags="${__ldflags} -L'${__found_target}' -Wl,-rpath='${__found_target}'"
+    __ldflags="${__ldflags} -L'${__found_target}' -Wl,-rpath,'${__found_target}'"
     # remove possible duplicates
     __ldflags="$(unique $__ldflags)"
     # must escape all quotes again before the last eval, as
@@ -340,8 +339,8 @@ check_command() {
   elif [ $# -gt 1 ]; then
     local __package=${2}
   fi
-  if $(command -v ${__command} >&- 2>&-); then
-    echo "path to ${__command} is " $(command -v ${__command})
+  if $(command -v ${__command} > /dev/null 2>&1); then
+    echo "path to ${__command} is $(command -v ${__command})"
   else
     report_error "Cannot find ${__command}, please check if the package ${__package} is installed or in system search path"
     return 1
@@ -367,7 +366,7 @@ check_install() {
   elif [ $# -gt 1 ]; then
     local __package=${2}
   fi
-  if $(command -v ${__command} >&- 2>&-); then
+  if $(command -v ${__command} > /dev/null 2>&1); then
     echo "$(basename ${__command}) is installed as $(command -v ${__command})"
   else
     report_error "cannot find ${__command}, please check if the package ${__package} has been installed correctly"
@@ -396,7 +395,7 @@ check_lib() {
   # instead of ld for linker then we can use LIBRARY_PATH, which IS
   # used during link stage. However, I think using ld is more
   # general, as in most systems LIBRARY_PATH is rarely defined, and
-  # we would have to reply on gcc.
+  # we would have to rely on gcc.
   local __search_engine="ld -o /dev/null"
   local __search_paths="$LIB_PATHS"
   # convert a list of paths to -L<dir> list used by ld
@@ -610,7 +609,7 @@ checksum() {
   local __shasum_command='sha256sum'
   # check if we have sha256sum command, Mac OS X does not have
   # sha256sum, but has an equivalent with shasum -a 256
-  command -v "$__shasum_command" >&- 2>&- ||
+  command -v "$__shasum_command" > /dev/null 2>&1 ||
     __shasum_command="shasum -a 256"
   if echo "$__sha256  $__filename" | ${__shasum_command} --check; then
     echo "Checksum of $__filename Ok"
@@ -621,62 +620,14 @@ checksum() {
   fi
 }
 
-# downloader for the package tars, excludes checksum
-download_pkg_no_checksum() {
-  # usage: download_pkg_no_checksum [-n] [-o output_filename] url
-  local __wget_flags='--quiet'
-  local __url=''
-  while [ $# -ge 1 ]; do
-    case "$1" in
-      -n)
-        local __wget_flags="$__wget_flags --no-check-certificate"
-        ;;
-      -o)
-        shift
-        __wget_flags="$__wget_flags -O $1"
-        ;;
-      *)
-        __url="$1"
-        ;;
-    esac
-    shift
-  done
-  # download
-  if ! wget $__wget_flags $__url; then
-    report_error "failed to download $__url"
-    return 1
-  fi
-}
-
 # downloader for the package tars, includes checksum
-download_pkg() {
-  # usage: download_pkg [-n] [-o output_filename] sha256 url
-  local __wget_flags='--quiet'
-  local __filename=''
-  local __url=''
-  while [ $# -ge 2 ]; do
-    case "$1" in
-      -n)
-        __wget_flags="$__wget_flags --no-check-certificate"
-        ;;
-      -o)
-        shift
-        __wget_flags="$__wget_flags -O $1"
-        __filename="$1"
-        ;;
-      *)
-        __sha256="$1"
-        __url="$2"
-        shift
-        ;;
-    esac
-    shift
-  done
-  if [ "$__filename" = "" ]; then
-    __filename="$(basename $__url)"
-  fi
+download_pkg_from_cp2k_org() {
+  # usage: download_pkg_from_cp2k_org sha256 filename
+  local __sha256="$1"
+  local __filename="$2"
+  local __url="https://www.cp2k.org/static/downloads/$__filename"
   # download
-  if ! wget $__wget_flags $__url; then
+  if ! wget --quiet $__url; then
     report_error "failed to download $__url"
     return 1
   fi
@@ -691,7 +642,7 @@ verify_checksums() {
 
   # check if we have sha256sum command, Mac OS X does not have
   # sha256sum, but has an equivalent with shasum -a 256
-  command -v "$__shasum_command" >&- 2>&- ||
+  command -v "$__shasum_command" > /dev/null 2>&1 ||
     __shasum_command="shasum -a 256"
 
   ${__shasum_command} --check "${__checksum_file}" > /dev/null 2>&1
@@ -705,7 +656,7 @@ write_checksums() {
 
   # check if we have sha256sum command, Mac OS X does not have
   # sha256sum, but has an equivalent with shasum -a 256
-  command -v "$__shasum_command" >&- 2>&- ||
+  command -v "$__shasum_command" > /dev/null 2>&1 ||
     __shasum_command="shasum -a 256"
 
   ${__shasum_command} "${VERSION_FILE}" "$@" > "${__checksum_file}"

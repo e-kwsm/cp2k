@@ -3,30 +3,43 @@
 # Directories have been reordered according the execution time needed for a gfortran pdbg run using 2 MPI tasks
 # in case a new directory is added just add it at the top of the list..
 # the order will be regularly checked and modified...
-QS/regtest-ec-force-meta                                    libxc
-QS/regtest-double-hybrid-grad-laplace                       libint libxc
-QS/regtest-double-hybrid-stress-numer-meta                  libint libxc
-QS/regtest-double-hybrid-grad-numer-meta                    libint libxc
-QS/regtest-double-hybrid-stress-meta                        libint libxc
-QS/regtest-double-hybrid-grad-meta                          libint libxc
+QS/regtest-dcdft-force                                      libint libxc
+QS/regtest-dcdft-stress                                     libint libxc
+QS/regtest-ec-stress                                        libint libxc
+QS/regtest-ri-rpa-grad                                      libint
+QS/regtest-sos-mp2-grad                                     libint
+QS/regtest-ri-rpa                                           libint
+QS/regtest-mp2-grad-2                                       libint
+QS/regtest-mp2-grad-solvers                                 libint
+QS/regtest-rpa-cubic-scaling                                libint
+QS/regtest-rpa-cubic-scaling-2                              libint
+QS/regtest-double-hybrid-stress-numer-laplace               libxc
+QS/regtest-ec-meta                                          libxc
+QS/regtest-double-hybrid-grad-laplace                       libxc
+QS/regtest-double-hybrid-stress-numer-meta                  libxc
+QS/regtest-double-hybrid-grad-numer-meta                    libxc
+QS/regtest-double-hybrid-stress-meta                        libxc
+QS/regtest-double-hybrid-grad-meta                          libxc
+QS/regtest-loc_powf
 QS/regtest-admm-libxc                                       libint libxc
 QS/regtest-mp2-admm-stress-numer                            libint
 QS/regtest-mp2-admm-grad-numer                              libint
-QS/regtest-double-hybrid-stress-numer                       libint
-QS/regtest-double-hybrid-grad-numer                         libint
+QS/regtest-double-hybrid-stress-numer                       
+QS/regtest-double-hybrid-grad-numer                         
 QS/regtest-mp2-admm-stress                                  libint
 QS/regtest-mp2-lr-grad                                      libint
 QS/regtest-mp2-lr-stress                                    libint
 QS/regtest-ri-mp2-opt                                       libint
 QS/regtest-mp2-block                                        libint parallel mpiranks%2==0
 QS/regtest-mp2-admm-grad                                    libint
-QS/regtest-double-hybrid-stress                             libint
-QS/regtest-double-hybrid-grad                               libint
+QS/regtest-double-hybrid-stress                             
+QS/regtest-double-hybrid-grad                               
 QS/regtest-hfx-ri-2                                         libint libxc
-QS/regtest-rma                                              libint mpi3 mpiranks==4
+QS/regtest-rma                                              libint mpi3
+QS/regtest-gapw_xc                                          libint
 LIBTEST/libvori                                             libvori
 LIBTEST/libbqb                                              libbqb
-QS/regtest-rma-3D                                           libint mpi3 mpiranks==8
+QS/regtest-rma-3D                                           libint mpi3
 TMC/regtest_ana_on_the_fly                                  parallel mpiranks>2
 TMC/regtest                                                 parallel mpiranks>1
 TMC/regtest_ana_post_proc                                   parallel mpiranks>1
@@ -43,16 +56,20 @@ QS/regtest-negf
 QS/regtest-negf-fft                                         fftw3
 QS/regtest-ri-rpa-axk                                       libint
 QS/regtest-ri-rpa-rse                                       libint
+QS/regtest-cdft-hirshfeld-3
 QS/regtest-cdft-hirshfeld-2                                 parallel mpiranks>1
 QS/regtest-cdft-hirshfeld
 SIRIUS/regtest-1                                            sirius
 QS/regtest-embed                                            libint
 QS/regtest-pod
+QS/regtest-tddfpt-admm                                      libint
 QS/regtest-debug-1
 QS/regtest-debug-2                                          libint
 QS/regtest-debug-3                                          libint
 QS/regtest-debug-4                                          libint
 QS/regtest-debug-5                                          libint
+QS/regtest-debug-6                                          libint
+QS/regtest-debug-7                                          libint
 QS/regtest-stda-force                                       libint
 QS/regtest-stda-force-2                                     libint
 QS/regtest-stda-force-3                                     libint
@@ -81,7 +98,6 @@ QS/regtest-tddfpt-4                                         libint
 QS/regtest-stda                                             libint
 QS/regtest-p-efield
 QS/regtest-mp2-stress                                       libint
-QS/regtest-ri-rpa                                           libint
 QS/regtest-kg                                               libxc
 QS/regtest-ec                                               libint libvori
 QS/regtest-ec-force                                         libint
@@ -98,7 +114,7 @@ Fist/regtest-7-1
 QMMM/SE/regtest-force-mixing
 QS/regtest-gpw-8
 QS/regtest-ot
-QS/regtest-mp2-grad                                         libint libvori
+QS/regtest-mp2-grad-1                                       libint libvori
 QS/regtest-plus_u
 QS/regtest-gpw-3
 QS/regtest-ps-implicit-1-3                                  fftw3
@@ -109,11 +125,11 @@ QMMM/QS/regtest-1
 QS/regtest-ps-implicit-2-1
 QS/regtest-as-1                                             libint
 Fist/regtest-12
-QS/regtest-ri-rpa                                           libint
 QS/regtest-nmr-uks-1
 QS/regtest-libxc                                            libxc libint
 SE/regtest-3-2
 QS/regtest-gw-cubic                                         libint
+QS/regtest-gw-kpoints                                       libint
 QS/regtest-xc
 QS/regtest-almo-2
 SE/regtest-2-2
@@ -195,7 +211,7 @@ QS/regtest-nmr-5
 QS/regtest-hole-funct
 QS/regtest-sccs-1
 QS/regtest-bs
-QS/regtest-tddfpt
+QS/regtest-tddfpt                                           libint
 QMMM/QS/regtest-3
 QS/regtest-sccs-3
 ATOM/regtest-1
@@ -210,6 +226,7 @@ QS/regtest-cdft-3                                           parallel mpiranks%2=
 Fist/regtest-4
 Fist/regtest-1-2
 QS/regtest-ri-laplace-mp2-cubic                             libint
+QS/regtest-ri-laplace-mp2-cubic-2                           libint
 QMMM/QS/regtest-image
 QS/regtest-gpw-6-4
 QS/regtest-mp2-4                                            libint
@@ -229,7 +246,6 @@ SE/regtest-3-3
 ATOM/regtest-2
 NEB/regtest-4
 QS/regtest-kp-3
-xTB/regtest-4
 QS/regtest-dft-vdw-corr-1
 QS/regtest-epr-2
 QS/regtest-gw-ic-model                                      libint
@@ -269,6 +285,8 @@ QS/regtest-nmr-3
 QS/regtest-hybrid-1                                         libint
 QS/regtest-rtp-1
 QS/regtest-as                                               libint
+QS/regtest-as-dft                                           libint
+QS/regtest-tddfpt-prop
 QS/regtest-sym-3
 FARMING/regtest-1
 QS/regtest-cdft-2
@@ -313,4 +331,4 @@ Fist/regtest-spgr                                           spglib
 Fist/regtest-plumed2                                        plumed2
 Fist/regtest-quip                                           quip
 Fist/regtest-16
-
+QS/regtest-rtp-4

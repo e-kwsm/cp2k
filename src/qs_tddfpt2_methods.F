@@ -23,7 +23,6 @@ MODULE qs_tddfpt2_methods
                                               cp_fm_get_info,&
                                               cp_fm_p_type,&
                                               cp_fm_release,&
-                                              cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -41,6 +40,7 @@ MODULE qs_tddfpt2_methods
                                               dbcsr_set
    USE exstates_types,                  ONLY: excited_energy_type
    USE header,                          ONLY: tddfpt_header
+   USE hfx_types,                       ONLY: compare_hfx_sections
    USE input_constants,                 ONLY: tddfpt_dipole_velocity,&
                                               tddfpt_kernel_full,&
                                               tddfpt_kernel_none,&
@@ -64,7 +64,7 @@ MODULE qs_tddfpt2_methods
                                               kernel_env_type,&
                                               release_kernel_env
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_scf_methods,                  ONLY: eigensolver
    USE qs_scf_types,                    ONLY: qs_scf_env_type
    USE qs_tddfpt2_densities,            ONLY: tddfpt_construct_aux_fit_density,&
@@ -72,12 +72,8 @@ MODULE qs_tddfpt2_methods
    USE qs_tddfpt2_eigensolver,          ONLY: tddfpt_davidson_solver,&
                                               tddfpt_orthogonalize_psi1_psi0,&
                                               tddfpt_orthonormalize_psi1_psi1
-   USE qs_tddfpt2_forces,               ONLY: tddfpt_forces,&
-                                              tddfpt_resvec1,&
-                                              tddfpt_resvec1_admm,&
-                                              tddfpt_resvec2,&
-                                              tddfpt_resvec2_xtb,&
-                                              tddfpt_resvec3
+   USE qs_tddfpt2_forces,               ONLY: tddfpt_forces_main
+   USE qs_tddfpt2_fprint,               ONLY: tddfpt_print_forces
    USE qs_tddfpt2_lri_utils,            ONLY: tddfpt2_lri_init
    USE qs_tddfpt2_properties,           ONLY: tddfpt_dipole_operator,&
                                               tddfpt_print_excitation_analysis,&
@@ -149,20 +145,19 @@ CONTAINS
       LOGICAL                                            :: do_admm, do_exck, do_hfx, do_hfxlr, &
                                                             is_restarted, state_change
       REAL(kind=dp)                                      :: conv
-      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: evals
+      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: evals, ostrength
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_p_type), ALLOCATABLE, DIMENSION(:, :)   :: dipole_op_mos_occ, evects, S_evects
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
       TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_ks_oep, matrix_s, &
-                                                            matrix_s_aux_fit
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_ks_oep, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(excited_energy_type), POINTER                 :: ex_env
       TYPE(full_kernel_env_type), TARGET                 :: full_kernel_env, kernel_env_admm_aux
       TYPE(kernel_env_type)                              :: kernel_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(section_vals_type), POINTER                   :: lri_section, tddfpt_print_section, &
                                                             tddfpt_section, xc_section
@@ -201,11 +196,10 @@ CONTAINS
       log_unit = cp_print_key_unit_nr(logger, tddfpt_print_section, "PROGRAM_BANNER", extension=".tddfptLog")
       CALL tddfpt_header(log_unit)
       CALL kernel_info(log_unit, dft_control, tddfpt_control, xc_section)
-      CALL cp_print_key_finished_output(log_unit, logger, tddfpt_print_section, "PROGRAM_BANNER")
-
       ! obtain occupied and virtual (unoccupied) ground-state Kohn-Sham orbitals
       NULLIFY (gs_mos)
-      CALL tddfpt_init_mos(qs_env, gs_mos)
+      CALL tddfpt_init_mos(qs_env, gs_mos, log_unit)
+      CALL cp_print_key_finished_output(log_unit, logger, tddfpt_print_section, "PROGRAM_BANNER")
 
       ! obtain corrected KS-matrix
       CALL tddfpt_oecorr(qs_env, gs_mos, matrix_ks_oep)
@@ -255,23 +249,30 @@ CONTAINS
          CALL tddfpt_create_work_matrices(work_matrices, gs_mos, nstates, do_hfx, do_admm, qs_env, sub_env)
 
          CALL tddfpt_construct_ground_state_orb_density(rho_orb_struct=work_matrices%rho_orb_struct_sub, &
+                                                        rho_xc_struct=work_matrices%rho_xc_struct_sub, &
                                                         is_rks_triplets=tddfpt_control%rks_triplets, &
                                                         qs_env=qs_env, sub_env=sub_env, &
                                                         wfm_rho_orb=work_matrices%rho_ao_orb_fm_sub)
-
-         tddfpt_control%do_response_now = .TRUE. ! needs to be after tddfpt_construct_ground_state_orb_density
       END IF
 
       IF (tddfpt_control%kernel == tddfpt_kernel_full) THEN
          IF (do_admm) THEN
             ! Full kernel with ADMM
-            CALL create_kernel_env(kernel_env=full_kernel_env, &
-                                   rho_struct_sub=work_matrices%rho_orb_struct_sub, &
-                                   xc_section=admm_env%xc_section_primary, &
-                                   is_rks_triplets=tddfpt_control%rks_triplets, sub_env=sub_env)
+            IF (tddfpt_control%admm_xc_correction) THEN
+               CALL create_kernel_env(kernel_env=full_kernel_env, &
+                                      rho_struct_sub=work_matrices%rho_orb_struct_sub, &
+                                      xc_section=admm_env%xc_section_primary, &
+                                      is_rks_triplets=tddfpt_control%rks_triplets, sub_env=sub_env)
+            ELSE
+               CALL create_kernel_env(kernel_env=full_kernel_env, &
+                                      rho_struct_sub=work_matrices%rho_orb_struct_sub, &
+                                      xc_section=xc_section, &
+                                      is_rks_triplets=tddfpt_control%rks_triplets, sub_env=sub_env)
+            END IF
 
             CALL tddfpt_construct_aux_fit_density(rho_orb_struct=work_matrices%rho_orb_struct_sub, &
                                                   rho_aux_fit_struct=work_matrices%rho_aux_fit_struct_sub, &
+                                                  local_rho_set=sub_env%local_rho_set_admm, &
                                                   qs_env=qs_env, sub_env=sub_env, &
                                                   wfm_rho_orb=work_matrices%rho_ao_orb_fm_sub, &
                                                   wfm_rho_aux_fit=work_matrices%rho_ao_aux_fit_fm_sub, &
@@ -331,6 +332,7 @@ CONTAINS
       DO istate = 1, nstates
          DO ispin = 1, nspins
             NULLIFY (evects(ispin, istate)%matrix, S_evects(ispin, istate)%matrix)
+            ALLOCATE (S_evects(ispin, istate)%matrix)
             CALL fm_pool_create_fm(work_matrices%fm_pool_ao_mo_occ(ispin)%pool, S_evects(ispin, istate)%matrix)
          END DO
       END DO
@@ -442,7 +444,10 @@ CONTAINS
 
       ! *** print summary information ***
       log_unit = cp_logger_get_default_io_unit()
-      CALL tddfpt_print_summary(log_unit, evects, evals, mult, dipole_op_mos_occ, tddfpt_control%dipole_form)
+      ALLOCATE (ostrength(nstates))
+      ostrength = 0.0_dp
+      CALL tddfpt_print_summary(log_unit, evects, evals, ostrength, mult, &
+                                dipole_op_mos_occ, tddfpt_control%dipole_form)
       CALL tddfpt_print_excitation_analysis(log_unit, evects, evals, gs_mos, matrix_s(1)%matrix, &
                                             min_amplitude=tddfpt_control%min_excitation_amplitude)
       CALL tddfpt_print_nto_analysis(qs_env, evects, evals, gs_mos, matrix_s(1)%matrix, &
@@ -452,9 +457,20 @@ CONTAINS
          CALL lri_print_stat(qs_env, ltddfpt=.TRUE., tddfpt_lri_env=kernel_env%full_kernel%lri_env)
       END IF
 
+      !print forces for selected states
+      IF (calc_forces) THEN
+         CALL tddfpt_print_forces(qs_env, evects, evals, ostrength, tddfpt_print_section, &
+                                  gs_mos, kernel_env, sub_env, work_matrices)
+      END IF
+
       ! excited state potential energy surface
       IF (qs_env%excited_state) THEN
-         IF (ASSOCIATED(matrix_ks_oep)) CALL get_qs_env(qs_env, matrix_ks=matrix_ks) ! for gradients unshifted KS matrix
+         IF (sub_env%is_split) THEN
+            CALL cp_abort(__LOCATION__, "Excited state forces not possible when states"// &
+                          " are distributed to different CPU pools.")
+         END IF
+         ! for gradients unshifted KS matrix
+         IF (ASSOCIATED(matrix_ks_oep)) CALL get_qs_env(qs_env, matrix_ks=matrix_ks)
          CALL get_qs_env(qs_env, exstate_env=ex_env)
          state_change = .FALSE.
          IF (ex_env%state > 0) THEN
@@ -484,13 +500,14 @@ CONTAINS
          IF (ASSOCIATED(ex_env%evect)) THEN
             DO ispin = 1, SIZE(ex_env%evect)
                CALL cp_fm_release(ex_env%evect(ispin)%matrix)
+               DEALLOCATE (ex_env%evect(ispin)%matrix)
             END DO
             DEALLOCATE (ex_env%evect)
          END IF
          ALLOCATE (ex_env%evect(nspins))
          DO ispin = 1, nspins
             CALL cp_fm_get_info(matrix=evects(ispin, 1)%matrix, matrix_struct=matrix_struct)
-            NULLIFY (ex_env%evect(ispin)%matrix)
+            ALLOCATE (ex_env%evect(ispin)%matrix)
             CALL cp_fm_create(ex_env%evect(ispin)%matrix, matrix_struct)
             CALL cp_fm_to_fm(evects(ispin, my_state)%matrix, ex_env%evect(ispin)%matrix)
          END DO
@@ -505,81 +522,7 @@ CONTAINS
          END IF
 
          IF (calc_forces) THEN
-            ! rhs of linres equation
-            IF (ASSOCIATED(ex_env%cpmos)) THEN
-               DO ispin = 1, SIZE(ex_env%cpmos)
-                  CALL cp_fm_release(ex_env%cpmos(ispin)%matrix)
-               END DO
-               DEALLOCATE (ex_env%cpmos)
-            END IF
-            ALLOCATE (ex_env%cpmos(nspins))
-            DO ispin = 1, nspins
-               CALL cp_fm_get_info(matrix=evects(ispin, 1)%matrix, matrix_struct=matrix_struct)
-               NULLIFY (ex_env%cpmos(ispin)%matrix)
-               CALL cp_fm_create(ex_env%cpmos(ispin)%matrix, matrix_struct)
-               CALL cp_fm_set_all(ex_env%cpmos(ispin)%matrix, 0.0_dp)
-            END DO
-            CALL get_qs_env(qs_env=qs_env, matrix_s=matrix_s)
-            CALL dbcsr_allocate_matrix_set(ex_env%matrix_pe, nspins)
-            DO ispin = 1, nspins
-               ALLOCATE (ex_env%matrix_pe(ispin)%matrix)
-               CALL dbcsr_create(ex_env%matrix_pe(ispin)%matrix, template=matrix_s(1)%matrix)
-               CALL dbcsr_copy(ex_env%matrix_pe(ispin)%matrix, matrix_s(1)%matrix)
-               CALL dbcsr_set(ex_env%matrix_pe(ispin)%matrix, 0.0_dp)
-               CALL tddfpt_resvec1(ex_env%evect(ispin)%matrix, gs_mos(ispin)%mos_occ, &
-                                   matrix_s(1)%matrix, ex_env%matrix_pe(ispin)%matrix)
-            END DO
-            !
-            ! ground state ADMM!
-            IF (dft_control%do_admm) THEN
-               CALL get_qs_env(qs_env, admm_env=admm_env, matrix_s_aux_fit=matrix_s_aux_fit)
-               CALL dbcsr_allocate_matrix_set(ex_env%matrix_pe_admm, nspins)
-               DO ispin = 1, nspins
-                  ALLOCATE (ex_env%matrix_pe_admm(ispin)%matrix)
-                  CALL dbcsr_create(ex_env%matrix_pe_admm(ispin)%matrix, template=matrix_s_aux_fit(1)%matrix)
-                  CALL dbcsr_copy(ex_env%matrix_pe_admm(ispin)%matrix, matrix_s_aux_fit(1)%matrix)
-                  CALL dbcsr_set(ex_env%matrix_pe_admm(ispin)%matrix, 0.0_dp)
-                  CALL tddfpt_resvec1_admm(ex_env%matrix_pe(ispin)%matrix, &
-                                           admm_env, ex_env%matrix_pe_admm(ispin)%matrix)
-               END DO
-            END IF
-            !
-            CALL dbcsr_allocate_matrix_set(ex_env%matrix_hz, nspins)
-            DO ispin = 1, nspins
-               ALLOCATE (ex_env%matrix_hz(ispin)%matrix)
-               CALL dbcsr_create(ex_env%matrix_hz(ispin)%matrix, template=matrix_s(1)%matrix)
-               CALL dbcsr_copy(ex_env%matrix_hz(ispin)%matrix, matrix_s(1)%matrix)
-               CALL dbcsr_set(ex_env%matrix_hz(ispin)%matrix, 0.0_dp)
-            END DO
-            IF (dft_control%qs_control%xtb) THEN
-               CALL tddfpt_resvec2_xtb(qs_env, ex_env%matrix_pe, gs_mos, ex_env%matrix_hz, ex_env%cpmos)
-            ELSE
-               CALL tddfpt_resvec2(qs_env, ex_env%matrix_pe, ex_env%matrix_pe_admm, &
-                                   gs_mos, ex_env%matrix_hz, ex_env%cpmos)
-            END IF
-            !
-            CALL dbcsr_allocate_matrix_set(ex_env%matrix_px1, nspins)
-            DO ispin = 1, nspins
-               ALLOCATE (ex_env%matrix_px1(ispin)%matrix)
-               CALL dbcsr_create(ex_env%matrix_px1(ispin)%matrix, template=matrix_s(1)%matrix)
-               CALL dbcsr_copy(ex_env%matrix_px1(ispin)%matrix, matrix_s(1)%matrix)
-               CALL dbcsr_set(ex_env%matrix_px1(ispin)%matrix, 0.0_dp)
-            END DO
-            ! Kernel ADMM
-            IF (tddfpt_control%do_admm) THEN
-               CALL get_qs_env(qs_env, admm_env=admm_env, matrix_s_aux_fit=matrix_s_aux_fit)
-               CALL dbcsr_allocate_matrix_set(ex_env%matrix_px1_admm, nspins)
-               DO ispin = 1, nspins
-                  ALLOCATE (ex_env%matrix_px1_admm(ispin)%matrix)
-                  CALL dbcsr_create(ex_env%matrix_px1_admm(ispin)%matrix, template=matrix_s_aux_fit(1)%matrix)
-                  CALL dbcsr_copy(ex_env%matrix_px1_admm(ispin)%matrix, matrix_s_aux_fit(1)%matrix)
-                  CALL dbcsr_set(ex_env%matrix_px1_admm(ispin)%matrix, 0.0_dp)
-               END DO
-            END IF
-            ! TDA forces
-            CALL tddfpt_forces(qs_env, ex_env, gs_mos, kernel_env, sub_env, work_matrices)
-            ! Rotate res vector cpmos into original frame of occupied orbitals
-            CALL tddfpt_resvec3(qs_env, ex_env%cpmos, work_matrices)
+            CALL tddfpt_forces_main(qs_env, gs_mos, ex_env, kernel_env, sub_env, work_matrices)
          END IF
       END IF
 
@@ -588,15 +531,18 @@ CONTAINS
          DO ispin = 1, nspins
             CALL cp_fm_release(evects(ispin, istate)%matrix)
             CALL cp_fm_release(S_evects(ispin, istate)%matrix)
+            DEALLOCATE (evects(ispin, istate)%matrix, S_evects(ispin, istate)%matrix)
          END DO
       END DO
-      DEALLOCATE (evects, S_evects, evals)
+      DEALLOCATE (evects, S_evects, evals, ostrength)
 
       IF (tddfpt_control%kernel == tddfpt_kernel_full) THEN
          IF (do_admm) CALL release_kernel_env(kernel_env%admm_kernel)
          IF (tddfpt_control%do_lrigpw) THEN
             CALL lri_env_release(kernel_env%full_kernel%lri_env)
+            DEALLOCATE (kernel_env%full_kernel%lri_env)
             CALL lri_density_release(kernel_env%full_kernel%lri_density)
+            DEALLOCATE (kernel_env%full_kernel%lri_density)
          END IF
          CALL release_kernel_env(kernel_env%full_kernel)
       ELSE IF (tddfpt_control%kernel == tddfpt_kernel_stda) THEN
@@ -613,6 +559,7 @@ CONTAINS
          DO ispin = nspins, 1, -1
             DO istate = SIZE(dipole_op_mos_occ, 1), 1, -1
                CALL cp_fm_release(dipole_op_mos_occ(istate, ispin)%matrix)
+               DEALLOCATE (dipole_op_mos_occ(istate, ispin)%matrix)
             END DO
          END DO
          DEALLOCATE (dipole_op_mos_occ)
@@ -650,11 +597,12 @@ CONTAINS
 
       CHARACTER(len=20)                                  :: nstates_str
       LOGICAL                                            :: exar, exf, exgcp, exhf, exhfxk, exk, &
-                                                            explicit_root, expot, exvdw, exwfn
+                                                            explicit_root, expot, exvdw, exwfn, &
+                                                            same_hfx
       REAL(kind=dp)                                      :: C_hf
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(section_vals_type), POINTER                   :: hfx_section, input, tddfpt_section, &
-                                                            xc_root, xc_sub
+      TYPE(section_vals_type), POINTER                   :: hfx_section, hfx_section_gs, input, &
+                                                            tddfpt_section, xc_root, xc_sub
       TYPE(tddfpt2_control_type), POINTER                :: tddfpt_control
 
       NULLIFY (dft_control, input)
@@ -750,6 +698,15 @@ CONTAINS
                CALL section_vals_val_get(hfx_section, "FRACTION", r_val=C_hf)
                do_hfx = (C_hf /= 0.0_dp)
             END IF
+            !TDDFPT only works if the kernel has the same HF section as the DFT%XC one
+            IF (do_hfx) THEN
+               hfx_section_gs => section_vals_get_subs_vals(input, "DFT%XC%HF")
+               CALL compare_hfx_sections(hfx_section, hfx_section_gs, same_hfx)
+               IF (.NOT. same_hfx) THEN
+                  CPABORT("TDDFPT Kernel must use the same HF section as DFT%XC or no HF at all.")
+               END IF
+            END IF
+
             do_admm = do_hfx .AND. dft_control%do_admm
             IF (do_admm) THEN
                ! 'admm_env%xc_section_primary' and 'admm_env%xc_section_aux' need to be redefined
@@ -824,12 +781,15 @@ CONTAINS
             CALL xc_write(log_unit, xc_section, lsd)
             IF (tddfpt_control%do_hfx) THEN
                IF (tddfpt_control%do_admm) THEN
-                  WRITE (log_unit, "(T2,A,T62,A19)") "KERNEL|", "ADMM exact exchange"
+                  WRITE (log_unit, "(T2,A,T62,A19)") "KERNEL|", "ADMM Exact Exchange"
+                  IF (tddfpt_control%admm_xc_correction) THEN
+                     WRITE (log_unit, "(T2,A,T60,A21)") "KERNEL|", "Apply ADMM Kernel XC Correction"
+                  END IF
                   IF (tddfpt_control%admm_symm) THEN
-                     WRITE (log_unit, "(T2,A,T60,A21)") "KERNEL|", "symmetric ADMM kernel"
+                     WRITE (log_unit, "(T2,A,T60,A21)") "KERNEL|", "Symmetric ADMM Kernel"
                   END IF
                ELSE
-                  WRITE (log_unit, "(T2,A,T67,A14)") "KERNEL|", "exact exchange"
+                  WRITE (log_unit, "(T2,A,T67,A14)") "KERNEL|", "Exact Exchange"
                END IF
             END IF
             IF (tddfpt_control%do_lrigpw) THEN
@@ -893,7 +853,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(cp_fm_p_type), DIMENSION(:, :)                :: evects
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fingerprint
       INTEGER, INTENT(INOUT)                             :: my_state
 
@@ -924,7 +884,7 @@ CONTAINS
       END DO
       ALLOCATE (psi0(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          psi0(ispin)%matrix => mo_coeff
       END DO
       !

@@ -63,7 +63,7 @@ MODULE qs_band_structure
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_band_structure'
 
-   PUBLIC :: calculate_band_structure, calculate_kp_orbitals
+   PUBLIC :: calculate_band_structure, calculate_kp_orbitals, calculate_kpoints_for_bs
 
 ! **************************************************************************************************
 
@@ -78,7 +78,6 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
       LOGICAL                                            :: do_kpoints, explicit
-      TYPE(qs_environment_type), POINTER                 :: qs_env_kp
       TYPE(section_vals_type), POINTER                   :: bs_input
 
       bs_input => section_vals_get_subs_vals(qs_env%input, "DFT%PRINT%BAND_STRUCTURE")
@@ -88,10 +87,13 @@ CONTAINS
          IF (do_kpoints) THEN
             CALL do_calculate_band_structure(qs_env)
          ELSE
-            NULLIFY (qs_env_kp)
-            CALL create_kp_from_gamma(qs_env, qs_env_kp)
-            CALL do_calculate_band_structure(qs_env_kp)
-            CALL qs_env_release(qs_env_kp)
+            BLOCK
+               TYPE(qs_environment_type), POINTER :: qs_env_kp
+               CALL create_kp_from_gamma(qs_env, qs_env_kp)
+               CALL do_calculate_band_structure(qs_env_kp)
+               CALL qs_env_release(qs_env_kp)
+               DEALLOCATE (qs_env_kp)
+            END BLOCK
          END IF
       END IF
 
@@ -219,7 +221,7 @@ CONTAINS
             CALL get_qs_env(qs_env, dft_control=dft_control)
             nspins = dft_control%nspins
             kp => kpoint%kp_env(1)%kpoint_env
-            CALL get_mo_set(kp%mos(1, 1)%mo_set, nmo=nmo)
+            CALL get_mo_set(kp%mos(1, 1), nmo=nmo)
             ALLOCATE (eigval(nmo), occnum(nmo))
             CALL get_kpoint_info(kpoint, nkp=nkp, kp_range=kp_range, xkp=xkp, wkp=wkp)
 
@@ -248,7 +250,7 @@ CONTAINS
                   IF (my_kpgrp) THEN
                      ikpgr = ik - kp_range(1) + 1
                      kp => kpoint%kp_env(ikpgr)%kpoint_env
-                     CALL get_mo_set(kp%mos(1, ispin)%mo_set, eigenvalues=eigenvalues, occupation_numbers=occupation_numbers)
+                     CALL get_mo_set(kp%mos(1, ispin), eigenvalues=eigenvalues, occupation_numbers=occupation_numbers)
                      eigval(1:nmo) = eigenvalues(1:nmo)
                      occnum(1:nmo) = occupation_numbers(1:nmo)
                   ELSE
@@ -310,7 +312,6 @@ CONTAINS
          OPTIONAL                                        :: kpgeneral
       INTEGER, INTENT(IN), OPTIONAL                      :: group_size_ext
 
-      INTEGER                                            :: i, ix, iy, iz, npoints
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks, matrix_s
@@ -319,6 +320,46 @@ CONTAINS
          POINTER                                         :: sab_nl
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
+
+      CALL calculate_kpoints_for_bs(kpoint, scheme, group_size_ext, mp_grid, kpgeneral)
+
+      CALL get_qs_env(qs_env=qs_env, para_env=para_env, blacs_env=blacs_env)
+      kpoint%para_env => para_env
+      CALL cp_para_env_retain(para_env)
+      kpoint%blacs_env_all => blacs_env
+      CALL cp_blacs_env_retain(blacs_env)
+      CALL kpoint_env_initialize(kpoint)
+
+      CALL kpoint_initialize_mos(kpoint, qs_env%mos, nadd)
+      CALL kpoint_initialize_mo_set(kpoint)
+
+      CALL get_qs_env(qs_env, sab_kp=sab_nl, dft_control=dft_control)
+      CALL kpoint_init_cell_index(kpoint, sab_nl, para_env, dft_control)
+
+      CALL get_qs_env(qs_env, matrix_ks_kp=matrix_ks, matrix_s_kp=matrix_s, &
+                      scf_env=scf_env, scf_control=scf_control)
+      CALL do_general_diag_kp(matrix_ks, matrix_s, kpoint, scf_env, scf_control, .FALSE.)
+
+   END SUBROUTINE calculate_kp_orbitals
+
+! **************************************************************************************************
+!> \brief ...
+!> \param kpoint ...
+!> \param scheme ...
+!> \param group_size_ext ...
+!> \param mp_grid ...
+!> \param kpgeneral ...
+! **************************************************************************************************
+   SUBROUTINE calculate_kpoints_for_bs(kpoint, scheme, group_size_ext, mp_grid, kpgeneral)
+
+      TYPE(kpoint_type), POINTER                         :: kpoint
+      CHARACTER(LEN=*), INTENT(IN)                       :: scheme
+      INTEGER, INTENT(IN), OPTIONAL                      :: group_size_ext
+      INTEGER, DIMENSION(3), INTENT(IN), OPTIONAL        :: mp_grid
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
+         OPTIONAL                                        :: kpgeneral
+
+      INTEGER                                            :: i, ix, iy, iz, npoints
 
       CPASSERT(.NOT. ASSOCIATED(kpoint))
 
@@ -389,25 +430,6 @@ CONTAINS
          CPABORT("Unknown kpoint scheme requested")
       END SELECT
 
-      CALL get_qs_env(qs_env=qs_env, para_env=para_env, blacs_env=blacs_env)
-      kpoint%para_env => para_env
-      CALL cp_para_env_retain(para_env)
-      kpoint%blacs_env_all => blacs_env
-      CALL cp_blacs_env_retain(blacs_env)
-      CALL kpoint_env_initialize(kpoint)
-
-      CALL kpoint_initialize_mos(kpoint, qs_env%mos, nadd)
-      CALL kpoint_initialize_mo_set(kpoint)
-
-      CALL get_qs_env(qs_env, sab_kp=sab_nl, dft_control=dft_control)
-      CALL kpoint_init_cell_index(kpoint, sab_nl, para_env, dft_control)
-
-      CALL get_qs_env(qs_env, matrix_ks_kp=matrix_ks, matrix_s_kp=matrix_s, &
-                      scf_env=scf_env, scf_control=scf_control)
-      CALL do_general_diag_kp(matrix_ks, matrix_s, kpoint, scf_env, scf_control, .FALSE.)
-
-   END SUBROUTINE calculate_kp_orbitals
-
-! **************************************************************************************************
+   END SUBROUTINE calculate_kpoints_for_bs
 
 END MODULE qs_band_structure

@@ -29,7 +29,6 @@ MODULE minbas_methods
                                               cp_fm_release,&
                                               cp_fm_to_fm_submat,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
         dbcsr_create, dbcsr_distribution_type, dbcsr_filter, dbcsr_iterator_blocks_left, &
@@ -39,6 +38,7 @@ MODULE minbas_methods
    USE kinds,                           ONLY: dp
    USE lapack,                          ONLY: lapack_ssyev
    USE mao_basis,                       ONLY: mao_generate_basis
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -47,7 +47,7 @@ MODULE minbas_methods
    USE qs_ks_types,                     ONLY: get_ks_env,&
                                               qs_ks_env_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -73,7 +73,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE minbas_calculation(qs_env, mos, quambo, mao, iounit, full_ortho, eps_filter)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: quambo
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: mao
@@ -93,8 +93,9 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_a, fm_struct_b, fm_struct_c, &
                                                             fm_struct_d, fm_struct_e
-      TYPE(cp_fm_type), POINTER                          :: fm1, fm2, fm3, fm4, fm5, fm6, fm_mos, &
-                                                            fma, fmb, fmwork
+      TYPE(cp_fm_type)                                   :: fm1, fm2, fm3, fm4, fm5, fm6, fma, fmb, &
+                                                            fmwork
+      TYPE(cp_fm_type), POINTER                          :: fm_mos
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_distribution_type), POINTER             :: dbcsr_dist
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mao_coef
@@ -141,7 +142,7 @@ CONTAINS
          IF (col_blk_sizes(iab) < 0) &
             CPABORT("Number of MAOs has to be specified in KIND section for all elements")
       END DO
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao, nmo=nmo)
+      CALL get_mo_set(mo_set=mos(1), nao=nao, nmo=nmo)
 
       IF (unit_nr > 0) THEN
          WRITE (unit_nr, '(T2,A,T71,I10)') 'Total Number of Atomic Basis Set Functions   :', nao
@@ -150,7 +151,7 @@ CONTAINS
             WRITE (unit_nr, '(T2,A,T71,I10)') 'Total Number of Molecular Orbitals available :', nmo
          ELSE
             DO ispin = 1, nspin
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmx)
+               CALL get_mo_set(mo_set=mos(ispin), nmo=nmx)
                WRITE (unit_nr, '(T2,A,i2,T71,I10)') &
                   'Total Number of Molecular Orbitals available for Spin ', ispin, nmx
             END DO
@@ -158,7 +159,7 @@ CONTAINS
       END IF
       CPASSERT(nmao <= nao)
       DO ispin = 1, nspin
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, nmo=nmx)
+         CALL get_mo_set(mo_set=mos(ispin), nmo=nmx)
          IF (nmx /= nmo) EXIT
       END DO
       do_minbas = .TRUE.
@@ -225,10 +226,10 @@ CONTAINS
             CALL dbcsr_multiply("N", "N", 1.0_dp, smat, mao_coef(ispin)%matrix, 0.0_dp, smao)
             ! a(nj)* = C(vn)(T) * SMAO(vj)
             CALL copy_dbcsr_to_fm(smao, fm1)
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=fm_mos)
-            CALL cp_gemm("T", "N", nmo, nmao, nao, 1.0_dp, fm_mos, fm1, 0.0_dp, fm2)
+            CALL get_mo_set(mos(ispin), mo_coeff=fm_mos)
+            CALL parallel_gemm("T", "N", nmo, nmao, nao, 1.0_dp, fm_mos, fm1, 0.0_dp, fm2)
             CALL dbcsr_release(smao)
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, homo=homo)
+            CALL get_mo_set(mo_set=mos(ispin), homo=homo)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, '(T2,A,T51,A,i2,T71,I10)') 'MOs in Occupied Valence Set', 'Spin ', ispin, homo
             END IF
@@ -239,8 +240,8 @@ CONTAINS
             CALL cp_fm_create(fm3, fm_struct_c)
             CALL cp_fm_create(fm4, fm_struct_c)
             ! B(vw) = a(vj)* * a(wj)*
-            CALL cp_gemm("N", "T", nvirt, nvirt, nmao, 1.0_dp, fm2, fm2, 0.0_dp, fm3, &
-                         a_first_row=homo + 1, b_first_row=homo + 1)
+            CALL parallel_gemm("N", "T", nvirt, nvirt, nmao, 1.0_dp, fm2, fm2, 0.0_dp, fm3, &
+                               a_first_row=homo + 1, b_first_row=homo + 1)
             ALLOCATE (eigval(nvirt))
             CALL choose_eigv_solver(fm3, fm4, eigval)
             ! SVD(B) -> select p largest eigenvalues and vectors
@@ -250,8 +251,8 @@ CONTAINS
                WRITE (unit_nr, '(T2,A,T51,A,i2,T71,I10)') 'MOs in Virtual Valence Set', 'Spin ', ispin, np
             END IF
             ! R(vw) = SUM_p T(vp)*T(wp)
-            CALL cp_gemm("N", "T", nvirt, nvirt, np, 1.0_dp, fm4, fm4, 0.0_dp, fm3, &
-                         a_first_col=np1, b_first_col=np1)
+            CALL parallel_gemm("N", "T", nvirt, nvirt, np, 1.0_dp, fm4, fm4, 0.0_dp, fm3, &
+                               a_first_col=np1, b_first_col=np1)
             !
             ALLOCATE (dval(nmao), dvalo(nmao), dvalv(nmao))
             NULLIFY (fm_struct_d)
@@ -263,12 +264,12 @@ CONTAINS
                                      para_env=para_env, context=blacs_env)
             CALL cp_fm_create(fm6, fm_struct_e)
             ! D(j) = SUM_n (a(nj)*)^2 + SUM_vw R(vw) * a(vj)* * a(wj)*
-            CALL cp_gemm("N", "N", nvirt, nmao, nvirt, 1.0_dp, fm3, fm2, 0.0_dp, fm5, &
-                         b_first_row=homo + 1)
-            CALL cp_gemm("T", "N", nmao, nmao, nvirt, 1.0_dp, fm2, fm5, 0.0_dp, fm6, &
-                         a_first_row=homo + 1)
+            CALL parallel_gemm("N", "N", nvirt, nmao, nvirt, 1.0_dp, fm3, fm2, 0.0_dp, fm5, &
+                               b_first_row=homo + 1)
+            CALL parallel_gemm("T", "N", nmao, nmao, nvirt, 1.0_dp, fm2, fm5, 0.0_dp, fm6, &
+                               a_first_row=homo + 1)
             CALL cp_fm_get_diag(fm6, dvalv(1:nmao))
-            CALL cp_gemm("T", "N", nmao, nmao, homo, 1.0_dp, fm2, fm2, 0.0_dp, fm6)
+            CALL parallel_gemm("T", "N", nmao, nmao, homo, 1.0_dp, fm2, fm2, 0.0_dp, fm6)
             CALL cp_fm_get_diag(fm6, dvalo(1:nmao))
             DO i = 1, nmao
                dval(i) = 1.0_dp/SQRT(dvalo(i) + dvalv(i))
@@ -279,23 +280,23 @@ CONTAINS
             CALL cp_fm_column_scale(fma, dval)
             ! Orthogonalization
             CALL cp_fm_create(fmwork, fm_struct_e)
-            CALL cp_gemm("T", "N", nmao, nmao, nmo, 1.0_dp, fma, fma, 0.0_dp, fm6)
+            CALL parallel_gemm("T", "N", nmao, nmao, nmo, 1.0_dp, fma, fma, 0.0_dp, fm6)
             IF (my_full_ortho) THEN
                ! full orthogonalization
                CALL cp_fm_power(fm6, fmwork, -0.5_dp, 1.0e-12_dp, ndep)
                IF (ndep > 0 .AND. unit_nr > 0) THEN
                   WRITE (unit_nr, '(T2,A,T71,I10)') 'Warning: linear dependent basis   ', ndep
                END IF
-               CALL cp_gemm("N", "N", nmo, nmao, nmao, 1.0_dp, fma, fm6, 0.0_dp, fmb)
+               CALL parallel_gemm("N", "N", nmo, nmao, nmao, 1.0_dp, fma, fm6, 0.0_dp, fmb)
             ELSE
                ! orthogonalize on-atom blocks
                CALL copy_fm_to_dbcsr(fm6, sortho, keep_sparsity=.TRUE.)
                CALL diag_sqrt_invert(sortho)
                CALL copy_dbcsr_to_fm(sortho, fm6)
-               CALL cp_gemm("N", "N", nmo, nmao, nmao, 1.0_dp, fma, fm6, 0.0_dp, fmb)
+               CALL parallel_gemm("N", "N", nmo, nmao, nmao, 1.0_dp, fma, fm6, 0.0_dp, fmb)
             END IF
             ! store as QUAMBO
-            CALL cp_gemm("N", "N", nao, nmao, nmo, 1.0_dp, fm_mos, fmb, 0.0_dp, fm1)
+            CALL parallel_gemm("N", "N", nao, nmao, nmo, 1.0_dp, fm_mos, fmb, 0.0_dp, fm1)
             CALL copy_fm_to_dbcsr(fm1, quambo(ispin)%matrix)
             CALL dbcsr_filter(quambo(ispin)%matrix, my_eps_filter)
             !

@@ -25,8 +25,11 @@ MODULE qs_loc_methods
    USE cell_types,                      ONLY: cell_type,&
                                               pbc
    USE cp_control_types,                ONLY: dft_control_type
+   USE cp_dbcsr_cp2k_link,              ONLY: cp_dbcsr_alloc_block_from_nbl
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
-                                              cp_dbcsr_sm_fm_multiply
+                                              cp_dbcsr_sm_fm_multiply,&
+                                              dbcsr_allocate_matrix_set,&
+                                              dbcsr_deallocate_matrix_set
    USE cp_fm_basic_linalg,              ONLY: cp_fm_schur_product
    USE cp_fm_pool_types,                ONLY: cp_fm_pool_p_type,&
                                               fm_pool_create_fm
@@ -34,9 +37,8 @@ MODULE qs_loc_methods
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: &
-        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_p_type, &
-        cp_fm_release, cp_fm_set_all, cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
+        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_init_random, &
+        cp_fm_p_type, cp_fm_release, cp_fm_set_all, cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -49,13 +51,17 @@ MODULE qs_loc_methods
    USE cp_realspace_grid_cube,          ONLY: cp_pw_to_cube
    USE cp_units,                        ONLY: cp_unit_from_cp2k
    USE dbcsr_api,                       ONLY: dbcsr_copy,&
+                                              dbcsr_create,&
                                               dbcsr_deallocate_matrix,&
                                               dbcsr_p_type,&
-                                              dbcsr_set
+                                              dbcsr_set,&
+                                              dbcsr_type,&
+                                              dbcsr_type_symmetric
    USE input_constants,                 ONLY: &
-        do_loc_crazy, do_loc_direct, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_none, do_loc_scdm, &
-        dump_dcd, dump_dcd_aligned_cell, dump_xmol, op_loc_berry, op_loc_boys, op_loc_pipek, &
-        state_loc_list
+        do_loc_cpo_atomic, do_loc_cpo_random, do_loc_cpo_restart, do_loc_cpo_space_nmo, &
+        do_loc_cpo_space_wan, do_loc_crazy, do_loc_direct, do_loc_gapo, do_loc_jacobi, &
+        do_loc_l1_norm_sd, do_loc_none, do_loc_scdm, dump_dcd, dump_dcd_aligned_cell, dump_xmol, &
+        op_loc_berry, op_loc_boys, op_loc_pipek, state_loc_list
    USE input_section_types,             ONLY: section_get_ival,&
                                               section_get_ivals,&
                                               section_get_lval,&
@@ -72,6 +78,7 @@ MODULE qs_loc_methods
    USE message_passing,                 ONLY: mp_sum
    USE motion_utils,                    ONLY: get_output_format
    USE orbital_pointers,                ONLY: ncoset
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_methods,                ONLY: get_particle_set,&
                                               write_particle_coordinates
@@ -88,25 +95,30 @@ MODULE qs_loc_methods
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
+   USE qs_atomic_block,                 ONLY: calculate_atomic_block_dm
    USE qs_collocate_density,            ONLY: calculate_wavefunction
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: qs_kind_type
    USE qs_loc_types,                    ONLY: get_qs_loc_env,&
                                               localized_wfn_control_type,&
-                                              qs_loc_env_new_type
+                                              qs_loc_env_type
    USE qs_loc_utils,                    ONLY: jacobi_rotation_pipek
    USE qs_localization_methods,         ONLY: approx_l1_norm_sd,&
                                               crazy_rotations,&
                                               direct_mini,&
+                                              jacobi_cg_edf_ls,&
                                               jacobi_rotations,&
                                               scdm_qrfact,&
                                               zij_matrix
    USE qs_matrix_pools,                 ONLY: mpools_get
+   USE qs_mo_methods,                   ONLY: make_basis_simple,&
+                                              make_basis_sm
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_moments,                      ONLY: build_local_moment_matrix
+   USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
                                               qs_subsys_type
    USE string_utilities,                ONLY: xstring
@@ -144,6 +156,10 @@ CONTAINS
 !> \param weights ...
 !> \param ispin ...
 !> \param print_loc_section ...
+!> \param nextra ...
+!> \param nmo ...
+!> \param vectors_2 ...
+!> \param guess_mos ...
 !> \par History
 !>      04.2005 created [MI]
 !> \author MI
@@ -153,11 +169,12 @@ CONTAINS
 !>       The file for the centers and the spreads have a xyz format
 ! **************************************************************************************************
    SUBROUTINE optimize_loc_berry(method, qs_loc_env, vectors, op_sm_set, &
-                                 zij_fm_set, para_env, cell, weights, ispin, print_loc_section)
+                                 zij_fm_set, para_env, cell, weights, ispin, print_loc_section, &
+                                 nextra, nmo, vectors_2, guess_mos)
 
       INTEGER, INTENT(IN)                                :: method
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: op_sm_set
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -165,19 +182,19 @@ CONTAINS
       REAL(dp), DIMENSION(:)                             :: weights
       INTEGER, INTENT(IN)                                :: ispin
       TYPE(section_vals_type), POINTER                   :: print_loc_section
+      INTEGER, INTENT(IN), OPTIONAL                      :: nextra, nmo
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: vectors_2, guess_mos
 
       CHARACTER(len=*), PARAMETER :: routineN = 'optimize_loc_berry'
 
       INTEGER                                            :: handle, max_iter, nao, nmoloc, out_each, &
                                                             output_unit, sweeps
       LOGICAL                                            :: converged, crazy_use_diag, &
-                                                            do_jacobi_refinement
+                                                            do_jacobi_refinement, my_do_mixed
       REAL(dp)                                           :: crazy_scale, eps_localization, &
                                                             max_crazy_angle, start_time, &
                                                             target_time
       TYPE(cp_logger_type), POINTER                      :: logger
-
-!      INTEGER :: i,j
 
       CALL timeset(routineN, handle)
       logger => cp_get_default_logger()
@@ -198,6 +215,7 @@ CONTAINS
       target_time = qs_loc_env%target_time
       start_time = qs_loc_env%start_time
       do_jacobi_refinement = qs_loc_env%localized_wfn_control%jacobi_refinement
+      my_do_mixed = qs_loc_env%localized_wfn_control%do_mixed
       CALL centers_spreads_berry(qs_loc_env, zij_fm_set, nmoloc, cell, weights, &
                                  ispin, print_loc_section, only_initial_out=.TRUE.)
       SELECT CASE (method)
@@ -205,6 +223,28 @@ CONTAINS
          CALL jacobi_rotations(weights, zij_fm_set, vectors, para_env, max_iter=max_iter, &
                                eps_localization=eps_localization, sweeps=sweeps, &
                                out_each=out_each, target_time=target_time, start_time=start_time)
+      CASE (do_loc_gapo)
+         IF (my_do_mixed) THEN
+            IF (nextra > 0) THEN
+               IF (PRESENT(guess_mos)) THEN
+                  CALL jacobi_cg_edf_ls(para_env, weights, zij_fm_set, vectors, max_iter, &
+                                        eps_localization, sweeps, out_each, nextra, &
+                                        qs_loc_env%localized_wfn_control%do_cg_po, &
+                                        nmo=nmo, vectors_2=vectors_2, mos_guess=guess_mos)
+               ELSE
+                  CALL jacobi_cg_edf_ls(para_env, weights, zij_fm_set, vectors, max_iter, &
+                                        eps_localization, sweeps, out_each, nextra, &
+                                        qs_loc_env%localized_wfn_control%do_cg_po, &
+                                        nmo=nmo, vectors_2=vectors_2)
+               END IF
+            ELSE
+               CALL jacobi_cg_edf_ls(para_env, weights, zij_fm_set, vectors, max_iter, &
+                                     eps_localization, sweeps, out_each, 0, &
+                                     qs_loc_env%localized_wfn_control%do_cg_po)
+            END IF
+         ELSE
+            CPABORT("GAPO works only with STATES MIXED")
+         END IF
       CASE (do_loc_scdm)
          ! Decomposition
          CALL scdm_qrfact(vectors)
@@ -285,8 +325,8 @@ CONTAINS
                                  ispin, print_loc_section)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN)                                :: method
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
       INTEGER, INTENT(IN)                                :: ispin
       TYPE(section_vals_type), POINTER                   :: print_loc_section
@@ -297,7 +337,8 @@ CONTAINS
                                                             ncol, nmoloc, output_unit, sweeps
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: first_sgf, last_sgf, nsgf
       TYPE(cp_fm_pool_p_type), DIMENSION(:), POINTER     :: ao_ao_fm_pools
-      TYPE(cp_fm_type), POINTER                          :: opvec, ov_fm
+      TYPE(cp_fm_type)                                   :: opvec
+      TYPE(cp_fm_type), POINTER                          :: ov_fm
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -330,6 +371,7 @@ CONTAINS
 
       !   Copy the overlap sparse matrix in a full matrix
       CALL mpools_get(qs_env%mpools, ao_ao_fm_pools=ao_ao_fm_pools)
+      ALLOCATE (ov_fm)
       CALL fm_pool_create_fm(ao_ao_fm_pools(1)%pool, ov_fm, name=" ")
       CALL copy_dbcsr_to_fm(matrix_s(1)%matrix, ov_fm)
 
@@ -341,19 +383,19 @@ CONTAINS
          ncol = nsgf(iatom)
 
          ! multiply fmxfm, using only part of the ao : Ct x S
-         CALL cp_gemm('N', 'N', nao, nmoloc, nao, 1.0_dp, ov_fm, vectors, 0.0_dp, opvec, &
-                      a_first_col=1, a_first_row=1, b_first_col=1, b_first_row=1)
+         CALL parallel_gemm('N', 'N', nao, nmoloc, nao, 1.0_dp, ov_fm, vectors, 0.0_dp, opvec, &
+                            a_first_col=1, a_first_row=1, b_first_col=1, b_first_row=1)
 
-         CALL cp_gemm('T', 'N', nmoloc, nmoloc, ncol, 0.5_dp, vectors, opvec, &
-                      0.0_dp, zij_fm_set(iatom, 1)%matrix, &
-                      a_first_col=1, a_first_row=isgf, b_first_col=1, b_first_row=isgf)
+         CALL parallel_gemm('T', 'N', nmoloc, nmoloc, ncol, 0.5_dp, vectors, opvec, &
+                            0.0_dp, zij_fm_set(iatom, 1)%matrix, &
+                            a_first_col=1, a_first_row=isgf, b_first_col=1, b_first_row=isgf)
 
-         CALL cp_gemm('N', 'N', nao, nmoloc, ncol, 1.0_dp, ov_fm, vectors, 0.0_dp, opvec, &
-                      a_first_col=isgf, a_first_row=1, b_first_col=1, b_first_row=isgf)
+         CALL parallel_gemm('N', 'N', nao, nmoloc, ncol, 1.0_dp, ov_fm, vectors, 0.0_dp, opvec, &
+                            a_first_col=isgf, a_first_row=1, b_first_col=1, b_first_row=isgf)
 
-         CALL cp_gemm('T', 'N', nmoloc, nmoloc, nao, 0.5_dp, vectors, opvec, &
-                      1.0_dp, zij_fm_set(iatom, 1)%matrix, &
-                      a_first_col=1, a_first_row=1, b_first_col=1, b_first_row=1)
+         CALL parallel_gemm('T', 'N', nmoloc, nmoloc, nao, 0.5_dp, vectors, opvec, &
+                            1.0_dp, zij_fm_set(iatom, 1)%matrix, &
+                            a_first_col=1, a_first_row=1, b_first_col=1, b_first_row=1)
 
       END DO ! iatom
 
@@ -361,6 +403,8 @@ CONTAINS
       SELECT CASE (method)
       CASE (do_loc_jacobi)
          CALL jacobi_rotation_pipek(zij_fm_set, vectors, sweeps)
+      CASE (do_loc_gapo)
+         CPABORT("GAPO and Pipek not implemented.")
       CASE (do_loc_crazy)
          CPABORT("Crazy and Pipek not implemented.")
       CASE (do_loc_l1_norm_sd)
@@ -404,7 +448,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE centers_spreads_berry(qs_loc_env, zij, nmoloc, cell, weights, ispin, &
                                     print_loc_section, only_initial_out)
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: zij(:, :)
       INTEGER, INTENT(IN)                                :: nmoloc
       TYPE(cell_type), POINTER                           :: cell
@@ -418,8 +462,8 @@ CONTAINS
       INTEGER                                            :: idir, istate, jdir, nstates, &
                                                             output_unit, unit_out_s
       LOGICAL                                            :: my_only_init
-      REAL(dp)                                           :: spread_i, spread_ii, sum_spread_i, &
-                                                            sum_spread_ii
+      REAL(dp)                                           :: avg_spread_ii, spread_i, spread_ii, &
+                                                            sum_spread_i, sum_spread_ii
       REAL(dp), DIMENSION(3)                             :: c, c2, cpbc
       REAL(dp), DIMENSION(:, :), POINTER                 :: centers
       REAL(KIND=dp)                                      :: imagpart, realpart
@@ -447,6 +491,7 @@ CONTAINS
       CPASSERT(SIZE(centers, 2) == nmoloc)
       sum_spread_i = 0.0_dp
       sum_spread_ii = 0.0_dp
+      avg_spread_ii = 0.0_dp
       DO istate = 1, nmoloc
          c = 0.0_dp
          c2 = 0.0_dp
@@ -475,18 +520,21 @@ CONTAINS
          sum_spread_ii = sum_spread_ii + centers(5, istate)
          IF (unit_out_s > 0 .AND. .NOT. my_only_init) WRITE (unit_out_s, '(I6,2F16.8)') istate, centers(4:5, istate)
       END DO
+      avg_spread_ii = sum_spread_ii/REAL(nmoloc, KIND=dp)
 
       ! Print of wannier centers
       print_key => section_vals_get_subs_vals(print_loc_section, "WANNIER_CENTERS")
       IF (.NOT. my_only_init) CALL print_wannier_centers(qs_loc_env, print_key, centers, logger, ispin)
 
       IF (output_unit > 0) THEN
-         WRITE (output_unit, '(T4, A, 2x, A26, A26)') " Spread Functional ", "sum_in -w_i ln(|z_in|^2)", &
-            "sum_in w_i(1-|z_in|^2)"
+         WRITE (output_unit, '(T4, A, 2x, 2A26,/,T23, A28)') " Spread Functional ", "sum_in -w_i ln(|z_in|^2)", &
+            "sum_in w_i(1-|z_in|^2)", "sum_in w_i(1-|z_in|^2)/n"
          IF (my_only_init) THEN
-            WRITE (output_unit, '(T4,A,T38,2F20.10)') " Initial Spread (Berry) : ", sum_spread_i, sum_spread_ii
+            WRITE (output_unit, '(T4,A,T38,2F20.10,/,T38,F20.10)') " Initial Spread (Berry) : ", &
+               sum_spread_i, sum_spread_ii, avg_spread_ii
          ELSE
-            WRITE (output_unit, '(T4,A,T38,2F20.10)') " Total Spread (Berry) : ", sum_spread_i, sum_spread_ii
+            WRITE (output_unit, '(T4,A,T38,2F20.10,/,T38,F20.10)') " Total Spread (Berry) : ", &
+               sum_spread_i, sum_spread_ii, avg_spread_ii
          END IF
       END IF
 
@@ -511,7 +559,7 @@ CONTAINS
    SUBROUTINE centers_spreads_pipek(qs_loc_env, zij_fm_set, particle_set, ispin, &
                                     print_loc_section)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       INTEGER, INTENT(IN)                                :: ispin
@@ -602,33 +650,43 @@ CONTAINS
                             ext_mo_coeff)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_loc_section
       INTEGER, INTENT(IN), OPTIONAL                      :: myspin
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: ext_mo_coeff
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: ext_mo_coeff
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'qs_loc_driver'
 
       CHARACTER(LEN=default_string_length)               :: my_pos
-      INTEGER                                            :: dim_op, handle, i, imo, imoloc, ir, &
-                                                            ispin, istate, j, jstate, l_spin, lb, &
-                                                            loc_method, n_rep, nao, ncubes, nmo, &
-                                                            nmosub, s_spin, ub
+      INTEGER :: dim_op, handle, i, imo, imoloc, ir, ispin, istate, j, jstate, l_spin, lb, &
+         loc_method, n_rep, nao, ncubes, ndummy, nextra, ngextra, nguess, nmo, nmosub, norextra, &
+         s_spin, ub
+      INTEGER, DIMENSION(2)                              :: nelectron_spin
       INTEGER, DIMENSION(:), POINTER                     :: bounds, list, list_cubes
-      LOGICAL                                            :: append_cube, list_cubes_setup
+      LOGICAL                                            :: append_cube, do_ortho, has_unit_metric, &
+                                                            list_cubes_setup, my_guess_atomic, &
+                                                            my_guess_wan
       LOGICAL, SAVE                                      :: first_time = .TRUE.
       REAL(dp), DIMENSION(6)                             :: weights
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: centers, vecbuffer
+      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: centers, tmp_mat, vecbuffer
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: moloc_coeff
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: op_fm_set
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
+      TYPE(cp_fm_type)                                   :: mos_guess, tmp_fm, tmp_fm_1, vectors_2
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: op_sm_set
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: p_rmpv
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s_kp, op_sm_set
+      TYPE(dbcsr_type), POINTER                          :: refmatrix, tmatrix
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         POINTER                                         :: sab_orb
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: print_key
 
       CALL timeset(routineN, handle)
@@ -652,10 +710,57 @@ CONTAINS
          s_spin = myspin
          l_spin = myspin
       END IF
+      my_guess_atomic = .FALSE.
+      ! SGh-wan: if atomic guess and do_mixed and nextra > 0
+      ! read CPO_GUESS; CASE ATOMIC / RESTART / RANDOM (0/1/2)
+      ! read CPO_GUESS_SPACE if CASE ATOMIC; CASE ALL / WAN
+      nextra = localized_wfn_control%nextra
+      IF (nextra > 0) THEN
+         my_guess_atomic = .TRUE.
+         my_guess_wan = .FALSE.
+         do_ortho = .TRUE.
+         SELECT CASE (localized_wfn_control%coeff_po_guess)
+
+         CASE (do_loc_cpo_atomic)
+            my_guess_atomic = .TRUE.
+            NULLIFY (atomic_kind_set, qs_kind_set, particle_set, matrix_s_kp, sab_orb, p_rmpv, &
+                     refmatrix, tmatrix)
+            CALL get_qs_env(qs_env=qs_env, &
+                            atomic_kind_set=atomic_kind_set, &
+                            qs_kind_set=qs_kind_set, &
+                            particle_set=particle_set, &
+                            matrix_s_kp=matrix_s_kp, &
+                            has_unit_metric=has_unit_metric, &
+                            nelectron_spin=nelectron_spin, &
+                            sab_orb=sab_orb)
+
+            refmatrix => matrix_s_kp(1, 1)%matrix
+            ! create p_rmpv
+            CALL dbcsr_allocate_matrix_set(p_rmpv, dft_control%nspins)
+            DO ispin = 1, dft_control%nspins
+               ALLOCATE (p_rmpv(ispin)%matrix)
+               tmatrix => p_rmpv(ispin)%matrix
+               CALL dbcsr_create(matrix=tmatrix, template=refmatrix, &
+                                 matrix_type=dbcsr_type_symmetric, nze=0)
+               CALL cp_dbcsr_alloc_block_from_nbl(tmatrix, sab_orb)
+               CALL dbcsr_set(tmatrix, 0.0_dp)
+            END DO
+            CALL calculate_atomic_block_dm(p_rmpv, refmatrix, &
+                                           particle_set, atomic_kind_set, qs_kind_set, &
+                                           dft_control%nspins, nelectron_spin, 0, para_env)
+         CASE (do_loc_cpo_restart)
+            my_guess_atomic = .FALSE.
+            my_guess_wan = .TRUE.
+         CASE (do_loc_cpo_random)
+            my_guess_atomic = .FALSE.
+
+         END SELECT
+
+      END IF
 
       DO ispin = s_spin, l_spin
 
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, nao=nao, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo)
          loc_method = localized_wfn_control%localization_method
 
          SELECT CASE (localized_wfn_control%operator_type)
@@ -668,7 +773,7 @@ CONTAINS
                CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmosub, &
                                         ncol_global=nmosub, para_env=para_env, context=ext_mo_coeff%matrix_struct%context)
             ELSE
-               CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+               CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
                CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmosub, &
                                         ncol_global=nmosub, para_env=para_env, context=mo_coeff%matrix_struct%context)
             END IF
@@ -676,7 +781,7 @@ CONTAINS
             ALLOCATE (op_fm_set(2, dim_op))
             DO i = 1, dim_op
                DO j = 1, SIZE(op_fm_set, 1)
-                  NULLIFY (op_fm_set(j, i)%matrix)
+                  ALLOCATE (op_fm_set(j, i)%matrix)
                   CALL cp_fm_create(op_fm_set(j, i)%matrix, tmp_fm_struct)
                   CALL cp_fm_get_info(op_fm_set(j, i)%matrix, nrow_global=nmosub)
                   CPASSERT(nmo >= nmosub)
@@ -685,14 +790,122 @@ CONTAINS
             END DO
             CALL cp_fm_struct_release(tmp_fm_struct)
 
-            CALL optimize_loc_berry(loc_method, qs_loc_env, moloc_coeff(ispin)%matrix, op_sm_set, &
-                                    op_fm_set, para_env, cell, weights, ispin, print_loc_section)
+            IF (localized_wfn_control%do_mixed) THEN
+               IF (nextra > 0) THEN
+                  norextra = nmo - nmosub
+                  CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
+                  CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
+                                           ncol_global=norextra, para_env=para_env, context=mo_coeff%matrix_struct%context)
+                  CALL cp_fm_create(vectors_2, tmp_fm_struct)
+                  CALL cp_fm_struct_release(tmp_fm_struct)
+                  ALLOCATE (tmp_mat(nao, norextra))
+                  CALL cp_fm_get_submatrix(mo_coeff, tmp_mat, 1, nmosub + 1)
+                  CALL cp_fm_set_submatrix(vectors_2, tmp_mat)
+                  DEALLOCATE (tmp_mat)
+
+                  ! if guess "atomic" generate MOs based on atomic densities and
+                  ! pass on to optimize_loc_berry
+                  IF (my_guess_atomic .OR. my_guess_wan) THEN
+
+                     SELECT CASE (localized_wfn_control%coeff_po_guess_mo_space)
+
+                     CASE (do_loc_cpo_space_wan)
+                        ndummy = nmosub
+                     CASE (do_loc_cpo_space_nmo)
+                        ndummy = nmo
+                        do_ortho = .FALSE.
+
+                     END SELECT
+
+                     CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
+                                              ncol_global=ndummy, para_env=para_env, &
+                                              context=mo_coeff%matrix_struct%context)
+                     CALL cp_fm_create(mos_guess, tmp_fm_struct)
+                     CALL cp_fm_set_all(mos_guess, 0.0_dp)
+
+                     IF (my_guess_atomic) THEN
+                        CALL cp_fm_create(tmp_fm, tmp_fm_struct)
+                        CALL cp_fm_create(tmp_fm_1, tmp_fm_struct)
+                        CALL cp_fm_set_all(tmp_fm, 0.0_dp)
+                        CALL cp_fm_set_all(tmp_fm_1, 0.0_dp)
+                        CALL cp_fm_init_random(tmp_fm, ndummy)
+                        IF (has_unit_metric) THEN
+                           CALL cp_fm_to_fm(tmp_fm, tmp_fm_1)
+                        ELSE
+                           ! PS*C(:,1:nomo)+C(:,nomo+1:nmo) (nomo=NINT(nelectron/maxocc))
+                           CALL cp_dbcsr_sm_fm_multiply(refmatrix, tmp_fm, tmp_fm_1, ndummy)
+                        END IF
+                        CALL cp_dbcsr_sm_fm_multiply(p_rmpv(ispin)%matrix, tmp_fm_1, mos_guess, ndummy)
+                        CALL cp_fm_release(tmp_fm)
+                        CALL cp_fm_release(tmp_fm_1)
+                        CALL cp_fm_struct_release(tmp_fm_struct)
+                     ELSEIF (my_guess_wan) THEN
+                        nguess = localized_wfn_control%nguess(ispin)
+                        ALLOCATE (tmp_mat(nao, nguess))
+                        CALL cp_fm_get_submatrix(moloc_coeff(ispin)%matrix, tmp_mat, 1, 1, nao, nguess)
+                        CALL cp_fm_set_submatrix(mos_guess, tmp_mat, 1, 1, nao, nguess)
+                        DEALLOCATE (tmp_mat)
+                        ngextra = nmosub - nguess
+                        !WRITE(*,*) 'nguess, ngextra = ', nguess, ngextra
+                        CALL cp_fm_struct_release(tmp_fm_struct)
+                        IF (ngextra > 0) THEN
+                           CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
+                                                    ncol_global=ngextra, para_env=para_env, &
+                                                    context=mo_coeff%matrix_struct%context)
+                           CALL cp_fm_create(tmp_fm, tmp_fm_struct)
+                           CALL cp_fm_init_random(tmp_fm, ngextra)
+                           ALLOCATE (tmp_mat(nao, ngextra))
+                           CALL cp_fm_get_submatrix(tmp_fm, tmp_mat, 1, 1, nao, ngextra)
+                           CALL cp_fm_set_submatrix(mos_guess, tmp_mat, 1, nguess + 1, nao, ngextra)
+                           DEALLOCATE (tmp_mat)
+                           CALL cp_fm_release(tmp_fm)
+                           CALL cp_fm_struct_release(tmp_fm_struct)
+                        ELSE
+                           do_ortho = .FALSE.
+                        END IF
+                        ALLOCATE (tmp_mat(nao, nmosub))
+                        CALL cp_fm_get_submatrix(mo_coeff, tmp_mat, 1, 1, nao, nmosub)
+                        CALL cp_fm_set_submatrix(moloc_coeff(ispin)%matrix, tmp_mat)
+                        DEALLOCATE (tmp_mat)
+                     END IF
+
+                     IF (do_ortho) THEN
+                        IF ((my_guess_atomic) .OR. (my_guess_wan)) THEN
+                           !! and ortho the result
+                           IF (has_unit_metric) THEN
+                              CALL make_basis_simple(mos_guess, ndummy)
+                           ELSE
+                              CALL make_basis_sm(mos_guess, ndummy, refmatrix)
+                           END IF
+                        END IF
+                     END IF
+
+                     CALL optimize_loc_berry(loc_method, qs_loc_env, moloc_coeff(ispin)%matrix, op_sm_set, &
+                                             op_fm_set, para_env, cell, weights, ispin, print_loc_section, &
+                                             nextra=nextra, nmo=nmo, vectors_2=vectors_2, &
+                                             guess_mos=mos_guess)
+                     CALL cp_fm_release(mos_guess)
+                  ELSE
+                     CALL optimize_loc_berry(loc_method, qs_loc_env, moloc_coeff(ispin)%matrix, op_sm_set, &
+                                             op_fm_set, para_env, cell, weights, ispin, print_loc_section, &
+                                             nextra=nextra, nmo=nmo, vectors_2=vectors_2)
+                  END IF
+                  CALL cp_fm_release(vectors_2)
+               ELSE
+                  CALL optimize_loc_berry(loc_method, qs_loc_env, moloc_coeff(ispin)%matrix, op_sm_set, &
+                                          op_fm_set, para_env, cell, weights, ispin, print_loc_section, nextra=0)
+               END IF
+            ELSE
+               CALL optimize_loc_berry(loc_method, qs_loc_env, moloc_coeff(ispin)%matrix, op_sm_set, &
+                                       op_fm_set, para_env, cell, weights, ispin, print_loc_section)
+            END IF
 
             ! Here we dealloctate op_fm_set
             IF (ASSOCIATED(op_fm_set)) THEN
                DO i = 1, dim_op
                   DO j = 1, SIZE(op_fm_set, 1)
                      CALL cp_fm_release(op_fm_set(j, i)%matrix)
+                     DEALLOCATE (op_fm_set(j, i)%matrix)
                   END DO
                END DO
                DEALLOCATE (op_fm_set)
@@ -710,7 +923,7 @@ CONTAINS
 
          ! give back the localized orbitals
          IF (.NOT. PRESENT(ext_mo_coeff)) THEN
-            CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+            CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          END IF
 
          lb = localized_wfn_control%lu_bound_states(1, ispin)
@@ -825,6 +1038,7 @@ CONTAINS
             DEALLOCATE (list_cubes)
          END IF
       END DO ! ispin
+      IF (my_guess_atomic) CALL dbcsr_deallocate_matrix_set(p_rmpv)
       first_time = .FALSE.
       CALL timestop(handle)
    END SUBROUTINE qs_loc_driver
@@ -852,7 +1066,7 @@ CONTAINS
                              print_key, root, ispin, idir, state0, file_position)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff
       INTEGER, INTENT(IN)                                :: nstates
       INTEGER, DIMENSION(:), POINTER                     :: state_list
       REAL(dp), DIMENSION(:, :), POINTER                 :: centers
@@ -878,8 +1092,8 @@ CONTAINS
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: wf_g, wf_r
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: wf_g, wf_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
@@ -892,10 +1106,10 @@ CONTAINS
 
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_r, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, wf_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
@@ -953,14 +1167,14 @@ CONTAINS
             WRITE (title, '(A7,I5.5,A2,I1.1,A1,3F10.4)') "WFN ", ivector, "_s", my_ispin, " ", &
                centers(1:3, istate)*angstrom
          END IF
-         CALL cp_pw_to_cube(wf_r%pw, unit_out_c, title, &
+         CALL cp_pw_to_cube(wf_r, unit_out_c, title, &
                             particles=particles, &
                             stride=section_get_ivals(print_key, "STRIDE"), mpi_io=mpi_io)
          CALL cp_print_key_finished_output(unit_out_c, logger, print_key, "", mpi_io=mpi_io)
       END DO
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, wf_g)
       CALL timestop(handle)
    END SUBROUTINE qs_print_cubes
 
@@ -973,7 +1187,7 @@ CONTAINS
 !> \param ispin ...
 ! **************************************************************************************************
    SUBROUTINE print_wannier_centers(qs_loc_env, print_key, center, logger, ispin)
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_key
       REAL(KIND=dp), INTENT(IN)                          :: center(:, :)
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -1031,7 +1245,7 @@ CONTAINS
 !> \param unit_conv ...
 ! **************************************************************************************************
    SUBROUTINE print_wannier_traj(qs_loc_env, print_key, center, iunit, init_traj, unit_conv)
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_key
       REAL(KIND=dp), INTENT(IN)                          :: center(:, :)
       INTEGER, INTENT(IN)                                :: iunit
@@ -1114,12 +1328,10 @@ CONTAINS
 
       ! I might not actually need the qs_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_loc_section
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'centers_second_moments_loc', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: norder = 2
       LOGICAL, PARAMETER :: debug_this_subroutine = .FALSE.
 
@@ -1133,7 +1345,8 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(6)                        :: cov
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: moloc_coeff
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: mo_localized, momv, mvector, omvector
+      TYPE(cp_fm_type)                                   :: momv, mvector, omvector
+      TYPE(cp_fm_type), POINTER                          :: mo_localized
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, moments
@@ -1262,12 +1475,10 @@ CONTAINS
    SUBROUTINE centers_second_moments_berry(qs_env, qs_loc_env, print_loc_section, ispin)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: print_loc_section
       INTEGER, INTENT(IN)                                :: ispin
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'centers_second_moments_berry', &
-         routineP = moduleN//':'//routineN
       INTEGER, PARAMETER                                 :: taylor_order = 1
       LOGICAL, PARAMETER :: debug_this_subroutine = .FALSE.
 
@@ -1284,7 +1495,8 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: moloc_coeff
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: mo_localized, momv, mvector, omvector
+      TYPE(cp_fm_type)                                   :: momv, mvector, omvector
+      TYPE(cp_fm_type), POINTER                          :: mo_localized
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, moments

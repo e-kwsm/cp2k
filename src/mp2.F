@@ -77,19 +77,15 @@ MODULE mp2
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: qs_kind_type
-   USE qs_matrix_pools,                 ONLY: mpools_create,&
-                                              mpools_rebuild_fm_pools,&
-                                              mpools_release,&
-                                              qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               deallocate_mo_set,&
                                               get_mo_set,&
                                               init_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_scf_methods,                  ONLY: eigensolver,&
                                               eigensolver_symm
    USE qs_scf_types,                    ONLY: qs_scf_env_type
-   USE rpa_gw_sigma,                    ONLY: compute_vec_Sigma_x_minus_vxc_gw
+   USE rpa_gw_sigma_x,                  ONLY: compute_vec_Sigma_x_minus_vxc_gw
    USE rpa_hfx,                         ONLY: calculate_exx
    USE scf_control_types,               ONLY: scf_control_type
    USE virial_types,                    ONLY: virial_type
@@ -127,9 +123,9 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of, nelec
       LOGICAL :: calc_ex, do_admm, do_admm_rpa_exx, do_dynamic_load_balancing, do_exx, do_gw, &
          do_kpoints_cubic_RPA, free_hfx_buffer, update_xc_energy
-      REAL(KIND=dp) :: E_ex_from_GW, Emp2, Emp2_AA, Emp2_AA_Cou, Emp2_AA_ex, Emp2_AB, Emp2_AB_Cou, &
-         Emp2_AB_ex, Emp2_BB, Emp2_BB_Cou, Emp2_BB_ex, Emp2_Cou, Emp2_ex, Emp2_S, Emp2_T, maxocc, &
-         mem_real, t1, t2, t3
+      REAL(KIND=dp) :: E_admm_from_GW(2), E_ex_from_GW, Emp2, Emp2_AA, Emp2_AA_Cou, Emp2_AA_ex, &
+         Emp2_AB, Emp2_AB_Cou, Emp2_AB_ex, Emp2_BB, Emp2_BB_Cou, Emp2_BB_ex, Emp2_Cou, Emp2_ex, &
+         Emp2_S, Emp2_T, maxocc, mem_real, t1, t2, t3
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: Auto
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: C
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
@@ -137,11 +133,11 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_matrix_ks, fm_matrix_s, &
-                                                            fm_matrix_work, mo_coeff
+      TYPE(cp_fm_type)                                   :: fm_matrix_ks, fm_matrix_s, fm_matrix_work
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_ks_aux, matrix_s
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks_transl, matrix_s_kp
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(hfx_basis_info_type)                          :: basis_info
@@ -150,13 +146,13 @@ CONTAINS
       TYPE(hfx_container_type), POINTER                  :: maxval_container
       TYPE(hfx_type), POINTER                            :: actual_x_data
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_mp2
+      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: mos_mp2
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(mp2_biel_type)                                :: mp2_biel
       TYPE(mp2_type), POINTER                            :: mp2_env
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(qs_matrix_pools_type), POINTER                :: my_mpools
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(section_vals_type), POINTER                   :: hfx_sections, input
@@ -215,7 +211,6 @@ CONTAINS
                          virial=virial, &
                          matrix_ks=matrix_ks, &
                          matrix_s=matrix_s, &
-                         matrix_ks_aux_fit=matrix_ks_aux, &
                          mp2_env=mp2_env, &
                          admm_env=admm_env)
 
@@ -243,7 +238,8 @@ CONTAINS
       IF (calc_forces) THEN
          CALL cite_reference(DelBen2015b)
          CALL cite_reference(Rybkin2016)
-         IF (mp2_env%method /= ri_mp2_method_gpw) THEN
+         !Gradients available for RI-MP2, and low-scaling Laplace MP2/RPA
+IF (.NOT. (mp2_env%method == ri_mp2_method_gpw .OR. mp2_env%method == ri_rpa_method_gpw .OR. mp2_env%method == ri_mp2_laplace)) THEN
             CPABORT("No forces/gradients for the selected method.")
          END IF
       END IF
@@ -258,12 +254,15 @@ CONTAINS
          mp2_env%mp2_num_proc = 1
       END IF
 
-      IF (mp2_env%mp2_num_proc <= 0 .OR. mp2_env%mp2_num_proc > para_env%num_pe .OR. &
-          MOD(para_env%num_pe, mp2_env%mp2_num_proc) .NE. 0) THEN
-         IF (unit_nr > 0 .AND. mp2_env%mp2_num_proc .NE. -1) &
-            WRITE (unit_nr, '(T3,A,T76,I5)') 'Requested number of processes per group:', mp2_env%mp2_num_proc
-         mp2_env%mp2_num_proc = para_env%num_pe
+      IF (mp2_env%mp2_num_proc < 1 .OR. mp2_env%mp2_num_proc > para_env%num_pe) THEN
+         CPWARN("GROUP_SIZE is reset because of a too small or too large value.")
+         mp2_env%mp2_num_proc = MAX(MIN(para_env%num_pe, mp2_env%mp2_num_proc), 1)
       END IF
+
+      IF (MOD(para_env%num_pe, mp2_env%mp2_num_proc) /= 0) THEN
+         CPABORT("GROUP_SIZE must be a divisor of the total number of MPI ranks!")
+      END IF
+
       IF (.NOT. mp2_env%do_im_time) THEN
          IF (unit_nr > 0) WRITE (unit_nr, '(T3,A,T76,I5)') 'Used number of processes per group:', mp2_env%mp2_num_proc
          IF (unit_nr > 0) WRITE (unit_nr, '(T3,A,T68,F9.2,A4)') 'Maximum allowed memory usage per MPI process:', &
@@ -296,6 +295,9 @@ CONTAINS
 
       do_admm_rpa_exx = mp2_env%ri_rpa%do_admm
       CALL hfx_create_basis_types(basis_parameter, basis_info, qs_kind_set, do_admm_rpa_exx)
+      IF (do_admm_rpa_exx .AND. .NOT. dft_control%do_admm) THEN
+         CPABORT("Need an ADMM input section for ADMM RI_RPA EXX to work")
+      END IF
 
       dimen = 0
       max_nset = 0
@@ -305,13 +307,10 @@ CONTAINS
          max_nset = MAX(max_nset, basis_parameter(ikind)%nset)
       END DO
 
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao)
+      CALL get_mo_set(mo_set=mos(1), nao=nao)
 
       ! diagonalize the KS matrix in order to have the full set of MO's
       ! get S and KS matrices in fm_type (create also a working array)
-      NULLIFY (fm_matrix_s)
-      NULLIFY (fm_matrix_ks)
-      NULLIFY (fm_matrix_work)
       NULLIFY (fm_struct)
       CALL dbcsr_get_info(matrix_s(1)%matrix, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
       CALL cp_fm_struct_create(fm_struct, context=blacs_env, nrow_global=nfullrows_total, &
@@ -338,29 +337,8 @@ CONTAINS
          cholesky_method = cholesky_inverse
       END IF
 
-      NULLIFY (mos_mp2)
       ALLOCATE (mos_mp2(nspins))
       ALLOCATE (nelec(nspins))
-      DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, maxocc=maxocc, nelectron=nelec(ispin))
-
-         NULLIFY (mos_mp2(ispin)%mo_set)
-         CALL allocate_mo_set(mo_set=mos_mp2(ispin)%mo_set, &
-                              nao=nao, &
-                              nmo=nao, &
-                              nelectron=nelec(ispin), &
-                              n_el_f=REAL(nelec(ispin), dp), &
-                              maxocc=maxocc, &
-                              flexible_electron_count=dft_control%relax_multiplicity)
-      END DO
-
-      NULLIFY (my_mpools)
-      CALL mpools_create(mpools=my_mpools)
-      CALL mpools_rebuild_fm_pools(mpools=my_mpools, &
-                                   mos=mos_mp2, &
-                                   blacs_env=blacs_env, &
-                                   para_env=para_env)
-
       DO ispin = 1, nspins
 
          ! If ADMM we should make the ks matrix up-to-date
@@ -374,32 +352,46 @@ CONTAINS
             CALL admm_uncorrect_for_eigenvalues(ispin, admm_env, matrix_ks(ispin)%matrix)
          END IF
 
-         CALL init_mo_set(mos_mp2(ispin)%mo_set, &
-                          fm_pool=my_mpools%ao_mo_fm_pools(ispin)%pool, &
+         CALL get_mo_set(mo_set=mos(ispin), maxocc=maxocc, nelectron=nelec(ispin))
+
+         CALL allocate_mo_set(mo_set=mos_mp2(ispin), &
+                              nao=nao, &
+                              nmo=nao, &
+                              nelectron=nelec(ispin), &
+                              n_el_f=REAL(nelec(ispin), dp), &
+                              maxocc=maxocc, &
+                              flexible_electron_count=dft_control%relax_multiplicity)
+
+         CALL get_mo_set(mos_mp2(ispin), nao=nao)
+         CALL cp_fm_struct_create(fm_struct, nrow_global=nao, &
+                                  ncol_global=nao, para_env=para_env, &
+                                  context=blacs_env)
+
+         CALL init_mo_set(mos_mp2(ispin), &
+                          fm_struct=fm_struct, &
                           name="mp2_mos")
+         CALL cp_fm_struct_release(fm_struct)
 
          IF (cholesky_method == cholesky_inverse) THEN
 
             ! diagonalize KS matrix
             CALL eigensolver(matrix_ks_fm=fm_matrix_ks, &
-                             mo_set=mos_mp2(ispin)%mo_set, &
+                             mo_set=mos_mp2(ispin), &
                              ortho=fm_matrix_s, &
                              work=fm_matrix_work, &
                              cholesky_method=cholesky_method, &
                              do_level_shift=.FALSE., &
                              level_shift=0.0_dp, &
-                             matrix_u_fm=null(), &
                              use_jacobi=.FALSE.)
 
          ELSE IF (cholesky_method == cholesky_off) THEN
 
             CALL eigensolver_symm(matrix_ks_fm=fm_matrix_ks, &
-                                  mo_set=mos_mp2(ispin)%mo_set, &
+                                  mo_set=mos_mp2(ispin), &
                                   ortho=fm_matrix_s, &
                                   work=fm_matrix_work, &
                                   do_level_shift=.FALSE., &
                                   level_shift=0.0_dp, &
-                                  matrix_u_fm=null(), &
                                   use_jacobi=.FALSE., &
                                   jacobi_threshold=0.0_dp)
 
@@ -410,7 +402,6 @@ CONTAINS
       CALL cp_fm_release(fm_matrix_s)
       CALL cp_fm_release(fm_matrix_ks)
       CALL cp_fm_release(fm_matrix_work)
-      CALL mpools_release(mpools=my_mpools)
 
       hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%HF")
 
@@ -424,22 +415,24 @@ CONTAINS
       free_hfx_buffer = .FALSE.
       IF (ASSOCIATED(qs_env%x_data)) THEN
          free_hfx_buffer = .TRUE.
-         IF (calc_forces .AND. (.NOT. mp2_env%ri_mp2%free_hfx_buffer)) free_hfx_buffer = .FALSE.
+         IF (calc_forces .AND. (.NOT. mp2_env%ri_grad%free_hfx_buffer)) free_hfx_buffer = .FALSE.
          IF (qs_env%x_data(1, 1)%do_hfx_ri) free_hfx_buffer = .FALSE.
+         IF (calc_forces .AND. mp2_env%do_im_time) free_hfx_buffer = .FALSE.
+         IF (mp2_env%ri_rpa%reuse_hfx) free_hfx_buffer = .FALSE.
       END IF
 
       IF (.NOT. do_kpoints_cubic_RPA) THEN
       IF (virial%pv_numer) THEN
          ! in the case of numerical stress we don't have to free the HFX integrals
          free_hfx_buffer = .FALSE.
-         mp2_env%ri_mp2%free_hfx_buffer = .FALSE.
+         mp2_env%ri_grad%free_hfx_buffer = free_hfx_buffer
       END IF
       END IF
 
       ! calculate the matrix sigma_x - vxc for G0W0
       t3 = 0
       IF (mp2_env%ri_rpa%do_ri_g0w0) THEN
-         CALL compute_vec_Sigma_x_minus_vxc_gw(qs_env, mp2_env, mos_mp2, E_ex_from_GW, t3, unit_nr)
+         CALL compute_vec_Sigma_x_minus_vxc_gw(qs_env, mp2_env, mos_mp2, E_ex_from_GW, E_admm_from_GW, t3, unit_nr)
       END IF
 
       IF (free_hfx_buffer) THEN
@@ -484,7 +477,7 @@ CONTAINS
 
          DO ispin = 1, nspins
             ! get the alpha coeff and eigenvalues
-            CALL get_mo_set(mo_set=mos_mp2(ispin)%mo_set, &
+            CALL get_mo_set(mo_set=mos_mp2(ispin), &
                             eigenvalues=mo_eigenvalues, &
                             mo_coeff=mo_coeff)
 
@@ -556,7 +549,7 @@ CONTAINS
 
          DO ispin = 1, nspins
             ! get the alpha coeff and eigenvalues
-            CALL get_mo_set(mo_set=mos_mp2(ispin)%mo_set, &
+            CALL get_mo_set(mo_set=mos_mp2(ispin), &
                             eigenvalues=mo_eigenvalues, &
                             mo_coeff=mo_coeff)
 
@@ -672,6 +665,7 @@ CONTAINS
                mp2_env%ri_rpa%rse_corr_diag
             IF (unit_nr > 0) WRITE (unit_nr, '(T3,A,T56,F25.14)') 'Full singles correction (RSE) =', &
                mp2_env%ri_rpa%rse_corr
+            IF (dft_control%do_admm) CPABORT("RPA RSE not implemented with RI_RPA%ADMM on")
          END IF
       END IF
       IF (unit_nr > 0) WRITE (unit_nr, *)
@@ -687,12 +681,13 @@ CONTAINS
       energy%total = energy%total + Emp2
 
       DO ispin = 1, nspins
-         CALL deallocate_mo_set(mo_set=mos_mp2(ispin)%mo_set)
+         CALL deallocate_mo_set(mo_set=mos_mp2(ispin))
       END DO
       DEALLOCATE (mos_mp2)
 
       ! if necessary reallocate hfx buffer
-      IF (free_hfx_buffer .AND. (.NOT. calc_forces)) THEN
+      IF (free_hfx_buffer .AND. (.NOT. calc_forces) .AND. &
+          (mp2_env%ri_g0w0%do_ri_Sigma_x .OR. .NOT. mp2_env%ri_rpa_im_time%do_kpoints_from_Gamma)) THEN
          CALL timeset(routineN//"_alloc_hfx", handle2)
          DO irep = 1, n_rep_hf
             DO i_thread = 0, n_threads - 1
@@ -727,14 +722,14 @@ CONTAINS
       CALL hfx_release_basis_types(basis_parameter)
 
       ! if required calculate the EXX contribution from the DFT density
-      IF (mp2_env%method == ri_rpa_method_gpw) THEN
+      IF (mp2_env%method == ri_rpa_method_gpw .AND. .NOT. calc_forces) THEN
          do_exx = .FALSE.
          hfx_sections => section_vals_get_subs_vals(input, "DFT%XC%WF_CORRELATION%RI_RPA%HF")
          CALL section_vals_get(hfx_sections, explicit=do_exx)
          IF (do_exx) THEN
             do_gw = mp2_env%ri_rpa%do_ri_g0w0
             do_admm = mp2_env%ri_rpa%do_admm
-            CALL calculate_exx(qs_env, unit_nr, do_gw, do_admm, E_ex_from_GW, t3)
+            CALL calculate_exx(qs_env, unit_nr, do_gw, do_admm, .FALSE., E_ex_from_GW, E_admm_from_GW, t3)
          END IF
       END IF
 
@@ -786,7 +781,7 @@ CONTAINS
    PURE SUBROUTINE get_gamma(matrix_s, matrix_ks, mos, matrix_s_kp, matrix_ks_transl, kpoints)
 
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, matrix_ks
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_s_kp, matrix_ks_transl
       TYPE(kpoint_type), POINTER                         :: kpoints
 

@@ -12,7 +12,7 @@
  - Advanced Micro Devices, Inc.
 */
 
-#ifdef __GRID_HIP
+#if defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)
 
 #include <algorithm>
 #include <assert.h>
@@ -33,6 +33,10 @@
 #include <cooperative_groups/reduce.h>
 #endif
 namespace cg = cooperative_groups;
+#endif
+
+#if defined(_OMP_H)
+#error "OpenMP should not be used in .cu files to accommodate HIP."
 #endif
 
 namespace rocm_backend {
@@ -66,8 +70,7 @@ __device__ __inline__ T warp_reduce(T *table, const int tid) {
 // #endif
 
 template <typename T, typename T3, bool COMPUTE_TAU, bool CALCULATE_FORCES>
-__global__ __launch_bounds__(64) void compute_hab_v2(const kernel_params dev_,
-                                                     const int ntasks) {
+__global__ __launch_bounds__(64) void compute_hab_v2(const kernel_params dev_) {
   // Copy task from global to shared memory and precompute some stuff.
   extern __shared__ T shared_memory[];
   T *coef_shared = &shared_memory[0];
@@ -113,9 +116,9 @@ __global__ __launch_bounds__(64) void compute_hab_v2(const kernel_params dev_,
     for (int i = tid; i < ncoset(task.lp);
          i += blockDim.x * blockDim.y * blockDim.z)
       coef_shared[i] = coef_[i];
-    compute_alpha(dev_, task, smem_alpha);
+    compute_alpha(task, smem_alpha);
     __syncthreads();
-    cxyz_to_cab(dev_, task, smem_alpha, coef_shared, smem_cab);
+    cxyz_to_cab(task, smem_alpha, coef_shared, smem_cab);
     __syncthreads();
 
     for (int i = tid / 8; i < task.nsgf_setb; i += 8) {
@@ -287,8 +290,7 @@ __launch_bounds__(64) void integrate_kernel(const kernel_params dev_) {
     if (distributed__) {
       if (task.apply_border_mask) {
         compute_window_size(
-            dev_.grid_local_size_, dev_.grid_lower_corner_,
-            dev_.grid_full_size_, /* also full size of the grid */
+            dev_.grid_local_size_,
             dev_.tasks[dev_.first_task + blockIdx.x].border_mask,
             dev_.grid_border_width_, &task.window_size, &task.window_shift);
       }
@@ -724,28 +726,28 @@ void context_info::compute_hab_coefficients() {
   if (!compute_tau && !calculate_forces) {
     compute_hab_v2<double, double3, false, false>
         <<<this->nblocks, threads_per_block, smem_params.smem_per_block(),
-           this->main_stream>>>(params, this->ntasks);
+           this->main_stream>>>(params);
     return;
   }
 
   if (!compute_tau && calculate_forces) {
     compute_hab_v2<double, double3, false, true>
         <<<this->nblocks, threads_per_block, smem_params.smem_per_block(),
-           this->main_stream>>>(params, this->ntasks);
+           this->main_stream>>>(params);
     return;
   }
 
   if (compute_tau && calculate_forces) {
     compute_hab_v2<double, double3, true, true>
         <<<this->nblocks, threads_per_block, smem_params.smem_per_block(),
-           this->main_stream>>>(params, this->ntasks);
+           this->main_stream>>>(params);
   }
 
   if (compute_tau && !calculate_forces) {
     compute_hab_v2<double, double3, true, false>
         <<<this->nblocks, threads_per_block, smem_params.smem_per_block(),
-           this->main_stream>>>(params, this->ntasks);
+           this->main_stream>>>(params);
   }
 }
 };     // namespace rocm_backend
-#endif // __GRID_ROCM
+#endif // defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)

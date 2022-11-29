@@ -7,9 +7,9 @@
 #ifndef GRID_GPU_INTEGRATE_H
 #define GRID_GPU_INTEGRATE_H
 
-#if defined(__GRID_CUDA) || defined(__GRID_HIP)
-
 #include "../../offload/offload_runtime.h"
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
+
 #include "grid_gpu_task_list.h"
 
 #ifdef __cplusplus
@@ -31,6 +31,6 @@ void grid_gpu_integrate_one_grid_level(
 }
 #endif
 
-#endif // defined(__GRID_CUDA) || defined(__GRID_HIP)
+#endif // defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 #endif
 // EOF

@@ -31,7 +31,6 @@ MODULE qs_diis
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -46,12 +45,13 @@ MODULE qs_diis
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE mathlib,                         ONLY: diamat_all
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_diis_types,                   ONLY: qs_diis_buffer_type,&
                                               qs_diis_buffer_type_sparse
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE string_utilities,                ONLY: compress
 #include "./base/base_uses.f90"
 
@@ -60,7 +60,6 @@ MODULE qs_diis
    PRIVATE
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_diis'
-   INTEGER, SAVE               :: last_diis_b_id = 0
 
    ! Public subroutines
 
@@ -83,7 +82,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qs_diis_b_create(diis_buffer, nbuffer)
 
-      TYPE(qs_diis_buffer_type), POINTER                 :: diis_buffer
+      TYPE(qs_diis_buffer_type), INTENT(OUT)             :: diis_buffer
       INTEGER, INTENT(in)                                :: nbuffer
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'qs_diis_b_create'
@@ -94,16 +93,11 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      ALLOCATE (diis_buffer)
-
       NULLIFY (diis_buffer%b_matrix)
       NULLIFY (diis_buffer%error)
       NULLIFY (diis_buffer%parameter)
       diis_buffer%nbuffer = nbuffer
       diis_buffer%ncall = 0
-      last_diis_b_id = last_diis_b_id + 1
-      diis_buffer%id_nr = last_diis_b_id
-      diis_buffer%ref_count = 1
 
       CALL timestop(handle)
 
@@ -127,7 +121,7 @@ CONTAINS
    SUBROUTINE qs_diis_b_check_i_alloc(diis_buffer, matrix_struct, nspin, &
                                       scf_section)
 
-      TYPE(qs_diis_buffer_type), POINTER                 :: diis_buffer
+      TYPE(qs_diis_buffer_type), INTENT(INOUT)           :: diis_buffer
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
       INTEGER, INTENT(IN)                                :: nspin
       TYPE(section_vals_type), POINTER                   :: scf_section
@@ -144,9 +138,6 @@ CONTAINS
 
       logger => cp_get_default_logger()
 
-      CPASSERT(ASSOCIATED(diis_buffer))
-      CPASSERT(diis_buffer%ref_count > 0)
-
       nbuffer = diis_buffer%nbuffer
 
       IF (.NOT. ASSOCIATED(diis_buffer%error)) THEN
@@ -154,11 +145,9 @@ CONTAINS
 
          DO ispin = 1, nspin
             DO ibuffer = 1, nbuffer
-               NULLIFY (diis_buffer%error(ibuffer, ispin)%matrix)
+               ALLOCATE (diis_buffer%error(ibuffer, ispin)%matrix)
                CALL cp_fm_create(diis_buffer%error(ibuffer, ispin)%matrix, &
-                                 name="qs_diis_b"// &
-                                 TRIM(ADJUSTL(cp_to_string(diis_buffer%id_nr)))// &
-                                 "%error("// &
+                                 name="qs_diis_b%error("// &
                                  TRIM(ADJUSTL(cp_to_string(ibuffer)))//","// &
                                  TRIM(ADJUSTL(cp_to_string(ibuffer)))//")", &
                                  matrix_struct=matrix_struct)
@@ -171,11 +160,9 @@ CONTAINS
 
          DO ispin = 1, nspin
             DO ibuffer = 1, nbuffer
-               NULLIFY (diis_buffer%parameter(ibuffer, ispin)%matrix)
+               ALLOCATE (diis_buffer%parameter(ibuffer, ispin)%matrix)
                CALL cp_fm_create(diis_buffer%parameter(ibuffer, ispin)%matrix, &
-                                 name="qs_diis_b"// &
-                                 TRIM(ADJUSTL(cp_to_string(diis_buffer%id_nr)))// &
-                                 "%parameter("// &
+                                 name="qs_diis_b%parameter("// &
                                  TRIM(ADJUSTL(cp_to_string(ibuffer)))//","// &
                                  TRIM(ADJUSTL(cp_to_string(ibuffer)))//")", &
                                  matrix_struct=matrix_struct)
@@ -225,9 +212,9 @@ CONTAINS
                              diis_step, eps_diis, nmixing, s_matrix, scf_section, roks)
 
       TYPE(qs_diis_buffer_type), POINTER                 :: diis_buffer
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mo_array
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: kc
-      TYPE(cp_fm_type), POINTER                          :: sc
+      TYPE(cp_fm_type), INTENT(IN)                       :: sc
       REAL(KIND=dp), INTENT(IN)                          :: delta
       REAL(KIND=dp), INTENT(OUT)                         :: error_max
       LOGICAL, INTENT(OUT)                               :: diis_step
@@ -296,7 +283,7 @@ CONTAINS
 
       DO ispin = 1, nspin
 
-         CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, &
+         CALL get_mo_set(mo_set=mo_array(ispin), &
                          nao=nao, &
                          nmo=nmo, &
                          homo=homo, &
@@ -315,7 +302,7 @@ CONTAINS
 
             ALLOCATE (occ(nmo))
 
-            CALL get_mo_set(mo_set=mo_array(2)%mo_set, &
+            CALL get_mo_set(mo_set=mo_array(2), &
                             occupation_numbers=occb)
 
             DO imo = 1, nmo
@@ -338,8 +325,8 @@ CONTAINS
             ! new_errors <- KC*(SC)^T - (SC)*(KC)^T = K*P*S - S*P*K
             ! or for an orthogonal basis
             ! new_errors <- KC*C^T - C*(KC)^T = K*P - P*K with S = I
-            CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, sc, kc(ispin)%matrix, 0.0_dp, new_errors)
-            CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, sc, -1.0_dp, new_errors)
+            CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, sc, kc(ispin)%matrix, 0.0_dp, new_errors)
+            CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, sc, -1.0_dp, new_errors)
 
             DEALLOCATE (occ)
 
@@ -354,12 +341,12 @@ CONTAINS
                ! sc <- S*C
                CALL cp_fm_symm("L", "U", nao, homo, 2.0_dp, new_errors, c, 0.0_dp, sc)
                ! new_errors <- KC*(SC)^T - (SC)*(KC)^T = K*P*S - S*P*K
-               CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, sc, kc(ispin)%matrix, 0.0_dp, new_errors)
-               CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, sc, -1.0_dp, new_errors)
+               CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, sc, kc(ispin)%matrix, 0.0_dp, new_errors)
+               CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, sc, -1.0_dp, new_errors)
             ELSE
                ! new_errors <- KC*(C)^T - C*(KC)^T = K*P - P*K
-               CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, c, kc(ispin)%matrix, 0.0_dp, new_errors)
-               CALL cp_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, c, -1.0_dp, new_errors)
+               CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, c, kc(ispin)%matrix, 0.0_dp, new_errors)
+               CALL parallel_gemm("N", "T", nao, nao, homo, 1.0_dp, kc(ispin)%matrix, c, -1.0_dp, new_errors)
             END IF
 
          END IF
@@ -511,24 +498,11 @@ CONTAINS
 !>      02.2003 created [fawzi]
 !> \author fawzi
 ! **************************************************************************************************
-   SUBROUTINE qs_diis_b_clear(diis_buffer)
+   PURE SUBROUTINE qs_diis_b_clear(diis_buffer)
 
-      TYPE(qs_diis_buffer_type), POINTER                 :: diis_buffer
-
-      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'qs_diis_b_clear'
-
-      INTEGER                                            :: handle
-
-! -------------------------------------------------------------------------
-
-      CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(diis_buffer))
-      CPASSERT(diis_buffer%ref_count > 0)
+      TYPE(qs_diis_buffer_type), INTENT(INOUT)           :: diis_buffer
 
       diis_buffer%ncall = 0
-
-      CALL timestop(handle)
 
    END SUBROUTINE qs_diis_b_clear
 
@@ -776,7 +750,7 @@ CONTAINS
    SUBROUTINE qs_diis_b_check_i_alloc_sparse(diis_buffer, ls_scf_env, &
                                              nspin)
 
-      TYPE(qs_diis_buffer_type_sparse), POINTER          :: diis_buffer
+      TYPE(qs_diis_buffer_type_sparse), INTENT(INOUT)    :: diis_buffer
       TYPE(ls_scf_env_type)                              :: ls_scf_env
       INTEGER, INTENT(IN)                                :: nspin
 
@@ -790,9 +764,6 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       logger => cp_get_default_logger()
-
-      CPASSERT(ASSOCIATED(diis_buffer))
-      CPASSERT(diis_buffer%ref_count > 0)
 
       nbuffer = diis_buffer%nbuffer
 
@@ -841,24 +812,11 @@ CONTAINS
 !> \author Fredy W. Aquino
 ! **************************************************************************************************
 
-   SUBROUTINE qs_diis_b_clear_sparse(diis_buffer)
+   PURE SUBROUTINE qs_diis_b_clear_sparse(diis_buffer)
 
-      TYPE(qs_diis_buffer_type_sparse), POINTER          :: diis_buffer
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'qs_diis_b_clear_sparse'
-
-      INTEGER                                            :: handle
-
-! -------------------------------------------------------------------------
-
-      CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(diis_buffer))
-      CPASSERT(diis_buffer%ref_count > 0)
+      TYPE(qs_diis_buffer_type_sparse), INTENT(INOUT)    :: diis_buffer
 
       diis_buffer%ncall = 0
-
-      CALL timestop(handle)
 
    END SUBROUTINE qs_diis_b_clear_sparse
 
@@ -870,31 +828,16 @@ CONTAINS
 !>      10-11-14 created [FA] modified from qs_diis_b_create
 !> \author Fredy W. Aquino
 ! **************************************************************************************************
-   SUBROUTINE qs_diis_b_create_sparse(diis_buffer, nbuffer)
+   PURE SUBROUTINE qs_diis_b_create_sparse(diis_buffer, nbuffer)
 
-      TYPE(qs_diis_buffer_type_sparse), POINTER          :: diis_buffer
+      TYPE(qs_diis_buffer_type_sparse), INTENT(OUT)      :: diis_buffer
       INTEGER, INTENT(in)                                :: nbuffer
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'qs_diis_b_create_sparse'
-
-      INTEGER                                            :: handle
-
-! -------------------------------------------------------------------------
-
-      CALL timeset(routineN, handle)
-
-      ALLOCATE (diis_buffer)
 
       NULLIFY (diis_buffer%b_matrix)
       NULLIFY (diis_buffer%error)
       NULLIFY (diis_buffer%parameter)
       diis_buffer%nbuffer = nbuffer
       diis_buffer%ncall = 0
-      last_diis_b_id = last_diis_b_id + 1
-      diis_buffer%id_nr = last_diis_b_id
-      diis_buffer%ref_count = 1
-
-      CALL timestop(handle)
 
    END SUBROUTINE qs_diis_b_create_sparse
 

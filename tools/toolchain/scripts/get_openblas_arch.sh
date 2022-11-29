@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")" && pwd -P)"
 
-openblas_ver="0.3.19" # Keep in sync with install_openblas.sh
-openblas_sha256="947f51bfe50c2a0749304fbe373e00e7637600b0a47b78a51382aeb30ca08562"
+openblas_ver="0.3.21" # Keep in sync with install_openblas.sh
+openblas_sha256="f36ba3d7a60e7c8bcc54cd9aaa9b1223dd42eaf02c811791c37e8ca707c241ca"
 openblas_pkg="OpenBLAS-${openblas_ver}.tar.gz"
 
 source "${SCRIPT_DIR}"/common_vars.sh
@@ -41,8 +38,7 @@ if ! [ "$openblas_dir" ]; then
   if [ -f ${openblas_pkg} ]; then
     echo "${openblas_pkg} is found"
   else
-    download_pkg ${DOWNLOADER_FLAGS} ${openblas_sha256} \
-      https://www.cp2k.org/static/downloads/${openblas_pkg}
+    download_pkg_from_cp2k_org "${openblas_sha256}" "${openblas_pkg}"
   fi
   tar -xzf ${openblas_pkg}
   openblas_dir="$(find_openblas_dir)"

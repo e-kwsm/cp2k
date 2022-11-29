@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-mpich_ver="3.3.2"
-mpich_sha256="4bfaf8837a54771d3e4922c84071ef80ffebddbb6971a006038d91ee7ef959b9"
+mpich_ver="3.4.3"
+mpich_sha256="8154d89f3051903181018166678018155f4c2b6f04a9bb6fe9515656452c4fd7"
 mpich_pkg="mpich-${mpich_ver}.tar.gz"
 
 source "${SCRIPT_DIR}"/common_vars.sh
@@ -39,10 +36,9 @@ case "${with_mpich}" in
       if [ -f ${mpich_pkg} ]; then
         echo "${mpich_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${mpich_sha256} \
-          https://www.cp2k.org/static/downloads/${mpich_pkg}
+        download_pkg_from_cp2k_org "${mpich_sha256}" "${mpich_pkg}"
       fi
-      echo "Installing from scratch into ${pkg_install_dir}"
+      echo "Installing from scratch into ${pkg_install_dir} for MPICH device ${MPICH_DEVICE}"
       [ -d mpich-${mpich_ver} ] && rm -rf mpich-${mpich_ver}
       tar -xzf ${mpich_pkg}
       cd mpich-${mpich_ver}
@@ -52,7 +48,7 @@ case "${with_mpich}" in
       # workaround for compilation with GCC >= 10, until properly fixed:
       #   https://github.com/pmodels/mpich/issues/4300
       if ("${FC}" --version | grep -q 'GNU'); then
-        ("${FC}" --help -v 2>&1 | grep -q 'fallow-argument-mismatch') && compat_flag="-fallow-argument-mismatch" || compat_flag=""
+        compat_flag=$(allowed_gfortran_flags "-fallow-argument-mismatch")
       fi
       ./configure \
         --prefix="${pkg_install_dir}" \
@@ -62,7 +58,7 @@ case "${with_mpich}" in
         FCFLAGS="${FCFLAGS} ${compat_flag}" \
         --without-x \
         --enable-gl=no \
-        --disable-shared \
+        --with-device=${MPICH_DEVICE} \
         > configure.log 2>&1 || tail -n ${LOG_LINES} configure.log
       make -j $(get_nprocs) > make.log 2>&1 || tail -n ${LOG_LINES} make.log
       make install > install.log 2>&1 || tail -n ${LOG_LINES} install.log
@@ -79,13 +75,13 @@ case "${with_mpich}" in
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
     MPICH_CFLAGS="-I'${pkg_install_dir}/include'"
-    MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding MPICH from system paths ===================="
     check_command mpirun "mpich" && MPIRUN="$(command -v mpirun)" || exit 1
     check_command mpicc "mpich" && MPICC="$(command -v mpicc)" || exit 1
-    if [ $(command -v mpic++ >&- 2>&-) ]; then
+    if [ $(command -v mpic++ > /dev/null 2>&1) ]; then
       check_command mpic++ "mpich" && MPICXX="$(command -v mpic++)" || exit 1
     else
       check_command mpicxx "mpich" && MPICXX="$(command -v mpicxx)" || exit 1
@@ -115,7 +111,7 @@ case "${with_mpich}" in
     MPIF90="${MPIFC}"
     MPIF77="${MPIFC}"
     MPICH_CFLAGS="-I'${pkg_install_dir}/include'"
-    MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "${with_mpich}" != "__DONTUSE__" ]; then
@@ -154,12 +150,14 @@ export CP_LDFLAGS="\${CP_LDFLAGS} IF_MPI(${MPICH_LDFLAGS}|)"
 export CP_LIBS="\${CP_LIBS} IF_MPI(${MPICH_LIBS}|)"
 EOF
   if [ "${with_mpich}" != "__SYSTEM__" ]; then
+    # Using append_path instead of prepend_path for compatibility with Shifter.
+    # See http://github.com/cp2k/cp2k/issues/2058
     cat << EOF >> "${BUILDDIR}/setup_mpich"
-prepend_path PATH "${pkg_install_dir}/bin"
-prepend_path LD_LIBRARY_PATH "${pkg_install_dir}/lib"
-prepend_path LD_RUN_PATH "${pkg_install_dir}/lib"
-prepend_path LIBRARY_PATH "${pkg_install_dir}/lib"
-prepend_path CPATH "${pkg_install_dir}/include"
+append_path PATH "${pkg_install_dir}/bin"
+append_path LD_LIBRARY_PATH "${pkg_install_dir}/lib"
+append_path LD_RUN_PATH "${pkg_install_dir}/lib"
+append_path LIBRARY_PATH "${pkg_install_dir}/lib"
+append_path CPATH "${pkg_install_dir}/include"
 EOF
   fi
   cat "${BUILDDIR}/setup_mpich" >> ${SETUPFILE}

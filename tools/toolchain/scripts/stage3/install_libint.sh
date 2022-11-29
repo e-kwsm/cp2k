@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -56,8 +53,7 @@ case "$with_libint" in
       if [ -f ${libint_pkg} ]; then
         echo "${libint_pkg} is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${libint_sha256} \
-          https://github.com/cp2k/libint-cp2k/releases/download/v${libint_ver}/${libint_pkg}
+        download_pkg_from_cp2k_org "${libint_sha256}" "${libint_pkg}"
       fi
 
       [ -d libint-v${libint_ver}-cp2k-lmax-${LIBINT_LMAX} ] && rm -rf libint-v${libint_ver}-cp2k-lmax-${LIBINT_LMAX}

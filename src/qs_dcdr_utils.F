@@ -26,7 +26,6 @@ MODULE qs_dcdr_utils
    USE cp_fm_types,                     ONLY: &
         cp_fm_create, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_p_type, cp_fm_release, &
         cp_fm_set_all, cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type,&
@@ -54,6 +53,7 @@ MODULE qs_dcdr_utils
    USE message_passing,                 ONLY: mp_bcast
    USE molecule_types,                  ONLY: molecule_type
    USE moments_utils,                   ONLY: get_reference_point
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -63,9 +63,9 @@ MODULE qs_dcdr_utils
                                               linres_control_type
    USE qs_loc_types,                    ONLY: get_qs_loc_env,&
                                               localized_wfn_control_type,&
-                                              qs_loc_env_new_type
+                                              qs_loc_env_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_moments,                      ONLY: build_local_moment_matrix
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_overlap,                      ONLY: build_overlap_matrix
@@ -102,12 +102,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE multiply_localization(ao_matrix, mo_coeff, work, nmo, icenter, res)
       TYPE(dbcsr_type), INTENT(IN), POINTER              :: ao_matrix
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: mo_coeff, work
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff, work
       INTEGER, INTENT(IN)                                :: nmo, icenter
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: res
+      TYPE(cp_fm_type), INTENT(IN)                       :: res
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'multiply_localization', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'multiply_localization'
 
       INTEGER                                            :: handle
 
@@ -155,7 +154,7 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: print_key
 
       file_exists = .FALSE.
@@ -218,7 +217,7 @@ CONTAINS
 
       IF (file_exists) THEN
 
-         CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(1), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, nrow_global=nao, ncol_block=max_block)
 
          ALLOCATE (vecbuffer(nao, max_block))
@@ -244,7 +243,7 @@ CONTAINS
          IF (beta_tmp .NE. beta) CPABORT("beta not consistent")
          !
          DO ispin = 1, nspins
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
             CALL cp_fm_get_info(mo_coeff, ncol_global=nmo)
             !
             IF (rst_unit > 0) READ (rst_unit) nmo_tmp
@@ -308,7 +307,7 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: print_key
 
       NULLIFY (logger, mo_coeff, mos, para_env, print_key, vecbuffer)
@@ -350,7 +349,7 @@ CONTAINS
          !
          ! write data to file
          ! use the scalapack block size as a default for buffering columns
-         CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(1), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, nrow_global=nao, ncol_block=max_block)
          ALLOCATE (vecbuffer(nao, max_block))
 
@@ -392,8 +391,6 @@ CONTAINS
    SUBROUTINE dcdr_print(dcdr_env, qs_env)
       TYPE(dcdr_env_type)                                :: dcdr_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'dcdr_print', routineP = moduleN//':'//routineN
 
       CHARACTER(LEN=default_string_length)               :: description
       INTEGER                                            :: alpha, beta, delta, gamma, i, k, l, &
@@ -551,8 +548,7 @@ CONTAINS
       TYPE(dcdr_env_type)                                :: dcdr_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'get_loc_setting', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'get_loc_setting'
 
       INTEGER                                            :: handle, is, istate, max_states, nmo, &
                                                             nmoloc, nstate, nstate_list(2)
@@ -560,8 +556,8 @@ CONTAINS
       REAL(dp), DIMENSION(:, :), POINTER                 :: center_array
       TYPE(linres_control_type), POINTER                 :: linres_control
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: dcdr_section
 
       CALL timeset(routineN, handle)
@@ -572,7 +568,7 @@ CONTAINS
 
       ! Some checks
       max_states = 0
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nmo=nmo)
+      CALL get_mo_set(mo_set=mos(1), nmo=nmo)
       max_states = MAX(max_states, nmo)
 
       ! check that the number of localized states is equal to the number of states
@@ -679,7 +675,7 @@ CONTAINS
       TYPE(dcdr_env_type)                                :: dcdr_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dcdr_env_init', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'dcdr_env_init'
 
       INTEGER                                            :: handle, homo, i, isize, j, jg, n_rep, &
                                                             nao, natom, nmo, nspins, nsubset, &
@@ -687,12 +683,13 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: tmplist
       LOGICAL                                            :: explicit
       REAL(KIND=dp), DIMENSION(:), POINTER               :: ref_point
-      TYPE(cp_fm_type), POINTER                          :: buf, mo_coeff
+      TYPE(cp_fm_type)                                   :: buf
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_all, sab_orb
@@ -805,7 +802,7 @@ CONTAINS
                dcdr_env%momo_fm_struct, &
                dcdr_env%likemos_fm_struct, &
                dcdr_env%homohomo_fm_struct)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff, &
+      CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff, &
                       nao=nao, nmo=nmo, homo=homo)
       CALL cp_fm_struct_create(dcdr_env%aoao_fm_struct, nrow_global=nao, &
                                ncol_global=nao, para_env=para_env, &
@@ -858,6 +855,8 @@ CONTAINS
       NULLIFY (dcdr_env%chc(1)%matrix)
       NULLIFY (dcdr_env%op_dR(1)%matrix)
 
+      ALLOCATE (dcdr_env%dCR(1)%matrix, dcdr_env%dCR_prime(1)%matrix, &
+                dcdr_env%mo_coeff(1)%matrix, dcdr_env%chc(1)%matrix, dcdr_env%op_dR(1)%matrix)
       CALL cp_fm_create(dcdr_env%dCR(1)%matrix, dcdr_env%likemos_fm_struct)
       CALL cp_fm_create(dcdr_env%dCR_prime(1)%matrix, dcdr_env%likemos_fm_struct)
       CALL cp_fm_create(dcdr_env%mo_coeff(1)%matrix, dcdr_env%likemos_fm_struct)
@@ -975,16 +974,16 @@ CONTAINS
       END DO
 
       ! CHC
-      CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+      CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
       CALL cp_fm_create(buf, dcdr_env%likemos_fm_struct)
 
       CALL cp_dbcsr_sm_fm_multiply(matrix_ks(1)%matrix, mo_coeff, buf, nmo)
       ! chc = mo * matrix_ks * mo
       CALL cp_fm_get_info(buf)
       CALL cp_fm_get_info(dcdr_env%chc(1)%matrix)
-      CALL cp_gemm('T', 'N', nmo, nmo, nao, &
-                   1.0_dp, mo_coeff, buf, &
-                   0.0_dp, dcdr_env%chc(1)%matrix)
+      CALL parallel_gemm('T', 'N', nmo, nmo, nao, &
+                         1.0_dp, mo_coeff, buf, &
+                         0.0_dp, dcdr_env%chc(1)%matrix)
 
       CALL cp_fm_release(buf)
 
@@ -1006,9 +1005,6 @@ CONTAINS
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dcdr_env_type)                                :: dcdr_env
-
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'dcdr_env_cleanup', &
-         routineP = moduleN//':'//routineN
 
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER                   :: dcdr_section
@@ -1051,6 +1047,10 @@ CONTAINS
       CALL cp_fm_release(dcdr_env%mo_coeff(1)%matrix)
       CALL cp_fm_release(dcdr_env%chc(1)%matrix)
       CALL cp_fm_release(dcdr_env%op_dR(1)%matrix)
+      DEALLOCATE (dcdr_env%dCR(1)%matrix, dcdr_env%dCR_prime(1)%matrix, &
+                  dcdr_env%mo_coeff(1)%matrix, dcdr_env%chc(1)%matrix, dcdr_env%op_dR(1)%matrix)
+      NULLIFY (dcdr_env%dCR(1)%matrix, dcdr_env%dCR_prime(1)%matrix, &
+               dcdr_env%mo_coeff(1)%matrix, dcdr_env%chc(1)%matrix, dcdr_env%op_dR(1)%matrix)
 
       DEALLOCATE (dcdr_env%op_dR)
       DEALLOCATE (dcdr_env%dCR)

@@ -36,8 +36,7 @@ MODULE qs_environment
                                               cp_blacs_env_release,&
                                               cp_blacs_env_retain,&
                                               cp_blacs_env_type
-   USE cp_control_types,                ONLY: dft_control_release,&
-                                              dft_control_type,&
+   USE cp_control_types,                ONLY: dft_control_type,&
                                               dftb_control_type,&
                                               gapw_control_type,&
                                               qs_control_type,&
@@ -72,14 +71,12 @@ MODULE qs_environment
    USE et_coupling_types,               ONLY: et_coupling_create
    USE ewald_environment_types,         ONLY: ewald_env_create,&
                                               ewald_env_get,&
-                                              ewald_env_release,&
                                               ewald_env_set,&
                                               ewald_environment_type,&
                                               read_ewald_section,&
                                               read_ewald_section_tb
    USE ewald_pw_methods,                ONLY: ewald_pw_grid_update
    USE ewald_pw_types,                  ONLY: ewald_pw_create,&
-                                              ewald_pw_release,&
                                               ewald_pw_type
    USE exstates_types,                  ONLY: excited_energy_type,&
                                               exstate_create
@@ -95,7 +92,8 @@ MODULE qs_environment
                                               qs_header,&
                                               se_header,&
                                               xtb_header
-   USE hfx_types,                       ONLY: hfx_create
+   USE hfx_types,                       ONLY: compare_hfx_sections,&
+                                              hfx_create
    USE input_constants,                 ONLY: &
         dispersion_d3, do_et_ddapc, do_method_am1, do_method_dftb, do_method_gapw, &
         do_method_gapw_xc, do_method_gpw, do_method_lrigpw, do_method_mndo, do_method_mndod, &
@@ -167,11 +165,10 @@ MODULE qs_environment
         init_qs_kind_set, qs_kind_type, set_qs_kind, write_gto_basis_sets, write_qs_kind_set
    USE qs_ks_types,                     ONLY: qs_ks_env_create,&
                                               qs_ks_env_type,&
-                                              qs_ks_release,&
                                               set_ks_env
    USE qs_local_rho_types,              ONLY: local_rho_type
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_rho0_ggrid,                   ONLY: rho0_s_grid_create
    USE qs_rho0_methods,                 ONLY: init_rho0
    USE qs_rho0_types,                   ONLY: rho0_mpole_type
@@ -179,7 +176,6 @@ MODULE qs_environment
    USE qs_rho_atom_types,               ONLY: rho_atom_type
    USE qs_subsys_methods,               ONLY: qs_subsys_create
    USE qs_subsys_types,                 ONLY: qs_subsys_get,&
-                                              qs_subsys_release,&
                                               qs_subsys_set,&
                                               qs_subsys_type
    USE qs_wf_history_methods,           ONLY: wfi_create,&
@@ -188,11 +184,9 @@ MODULE qs_environment
                                               wfi_release
    USE rel_control_types,               ONLY: rel_c_create,&
                                               rel_c_read_parameters,&
-                                              rel_c_release,&
                                               rel_control_type
    USE scf_control_types,               ONLY: scf_c_create,&
                                               scf_c_read_parameters,&
-                                              scf_c_release,&
                                               scf_c_write_parameters,&
                                               scf_control_type
    USE semi_empirical_expns3_methods,   ONLY: semi_empirical_expns3_setup
@@ -258,10 +252,8 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: use_motion_section
 
       INTEGER                                            :: ikind, method_id, nelectron_total, nkind
-      LOGICAL                                            :: do_admm_rpa, do_et, do_exx, do_hfx, &
-                                                            do_kpoints, is_semi, mp2_present, &
-                                                            my_qmmm, qmmm_decoupl, silent, &
-                                                            use_ref_cell
+      LOGICAL :: do_admm_rpa, do_et, do_exx, do_hfx, do_kpoints, is_identical, is_semi, &
+         mp2_present, my_qmmm, qmmm_decoupl, same_except_frac, silent, use_ref_cell
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rtmat
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: my_cell, my_cell_ref
@@ -278,10 +270,8 @@ CONTAINS
       TYPE(qs_wf_history_type), POINTER                  :: wf_history
       TYPE(rel_control_type), POINTER                    :: rel_control
       TYPE(scf_control_type), POINTER                    :: scf_control
-      TYPE(section_vals_type), POINTER                   :: dft_section, ec_section, &
-                                                            et_coupling_section, hfx_section, &
-                                                            kpoint_section, mp2_section, &
-                                                            transport_section
+      TYPE(section_vals_type), POINTER :: dft_section, ec_section, et_coupling_section, &
+         hfx_section, kpoint_section, mp2_section, rpa_hfx_section, transport_section
 
       NULLIFY (my_cell, my_cell_ref, atomic_kind_set, particle_set, &
                qs_kind_set, kpoint_section, dft_section, ec_section, &
@@ -319,6 +309,7 @@ CONTAINS
          is_semi = .FALSE.
       END SELECT
 
+      ALLOCATE (subsys)
       CALL qs_subsys_create(subsys, para_env, &
                             force_env_section=force_env_section, &
                             subsys_section=subsys_section, &
@@ -327,6 +318,7 @@ CONTAINS
                             cp_subsys=cp_subsys, cell=cell, cell_ref=cell_ref, &
                             elkind=is_semi)
 
+      ALLOCATE (ks_env)
       CALL qs_ks_env_create(ks_env)
       CALL set_ks_env(ks_env, subsys=subsys)
       CALL set_qs_env(qs_env, ks_env=ks_env)
@@ -424,19 +416,28 @@ CONTAINS
          CALL read_mp2_section(qs_env%input, qs_env%mp2_env)
          ! create the EXX section if necessary
          do_exx = .FALSE.
-         hfx_section => section_vals_get_subs_vals(qs_env%input, "DFT%XC%WF_CORRELATION%RI_RPA%HF")
-         CALL section_vals_get(hfx_section, explicit=do_exx)
+         rpa_hfx_section => section_vals_get_subs_vals(qs_env%input, "DFT%XC%WF_CORRELATION%RI_RPA%HF")
+         CALL section_vals_get(rpa_hfx_section, explicit=do_exx)
          IF (do_exx) THEN
-            ! Retrieve particle_set and atomic_kind_set (needed for both kinds of initialization)
 
             ! do_exx in call of hfx_create decides whether to go without ADMM (do_exx=.TRUE.) or with
             ! ADMM (do_exx=.FALSE.)
             CALL section_vals_val_get(mp2_section, "RI_RPA%ADMM", l_val=do_admm_rpa)
 
-            CALL hfx_create(qs_env%mp2_env%ri_rpa%x_data, para_env, hfx_section, atomic_kind_set, &
-                            qs_kind_set, particle_set, dft_control, my_cell, do_exx=(.NOT. do_admm_rpa), &
-                            nelectron_total=nelectron_total)
+            ! Reuse the HFX integrals from the qs_env if applicable
+            qs_env%mp2_env%ri_rpa%reuse_hfx = .TRUE.
+            IF (.NOT. do_hfx) qs_env%mp2_env%ri_rpa%reuse_hfx = .FALSE.
+            CALL compare_hfx_sections(hfx_section, rpa_hfx_section, is_identical, same_except_frac)
+            IF (.NOT. (is_identical .OR. same_except_frac)) qs_env%mp2_env%ri_rpa%reuse_hfx = .FALSE.
+            IF (dft_control%do_admm .AND. .NOT. do_admm_rpa) qs_env%mp2_env%ri_rpa%reuse_hfx = .FALSE.
 
+            IF (.NOT. qs_env%mp2_env%ri_rpa%reuse_hfx) THEN
+               CALL hfx_create(qs_env%mp2_env%ri_rpa%x_data, para_env, rpa_hfx_section, atomic_kind_set, &
+                               qs_kind_set, particle_set, dft_control, my_cell, do_exx=(.NOT. do_admm_rpa), &
+                               nelectron_total=nelectron_total)
+            ELSE
+               qs_env%mp2_env%ri_rpa%x_data => qs_env%x_data
+            END IF
          END IF
       END IF
 
@@ -495,9 +496,6 @@ CONTAINS
          END IF
       END IF
 
-      CALL qs_subsys_release(subsys)
-      CALL qs_ks_release(ks_env)
-
    END SUBROUTINE qs_init
 
 ! **************************************************************************************************
@@ -527,14 +525,15 @@ CONTAINS
 
       CHARACTER(len=2)                                   :: element_symbol
       INTEGER :: handle, ikind, ispin, iw, lmax_sphere, maxl, maxlgto, maxlgto_lri, maxlppl, &
-         maxlppnl, method_id, multiplicity, my_ival, n_ao, n_ao_aux_fit, n_mo_add, natom, &
-         nelectron, ngauss, nkind, output_unit, sort_basis, tnadd_method
+         maxlppnl, method_id, multiplicity, my_ival, n_ao, n_mo_add, natom, nelectron, ngauss, &
+         nkind, output_unit, sort_basis, tnadd_method
       INTEGER, DIMENSION(2)                              :: n_mo, nelectron_spin
       LOGICAL :: all_potential_present, be_silent, do_kpoints, do_ri_hfx, do_ri_mp2, do_ri_rpa, &
-         do_ri_sos_mp2, do_wfc_im_time, e1terms, has_unit_metric, lribas, mp2_present, orb_gradient
-      REAL(dp)                                           :: alpha, ccore, ewald_rcut, maxocc, &
-                                                            verlet_skin, zeff_correction
-      REAL(KIND=dp)                                      :: total_zeff_corr
+         do_ri_sos_mp2, do_rpa_ri_exx, do_wfc_im_time, e1terms, has_unit_metric, lribas, &
+         mp2_present, orb_gradient
+      REAL(KIND=dp)                                      :: alpha, ccore, ewald_rcut, fxx, maxocc, &
+                                                            rcut, total_zeff_corr, verlet_skin, &
+                                                            zeff_correction
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -549,7 +548,7 @@ CONTAINS
                                                             ri_xas_basis, tmp_basis_set
       TYPE(local_rho_type), POINTER                      :: local_rho_set
       TYPE(lri_environment_type), POINTER                :: lri_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_aux_fit, mos_last_converged
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_last_converged
       TYPE(molecule_kind_type), DIMENSION(:), POINTER    :: molecule_kind_set
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(mp2_type), POINTER                            :: mp2_env
@@ -567,7 +566,6 @@ CONTAINS
       TYPE(qs_kind_type), POINTER                        :: qs_kind
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_wf_history_type), POINTER                  :: wf_history
-      TYPE(rel_control_type), POINTER                    :: rel_control
       TYPE(rho0_mpole_type), POINTER                     :: rho0_mpole
       TYPE(rho_atom_type), DIMENSION(:), POINTER         :: rho_atom_set
       TYPE(scf_control_type), POINTER                    :: scf_control
@@ -590,7 +588,7 @@ CONTAINS
       CALL cite_reference(cp2kqs2020)
 
       ! Initialise the Quickstep environment
-      NULLIFY (mos, se_taper, mos_aux_fit)
+      NULLIFY (mos, se_taper)
       NULLIFY (dft_control)
       NULLIFY (energy)
       NULLIFY (force)
@@ -670,10 +668,13 @@ CONTAINS
       CALL read_tddfpt2_control(dft_control%tddfpt2_control, tddfpt_section, dft_control%qs_control)
 
       !   Create relativistic control section
-      CALL rel_c_create(rel_control)
-      CALL rel_c_read_parameters(rel_control, dft_section)
-      CALL set_qs_env(qs_env, rel_control=rel_control)
-      CALL rel_c_release(rel_control)
+      BLOCK
+         TYPE(rel_control_type), POINTER :: rel_control
+         ALLOCATE (rel_control)
+         CALL rel_c_create(rel_control)
+         CALL rel_c_read_parameters(rel_control, dft_section)
+         CALL set_qs_env(qs_env, rel_control=rel_control)
+      END BLOCK
 
       !   *** Read DFTB parameter files ***
       IF (dft_control%qs_control%method_id == do_method_dftb) THEN
@@ -684,6 +685,7 @@ CONTAINS
          CALL set_qs_env(qs_env, dftb_potential=dftb_potential)
          ! check for Ewald
          IF (dftb_control%do_ewald) THEN
+            ALLOCATE (ewald_env)
             CALL ewald_env_create(ewald_env, para_env)
             poisson_section => section_vals_get_subs_vals(dft_section, "POISSON")
             CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
@@ -691,10 +693,9 @@ CONTAINS
             print_section => section_vals_get_subs_vals(qs_env%input, "PRINT%GRID_INFORMATION")
             CALL get_qs_kind_set(qs_kind_set, basis_rcut=ewald_rcut)
             CALL read_ewald_section_tb(ewald_env, ewald_section, cell_ref%hmat)
+            ALLOCATE (ewald_pw)
             CALL ewald_pw_create(ewald_pw, ewald_env, cell, cell_ref, print_section=print_section)
             CALL set_qs_env(qs_env, ewald_env=ewald_env, ewald_pw=ewald_pw)
-            CALL ewald_env_release(ewald_env)
-            CALL ewald_pw_release(ewald_pw)
          END IF
       ELSEIF (dft_control%qs_control%method_id == do_method_xtb) THEN
          !   *** Read xTB parameter file ***
@@ -748,16 +749,16 @@ CONTAINS
          !
          ! check for Ewald
          IF (xtb_control%do_ewald) THEN
+            ALLOCATE (ewald_env)
             CALL ewald_env_create(ewald_env, para_env)
             poisson_section => section_vals_get_subs_vals(dft_section, "POISSON")
             CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
             ewald_section => section_vals_get_subs_vals(poisson_section, "EWALD")
             print_section => section_vals_get_subs_vals(qs_env%input, "PRINT%GRID_INFORMATION")
             CALL read_ewald_section_tb(ewald_env, ewald_section, cell_ref%hmat)
+            ALLOCATE (ewald_pw)
             CALL ewald_pw_create(ewald_pw, ewald_env, cell, cell_ref, print_section=print_section)
             CALL set_qs_env(qs_env, ewald_env=ewald_env, ewald_pw=ewald_pw)
-            CALL ewald_env_release(ewald_env)
-            CALL ewald_pw_release(ewald_pw)
          END IF
       END IF
 
@@ -834,7 +835,9 @@ CONTAINS
       END IF
 
       CALL section_vals_val_get(qs_env%input, "DFT%XC%HF%RI%_SECTION_PARAMETERS_", l_val=do_ri_hfx)
-      IF (do_ri_hfx) THEN
+      CALL section_vals_val_get(qs_env%input, "DFT%XC%WF_CORRELATION%RI_RPA%HF%RI%_SECTION_PARAMETERS_", &
+                                l_val=do_rpa_ri_exx)
+      IF (do_ri_hfx .OR. do_rpa_ri_exx) THEN
          CALL get_qs_env(qs_env, nkind=nkind)
          CALL section_vals_val_get(qs_env%input, "DFT%SORT_BASIS", i_val=sort_basis)
          DO ikind = 1, nkind
@@ -983,7 +986,15 @@ CONTAINS
             qs_kind => qs_kind_set(ikind)
             IF (qs_kind%xtb_parameter%defined) THEN
                CALL get_qs_kind(qs_kind, basis_set=tmp_basis_set)
-               CALL get_gto_basis_set(tmp_basis_set, kind_radius=qs_kind%xtb_parameter%rcut)
+               IF (xtb_control%old_coulomb_damping) THEN
+                  CALL get_gto_basis_set(tmp_basis_set, kind_radius=rcut)
+                  qs_kind%xtb_parameter%rcut = rcut
+               ELSE
+                  rcut = xtb_control%coulomb_sr_cut
+                  fxx = 2.0_dp*xtb_control%coulomb_sr_eps*qs_kind%xtb_parameter%eta**2
+                  fxx = 0.80_dp*(1.0_dp/fxx)**0.3333_dp
+                  qs_kind%xtb_parameter%rcut = MIN(rcut, fxx)
+               END IF
             ELSE
                qs_kind%xtb_parameter%rcut = 0.0_dp
             END IF
@@ -1010,6 +1021,7 @@ CONTAINS
                                    force_env_section=qs_env%input)
 
       !   *** SCF parameters ***
+      ALLOCATE (scf_control)
       CALL scf_c_create(scf_control)
       CALL scf_c_read_parameters(scf_control, dft_section)
 
@@ -1052,9 +1064,7 @@ CONTAINS
 
       CALL distribution_1d_release(local_particles)
       CALL distribution_1d_release(local_molecules)
-      CALL scf_c_release(scf_control)
       CALL wfi_release(wf_history)
-      CALL dft_control_release(dft_control)
 
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
@@ -1136,6 +1146,7 @@ CONTAINS
          se_control%max_multipole = do_multipole_none
          ! check for Ewald
          IF (se_control%do_ewald .OR. se_control%do_ewald_gks) THEN
+            ALLOCATE (ewald_env)
             CALL ewald_env_create(ewald_env, para_env)
             poisson_section => section_vals_get_subs_vals(dft_section, "POISSON")
             CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
@@ -1144,6 +1155,7 @@ CONTAINS
                                                         "PRINT%GRID_INFORMATION")
             CALL read_ewald_section(ewald_env, ewald_section)
             ! Create ewald grids
+            ALLOCATE (ewald_pw)
             CALL ewald_pw_create(ewald_pw, ewald_env, cell, cell_ref, &
                                  print_section=print_section)
             ! Initialize ewald grids
@@ -1156,6 +1168,7 @@ CONTAINS
             END IF
             CALL section_vals_val_get(se_section, "NEIGHBOR_LISTS%VERLET_SKIN", &
                                       r_val=verlet_skin)
+            ALLOCATE (se_nonbond_env)
             CALL fist_nonbond_env_create(se_nonbond_env, atomic_kind_set, &
                                          do_nonbonded=.TRUE., verlet_skin=verlet_skin, ewald_rcut=ewald_rcut, &
                                          ei_scale14=0.0_dp, vdw_scale14=0.0_dp, shift_cutoff=.FALSE.)
@@ -1163,8 +1176,6 @@ CONTAINS
             CALL nddo_mpole_setup(se_nddo_mpole, natom)
             CALL set_qs_env(qs_env, ewald_env=ewald_env, ewald_pw=ewald_pw, &
                             se_nonbond_env=se_nonbond_env, se_nddo_mpole=se_nddo_mpole)
-            CALL ewald_env_release(ewald_env)
-            CALL ewald_pw_release(ewald_pw)
             ! Handle the residual integral part 1/R^3
             CALL semi_empirical_expns3_setup(qs_kind_set, se_control, &
                                              dft_control%qs_control%method_id)
@@ -1528,8 +1539,7 @@ CONTAINS
       ELSE
          ALLOCATE (mos(dft_control%nspins))
          DO ispin = 1, dft_control%nspins
-            NULLIFY (mos(ispin)%mo_set)
-            CALL allocate_mo_set(mo_set=mos(ispin)%mo_set, &
+            CALL allocate_mo_set(mo_set=mos(ispin), &
                                  nao=n_ao, &
                                  nmo=n_mo(ispin), &
                                  nelectron=nelectron_spin(ispin), &
@@ -1541,32 +1551,11 @@ CONTAINS
 
       CALL set_qs_env(qs_env, mos=mos)
 
-      ! If we use auxiliary density matrix methods , set mo_set_aux_fit
-      IF (dft_control%do_admm) THEN
-         !
-         CALL get_qs_kind_set(qs_kind_set, nelectron=nelectron, nsgf=n_ao_aux_fit, &
-                              basis_type="AUX_FIT")
-         ALLOCATE (mos_aux_fit(dft_control%nspins))
-
-         DO ispin = 1, dft_control%nspins
-            NULLIFY (mos_aux_fit(ispin)%mo_set)
-            CALL allocate_mo_set(mo_set=mos_aux_fit(ispin)%mo_set, &
-                                 nao=n_ao_aux_fit, &
-                                 nmo=n_mo(ispin), &
-                                 nelectron=nelectron_spin(ispin), &
-                                 n_el_f=REAL(nelectron_spin(ispin), dp), &
-                                 maxocc=maxocc, &
-                                 flexible_electron_count=dft_control%relax_multiplicity)
-         END DO
-         CALL set_qs_env(qs_env, mos_aux_fit=mos_aux_fit)
-      END IF
-
 ! allocate mos when switch_surf_dip is triggered [SGh]
       IF (dft_control%switch_surf_dip) THEN
          ALLOCATE (mos_last_converged(dft_control%nspins))
          DO ispin = 1, dft_control%nspins
-            NULLIFY (mos_last_converged(ispin)%mo_set)
-            CALL allocate_mo_set(mo_set=mos_last_converged(ispin)%mo_set, &
+            CALL allocate_mo_set(mo_set=mos_last_converged(ispin), &
                                  nao=n_ao, &
                                  nmo=n_mo(ispin), &
                                  nelectron=nelectron_spin(ispin), &

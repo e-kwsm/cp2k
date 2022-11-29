@@ -17,8 +17,8 @@ MODULE cp_control_utils
    USE cp_control_types,                ONLY: &
         admm_control_create, admm_control_type, ddapc_control_create, ddapc_restraint_type, &
         dft_control_create, dft_control_type, efield_type, expot_control_create, &
-        maxwell_control_create, qs_control_type, sccs_control_create, tddfpt2_control_type, &
-        tddfpt_control_create, tddfpt_control_type, xtb_control_type
+        maxwell_control_create, qs_control_type, tddfpt2_control_type, tddfpt_control_create, &
+        tddfpt_control_type, xtb_control_type
    USE cp_files,                        ONLY: close_file,&
                                               open_file
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -112,6 +112,7 @@ CONTAINS
       logger => cp_get_default_logger()
 
       NULLIFY (tmp_section, xc_fun_section, xc_section)
+      ALLOCATE (dft_control)
       CALL dft_control_create(dft_control)
       ! determine wheather this is a semiempirical or DFTB run
       ! --> (no XC section needs to be provided)
@@ -471,7 +472,7 @@ CONTAINS
          CALL section_vals_val_get(sccs_section, "_SECTION_PARAMETERS_", &
                                    l_val=dft_control%do_sccs)
          IF (dft_control%do_sccs) THEN
-            CALL sccs_control_create(dft_control%sccs_control)
+            ALLOCATE (dft_control%sccs_control)
             CALL section_vals_val_get(sccs_section, "RELATIVE_PERMITTIVITY", &
                                       r_val=dft_control%sccs_control%epsilon_solvent)
             CALL section_vals_val_get(sccs_section, "ALPHA", &
@@ -1158,7 +1159,13 @@ CONTAINS
                CALL read_gp_section(qs_control%xtb_control%nonbonded, genpot_section, 0)
             END IF
          END IF !nonbonded
-
+         ! SR Coulomb
+         CALL section_vals_val_get(xtb_section, "OLD_COULOMB_DAMPING", &
+                                   l_val=qs_control%xtb_control%old_coulomb_damping)
+         CALL section_vals_val_get(xtb_parameter, "COULOMB_SR_CUT", r_vals=scal)
+         qs_control%xtb_control%coulomb_sr_cut = scal(1)
+         CALL section_vals_val_get(xtb_parameter, "COULOMB_SR_EPS", r_vals=scal)
+         qs_control%xtb_control%coulomb_sr_eps = scal(1)
          ! XB_radius
          CALL section_vals_val_get(xtb_parameter, "XB_RADIUS", r_val=qs_control%xtb_control%xb_radius)
          ! Kab
@@ -1282,9 +1289,7 @@ CONTAINS
       CALL section_vals_val_get(t_section, "RKS_TRIPLETS", l_val=t_control%rks_triplets)
       CALL section_vals_val_get(t_section, "DO_LRIGPW", l_val=t_control%do_lrigpw)
       CALL section_vals_val_get(t_section, "ADMM_KERNEL_CORRECTION_SYMMETRIC", l_val=t_control%admm_symm)
-
-      t_control%do_response_now = .FALSE. ! logical to control that update of response density is distinguished
-      ! from update of GS density
+      CALL section_vals_val_get(t_section, "ADMM_KERNEL_XC_CORRECTION", l_val=t_control%admm_xc_correction)
 
       ! read automatically generated auxiliary basis for LRI
       CALL section_vals_val_get(t_section, "AUTO_BASIS", n_rep_val=nrep)
@@ -1447,6 +1452,10 @@ CONTAINS
          t_control%stda_control%mn_alpha = fval
          CALL section_vals_val_get(stda_section, "MATAGA_NISHIMOTO_XEXP", r_val=fval)
          t_control%stda_control%mn_beta = fval
+         CALL section_vals_val_get(stda_section, "COULOMB_SR_CUT", r_val=fval)
+         t_control%stda_control%coulomb_sr_cut = fval
+         CALL section_vals_val_get(stda_section, "COULOMB_SR_EPS", r_val=fval)
+         t_control%stda_control%coulomb_sr_eps = fval
       END IF
 
       CALL timestop(handle)
@@ -1577,7 +1586,36 @@ CONTAINS
             CALL section_release(section)
          END IF
 
+         WRITE (UNIT=output_unit, FMT="(A)") ""
          CALL xc_write(output_unit, xc_section, dft_control%lsd)
+
+         IF (dft_control%apply_period_efield) THEN
+            WRITE (UNIT=output_unit, FMT="(A)") ""
+            IF (dft_control%period_efield%displacement_field) THEN
+               WRITE (UNIT=output_unit, FMT="(T2,A)") &
+                  "PERIODIC_EFIELD| Use displacement field formulation"
+               WRITE (UNIT=output_unit, FMT="(T2,A,T66,1X,ES14.6)") &
+                  "PERIODIC_EFIELD| Displacement field filter: x", &
+                  dft_control%period_efield%d_filter(1), &
+                  "PERIODIC_EFIELD|                            y", &
+                  dft_control%period_efield%d_filter(2), &
+                  "PERIODIC_EFIELD|                            z", &
+                  dft_control%period_efield%d_filter(3)
+            END IF
+            WRITE (UNIT=output_unit, FMT="(T2,A,T66,1X,ES14.6)") &
+               "PERIODIC_EFIELD| Polarisation vector:       x", &
+               dft_control%period_efield%polarisation(1), &
+               "PERIODIC_EFIELD|                            y", &
+               dft_control%period_efield%polarisation(2), &
+               "PERIODIC_EFIELD|                            z", &
+               dft_control%period_efield%polarisation(3), &
+               "PERIODIC_EFIELD| Intensity [a.u.]:", &
+               dft_control%period_efield%strength
+            IF (SQRT(DOT_PRODUCT(dft_control%period_efield%polarisation, &
+                                 dft_control%period_efield%polarisation)) < EPSILON(0.0_dp)) THEN
+               CPABORT("Invalid (too small) polarisation vector specified for PERIODIC_EFIELD")
+            END IF
+         END IF
 
          IF (dft_control%do_sccs) THEN
             IF (dft_control%qs_control%gapw) THEN
@@ -1651,6 +1689,8 @@ CONTAINS
                "SCCS| Numerical increment for the cavity surface calculation", &
                dft_control%sccs_control%delta_rho
          END IF
+
+         WRITE (UNIT=output_unit, FMT="(A)") ""
 
       END IF
 
@@ -1875,7 +1915,7 @@ CONTAINS
          END IF
          IF (qs_control%ddapc_restraint) THEN
             DO i = 1, SIZE(qs_control%ddapc_restraint_control)
-               ddapc_restraint_control => qs_control%ddapc_restraint_control(i)%ddapc_restraint_control
+               ddapc_restraint_control => qs_control%ddapc_restraint_control(i)
                IF (SIZE(qs_control%ddapc_restraint_control) .GT. 1) &
                   WRITE (UNIT=output_unit, FMT="(T2,A,T3,I8)") &
                   "QS| parameters for DDAPC restraint number", i
@@ -1965,9 +2005,8 @@ CONTAINS
 
       DO i = 1, SIZE(qs_control%ddapc_restraint_control)
 
-         NULLIFY (qs_control%ddapc_restraint_control(i)%ddapc_restraint_control)
-         CALL ddapc_control_create(qs_control%ddapc_restraint_control(i)%ddapc_restraint_control)
-         ddapc_restraint_control => qs_control%ddapc_restraint_control(i)%ddapc_restraint_control
+         CALL ddapc_control_create(qs_control%ddapc_restraint_control(i))
+         ddapc_restraint_control => qs_control%ddapc_restraint_control(i)
 
          CALL section_vals_val_get(ddapc_section, "STRENGTH", i_rep_section=i, &
                                    r_val=ddapc_restraint_control%strength)
@@ -2026,7 +2065,7 @@ CONTAINS
       END DO
       k = 0
       DO i = 1, SIZE(qs_control%ddapc_restraint_control)
-         IF (qs_control%ddapc_restraint_control(i)%ddapc_restraint_control%functional_form == &
+         IF (qs_control%ddapc_restraint_control(i)%functional_form == &
              do_ddapc_constraint) k = k + 1
       END DO
       IF (k == 2) CALL cp_abort(__LOCATION__, &
@@ -2150,6 +2189,12 @@ CONTAINS
                                 l_val=dft_control%rtp_control%hfx_redistribute)
       CALL section_vals_val_get(rtp_section, "APPLY_DELTA_PULSE", &
                                 l_val=dft_control%rtp_control%apply_delta_pulse)
+      CALL section_vals_val_get(rtp_section, "APPLY_DELTA_PULSE_MAG", &
+                                l_val=dft_control%rtp_control%apply_delta_pulse_mag)
+      CALL section_vals_val_get(rtp_section, "VELOCITY_GAUGE", &
+                                l_val=dft_control%rtp_control%velocity_gauge)
+      CALL section_vals_val_get(rtp_section, "VG_COM_NL", &
+                                l_val=dft_control%rtp_control%nl_gauge_transform)
       CALL section_vals_val_get(rtp_section, "PERIODIC", &
                                 l_val=dft_control%rtp_control%periodic)
       CALL section_vals_val_get(rtp_section, "DENSITY_PROPAGATION", &

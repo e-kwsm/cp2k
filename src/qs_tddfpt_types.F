@@ -85,6 +85,7 @@ CONTAINS
       ALLOCATE (t_env%evecs(n_ev, n_spins))
       DO spin = 1, n_spins
          DO i = 1, n_ev
+            ALLOCATE (t_env%evecs(i, spin)%matrix)
             CALL fm_pool_create_fm(t_env%ao_mo_fm_pools(spin)%pool, &
                                    t_env%evecs(i, spin)%matrix)
          END DO
@@ -98,6 +99,7 @@ CONTAINS
          NULLIFY (fm_struct)
          CALL cp_fm_struct_create(fm_struct, para_env, blacs_env, &
                                   p_env%n_ao(spin), p_env%n_ao(spin))
+         ALLOCATE (t_env%invS(spin)%matrix)
          CALL cp_fm_create(t_env%invS(spin)%matrix, fm_struct, routineP//"invS")
          CALL cp_fm_struct_release(fm_struct)
       END DO
@@ -118,12 +120,15 @@ CONTAINS
          DO i = 1, SIZE(t_env%evecs, 1)
             CALL fm_pool_give_back_fm(t_env%ao_mo_fm_pools(spin)%pool, &
                                       t_env%evecs(i, spin)%matrix)
+            DEALLOCATE (t_env%evecs(i, spin)%matrix)
          END DO
       END DO
 
       DO spin = 1, SIZE(t_env%invS)
-         IF (ASSOCIATED(t_env%invS(spin)%matrix)) &
+         IF (ASSOCIATED(t_env%invS(spin)%matrix)) THEN
             CALL cp_fm_release(t_env%invS(spin)%matrix)
+            DEALLOCATE (t_env%invS(spin)%matrix)
+         END IF
       END DO
       DEALLOCATE (t_env%invS, t_env%evecs, t_env%evals)
 

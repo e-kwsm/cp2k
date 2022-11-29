@@ -165,19 +165,18 @@ CONTAINS
       LOGICAL                                            :: norml1, norml2, ofdft, use_arnoldi, &
                                                             use_virial
       REAL(KIND=dp)                                      :: eps_filter, eps_fit
+      REAL(KIND=dp), DIMENSION(2)                        :: condnum
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_distribution_type), POINTER             :: dbcsr_dist
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s_aux_fit, matrix_s_aux_fit_vs_orb
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_h, matrix_p, matrix_s, matrix_t, &
                                                             matrix_w
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kg_environment_type), POINTER                 :: kg_env
       TYPE(kpoint_type), POINTER                         :: kpoints
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: sab_aux_fit, sab_aux_fit_vs_orb, &
-                                                            sab_orb, sap_oce
+         POINTER                                         :: sab_orb, sap_oce
       TYPE(oce_matrix_type), POINTER                     :: oce
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
@@ -316,30 +315,6 @@ CONTAINS
                                       eps_filter=eps_filter)
       END IF
 
-      ! ADMM
-      IF (.NOT. calculate_forces) THEN
-         IF (dft_control%do_admm) THEN
-            NULLIFY (matrix_s_aux_fit, matrix_s_aux_fit_vs_orb, &
-                     sab_aux_fit, sab_aux_fit_vs_orb)
-            CALL get_qs_env(qs_env=qs_env, matrix_s_aux_fit=matrix_s_aux_fit, &
-                            sab_aux_fit=sab_aux_fit)
-            CALL build_overlap_matrix(ks_env, matrix_s=matrix_s_aux_fit, &
-                                      matrix_name="AUX_FIT_OVERLAP", &
-                                      basis_type_a="AUX_FIT", &
-                                      basis_type_b="AUX_FIT", &
-                                      sab_nl=sab_aux_fit)
-            CALL set_ks_env(ks_env, matrix_s_aux_fit=matrix_s_aux_fit)
-            CALL get_qs_env(qs_env=qs_env, matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb, &
-                            sab_aux_fit_vs_orb=sab_aux_fit_vs_orb)
-            CALL build_overlap_matrix(ks_env, matrix_s=matrix_s_aux_fit_vs_orb, &
-                                      matrix_name="MIXED_OVERLAP", &
-                                      basis_type_a="AUX_FIT", &
-                                      basis_type_b="ORB", &
-                                      sab_nl=sab_aux_fit_vs_orb)
-            CALL set_ks_env(ks_env, matrix_s_aux_fit_vs_orb=matrix_s_aux_fit_vs_orb)
-         END IF
-      END IF
-
       ! initialize H matrix
       NULLIFY (matrix_h)
       CALL get_qs_env(qs_env=qs_env, matrix_h_kp=matrix_h)
@@ -422,7 +397,7 @@ CONTAINS
             CALL section_vals_val_get(qs_env%input, "DFT%PRINT%OVERLAP_CONDITION%DIAGONALIZATION", l_val=norml2)
             CALL section_vals_val_get(qs_env%input, "DFT%PRINT%OVERLAP_CONDITION%ARNOLDI", l_val=use_arnoldi)
             CALL get_qs_env(qs_env=qs_env, blacs_env=blacs_env)
-            CALL overlap_condnum(matrix_s, iw, norml1, norml2, use_arnoldi, blacs_env)
+            CALL overlap_condnum(matrix_s, condnum, iw, norml1, norml2, use_arnoldi, blacs_env)
          END IF
       END IF
 
@@ -447,8 +422,8 @@ CONTAINS
 
       INTEGER                                            :: nimages
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
-      LOGICAL                                            :: all_present, ppl_present, ppnl_present, &
-                                                            use_virial
+      LOGICAL                                            :: all_present, my_gt_nl, ppl_present, &
+                                                            ppnl_present, use_virial
       REAL(KIND=dp)                                      :: eps_ppnl
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -465,6 +440,16 @@ CONTAINS
       NULLIFY (dft_control)
       CALL get_qs_env(qs_env=qs_env, ks_env=ks_env, dft_control=dft_control)
       nimages = dft_control%nimages
+
+      ! check whether a gauge transformed version of the non-local potential part has to be used
+      my_gt_nl = .FALSE.
+      IF (qs_env%run_rtp) THEN
+         CPASSERT(ASSOCIATED(dft_control%rtp_control))
+         IF (dft_control%rtp_control%velocity_gauge) THEN
+            my_gt_nl = dft_control%rtp_control%nl_gauge_transform
+         END IF
+      END IF
+
       ! prepare for k-points
       NULLIFY (cell_to_index)
       IF (nimages > 1) THEN
@@ -529,9 +514,11 @@ CONTAINS
       eps_ppnl = dft_control%qs_control%eps_ppnl
       ppnl_present = ASSOCIATED(sap_ppnl)
       IF (ppnl_present) THEN
-         CALL build_core_ppnl(matrix_h, matrix_p, force, virial, calculate_forces, use_virial, nder, &
-                              qs_kind_set, atomic_kind_set, particle_set, sab_orb, sap_ppnl, eps_ppnl, &
-                              nimages, cell_to_index, "ORB")
+         IF (.NOT. my_gt_nl) THEN
+            CALL build_core_ppnl(matrix_h, matrix_p, force, virial, calculate_forces, use_virial, nder, &
+                                 qs_kind_set, atomic_kind_set, particle_set, sab_orb, sap_ppnl, eps_ppnl, &
+                                 nimages, cell_to_index, "ORB")
+         END IF
       END IF
 
    END SUBROUTINE core_matrices

@@ -269,9 +269,8 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3)                     :: hmat
       REAL(KIND=dp), DIMENSION(:), POINTER               :: cell_par
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
-      NULLIFY (parser)
       CALL section_vals_val_get(cell_section, "CELL_FILE_NAME", c_val=cell_file_name)
       CALL section_vals_val_get(cell_section, "CELL_FILE_FORMAT", i_val=my_format)
       SELECT CASE (my_format)
@@ -284,7 +283,7 @@ CONTAINS
             CALL parser_get_next_line(parser, 1, at_end=my_end)
          END DO
          CALL parser_release(parser)
-         ! Conver to CP2K units
+         ! Convert to CP2K units
          DO i = 1, 3
             DO j = 1, 3
                hmat(j, i) = cp_unit_to_cp2k(hmat(j, i), "angstrom")
@@ -295,7 +294,7 @@ CONTAINS
          CALL parser_get_next_line(parser, 1)
          READ (parser%input_line, *) idum, hmat(:, 1), hmat(:, 2), hmat(:, 3)
          CALL parser_release(parser)
-         ! Conver to CP2K units
+         ! Convert to CP2K units
          DO i = 1, 3
             DO j = 1, 3
                hmat(j, i) = cp_unit_to_cp2k(hmat(j, i), "angstrom")
@@ -370,11 +369,10 @@ CONTAINS
       INTEGER, DIMENSION(3)                              :: periodic
       LOGICAL                                            :: found
       REAL(KIND=dp), DIMENSION(3)                        :: cell_angles, cell_lengths
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type)                               :: parser
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (parser)
       CALL parser_create(parser, cif_file_name, &
                          para_env=para_env, apply_preprocessing=.FALSE.)
 
@@ -447,7 +445,7 @@ CONTAINS
 !> \author Teodoro Laino [tlaino]
 ! **************************************************************************************************
    SUBROUTINE cif_get_real(parser, r)
-      TYPE(cp_parser_type), POINTER                      :: parser
+      TYPE(cp_parser_type), INTENT(INOUT)                :: parser
       REAL(KIND=dp), INTENT(OUT)                         :: r
 
       CHARACTER(LEN=default_string_length)               :: s_tag
@@ -478,6 +476,7 @@ CONTAINS
       TYPE(cell_type), OPTIONAL, POINTER                 :: cell_ref
       CHARACTER(LEN=*), INTENT(IN), OPTIONAL             :: label
 
+      CHARACTER(LEN=3)                                   :: string
       CHARACTER(LEN=default_string_length)               :: my_label, unit_str
       INTEGER                                            :: output_unit
       REAL(KIND=dp)                                      :: alpha, beta, gamma, val
@@ -530,6 +529,17 @@ CONTAINS
          ELSE
             WRITE (UNIT=output_unit, FMT="(T2,A,T78,A3)") &
                TRIM(my_label)//" Numerically orthorhombic: ", " NO"
+         END IF
+         IF (SUM(cell%perd(1:3)) == 0) THEN
+            WRITE (UNIT=output_unit, FMT="(T2,A,T77,A4)") &
+               TRIM(my_label)//" Periodicity", "NONE"
+         ELSE
+            string = ""
+            IF (cell%perd(1) == 1) string = TRIM(string)//"X"
+            IF (cell%perd(2) == 1) string = TRIM(string)//"Y"
+            IF (cell%perd(3) == 1) string = TRIM(string)//"Z"
+            WRITE (UNIT=output_unit, FMT="(T2,A,T78,A3)") &
+               TRIM(my_label)//" Periodicity", ADJUSTR(string)
          END IF
       END IF
       CALL cp_print_key_finished_output(output_unit, logger, subsys_section, &

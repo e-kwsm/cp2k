@@ -19,17 +19,15 @@ MODULE qs_localization_methods
    USE cell_types,                      ONLY: cell_type
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type
    USE cp_cfm_basic_linalg,             ONLY: cp_cfm_column_scale,&
-                                              cp_cfm_gemm,&
-                                              cp_cfm_schur_product
+                                              cp_cfm_scale,&
+                                              cp_cfm_scale_and_add,&
+                                              cp_cfm_schur_product,&
+                                              cp_cfm_trace
    USE cp_cfm_diag,                     ONLY: cp_cfm_heevd
-   USE cp_cfm_types,                    ONLY: cp_cfm_create,&
-                                              cp_cfm_get_element,&
-                                              cp_cfm_get_info,&
-                                              cp_cfm_p_type,&
-                                              cp_cfm_release,&
-                                              cp_cfm_set_all,&
-                                              cp_cfm_to_cfm,&
-                                              cp_cfm_type
+   USE cp_cfm_types,                    ONLY: &
+        cp_cfm_create, cp_cfm_get_element, cp_cfm_get_info, cp_cfm_get_submatrix, cp_cfm_p_type, &
+        cp_cfm_release, cp_cfm_set_all, cp_cfm_set_submatrix, cp_cfm_to_cfm, cp_cfm_to_fm, &
+        cp_cfm_type, cp_fm_to_cfm
    USE cp_dbcsr_operations,             ONLY: cp_dbcsr_sm_fm_multiply
    USE cp_external_control,             ONLY: external_control
    USE cp_fm_basic_linalg,              ONLY: cp_fm_frobenius_norm,&
@@ -45,14 +43,14 @@ MODULE qs_localization_methods
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: &
-        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_maxabsrownorm, &
-        cp_fm_maxabsval, cp_fm_p_type, cp_fm_release, cp_fm_set_all, cp_fm_set_submatrix, &
-        cp_fm_to_fm, cp_fm_to_fm_submat, cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
+        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_init_random, &
+        cp_fm_maxabsrownorm, cp_fm_maxabsval, cp_fm_p_type, cp_fm_release, cp_fm_set_all, &
+        cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_to_fm_submat, cp_fm_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit,&
                                               cp_logger_get_default_unit_nr
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_p_type
+   USE kahan_sum,                       ONLY: accurate_sum
    USE kinds,                           ONLY: dp
    USE machine,                         ONLY: m_flush,&
                                               m_walltime
@@ -66,11 +64,14 @@ MODULE qs_localization_methods
                                               mp_sendrecv,&
                                               mp_sum,&
                                               mp_sync
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE qs_mo_methods,                   ONLY: make_basis_simple
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
    PUBLIC :: initialize_weights, crazy_rotations, &
-             direct_mini, rotate_orbitals, approx_l1_norm_sd, jacobi_rotations, scdm_qrfact, zij_matrix
+             direct_mini, rotate_orbitals, approx_l1_norm_sd, jacobi_rotations, scdm_qrfact, zij_matrix, &
+             jacobi_cg_edf_ls
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_localization_methods'
 
@@ -93,7 +94,7 @@ CONTAINS
 !> \param sweeps ...
 ! **************************************************************************************************
    SUBROUTINE approx_l1_norm_sd(C, iterations, eps, converged, sweeps)
-      TYPE(cp_fm_type), POINTER                          :: C
+      TYPE(cp_fm_type), INTENT(IN)                       :: C
       INTEGER, INTENT(IN)                                :: iterations
       REAL(KIND=dp), INTENT(IN)                          :: eps
       LOGICAL, INTENT(INOUT)                             :: converged
@@ -108,12 +109,12 @@ CONTAINS
       REAL(KIND=dp)                                      :: expfactor, f2, f2old, gnorm, tnorm
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_k_k
-      TYPE(cp_fm_type), POINTER                          :: CTmp, G, Gp1, Gp2, U
+      TYPE(cp_fm_type)                                   :: CTmp, G, Gp1, Gp2, U
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (CTmp, U, G, Gp1, Gp2, context, para_env, fm_struct_k_k)
+      NULLIFY (context, para_env, fm_struct_k_k)
 
       output_unit = cp_logger_get_default_io_unit()
 
@@ -165,14 +166,14 @@ CONTAINS
                CTmp%local_data(i, p) = C%local_data(i, p)/SQRT(C%local_data(i, p)**2 + f2_eps)
             END DO
          END DO
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, CTmp, C, 0.0_dp, G)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, CTmp, C, 0.0_dp, G)
          ! antisymmetrize
          CALL cp_fm_transpose(G, U)
          CALL cp_fm_scale_and_add(-0.5_dp, G, 0.5_dp, U)
          !
          !-------------------------------------------------------------------
          !
-         CALL cp_fm_frobenius_norm(G, gnorm)
+         gnorm = cp_fm_frobenius_norm(G)
          !write(*,*) 'qs_localize: norm(G)=',gnorm
          !
          ! rescale for steepest descent
@@ -184,26 +185,26 @@ CONTAINS
          ! first order
          expfactor = 1.0_dp
          CALL cp_fm_scale_and_add(1.0_dp, U, expfactor, G)
-         CALL cp_fm_frobenius_norm(G, tnorm)
+         tnorm = cp_fm_frobenius_norm(G)
          !write(*,*) 'Taylor expansion i=',1,' norm(X^i)/i!=',tnorm
          IF (tnorm .GT. 1.0E-10_dp) THEN
             ! other orders
             CALL cp_fm_to_fm(G, Gp1)
             DO i = 2, taylor_order
                ! new power of G
-               CALL cp_gemm('N', 'N', k, k, k, 1.0_dp, G, Gp1, 0.0_dp, Gp2)
+               CALL parallel_gemm('N', 'N', k, k, k, 1.0_dp, G, Gp1, 0.0_dp, Gp2)
                CALL cp_fm_to_fm(Gp2, Gp1)
                ! add to the taylor expansion so far
                expfactor = expfactor/REAL(i, KIND=dp)
                CALL cp_fm_scale_and_add(1.0_dp, U, expfactor, Gp1)
-               CALL cp_fm_frobenius_norm(Gp1, tnorm)
+               tnorm = cp_fm_frobenius_norm(Gp1)
                !write(*,*) 'Taylor expansion i=',i,' norm(X^i)/i!=',tnorm*expfactor
                IF (tnorm*expfactor .LT. 1.0E-10_dp) EXIT
             END DO
          END IF
          !
          ! incrementaly rotate the MOs
-         CALL cp_gemm('N', 'N', n, k, k, 1.0_dp, C, U, 0.0_dp, CTmp)
+         CALL parallel_gemm('N', 'N', n, k, k, 1.0_dp, C, U, 0.0_dp, CTmp)
          CALL cp_fm_to_fm(CTmp, C)
          !
          ! printing
@@ -265,7 +266,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(3, 3)                     :: metric
 
       metric = 0.0_dp
-      CALL dgemm('T', 'N', 3, 3, 3, 1._dp, cell%hmat, 3, cell%hmat, 3, 0.0_dp, metric, 3)
+      CALL dgemm('T', 'N', 3, 3, 3, 1._dp, cell%hmat(:, :), 3, cell%hmat(:, :), 3, 0.0_dp, metric(:, :), 3)
 
       weights(1) = METRIC(1, 1) - METRIC(1, 2) - METRIC(1, 3)
       weights(2) = METRIC(2, 2) - METRIC(1, 2) - METRIC(2, 3)
@@ -292,12 +293,12 @@ CONTAINS
 !> \par History
 !> \author Joost VandeVondele (02.2010)
 ! **************************************************************************************************
-   SUBROUTINE jacobi_rotations(weights, zij, vectors, para_env, max_iter, eps_localization, &
-                               sweeps, out_each, target_time, start_time)
+   SUBROUTINE jacobi_rotations(weights, zij, vectors, para_env, max_iter, &
+                               eps_localization, sweeps, out_each, target_time, start_time)
 
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: eps_localization
@@ -325,10 +326,11 @@ CONTAINS
 !> \param sweeps ...
 !> \param out_each ...
 ! **************************************************************************************************
-   SUBROUTINE jacobi_rotations_serial(weights, zij, vectors, max_iter, eps_localization, sweeps, out_each)
+   SUBROUTINE jacobi_rotations_serial(weights, zij, vectors, max_iter, eps_localization, sweeps, &
+                                      out_each)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: eps_localization
       INTEGER                                            :: sweeps
@@ -341,13 +343,13 @@ CONTAINS
                                                             nstate, unit_nr
       REAL(KIND=dp)                                      :: ct, st, t1, t2, theta, tolerance
       TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: c_zij
-      TYPE(cp_cfm_type), POINTER                         :: c_rmat
-      TYPE(cp_fm_type), POINTER                          :: rmat
+      TYPE(cp_cfm_type)                                  :: c_rmat
+      TYPE(cp_fm_type)                                   :: rmat
 
       CALL timeset(routineN, handle)
 
       dim2 = SIZE(zij, 2)
-      NULLIFY (rmat, c_rmat, c_zij)
+      NULLIFY (c_zij)
       ALLOCATE (c_zij(dim2))
       NULLIFY (mii, mij, mjj)
       ALLOCATE (mii(dim2), mij(dim2), mjj(dim2))
@@ -358,7 +360,7 @@ CONTAINS
       CALL cp_cfm_create(c_rmat, zij(1, 1)%matrix%matrix_struct)
       CALL cp_cfm_set_all(c_rmat, (0._dp, 0._dp), (1._dp, 0._dp))
       DO idim = 1, dim2
-         NULLIFY (c_zij(idim)%matrix)
+         ALLOCATE (c_zij(idim)%matrix)
          CALL cp_cfm_create(c_zij(idim)%matrix, zij(1, 1)%matrix%matrix_struct)
          c_zij(idim)%matrix%local_data = CMPLX(zij(1, idim)%matrix%local_data, &
                                                zij(2, idim)%matrix%local_data, dp)
@@ -366,16 +368,19 @@ CONTAINS
 
       CALL cp_fm_get_info(rmat, nrow_global=nstate)
       tolerance = 1.0e10_dp
+
       sweeps = 0
       unit_nr = -1
       IF (rmat%matrix_struct%para_env%mepos .EQ. rmat%matrix_struct%para_env%source) THEN
          unit_nr = cp_logger_get_default_unit_nr()
          WRITE (unit_nr, '(T4,A )') " Localization by iterative Jacobi rotation"
       END IF
+
       ! do jacobi sweeps until converged
       DO WHILE (tolerance >= eps_localization .AND. sweeps < max_iter)
          sweeps = sweeps + 1
          t1 = m_walltime()
+
          DO istate = 1, nstate
             DO jstate = istate + 1, nstate
                DO idim = 1, dim2
@@ -387,22 +392,27 @@ CONTAINS
                st = SIN(theta)
                ct = COS(theta)
                CALL rotate_zij(istate, jstate, st, ct, c_zij)
+
                CALL rotate_rmat(istate, jstate, st, ct, c_rmat)
             END DO
          END DO
+
          CALL check_tolerance(c_zij, weights, tolerance)
+
          t2 = m_walltime()
          IF (unit_nr > 0 .AND. MODULO(sweeps, out_each) == 0) THEN
             WRITE (unit_nr, '(T4,A,I7,T30,A,E12.4,T60,A,F8.3)') &
                "Iteration:", sweeps, "Tolerance:", tolerance, "Time:", t2 - t1
             CALL m_flush(unit_nr)
          END IF
+
       END DO
 
       DO idim = 1, dim2
          zij(1, idim)%matrix%local_data = REAL(c_zij(idim)%matrix%local_data, dp)
          zij(2, idim)%matrix%local_data = AIMAG(c_zij(idim)%matrix%local_data)
          CALL cp_cfm_release(c_zij(idim)%matrix)
+         DEALLOCATE (c_zij(idim)%matrix)
       END DO
       DEALLOCATE (c_zij)
       DEALLOCATE (mii, mij, mjj)
@@ -414,6 +424,816 @@ CONTAINS
       CALL timestop(handle)
 
    END SUBROUTINE jacobi_rotations_serial
+! **************************************************************************************************
+!> \brief very similar to jacobi_rotations_serial with some extra output options
+!> \param weights ...
+!> \param c_zij ...
+!> \param max_iter ...
+!> \param c_rmat ...
+!> \param eps_localization ...
+!> \param tol_out ...
+!> \param jsweeps ...
+!> \param out_each ...
+!> \param c_zij_out ...
+!> \param grad_final ...
+! **************************************************************************************************
+   SUBROUTINE jacobi_rotations_serial_1(weights, c_zij, max_iter, c_rmat, eps_localization, &
+                                        tol_out, jsweeps, out_each, c_zij_out, grad_final)
+      REAL(KIND=dp), INTENT(IN)                          :: weights(:)
+      TYPE(cp_cfm_p_type), INTENT(IN), POINTER           :: c_zij(:)
+      INTEGER, INTENT(IN)                                :: max_iter
+      TYPE(cp_cfm_type), INTENT(IN)                      :: c_rmat
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: eps_localization
+      REAL(KIND=dp), INTENT(OUT), OPTIONAL               :: tol_out
+      INTEGER, INTENT(OUT), OPTIONAL                     :: jsweeps
+      INTEGER, INTENT(IN), OPTIONAL                      :: out_each
+      TYPE(cp_cfm_p_type), INTENT(OUT), OPTIONAL, &
+         POINTER                                         :: c_zij_out(:)
+      TYPE(cp_fm_type), INTENT(OUT), OPTIONAL, POINTER   :: grad_final
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'jacobi_rotations_serial_1'
+
+      COMPLEX(KIND=dp)                                   :: mzii
+      COMPLEX(KIND=dp), POINTER                          :: mii(:), mij(:), mjj(:)
+      INTEGER                                            :: dim2, handle, idim, istate, jstate, &
+                                                            nstate, sweeps, unit_nr
+      REAL(KIND=dp)                                      :: alpha, avg_spread_ii, ct, spread_ii, st, &
+                                                            sum_spread_ii, t1, t2, theta, tolerance
+      TYPE(cp_cfm_p_type), POINTER                       :: c_zij_local(:)
+      TYPE(cp_cfm_type)                                  :: c_rmat_local
+
+      CALL timeset(routineN, handle)
+
+      dim2 = SIZE(c_zij)
+      NULLIFY (c_zij_local)
+      NULLIFY (mii, mij, mjj)
+      ALLOCATE (mii(dim2), mij(dim2), mjj(dim2))
+
+      ALLOCATE (c_zij_local(dim2))
+      CALL cp_cfm_create(c_rmat_local, c_rmat%matrix_struct)
+      CALL cp_cfm_set_all(c_rmat_local, (0.0_dp, 0.0_dp), (1.0_dp, 0.0_dp))
+      DO idim = 1, dim2
+         ALLOCATE (c_zij_local(idim)%matrix)
+         CALL cp_cfm_create(c_zij_local(idim)%matrix, c_zij(idim)%matrix%matrix_struct)
+         c_zij_local(idim)%matrix%local_data = c_zij(idim)%matrix%local_data
+      END DO
+
+      CALL cp_cfm_get_info(c_rmat_local, nrow_global=nstate)
+      tolerance = 1.0e10_dp
+
+      IF (PRESENT(grad_final)) CALL cp_fm_set_all(grad_final, 0.0_dp)
+
+      sweeps = 0
+      IF (PRESENT(out_each)) THEN
+         unit_nr = -1
+         IF (c_rmat_local%matrix_struct%para_env%mepos .EQ. c_rmat_local%matrix_struct%para_env%source) THEN
+            unit_nr = cp_logger_get_default_unit_nr()
+         END IF
+         alpha = 0.0_dp
+         DO idim = 1, dim2
+            alpha = alpha + weights(idim)
+         END DO
+      END IF
+
+      ! do jacobi sweeps until converged
+      DO WHILE (sweeps < max_iter)
+         sweeps = sweeps + 1
+         IF (PRESENT(eps_localization)) THEN
+            IF (tolerance < eps_localization) EXIT
+         END IF
+         IF (PRESENT(out_each)) t1 = m_walltime()
+
+         DO istate = 1, nstate
+            DO jstate = istate + 1, nstate
+               DO idim = 1, dim2
+                  CALL cp_cfm_get_element(c_zij_local(idim)%matrix, istate, istate, mii(idim))
+                  CALL cp_cfm_get_element(c_zij_local(idim)%matrix, istate, jstate, mij(idim))
+                  CALL cp_cfm_get_element(c_zij_local(idim)%matrix, jstate, jstate, mjj(idim))
+               END DO
+               CALL get_angle(mii, mjj, mij, weights, theta)
+               st = SIN(theta)
+               ct = COS(theta)
+               CALL rotate_zij(istate, jstate, st, ct, c_zij_local)
+
+               CALL rotate_rmat(istate, jstate, st, ct, c_rmat_local)
+            END DO
+         END DO
+
+         IF (PRESENT(grad_final)) THEN
+            CALL check_tolerance(c_zij_local, weights, tolerance, grad=grad_final)
+         ELSE
+            CALL check_tolerance(c_zij_local, weights, tolerance)
+         END IF
+         IF (PRESENT(tol_out)) tol_out = tolerance
+
+         IF (PRESENT(out_each)) THEN
+            t2 = m_walltime()
+            IF (unit_nr > 0 .AND. MODULO(sweeps, out_each) == 0) THEN
+               sum_spread_ii = 0.0_dp
+               DO istate = 1, nstate
+                  spread_ii = 0.0_dp
+                  DO idim = 1, dim2
+                     CALL cp_cfm_get_element(c_zij_local(idim)%matrix, istate, istate, mzii)
+                     spread_ii = spread_ii + weights(idim)* &
+                                 ABS(mzii)**2/twopi/twopi
+                  END DO
+                  sum_spread_ii = sum_spread_ii + spread_ii
+               END DO
+               sum_spread_ii = alpha*nstate/twopi/twopi - sum_spread_ii
+               avg_spread_ii = sum_spread_ii/nstate
+               WRITE (unit_nr, '(T4,A,T26,A,T48,A,T64,A)') &
+                  "Iteration", "Avg. Spread_ii", "Tolerance", "Time"
+               WRITE (unit_nr, '(T4,I7,T20,F20.10,T45,E12.4,T60,F8.3)') &
+                  sweeps, avg_spread_ii, tolerance, t2 - t1
+               CALL m_flush(unit_nr)
+            END IF
+            IF (PRESENT(jsweeps)) jsweeps = sweeps
+         END IF
+
+      END DO
+
+      IF (PRESENT(c_zij_out)) THEN
+         DO idim = 1, dim2
+            CALL cp_cfm_to_cfm(c_zij_local(idim)%matrix, c_zij_out(idim)%matrix)
+         END DO
+      END IF
+      CALL cp_cfm_to_cfm(c_rmat_local, c_rmat)
+
+      DEALLOCATE (mii, mij, mjj)
+      DO idim = 1, dim2
+         CALL cp_cfm_release(c_zij_local(idim)%matrix)
+         DEALLOCATE (c_zij_local(idim)%matrix)
+      END DO
+      DEALLOCATE (c_zij_local)
+      CALL cp_cfm_release(c_rmat_local)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE jacobi_rotations_serial_1
+! **************************************************************************************************
+!> \brief combine jacobi rotations (serial) and conjugate gradient with golden section line search
+!>        for partially occupied wannier functions
+!> \param para_env ...
+!> \param weights ...
+!> \param zij ...
+!> \param vectors ...
+!> \param max_iter ...
+!> \param eps_localization ...
+!> \param iter ...
+!> \param out_each ...
+!> \param nextra ...
+!> \param do_cg ...
+!> \param nmo ...
+!> \param vectors_2 ...
+!> \param mos_guess ...
+! **************************************************************************************************
+   SUBROUTINE jacobi_cg_edf_ls(para_env, weights, zij, vectors, max_iter, eps_localization, &
+                               iter, out_each, nextra, do_cg, nmo, vectors_2, mos_guess)
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      REAL(KIND=dp), INTENT(IN)                          :: weights(:)
+      TYPE(cp_fm_p_type), INTENT(INOUT)                  :: zij(:, :)
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
+      INTEGER, INTENT(IN)                                :: max_iter
+      REAL(KIND=dp), INTENT(IN)                          :: eps_localization
+      INTEGER                                            :: iter
+      INTEGER, INTENT(IN)                                :: out_each, nextra
+      LOGICAL, INTENT(IN)                                :: do_cg
+      INTEGER, INTENT(IN), OPTIONAL                      :: nmo
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: vectors_2, mos_guess
+
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'jacobi_cg_edf_ls'
+      COMPLEX(KIND=dp), PARAMETER                        :: cone = (1.0_dp, 0.0_dp), &
+                                                            czero = (0.0_dp, 0.0_dp)
+      REAL(KIND=dp), PARAMETER                           :: gold_sec = 0.3819_dp
+
+      COMPLEX(KIND=dp)                                   :: cnorm2_Gct, cnorm2_Gct_cross, mzii
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :)     :: tmp_cmat
+      COMPLEX(KIND=dp), DIMENSION(:), POINTER            :: arr_zii
+      COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: matrix_zii
+      INTEGER :: dim2, handle, icinit, idim, istate, line_search_count, line_searches, lsl, lsm, &
+         lsr, miniter, nao, ndummy, nocc, norextra, northo, nstate, unit_nr
+      INTEGER, DIMENSION(1)                              :: iloc
+      LOGICAL                                            :: do_cinit_mo, do_cinit_random, &
+                                                            do_U_guess_mo, new_direction
+      REAL(KIND=dp) :: alpha, avg_spread_ii, beta, beta_pr, ds, ds_min, mintol, norm, norm2_Gct, &
+         norm2_Gct_cross, norm2_old, spread_ii, spread_sum, sum_spread_ii, t1, tol, tolc, weight
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: sum_spread
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: tmp_mat, tmp_mat_1
+      REAL(KIND=dp), DIMENSION(50)                       :: energy, pos
+      REAL(KIND=dp), DIMENSION(:), POINTER               :: tmp_arr
+      TYPE(cp_blacs_env_type), POINTER                   :: context
+      TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: c_zij, zij_0
+      TYPE(cp_cfm_type)                                  :: c_tilde, ctrans_lambda, Gct_old, &
+                                                            grad_ctilde, skc, tmp_cfm, tmp_cfm_1, &
+                                                            tmp_cfm_2, U, UL, V, VL, zdiag
+      TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
+      TYPE(cp_fm_type)                                   :: id_nextra, matrix_U, matrix_V, &
+                                                            matrix_V_all, rmat, tmp_fm, vectors_all
+
+      CALL timeset(routineN, handle)
+
+      dim2 = SIZE(zij, 2)
+      NULLIFY (context)
+      NULLIFY (c_zij, matrix_zii, arr_zii)
+      NULLIFY (tmp_fm_struct)
+      NULLIFY (tmp_arr)
+
+      ALLOCATE (c_zij(dim2))
+
+      CALL cp_fm_get_info(zij(1, 1)%matrix, nrow_global=nstate)
+
+      ALLOCATE (sum_spread(nstate))
+      ALLOCATE (matrix_zii(nstate, dim2))
+      matrix_zii = czero
+      sum_spread = 0.0_dp
+
+      alpha = 0.0_dp
+      DO idim = 1, dim2
+         alpha = alpha + weights(idim)
+         ALLOCATE (c_zij(idim)%matrix)
+         CALL cp_cfm_create(c_zij(idim)%matrix, zij(1, 1)%matrix%matrix_struct)
+         c_zij(idim)%matrix%local_data = CMPLX(zij(1, idim)%matrix%local_data, &
+                                               zij(2, idim)%matrix%local_data, dp)
+      END DO
+
+      NULLIFY (zij_0)
+      ALLOCATE (zij_0(dim2))
+
+      CALL cp_cfm_create(U, zij(1, 1)%matrix%matrix_struct)
+      CALL cp_fm_create(matrix_U, zij(1, 1)%matrix%matrix_struct)
+
+      CALL cp_cfm_set_all(U, czero, cone)
+      CALL cp_fm_set_all(matrix_U, 0.0_dp, 1.0_dp)
+
+      CALL cp_fm_get_info(vectors, nrow_global=nao)
+      IF (nextra > 0) THEN
+         IF (PRESENT(mos_guess)) THEN
+            do_cinit_random = .FALSE.
+            do_cinit_mo = .TRUE.
+            CALL cp_fm_get_info(mos_guess, ncol_global=ndummy)
+         ELSE
+            do_cinit_random = .TRUE.
+            do_cinit_mo = .FALSE.
+            ndummy = nstate
+         END IF
+
+         IF (do_cinit_random) THEN
+            icinit = 1
+            do_U_guess_mo = .FALSE.
+         ELSEIF (do_cinit_mo) THEN
+            icinit = 2
+            do_U_guess_mo = .TRUE.
+         END IF
+
+         nocc = nstate - nextra
+         northo = nmo - nocc
+         norextra = nmo - nstate
+         CALL cp_fm_struct_get(zij(1, 1)%matrix%matrix_struct, context=context)
+
+         ALLOCATE (tmp_cmat(nstate, nstate))
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, ncol_global=nmo, &
+                                  para_env=para_env, context=context)
+         DO idim = 1, dim2
+            ALLOCATE (zij_0(idim)%matrix)
+            CALL cp_cfm_create(zij_0(idim)%matrix, tmp_fm_struct)
+            CALL cp_cfm_set_all(zij_0(idim)%matrix, czero, cone)
+            CALL cp_cfm_get_submatrix(c_zij(idim)%matrix, tmp_cmat)
+            CALL cp_cfm_set_submatrix(zij_0(idim)%matrix, tmp_cmat)
+         END DO
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         DEALLOCATE (tmp_cmat)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, ncol_global=nstate, &
+                                  para_env=para_env, context=context)
+         CALL cp_cfm_create(V, tmp_fm_struct)
+         CALL cp_fm_create(matrix_V, tmp_fm_struct)
+         CALL cp_cfm_create(zdiag, tmp_fm_struct)
+         CALL cp_fm_create(rmat, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         CALL cp_cfm_set_all(V, czero, cone)
+         CALL cp_fm_set_all(matrix_V, 0.0_dp, 1.0_dp)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, ncol_global=ndummy, &
+                                  para_env=para_env, context=context)
+         CALL cp_fm_create(matrix_V_all, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         CALL cp_fm_set_all(matrix_V_all, 0._dp, 1._dp)
+
+         ALLOCATE (arr_zii(nstate))
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=northo, ncol_global=nextra, &
+                                  para_env=para_env, context=context)
+         CALL cp_cfm_create(c_tilde, tmp_fm_struct)
+         CALL cp_cfm_create(grad_ctilde, tmp_fm_struct)
+         CALL cp_cfm_create(Gct_old, tmp_fm_struct)
+         CALL cp_cfm_create(skc, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         CALL cp_cfm_set_all(c_tilde, czero)
+         CALL cp_cfm_set_all(Gct_old, czero)
+         CALL cp_cfm_set_all(skc, czero)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=northo, ncol_global=nstate, &
+                                  para_env=para_env, context=context)
+         CALL cp_cfm_create(VL, tmp_fm_struct)
+         CALL cp_cfm_set_all(VL, czero)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nextra, ncol_global=nextra, &
+                                  para_env=para_env, context=context)
+         CALL cp_fm_create(id_nextra, tmp_fm_struct)
+         CALL cp_cfm_create(ctrans_lambda, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         CALL cp_cfm_set_all(ctrans_lambda, czero)
+         CALL cp_fm_set_all(id_nextra, 0.0_dp, 1.0_dp)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nextra, ncol_global=nstate, &
+                                  para_env=para_env, context=context)
+         CALL cp_cfm_create(UL, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         CALL cp_cfm_set_all(UL, czero)
+
+         CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, ncol_global=nmo, &
+                                  para_env=para_env, context=context)
+         CALL cp_fm_create(vectors_all, tmp_fm_struct)
+         CALL cp_fm_struct_release(tmp_fm_struct)
+         ALLOCATE (tmp_mat(nao, nstate))
+         CALL cp_fm_get_submatrix(vectors, tmp_mat)
+         CALL cp_fm_set_submatrix(vectors_all, tmp_mat, 1, 1, nao, nstate)
+         DEALLOCATE (tmp_mat)
+         ALLOCATE (tmp_mat(nao, norextra))
+         CALL cp_fm_get_submatrix(vectors_2, tmp_mat)
+         CALL cp_fm_set_submatrix(vectors_all, tmp_mat, 1, nstate + 1, nao, norextra)
+         DEALLOCATE (tmp_mat)
+
+         ! initialize c_tilde
+         SELECT CASE (icinit)
+         CASE (1) ! random coefficients
+            !WRITE (*, *) "RANDOM INITIAL GUESS FOR C"
+            CALL cp_fm_create(tmp_fm, c_tilde%matrix_struct)
+            CALL cp_fm_init_random(tmp_fm, nextra)
+            CALL make_basis_simple(tmp_fm, nextra)
+            c_tilde%local_data = tmp_fm%local_data
+            CALL cp_fm_release(tmp_fm)
+            ALLOCATE (tmp_cmat(northo, nextra))
+            CALL cp_cfm_get_submatrix(c_tilde, tmp_cmat)
+            CALL cp_cfm_set_submatrix(V, tmp_cmat, nocc + 1, nocc + 1, northo, nextra)
+            DEALLOCATE (tmp_cmat)
+         CASE (2) ! MO based coeffs
+            CALL parallel_gemm("T", "N", nmo, ndummy, nao, 1.0_dp, vectors_all, mos_guess, 0.0_dp, matrix_V_all)
+            ALLOCATE (tmp_arr(nmo))
+            ALLOCATE (tmp_mat(nmo, ndummy))
+            ALLOCATE (tmp_mat_1(nmo, nstate))
+            ! normalize matrix_V_all
+            CALL cp_fm_get_submatrix(matrix_V_all, tmp_mat)
+            DO istate = 1, ndummy
+               tmp_arr(:) = tmp_mat(:, istate)
+               norm = norm2(tmp_arr)
+               tmp_arr(:) = tmp_arr(:)/norm
+               tmp_mat(:, istate) = tmp_arr(:)
+            END DO
+            CALL cp_fm_set_submatrix(matrix_V_all, tmp_mat)
+            CALL cp_fm_get_submatrix(matrix_V_all, tmp_mat_1, 1, 1, nmo, nstate)
+            CALL cp_fm_set_submatrix(matrix_V, tmp_mat_1)
+            DEALLOCATE (tmp_arr, tmp_mat, tmp_mat_1)
+            CALL cp_fm_to_cfm(msourcer=matrix_V, mtarget=V)
+            ALLOCATE (tmp_mat(northo, ndummy))
+            ALLOCATE (tmp_mat_1(northo, nextra))
+            CALL cp_fm_get_submatrix(matrix_V_all, tmp_mat, nocc + 1, 1, northo, ndummy)
+            ALLOCATE (tmp_arr(ndummy))
+            tmp_arr = 0.0_dp
+            DO istate = 1, ndummy
+               tmp_arr(istate) = norm2(tmp_mat(:, istate))
+            END DO
+            ! find edfs
+            DO istate = 1, nextra
+               iloc = MAXLOC(tmp_arr)
+               tmp_mat_1(:, istate) = tmp_mat(:, iloc(1))
+               tmp_arr(iloc(1)) = 0.0_dp
+            END DO
+
+            DEALLOCATE (tmp_arr, tmp_mat)
+
+            CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=northo, ncol_global=nextra, &
+                                     para_env=para_env, context=context)
+            CALL cp_fm_create(tmp_fm, tmp_fm_struct)
+            CALL cp_fm_struct_release(tmp_fm_struct)
+            CALL cp_fm_set_submatrix(tmp_fm, tmp_mat_1)
+            DEALLOCATE (tmp_mat_1)
+            CALL make_basis_simple(tmp_fm, nextra)
+            CALL cp_fm_to_cfm(msourcer=tmp_fm, mtarget=c_tilde)
+            CALL cp_fm_release(tmp_fm)
+            ! initialize U
+            IF (do_U_guess_mo) THEN
+               ALLOCATE (tmp_cmat(nocc, nstate))
+               CALL cp_cfm_get_submatrix(V, tmp_cmat, 1, 1, nocc, nstate)
+               CALL cp_cfm_set_submatrix(U, tmp_cmat, 1, 1, nocc, nstate)
+               DEALLOCATE (tmp_cmat)
+               ALLOCATE (tmp_cmat(northo, nstate))
+               CALL cp_cfm_get_submatrix(V, tmp_cmat, nocc + 1, 1, northo, nstate)
+               CALL cp_cfm_set_submatrix(VL, tmp_cmat, 1, 1, northo, nstate)
+               DEALLOCATE (tmp_cmat)
+               CALL parallel_gemm("C", "N", nextra, nstate, northo, cone, c_tilde, VL, czero, UL)
+               ALLOCATE (tmp_cmat(nextra, nstate))
+               CALL cp_cfm_get_submatrix(UL, tmp_cmat, 1, 1, nextra, nstate)
+               CALL cp_cfm_set_submatrix(U, tmp_cmat, nocc + 1, 1, nextra, nstate)
+               DEALLOCATE (tmp_cmat)
+               CALL cp_fm_create(tmp_fm, U%matrix_struct)
+               tmp_fm%local_data = REAL(U%local_data, KIND=dp)
+               CALL make_basis_simple(tmp_fm, nstate)
+               CALL cp_fm_to_cfm(msourcer=tmp_fm, mtarget=U)
+               CALL cp_fm_release(tmp_fm)
+               CALL cp_cfm_to_fm(U, matrix_U)
+            END IF
+            ! reevaluate V
+            ALLOCATE (tmp_cmat(nocc, nstate))
+            CALL cp_cfm_get_submatrix(U, tmp_cmat, 1, 1, nocc, nstate)
+            CALL cp_cfm_set_submatrix(V, tmp_cmat, 1, 1, nocc, nstate)
+            DEALLOCATE (tmp_cmat)
+            ALLOCATE (tmp_cmat(nextra, nstate))
+            CALL cp_cfm_get_submatrix(U, tmp_cmat, nocc + 1, 1, nextra, nstate)
+            CALL cp_cfm_set_submatrix(UL, tmp_cmat, 1, 1, nextra, nstate)
+            DEALLOCATE (tmp_cmat)
+            CALL parallel_gemm("N", "N", northo, nstate, nextra, cone, c_tilde, UL, czero, VL)
+            ALLOCATE (tmp_cmat(northo, nstate))
+            CALL cp_cfm_get_submatrix(VL, tmp_cmat)
+            CALL cp_cfm_set_submatrix(V, tmp_cmat, nocc + 1, 1, northo, nstate)
+            DEALLOCATE (tmp_cmat)
+         END SELECT
+      ELSE
+         DO idim = 1, dim2
+            ALLOCATE (zij_0(idim)%matrix)
+            CALL cp_cfm_create(zij_0(idim)%matrix, zij(1, 1)%matrix%matrix_struct)
+            CALL cp_cfm_to_cfm(c_zij(idim)%matrix, zij_0(idim)%matrix)
+         END DO
+         CALL cp_fm_create(rmat, zij(1, 1)%matrix%matrix_struct)
+         CALL cp_fm_set_all(rmat, 0._dp, 1._dp)
+      END IF
+
+      unit_nr = -1
+      IF (rmat%matrix_struct%para_env%mepos .EQ. rmat%matrix_struct%para_env%source) THEN
+         unit_nr = cp_logger_get_default_unit_nr()
+         WRITE (unit_nr, '(T4,A )') " Localization by combined Jacobi rotations and Non-Linear Conjugate Gradient"
+      END IF
+
+      norm2_old = 1.0E30_dp
+      ds_min = 1.0_dp
+      new_direction = .TRUE.
+      iter = 0
+      line_searches = 0
+      line_search_count = 0
+      tol = 1.0E+20_dp
+      mintol = 1.0E+10_dp
+      miniter = 0
+
+      !IF (nextra > 0) WRITE(*,*) 'random_guess, MO_guess, U_guess, conjugate_gradient: ', &
+      !                            do_cinit_random, do_cinit_mo, do_U_guess_mo, do_cg
+
+      ! do conjugate gradient until converged
+      DO WHILE (iter < max_iter)
+         iter = iter + 1
+         !WRITE(*,*) 'iter = ', iter
+         t1 = m_walltime()
+
+         IF (iter > 1) THEN
+            ! comput U
+            CALL cp_cfm_create(tmp_cfm, zij(1, 1)%matrix%matrix_struct)
+            CALL cp_cfm_create(tmp_cfm_2, zij(1, 1)%matrix%matrix_struct)
+            IF (para_env%num_pe == 1) THEN
+               CALL jacobi_rotations_serial_1(weights, c_zij, 1, tmp_cfm_2, tol_out=tol)
+            ELSE
+               CALL jacobi_rot_para_1(weights, c_zij, para_env, 1, tmp_cfm_2, tol_out=tol)
+            END IF
+            CALL parallel_gemm('N', 'N', nstate, nstate, nstate, cone, U, tmp_cfm_2, czero, tmp_cfm)
+            CALL cp_cfm_to_cfm(tmp_cfm, U)
+            CALL cp_cfm_release(tmp_cfm)
+            CALL cp_cfm_release(tmp_cfm_2)
+         END IF
+
+         IF (nextra > 0) THEN
+            ALLOCATE (tmp_cmat(nextra, nstate))
+            CALL cp_cfm_get_submatrix(U, tmp_cmat, nocc + 1, 1, nextra, nstate)
+            CALL cp_cfm_set_submatrix(UL, tmp_cmat)
+            DEALLOCATE (tmp_cmat)
+            IF (iter > 1) THEN
+               ! orthonormalize c_tilde
+               CALL cp_fm_create(tmp_fm, c_tilde%matrix_struct)
+               tmp_fm%local_data = REAL(c_tilde%local_data, KIND=dp)
+               CALL make_basis_simple(tmp_fm, nextra)
+               CALL cp_fm_to_cfm(msourcer=tmp_fm, mtarget=c_tilde)
+               CALL cp_fm_release(tmp_fm)
+
+               ALLOCATE (tmp_cmat(nocc, nstate))
+               CALL cp_cfm_get_submatrix(U, tmp_cmat, 1, 1, nocc, nstate)
+               CALL cp_cfm_set_submatrix(V, tmp_cmat, 1, 1, nocc, nstate)
+               DEALLOCATE (tmp_cmat)
+               CALL parallel_gemm("N", "N", northo, nstate, nextra, cone, c_tilde, UL, czero, VL)
+               ALLOCATE (tmp_cmat(northo, nstate))
+               CALL cp_cfm_get_submatrix(VL, tmp_cmat)
+               CALL cp_cfm_set_submatrix(V, tmp_cmat, nocc + 1, 1, northo, nstate)
+               DEALLOCATE (tmp_cmat)
+            END IF
+
+            ! reset if new_direction
+            IF (new_direction .AND. MOD(line_searches, 20) .EQ. 5) THEN
+               CALL cp_cfm_set_all(skc, czero)
+               CALL cp_cfm_set_all(Gct_old, czero)
+               norm2_old = 1.0E30_dp
+            END IF
+
+            CALL cp_cfm_create(tmp_cfm, V%matrix_struct)
+            CALL cp_cfm_to_cfm(V, tmp_cfm)
+            CALL cp_cfm_create(tmp_cfm_1, V%matrix_struct)
+            ndummy = nmo
+         ELSE
+            CALL cp_cfm_create(tmp_cfm, zij(1, 1)%matrix%matrix_struct)
+            CALL cp_cfm_to_cfm(U, tmp_cfm)
+            CALL cp_cfm_create(tmp_cfm_1, zij(1, 1)%matrix%matrix_struct)
+            ndummy = nstate
+         END IF
+         ! update z_ij
+         DO idim = 1, dim2
+            ! 'tmp_cfm_1 = zij_0*tmp_cfm'
+            CALL parallel_gemm("N", "N", ndummy, nstate, ndummy, cone, zij_0(idim)%matrix, &
+                               tmp_cfm, czero, tmp_cfm_1)
+            ! 'c_zij = tmp_cfm_dagg*tmp_cfm_1'
+            CALL parallel_gemm("C", "N", nstate, nstate, ndummy, cone, tmp_cfm, tmp_cfm_1, &
+                               czero, c_zij(idim)%matrix)
+         END DO
+         CALL cp_cfm_release(tmp_cfm)
+         CALL cp_cfm_release(tmp_cfm_1)
+         ! compute spread
+         DO istate = 1, nstate
+            spread_ii = 0.0_dp
+            DO idim = 1, dim2
+               CALL cp_cfm_get_element(c_zij(idim)%matrix, istate, istate, mzii)
+               spread_ii = spread_ii + weights(idim)* &
+                           ABS(mzii)**2/twopi/twopi
+               matrix_zii(istate, idim) = mzii
+            END DO
+            !WRITE(*,*) 'spread_ii', spread_ii
+            sum_spread(istate) = spread_ii
+         END DO
+         CALL mp_sum(spread_ii, c_zij(1)%matrix%matrix_struct%para_env%group)
+         spread_sum = accurate_sum(sum_spread)
+
+         IF (nextra > 0) THEN
+            ! update c_tilde
+            CALL cp_cfm_set_all(zdiag, czero)
+            CALL cp_cfm_set_all(grad_ctilde, czero)
+            CALL cp_cfm_create(tmp_cfm, V%matrix_struct)
+            CALL cp_cfm_set_all(tmp_cfm, czero)
+            CALL cp_cfm_create(tmp_cfm_1, V%matrix_struct)
+            CALL cp_cfm_set_all(tmp_cfm_1, czero)
+            ALLOCATE (tmp_cmat(northo, nstate))
+            DO idim = 1, dim2
+               weight = weights(idim)
+               arr_zii = matrix_zii(:, idim)
+               ! tmp_cfm = zij_0*V
+               CALL parallel_gemm("N", "N", nmo, nstate, nmo, cone, &
+                                  zij_0(idim)%matrix, V, czero, tmp_cfm)
+               ! tmp_cfm = tmp_cfm*diag_zij_dagg
+               CALL cp_cfm_column_scale(tmp_cfm, CONJG(arr_zii))
+               ! tmp_cfm_1 = tmp_cfm*U_dagg
+               CALL parallel_gemm("N", "C", nmo, nstate, nstate, cone, tmp_cfm, &
+                                  U, czero, tmp_cfm_1)
+               CALL cp_cfm_scale(weight, tmp_cfm_1)
+               ! zdiag = zdiag + tmp_cfm_1'
+               CALL cp_cfm_scale_and_add(cone, zdiag, cone, tmp_cfm_1)
+
+               ! tmp_cfm = zij_0_dagg*V
+               CALL parallel_gemm("C", "N", nmo, nstate, nmo, cone, &
+                                  zij_0(idim)%matrix, V, czero, tmp_cfm)
+
+               ! tmp_cfm = tmp_cfm*diag_zij
+               CALL cp_cfm_column_scale(tmp_cfm, arr_zii)
+               ! tmp_cfm_1 = tmp_cfm*U_dagg
+               CALL parallel_gemm("N", "C", nmo, nstate, nstate, cone, tmp_cfm, &
+                                  U, czero, tmp_cfm_1)
+               CALL cp_cfm_scale(weight, tmp_cfm_1)
+               ! zdiag = zdiag + tmp_cfm_1'
+               CALL cp_cfm_scale_and_add(cone, zdiag, cone, tmp_cfm_1)
+            END DO ! idim
+            CALL cp_cfm_release(tmp_cfm)
+            CALL cp_cfm_release(tmp_cfm_1)
+            DEALLOCATE (tmp_cmat)
+            ALLOCATE (tmp_cmat(northo, nextra))
+            CALL cp_cfm_get_submatrix(zdiag, tmp_cmat, nocc + 1, nocc + 1, &
+                                      northo, nextra, .FALSE.)
+            ! 'grad_ctilde'
+            CALL cp_cfm_set_submatrix(grad_ctilde, tmp_cmat)
+            DEALLOCATE (tmp_cmat)
+            ! ctrans_lambda = c_tilde_dagg*grad_ctilde
+            CALL parallel_gemm("C", "N", nextra, nextra, northo, cone, c_tilde, grad_ctilde, czero, ctrans_lambda)
+            !WRITE(*,*) "norm(ctrans_lambda) = ", cp_cfm_norm(ctrans_lambda, "F")
+            ! 'grad_ctilde = - c_tilde*ctrans_lambda + grad_ctilde'
+            CALL parallel_gemm("N", "N", northo, nextra, nextra, -cone, c_tilde, ctrans_lambda, cone, grad_ctilde)
+         END IF ! nextra > 0
+
+         ! tolerance
+         IF (nextra > 0) THEN
+            tolc = 0.0_dp
+            CALL cp_fm_create(tmp_fm, grad_ctilde%matrix_struct)
+            CALL cp_cfm_to_fm(grad_ctilde, tmp_fm)
+            CALL cp_fm_maxabsval(tmp_fm, tolc)
+            CALL cp_fm_release(tmp_fm)
+            !WRITE(*,*) 'tolc = ', tolc
+            tol = tol + tolc
+         END IF
+         !WRITE(*,*) 'tol = ', tol
+
+         IF (nextra > 0) THEN
+            !WRITE(*,*) 'new_direction: ', new_direction
+            IF (new_direction) THEN
+               line_searches = line_searches + 1
+               IF (mintol > tol) THEN
+                  mintol = tol
+                  miniter = iter
+               END IF
+
+               IF (unit_nr > 0 .AND. MODULO(iter, out_each) == 0) THEN
+                  sum_spread_ii = alpha*nstate/twopi/twopi - spread_sum
+                  avg_spread_ii = sum_spread_ii/nstate
+                  WRITE (unit_nr, '(T4,A,T26,A,T48,A)') &
+                     "Iteration", "Avg. Spread_ii", "Tolerance"
+                  WRITE (unit_nr, '(T4,I7,T20,F20.10,T45,E12.4)') &
+                     iter, avg_spread_ii, tol
+                  CALL m_flush(unit_nr)
+               END IF
+               IF (tol < eps_localization) EXIT
+
+               IF (do_cg) THEN
+                  cnorm2_Gct = czero
+                  cnorm2_Gct_cross = czero
+                  CALL cp_cfm_trace(grad_ctilde, Gct_old, cnorm2_Gct_cross)
+                  norm2_Gct_cross = REAL(cnorm2_Gct_cross, KIND=dp)
+                  Gct_old%local_data = grad_ctilde%local_data
+                  CALL cp_cfm_trace(grad_ctilde, Gct_old, cnorm2_Gct)
+                  norm2_Gct = REAL(cnorm2_Gct, KIND=dp)
+                  ! compute beta_pr
+                  beta_pr = (norm2_Gct - norm2_Gct_cross)/norm2_old
+                  norm2_old = norm2_Gct
+                  beta = MAX(0.0_dp, beta_pr)
+                  !WRITE(*,*) 'beta = ', beta
+                  ! compute skc / ska = beta * skc / ska + grad_ctilde / G
+                  CALL cp_cfm_scale(beta, skc)
+                  CALL cp_cfm_scale_and_add(cone, skc, cone, Gct_old)
+                  CALL cp_cfm_trace(skc, Gct_old, cnorm2_Gct_cross)
+                  norm2_Gct_cross = REAL(cnorm2_Gct_cross, KIND=dp)
+                  IF (norm2_Gct_cross .LE. 0.0_dp) THEN ! back to steepest ascent
+                     CALL cp_cfm_scale_and_add(czero, skc, cone, Gct_old)
+                  END IF
+               ELSE
+                  CALL cp_cfm_scale_and_add(czero, skc, cone, grad_ctilde)
+               END IF
+               line_search_count = 0
+            END IF
+
+            line_search_count = line_search_count + 1
+            !WRITE(*,*) 'line_search_count = ', line_search_count
+            energy(line_search_count) = spread_sum
+
+            ! gold line search
+            new_direction = .FALSE.
+            IF (line_search_count .EQ. 1) THEN
+               lsl = 1
+               lsr = 0
+               lsm = 1
+               pos(1) = 0.0_dp
+               pos(2) = ds_min/gold_sec
+               ds = pos(2)
+            ELSE
+               IF (line_search_count .EQ. 50) THEN
+                  IF (ABS(energy(line_search_count) - energy(line_search_count - 1)) < 1.0E-4_dp) THEN
+                     CPWARN("Line search failed to converge properly")
+                     ds_min = 0.1_dp
+                     new_direction = .TRUE.
+                     ds = pos(line_search_count)
+                     line_search_count = 0
+                  ELSE
+                     CPABORT("No. of line searches exceeds 50")
+                  END IF
+               ELSE
+                  IF (lsr .EQ. 0) THEN
+                     IF (energy(line_search_count - 1) .GT. energy(line_search_count)) THEN
+                        lsr = line_search_count
+                        pos(line_search_count + 1) = pos(lsm) + (pos(lsr) - pos(lsm))*gold_sec
+                     ELSE
+                        lsl = lsm
+                        lsm = line_search_count
+                        pos(line_search_count + 1) = pos(line_search_count)/gold_sec
+                     END IF
+                  ELSE
+                     IF (pos(line_search_count) .LT. pos(lsm)) THEN
+                        IF (energy(line_search_count) .GT. energy(lsm)) THEN
+                           lsr = lsm
+                           lsm = line_search_count
+                        ELSE
+                           lsl = line_search_count
+                        END IF
+                     ELSE
+                        IF (energy(line_search_count) .GT. energy(lsm)) THEN
+                           lsl = lsm
+                           lsm = line_search_count
+                        ELSE
+                           lsr = line_search_count
+                        END IF
+                     END IF
+                     IF (pos(lsr) - pos(lsm) .GT. pos(lsm) - pos(lsl)) THEN
+                        pos(line_search_count + 1) = pos(lsm) + gold_sec*(pos(lsr) - pos(lsm))
+                     ELSE
+                        pos(line_search_count + 1) = pos(lsl) + gold_sec*(pos(lsm) - pos(lsl))
+                     END IF
+                     IF ((pos(lsr) - pos(lsl)) .LT. 1.0E-3_dp*pos(lsr)) THEN
+                        new_direction = .TRUE.
+                     END IF
+                  END IF ! lsr .eq. 0
+               END IF ! line_search_count .eq. 50
+               ! now go to the suggested point
+               ds = pos(line_search_count + 1) - pos(line_search_count)
+               !WRITE(*,*) 'lsl, lsr, lsm, ds = ', lsl, lsr, lsm, ds
+               IF ((ABS(ds) < 1.0E-10_dp) .AND. (lsl == 1)) THEN
+                  new_direction = .TRUE.
+                  ds_min = 0.5_dp/alpha
+               ELSEIF (ABS(ds) > 10.0_dp) THEN
+                  new_direction = .TRUE.
+                  ds_min = 0.5_dp/alpha
+               ELSE
+                  ds_min = pos(line_search_count + 1)
+               END IF
+            END IF ! first step
+            ! 'c_tilde = c_tilde + d*skc'
+            CALL cp_cfm_scale(ds, skc)
+            CALL cp_cfm_scale_and_add(cone, c_tilde, cone, skc)
+         ELSE
+            IF (mintol > tol) THEN
+               mintol = tol
+               miniter = iter
+            END IF
+            IF (unit_nr > 0 .AND. MODULO(iter, out_each) == 0) THEN
+               sum_spread_ii = alpha*nstate/twopi/twopi - spread_sum
+               avg_spread_ii = sum_spread_ii/nstate
+               WRITE (unit_nr, '(T4,A,T26,A,T48,A)') &
+                  "Iteration", "Avg. Spread_ii", "Tolerance"
+               WRITE (unit_nr, '(T4,I7,T20,F20.10,T45,E12.4)') &
+                  iter, avg_spread_ii, tol
+               CALL m_flush(unit_nr)
+            END IF
+            IF (tol < eps_localization) EXIT
+         END IF ! nextra > 0
+
+      END DO ! iteration
+
+      IF ((unit_nr > 0) .AND. (iter == max_iter)) THEN
+         WRITE (unit_nr, '(T4,A,T4,A)') "Min. Itr.", "Min. Tol."
+         WRITE (unit_nr, '(T4,I7,T4,E12.4)') miniter, mintol
+         CALL m_flush(unit_nr)
+      END IF
+
+      CALL cp_cfm_to_fm(U, matrix_U)
+
+      IF (nextra > 0) THEN
+         rmat%local_data = REAL(V%local_data, KIND=dp)
+         CALL rotate_orbitals_edf(rmat, vectors_all, vectors)
+
+         CALL cp_cfm_release(c_tilde)
+         CALL cp_cfm_release(grad_ctilde)
+         CALL cp_cfm_release(Gct_old)
+         CALL cp_cfm_release(skc)
+         CALL cp_cfm_release(UL)
+         CALL cp_cfm_release(zdiag)
+         CALL cp_cfm_release(ctrans_lambda)
+         CALL cp_fm_release(id_nextra)
+         CALL cp_fm_release(vectors_all)
+         CALL cp_cfm_release(V)
+         CALL cp_fm_release(matrix_V)
+         CALL cp_fm_release(matrix_V_all)
+         CALL cp_cfm_release(VL)
+         DEALLOCATE (arr_zii)
+      ELSE
+         rmat%local_data = matrix_U%local_data
+         CALL rotate_orbitals(rmat, vectors)
+      END IF
+      DO idim = 1, dim2
+         CALL cp_cfm_release(zij_0(idim)%matrix)
+         DEALLOCATE (zij_0(idim)%matrix)
+      END DO
+      DEALLOCATE (zij_0)
+
+      DO idim = 1, dim2
+         zij(1, idim)%matrix%local_data = REAL(c_zij(idim)%matrix%local_data, dp)
+         zij(2, idim)%matrix%local_data = AIMAG(c_zij(idim)%matrix%local_data)
+         CALL cp_cfm_release(c_zij(idim)%matrix)
+         DEALLOCATE (c_zij(idim)%matrix)
+      END DO
+      DEALLOCATE (c_zij)
+      CALL cp_fm_release(rmat)
+      CALL cp_cfm_release(U)
+      CALL cp_fm_release(matrix_U)
+      DEALLOCATE (matrix_zii, sum_spread)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE jacobi_cg_edf_ls
 ! **************************************************************************************************
 !> \brief ...
 !> \param istate ...
@@ -465,7 +1285,7 @@ CONTAINS
    SUBROUTINE rotate_rmat(istate, jstate, st, ct, rmat)
       IMPLICIT NONE
       INTEGER, INTENT(IN) :: istate, jstate
-      TYPE(cp_cfm_type), POINTER :: rmat
+      TYPE(cp_cfm_type), INTENT(IN) :: rmat
       REAL(KIND=dp), INTENT(IN) :: ct, st
 ! Locals
       INTEGER :: nstate
@@ -491,11 +1311,14 @@ CONTAINS
 !> \param mij ...
 !> \param weights ...
 !> \param theta ...
+!> \param grad_ij ...
+!> \param step ...
 ! **************************************************************************************************
-   SUBROUTINE get_angle(mii, mjj, mij, weights, theta)
+   SUBROUTINE get_angle(mii, mjj, mij, weights, theta, grad_ij, step)
       COMPLEX(KIND=dp), POINTER                          :: mii(:), mjj(:), mij(:)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       REAL(KIND=dp), INTENT(OUT)                         :: theta
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: grad_ij, step
 
       COMPLEX(KIND=dp)                                   :: z11, z12, z22
       INTEGER                                            :: dim_m, idim
@@ -521,6 +1344,7 @@ CONTAINS
       ELSE
          theta = 0.25_dp*pi
       END IF
+      IF (PRESENT(grad_ij)) theta = theta + step*grad_ij
 ! Check second derivative info
       d2 = a12*SIN(4._dp*theta) - b12*COS(4._dp*theta)
       IF (d2 <= 0._dp) THEN ! go to the maximum, not the minimum
@@ -536,26 +1360,28 @@ CONTAINS
 !> \param zij ...
 !> \param weights ...
 !> \param tolerance ...
+!> \param grad ...
 ! **************************************************************************************************
-   SUBROUTINE check_tolerance(zij, weights, tolerance)
+   SUBROUTINE check_tolerance(zij, weights, tolerance, grad)
       TYPE(cp_cfm_p_type)                                :: zij(:)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       REAL(KIND=dp), INTENT(OUT)                         :: tolerance
+      TYPE(cp_fm_type), INTENT(OUT), OPTIONAL            :: grad
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'check_tolerance'
 
       INTEGER                                            :: handle
-      TYPE(cp_fm_type), POINTER                          :: force
+      TYPE(cp_fm_type)                                   :: force
 
       CALL timeset(routineN, handle)
 
 ! compute gradient at t=0
 
-      NULLIFY (force)
       CALL cp_fm_create(force, zij(1)%matrix%matrix_struct)
       CALL cp_fm_set_all(force, 0._dp)
       CALL grad_at_0(zij, weights, force)
       CALL cp_fm_maxabsval(force, tolerance)
+      IF (PRESENT(grad)) CALL cp_fm_to_fm(force, grad)
       CALL cp_fm_release(force)
 
       CALL timestop(handle)
@@ -567,18 +1393,37 @@ CONTAINS
 !> \param vectors ...
 ! **************************************************************************************************
    SUBROUTINE rotate_orbitals(rmat, vectors)
-      TYPE(cp_fm_type), POINTER                          :: rmat, vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: rmat, vectors
 
       INTEGER                                            :: k, n
-      TYPE(cp_fm_type), POINTER                          :: wf
+      TYPE(cp_fm_type)                                   :: wf
 
-      NULLIFY (wf)
       CALL cp_fm_create(wf, vectors%matrix_struct)
       CALL cp_fm_get_info(vectors, nrow_global=n, ncol_global=k)
-      CALL cp_gemm("N", "N", n, k, k, 1.0_dp, vectors, rmat, 0.0_dp, wf)
+      CALL parallel_gemm("N", "N", n, k, k, 1.0_dp, vectors, rmat, 0.0_dp, wf)
       CALL cp_fm_to_fm(wf, vectors)
       CALL cp_fm_release(wf)
    END SUBROUTINE rotate_orbitals
+! **************************************************************************************************
+!> \brief ...
+!> \param rmat ...
+!> \param vec_all ...
+!> \param vectors ...
+! **************************************************************************************************
+   SUBROUTINE rotate_orbitals_edf(rmat, vec_all, vectors)
+      TYPE(cp_fm_type), INTENT(IN)                       :: rmat, vec_all, vectors
+
+      INTEGER                                            :: k, l, n
+      TYPE(cp_fm_type)                                   :: wf
+
+      CALL cp_fm_create(wf, vectors%matrix_struct)
+      CALL cp_fm_get_info(vec_all, nrow_global=n, ncol_global=k)
+      CALL cp_fm_get_info(rmat, ncol_global=l)
+
+      CALL parallel_gemm("N", "N", n, l, k, 1.0_dp, vec_all, rmat, 0.0_dp, wf)
+      CALL cp_fm_to_fm(wf, vectors)
+      CALL cp_fm_release(wf)
+   END SUBROUTINE rotate_orbitals_edf
 ! **************************************************************************************************
 !> \brief ...
 !> \param diag ...
@@ -589,7 +1434,7 @@ CONTAINS
    SUBROUTINE gradsq_at_0(diag, weights, matrix, ndim)
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: diag
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
       INTEGER, INTENT(IN)                                :: ndim
 
       COMPLEX(KIND=dp)                                   :: zii, zjj
@@ -625,7 +1470,7 @@ CONTAINS
    SUBROUTINE grad_at_0(matrix_p, weights, matrix)
       TYPE(cp_cfm_p_type)                                :: matrix_p(:)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
-      TYPE(cp_fm_type), POINTER                          :: matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix
 
       COMPLEX(KIND=dp)                                   :: zii, zij, zjj
       COMPLEX(KIND=dp), DIMENSION(:, :), POINTER         :: diag
@@ -674,7 +1519,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE check_tolerance_new(weights, zij, tolerance, value)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
-      TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
+      TYPE(cp_fm_p_type), INTENT(IN)                     :: ZIJ(:, :)
       REAL(KIND=dp)                                      :: tolerance, value
 
       COMPLEX(KIND=dp)                                   :: kii, kij, kjj
@@ -738,7 +1583,7 @@ CONTAINS
                               eps_localization, iterations, converged)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: max_crazy_angle
       REAL(KIND=dp)                                      :: crazy_scale
@@ -763,13 +1608,11 @@ CONTAINS
       REAL(KIND=dp)                                      :: eps_exp, limit_crazy_angle, maxeval, &
                                                             norm, ra, rb, theta, tolerance, value
       REAL(KIND=dp), DIMENSION(:), POINTER               :: evals
-      TYPE(cp_cfm_type), POINTER                         :: cmat_A, cmat_R, cmat_t1
-      TYPE(cp_fm_type), POINTER                          :: mat_R, mat_t, mat_theta, mat_U
+      TYPE(cp_cfm_type)                                  :: cmat_A, cmat_R, cmat_t1
+      TYPE(cp_fm_type)                                   :: mat_R, mat_t, mat_theta, mat_U
 
       CALL timeset(routineN, handle)
       NULLIFY (row_indices, col_indices)
-      NULLIFY (mat_U, mat_t, mat_R)
-      NULLIFY (cmat_A, cmat_R, cmat_t1)
       CALL cp_fm_get_info(zij(1, 1)%matrix, nrow_global=nrow_global, &
                           ncol_global=ncol_global, &
                           row_indices=row_indices, col_indices=col_indices, &
@@ -791,7 +1634,6 @@ CONTAINS
       CALL cp_fm_create(mat_t, zij(1, 1)%matrix%matrix_struct)
       CALL cp_fm_create(mat_R, zij(1, 1)%matrix%matrix_struct)
 
-      NULLIFY (mat_theta)
       CALL cp_fm_create(mat_theta, zij(1, 1)%matrix%matrix_struct)
 
       CALL cp_fm_set_all(mat_R, 0.0_dp, 1.0_dp)
@@ -804,13 +1646,13 @@ CONTAINS
       CALL cp_fm_syevd(mat_t, mat_U, evals)
       DO idim = 1, dim2
          ! rotate z's
-         CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(1, idim)%matrix, mat_U, 0.0_dp, mat_t)
-         CALL cp_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(1, idim)%matrix)
-         CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(2, idim)%matrix, mat_U, 0.0_dp, mat_t)
-         CALL cp_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(2, idim)%matrix)
+         CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(1, idim)%matrix, mat_U, 0.0_dp, mat_t)
+         CALL parallel_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(1, idim)%matrix)
+         CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(2, idim)%matrix, mat_U, 0.0_dp, mat_t)
+         CALL parallel_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(2, idim)%matrix)
       END DO
       ! collect rotation matrix
-      CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_R, mat_U, 0.0_dp, mat_t)
+      CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_R, mat_U, 0.0_dp, mat_t)
       CALL cp_fm_to_fm(mat_t, mat_R)
 
       unit_nr = -1
@@ -869,8 +1711,8 @@ CONTAINS
             evals_exp(:) = EXP((0.0_dp, -1.0_dp)*evals(:))
             CALL cp_cfm_to_cfm(cmat_R, cmat_t1)
             CALL cp_cfm_column_scale(cmat_t1, evals_exp)
-            CALL cp_cfm_gemm('N', 'C', nrow_global, nrow_global, nrow_global, cone, &
-                             cmat_t1, cmat_R, czero, cmat_A)
+            CALL parallel_gemm('N', 'C', nrow_global, nrow_global, nrow_global, cone, &
+                               cmat_t1, cmat_R, czero, cmat_A)
             mat_U%local_data = REAL(cmat_A%local_data, KIND=dp) ! U is a real matrix
          ELSE
             do_emd = .FALSE.
@@ -884,13 +1726,13 @@ CONTAINS
 
          DO idim = 1, dim2
             ! rotate z's
-            CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(1, idim)%matrix, mat_U, 0.0_dp, mat_t)
-            CALL cp_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(1, idim)%matrix)
-            CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(2, idim)%matrix, mat_U, 0.0_dp, mat_t)
-            CALL cp_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(2, idim)%matrix)
+            CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(1, idim)%matrix, mat_U, 0.0_dp, mat_t)
+            CALL parallel_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(1, idim)%matrix)
+            CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, zij(2, idim)%matrix, mat_U, 0.0_dp, mat_t)
+            CALL parallel_gemm('T', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_U, mat_t, 0.0_dp, zij(2, idim)%matrix)
          END DO
          ! collect rotation matrix
-         CALL cp_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_R, mat_U, 0.0_dp, mat_t)
+         CALL parallel_gemm('N', 'N', nrow_global, nrow_global, nrow_global, 1.0_dp, mat_R, mat_U, 0.0_dp, mat_t)
          CALL cp_fm_to_fm(mat_t, mat_R)
 
          CALL check_tolerance_new(weights, zij, tolerance, value)
@@ -940,7 +1782,7 @@ CONTAINS
    SUBROUTINE direct_mini(weights, zij, vectors, max_iter, eps_localization, iterations)
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: eps_localization
       INTEGER                                            :: iterations
@@ -966,15 +1808,13 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(150)                      :: energy, grad, pos
       REAL(KIND=dp), DIMENSION(:), POINTER               :: evals, fval, fvald
       TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: c_zij
-      TYPE(cp_cfm_type), POINTER                         :: cmat_A, cmat_B, cmat_M, cmat_R, cmat_t1, &
+      TYPE(cp_cfm_type)                                  :: cmat_A, cmat_B, cmat_M, cmat_R, cmat_t1, &
                                                             cmat_t2, cmat_U
-      TYPE(cp_fm_type), POINTER                          :: matrix_A, matrix_G, matrix_G_old, &
+      TYPE(cp_fm_type)                                   :: matrix_A, matrix_G, matrix_G_old, &
                                                             matrix_G_search, matrix_H, matrix_R, &
                                                             matrix_T
 
       NULLIFY (evals, evals_exp, diag_z, fval, fvald, c_zij)
-      NULLIFY (matrix_A, matrix_G, matrix_T, matrix_G_search, matrix_G_old)
-      NULLIFY (cmat_A, cmat_U, cmat_R, cmat_t1, cmat_t2, cmat_B, cmat_M)
 
       CALL timeset(routineN, handle)
       output_unit = cp_logger_get_default_io_unit()
@@ -992,7 +1832,7 @@ CONTAINS
 
       ! create the three complex matrices Z
       DO idim = 1, ndim
-         NULLIFY (c_zij(idim)%matrix)
+         ALLOCATE (c_zij(idim)%matrix)
          CALL cp_cfm_create(c_zij(idim)%matrix, zij(1, 1)%matrix%matrix_struct)
          c_zij(idim)%matrix%local_data = CMPLX(zij(1, idim)%matrix%local_data, &
                                                zij(2, idim)%matrix%local_data, dp)
@@ -1037,17 +1877,17 @@ CONTAINS
          evals_exp(:) = EXP((0.0_dp, -1.0_dp)*evals(:))
          CALL cp_cfm_to_cfm(cmat_R, cmat_t1)
          CALL cp_cfm_column_scale(cmat_t1, evals_exp)
-         CALL cp_cfm_gemm('N', 'C', n, n, n, cone, cmat_t1, cmat_R, czero, cmat_U)
+         CALL parallel_gemm('N', 'C', n, n, n, cone, cmat_t1, cmat_R, czero, cmat_U)
          cmat_U%local_data = REAL(cmat_U%local_data, KIND=dp) ! enforce numerics, U is a real matrix
 
          IF (new_direction .AND. MOD(line_searches, 20) .EQ. 5) THEN ! reset with A .eq. 0
             DO idim = 1, ndim
-               CALL cp_cfm_gemm('N', 'N', n, n, n, cone, c_zij(idim)%matrix, cmat_U, czero, cmat_t1)
-               CALL cp_cfm_gemm('C', 'N', n, n, n, cone, cmat_U, cmat_t1, czero, c_zij(idim)%matrix)
+               CALL parallel_gemm('N', 'N', n, n, n, cone, c_zij(idim)%matrix, cmat_U, czero, cmat_t1)
+               CALL parallel_gemm('C', 'N', n, n, n, cone, cmat_U, cmat_t1, czero, c_zij(idim)%matrix)
             END DO
             ! collect rotation matrix
             matrix_H%local_data = REAL(cmat_U%local_data, KIND=dp)
-            CALL cp_gemm('N', 'N', n, n, n, 1.0_dp, matrix_R, matrix_H, 0.0_dp, matrix_T)
+            CALL parallel_gemm('N', 'N', n, n, n, 1.0_dp, matrix_R, matrix_H, 0.0_dp, matrix_T)
             CALL cp_fm_to_fm(matrix_T, matrix_R)
 
             CALL cp_cfm_set_all(cmat_U, czero, cone)
@@ -1065,8 +1905,8 @@ CONTAINS
          CALL cp_cfm_set_all(cmat_M, czero)
          omega = 0.0_dp
          DO idim = 1, ndim
-            CALL cp_cfm_gemm('N', 'N', n, n, n, cone, c_zij(idim)%matrix, cmat_U, czero, cmat_t1) ! t1=ZU
-            CALL cp_cfm_gemm('C', 'N', n, n, n, cone, cmat_U, cmat_t1, czero, cmat_t2) ! t2=(U^T)ZU
+            CALL parallel_gemm('N', 'N', n, n, n, cone, c_zij(idim)%matrix, cmat_U, czero, cmat_t1) ! t1=ZU
+            CALL parallel_gemm('C', 'N', n, n, n, cone, cmat_U, cmat_t1, czero, cmat_t2) ! t2=(U^T)ZU
             DO i = 1, n
                CALL cp_cfm_get_element(cmat_t2, i, i, diag_z(i, idim))
                SELECT CASE (2) ! allows for selection of different spread functionals
@@ -1115,11 +1955,11 @@ CONTAINS
          END DO
          ! compute gradient matrix_G
 
-         CALL cp_cfm_gemm('C', 'N', n, n, n, cone, cmat_M, cmat_R, czero, cmat_t1) ! t1=(M^T)(R^T)
-         CALL cp_cfm_gemm('C', 'N', n, n, n, cone, cmat_R, cmat_t1, czero, cmat_t2) ! t2=(R)t1
+         CALL parallel_gemm('C', 'N', n, n, n, cone, cmat_M, cmat_R, czero, cmat_t1) ! t1=(M^T)(R^T)
+         CALL parallel_gemm('C', 'N', n, n, n, cone, cmat_R, cmat_t1, czero, cmat_t2) ! t2=(R)t1
          CALL cp_cfm_schur_product(cmat_t2, cmat_B, cmat_t1)
-         CALL cp_cfm_gemm('N', 'C', n, n, n, cone, cmat_t1, cmat_R, czero, cmat_t2)
-         CALL cp_cfm_gemm('N', 'N', n, n, n, cone, cmat_R, cmat_t2, czero, cmat_t1)
+         CALL parallel_gemm('N', 'C', n, n, n, cone, cmat_t1, cmat_R, czero, cmat_t2)
+         CALL parallel_gemm('N', 'N', n, n, n, cone, cmat_R, cmat_t2, czero, cmat_t1)
          matrix_G%local_data = REAL(cmat_t1%local_data, KIND=dp)
          CALL cp_fm_transpose(matrix_G, matrix_T)
          CALL cp_fm_scale_and_add(-1.0_dp, matrix_G, 1.0_dp, matrix_T)
@@ -1297,7 +2137,7 @@ CONTAINS
 
       ! collect rotation matrix
       matrix_H%local_data = REAL(cmat_U%local_data, KIND=dp)
-      CALL cp_gemm('N', 'N', n, n, n, 1.0_dp, matrix_R, matrix_H, 0.0_dp, matrix_T)
+      CALL parallel_gemm('N', 'N', n, n, n, 1.0_dp, matrix_R, matrix_H, 0.0_dp, matrix_T)
       CALL cp_fm_to_fm(matrix_T, matrix_R)
       CALL rotate_orbitals(matrix_R, vectors)
       CALL cp_fm_release(matrix_R)
@@ -1322,6 +2162,7 @@ CONTAINS
          zij(1, idim)%matrix%local_data = REAL(c_zij(idim)%matrix%local_data, dp)
          zij(2, idim)%matrix%local_data = AIMAG(c_zij(idim)%matrix%local_data)
          CALL cp_cfm_release(c_zij(idim)%matrix)
+         DEALLOCATE (c_zij(idim)%matrix)
       END DO
       DEALLOCATE (c_zij)
       DEALLOCATE (diag_z)
@@ -1351,7 +2192,7 @@ CONTAINS
 
       REAL(KIND=dp), INTENT(IN)                          :: weights(:)
       TYPE(cp_fm_p_type), INTENT(INOUT)                  :: ZIJ(:, :)
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: max_iter
       REAL(KIND=dp), INTENT(IN)                          :: eps_localization
@@ -1361,71 +2202,36 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'jacobi_rot_para'
 
-      COMPLEX(KIND=dp)                                   :: zi, zj
-      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: c_array_me, c_array_partner
-      COMPLEX(KIND=dp), POINTER                          :: mii(:), mij(:), mjj(:)
-      INTEGER :: dim2, handle, i, idim, ii, ik, il1, il2, il_recv, il_recv_partner, ilow1, ilow2, &
-         ip, ip_has_i, ip_partner, ip_recv_from, ip_recv_partner, ipair, iperm, istat, istate, &
-         iu1, iu2, iup1, iup2, j, jj, jstate, k, kk, n1, n2, nblock, nblock_max, npair, nperm, &
-         ns_me, ns_partner, ns_recv_from, ns_recv_partner, nstate, output_unit
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: rcount, rdispl
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: list_pair, ns_bound
-      LOGICAL                                            :: should_stop
-      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: gmat, rmat_loc, rmat_recv, rmat_send, &
-                                                            rotmat, z_ij_loc_im, z_ij_loc_re
-      REAL(dp), ALLOCATABLE, DIMENSION(:, :, :)          :: rmat_recv_all
-      REAL(KIND=dp)                                      :: ct, func, gmax, grad, ri, rj, st, t1, &
-                                                            t2, theta, tolerance, xlow, xstate, &
-                                                            xup, zc, zr
-      TYPE(cp_fm_type), POINTER                          :: rmat
-      TYPE(set_c_1d_type), DIMENSION(:), POINTER         :: zdiag_all, zdiag_me
-      TYPE(set_c_2d_type), DIMENSION(:), POINTER         :: cz_ij_loc, xyz_mix, xyz_mix_ns
+      INTEGER                                            :: dim2, handle, i, idim, ii, ilow1, ip, j, &
+                                                            nblock, nblock_max, ns_me, nstate, &
+                                                            output_unit
+      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: ns_bound
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: rotmat, z_ij_loc_im, z_ij_loc_re
+      REAL(KIND=dp)                                      :: xstate
+      TYPE(cp_fm_type)                                   :: rmat
+      TYPE(set_c_2d_type), DIMENSION(:), POINTER         :: cz_ij_loc
 
       CALL timeset(routineN, handle)
 
       output_unit = cp_logger_get_default_io_unit()
 
-      NULLIFY (rmat, cz_ij_loc, zdiag_all, zdiag_me)
-      NULLIFY (xyz_mix, xyz_mix_ns)
-      NULLIFY (mii, mij, mjj)
+      NULLIFY (cz_ij_loc)
 
       dim2 = SIZE(zij, 2)
-      ALLOCATE (mii(dim2), mij(dim2), mjj(dim2))
 
       CALL cp_fm_create(rmat, zij(1, 1)%matrix%matrix_struct)
       CALL cp_fm_set_all(rmat, 0._dp, 1._dp)
 
       CALL cp_fm_get_info(rmat, nrow_global=nstate)
 
-      ALLOCATE (rcount(para_env%num_pe), STAT=istat)
-      ALLOCATE (rdispl(para_env%num_pe), STAT=istat)
-
-      tolerance = 1.0e10_dp
-      sweeps = 0
-
-      ! number of processor pairs and number of permutations
-      npair = (para_env%num_pe + 1)/2
-      nperm = para_env%num_pe - MOD(para_env%num_pe + 1, 2)
-      ALLOCATE (list_pair(2, npair))
-
       ! Distribution of the states (XXXXX safe against more pe than states ??? XXXXX)
       xstate = REAL(nstate, dp)/REAL(para_env%num_pe, dp)
-      nblock_max = 0
       ALLOCATE (ns_bound(0:para_env%num_pe - 1, 2))
-      Xlow = 0.0D0
-      Xup = 0.0D0
       DO ip = 1, para_env%num_pe
-         xup = xlow + xstate
-         ns_bound(ip - 1, 1) = NINT(xlow) + 1
-         ns_bound(ip - 1, 2) = NINT(xup)
-         IF (NINT(xup) .GT. nstate) THEN
-            ns_bound(ip - 1, 2) = nstate
-         END IF
-         IF (NINT(xlow) .GT. nstate) THEN
-            ns_bound(ip - 1, 1) = nstate + 1
-         END IF
-         xlow = xup
+         ns_bound(ip - 1, 1) = MIN(nstate, NINT(xstate*(ip - 1))) + 1
+         ns_bound(ip - 1, 2) = MIN(nstate, NINT(xstate*ip))
       END DO
+      nblock_max = 0
       DO ip = 0, para_env%num_pe - 1
          nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
          nblock_max = MAX(nblock_max, nblock)
@@ -1441,9 +2247,8 @@ CONTAINS
             CALL cp_fm_get_submatrix(zij(1, idim)%matrix, z_ij_loc_re, 1, ns_bound(ip, 1), nstate, nblock)
             CALL cp_fm_get_submatrix(zij(2, idim)%matrix, z_ij_loc_im, 1, ns_bound(ip, 1), nstate, nblock)
             IF (para_env%mepos == ip) THEN
-               ns_me = nblock
-               ALLOCATE (cz_ij_loc(idim)%c_array(nstate, ns_me))
-               DO i = 1, ns_me
+               ALLOCATE (cz_ij_loc(idim)%c_array(nstate, nblock))
+               DO i = 1, nblock
                   DO j = 1, nstate
                      cz_ij_loc(idim)%c_array(j, i) = CMPLX(z_ij_loc_re(j, i), z_ij_loc_im(j, i), dp)
                   END DO
@@ -1454,8 +2259,257 @@ CONTAINS
       DEALLOCATE (z_ij_loc_re)
       DEALLOCATE (z_ij_loc_im)
 
-      ! initialize rotation matrix
       ALLOCATE (rotmat(nstate, 2*nblock_max))
+
+      CALL jacobi_rot_para_core(weights, para_env, max_iter, sweeps, out_each, dim2, nstate, nblock_max, ns_bound, &
+                                cz_ij_loc, rotmat, output_unit, eps_localization=eps_localization, &
+                                target_time=target_time, start_time=start_time)
+
+      ilow1 = ns_bound(para_env%mepos, 1)
+      ns_me = ns_bound(para_env%mepos, 2) - ns_bound(para_env%mepos, 1) + 1
+      ALLOCATE (z_ij_loc_re(nstate, nblock_max))
+      ALLOCATE (z_ij_loc_im(nstate, nblock_max))
+      DO idim = 1, dim2
+         DO ip = 0, para_env%num_pe - 1
+            z_ij_loc_re = 0.0_dp
+            z_ij_loc_im = 0.0_dp
+            nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
+            IF (ip == para_env%mepos) THEN
+               ns_me = nblock
+               DO i = 1, ns_me
+                  ii = ilow1 + i - 1
+                  DO j = 1, nstate
+                     z_ij_loc_re(j, i) = REAL(cz_ij_loc(idim)%c_array(j, i), dp)
+                     z_ij_loc_im(j, i) = AIMAG(cz_ij_loc(idim)%c_array(j, i))
+                  END DO
+               END DO
+            END IF
+            CALL mp_bcast(z_ij_loc_re, ip, para_env%group)
+            CALL mp_bcast(z_ij_loc_im, ip, para_env%group)
+            CALL cp_fm_set_submatrix(zij(1, idim)%matrix, z_ij_loc_re, 1, ns_bound(ip, 1), nstate, nblock)
+            CALL cp_fm_set_submatrix(zij(2, idim)%matrix, z_ij_loc_im, 1, ns_bound(ip, 1), nstate, nblock)
+         END DO ! ip
+      END DO
+
+      DO ip = 0, para_env%num_pe - 1
+         z_ij_loc_re = 0.0_dp
+         nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
+         IF (ip == para_env%mepos) THEN
+            ns_me = nblock
+            DO i = 1, ns_me
+               ii = ilow1 + i - 1
+               DO j = 1, nstate
+                  z_ij_loc_re(j, i) = rotmat(j, i)
+               END DO
+            END DO
+         END IF
+         CALL mp_bcast(z_ij_loc_re, ip, para_env%group)
+         CALL cp_fm_set_submatrix(rmat, z_ij_loc_re, 1, ns_bound(ip, 1), nstate, nblock)
+      END DO
+
+      DEALLOCATE (z_ij_loc_re)
+      DEALLOCATE (z_ij_loc_im)
+      DO idim = 1, dim2
+         DEALLOCATE (cz_ij_loc(idim)%c_array)
+      END DO
+      DEALLOCATE (cz_ij_loc)
+
+      CALL mp_sync(para_env%group)
+      CALL rotate_orbitals(rmat, vectors)
+      CALL cp_fm_release(rmat)
+
+      DEALLOCATE (rotmat)
+      DEALLOCATE (ns_bound)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE jacobi_rot_para
+
+! **************************************************************************************************
+!> \brief almost identical to 'jacobi_rot_para' but with different inout variables
+!> \param weights ...
+!> \param czij ...
+!> \param para_env ...
+!> \param max_iter ...
+!> \param rmat ...
+!> \param tol_out ...
+!> \author Soumya Ghosh (08/21)
+! **************************************************************************************************
+   SUBROUTINE jacobi_rot_para_1(weights, czij, para_env, max_iter, rmat, tol_out)
+
+      REAL(KIND=dp), INTENT(IN)                          :: weights(:)
+      TYPE(cp_cfm_p_type), INTENT(IN), POINTER           :: czij(:)
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER, INTENT(IN)                                :: max_iter
+      TYPE(cp_cfm_type), INTENT(IN)                      :: rmat
+      REAL(dp), INTENT(OUT), OPTIONAL                    :: tol_out
+
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'jacobi_rot_para_1'
+
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :)     :: czij_array
+      INTEGER                                            :: dim2, handle, i, idim, ii, ilow1, ip, j, &
+                                                            nblock, nblock_max, ns_me, nstate, &
+                                                            sweeps
+      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: ns_bound
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: rotmat, z_ij_loc_re
+      REAL(KIND=dp)                                      :: xstate
+      TYPE(set_c_2d_type), DIMENSION(:), POINTER         :: cz_ij_loc
+
+      CALL timeset(routineN, handle)
+
+      dim2 = SIZE(czij)
+
+      CALL cp_cfm_set_all(rmat, CMPLX(0._dp, 0._dp, dp), CMPLX(1._dp, 0._dp, dp))
+
+      CALL cp_cfm_get_info(rmat, nrow_global=nstate)
+
+      ! Distribution of the states (XXXXX safe against more pe than states ??? XXXXX)
+      xstate = REAL(nstate, dp)/REAL(para_env%num_pe, dp)
+      ALLOCATE (ns_bound(0:para_env%num_pe - 1, 2))
+      DO ip = 1, para_env%num_pe
+         ns_bound(ip - 1, 1) = MIN(nstate, NINT(xstate*(ip - 1))) + 1
+         ns_bound(ip - 1, 2) = MIN(nstate, NINT(xstate*ip))
+      END DO
+      nblock_max = 0
+      DO ip = 0, para_env%num_pe - 1
+         nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
+         nblock_max = MAX(nblock_max, nblock)
+      END DO
+
+      ! otbtain local part of the matrix (could be made faster, but is likely irrelevant).
+      ALLOCATE (czij_array(nstate, nblock_max))
+      ALLOCATE (cz_ij_loc(dim2))
+      DO idim = 1, dim2
+         DO ip = 0, para_env%num_pe - 1
+            nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
+            ! cfm --> allocatable
+            CALL cp_cfm_get_submatrix(czij(idim)%matrix, czij_array, 1, ns_bound(ip, 1), nstate, nblock)
+            IF (para_env%mepos == ip) THEN
+               ns_me = nblock
+               ALLOCATE (cz_ij_loc(idim)%c_array(nstate, ns_me))
+               DO i = 1, ns_me
+                  DO j = 1, nstate
+                     cz_ij_loc(idim)%c_array(j, i) = czij_array(j, i)
+                  END DO
+               END DO
+            END IF
+         END DO ! ip
+      END DO
+      DEALLOCATE (czij_array)
+
+      ALLOCATE (rotmat(nstate, 2*nblock_max))
+
+      CALL jacobi_rot_para_core(weights, para_env, max_iter, sweeps, 1, dim2, nstate, nblock_max, ns_bound, &
+                                cz_ij_loc, rotmat, 0, tol_out=tol_out)
+
+      ilow1 = ns_bound(para_env%mepos, 1)
+      ns_me = ns_bound(para_env%mepos, 2) - ns_bound(para_env%mepos, 1) + 1
+      ALLOCATE (z_ij_loc_re(nstate, nblock_max))
+
+      DO ip = 0, para_env%num_pe - 1
+         z_ij_loc_re = 0.0_dp
+         nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
+         IF (ip == para_env%mepos) THEN
+            ns_me = nblock
+            DO i = 1, ns_me
+               ii = ilow1 + i - 1
+               DO j = 1, nstate
+                  z_ij_loc_re(j, i) = rotmat(j, i)
+               END DO
+            END DO
+         END IF
+         CALL mp_bcast(z_ij_loc_re, ip, para_env%group)
+         CALL cp_cfm_set_submatrix(rmat, CMPLX(z_ij_loc_re, 0.0_dp, dp), 1, ns_bound(ip, 1), nstate, nblock)
+      END DO
+
+      DEALLOCATE (z_ij_loc_re)
+      DO idim = 1, dim2
+         DEALLOCATE (cz_ij_loc(idim)%c_array)
+      END DO
+      DEALLOCATE (cz_ij_loc)
+
+      CALL mp_sync(para_env%group)
+
+      DEALLOCATE (rotmat)
+      DEALLOCATE (ns_bound)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE jacobi_rot_para_1
+
+! **************************************************************************************************
+!> \brief Parallel algorithm for jacobi rotations
+!> \param weights ...
+!> \param para_env ...
+!> \param max_iter ...
+!> \param sweeps ...
+!> \param out_each ...
+!> \param dim2 ...
+!> \param nstate ...
+!> \param nblock_max ...
+!> \param ns_bound ...
+!> \param cz_ij_loc ...
+!> \param rotmat ...
+!> \param output_unit ...
+!> \param tol_out ...
+!> \param eps_localization ...
+!> \param target_time ...
+!> \param start_time ...
+!> \par History
+!>      split out to reuse with different input types
+!> \author HF (05.2022)
+! **************************************************************************************************
+   SUBROUTINE jacobi_rot_para_core(weights, para_env, max_iter, sweeps, out_each, dim2, nstate, nblock_max, &
+                                   ns_bound, cz_ij_loc, rotmat, output_unit, tol_out, eps_localization, target_time, start_time)
+
+      REAL(KIND=dp), INTENT(IN)                          :: weights(:)
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER, INTENT(IN)                                :: max_iter
+      INTEGER, INTENT(OUT)                               :: sweeps
+      INTEGER, INTENT(IN)                                :: out_each, dim2, nstate, nblock_max
+      INTEGER, DIMENSION(0:, :), INTENT(IN)              :: ns_bound
+      TYPE(set_c_2d_type), DIMENSION(:), POINTER         :: cz_ij_loc
+      REAL(dp), DIMENSION(:, :), INTENT(OUT)             :: rotmat
+      INTEGER, INTENT(IN)                                :: output_unit
+      REAL(dp), INTENT(OUT), OPTIONAL                    :: tol_out
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: eps_localization
+      REAL(dp), OPTIONAL                                 :: target_time, start_time
+
+      COMPLEX(KIND=dp)                                   :: zi, zj
+      COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)  :: c_array_me, c_array_partner
+      COMPLEX(KIND=dp), POINTER                          :: mii(:), mij(:), mjj(:)
+      INTEGER :: i, idim, ii, ik, il1, il2, il_recv, il_recv_partner, ilow1, ilow2, ip, ip_has_i, &
+         ip_partner, ip_recv_from, ip_recv_partner, ipair, iperm, istat, istate, iu1, iu2, iup1, &
+         iup2, j, jj, jstate, k, kk, lsweep, n1, n2, npair, nperm, ns_me, ns_partner, &
+         ns_recv_from, ns_recv_partner
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: rcount, rdispl
+      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: list_pair
+      LOGICAL                                            :: should_stop
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: gmat, rmat_loc, rmat_recv, rmat_send
+      REAL(dp), ALLOCATABLE, DIMENSION(:, :, :)          :: rmat_recv_all
+      REAL(KIND=dp)                                      :: ct, func, gmax, grad, ri, rj, st, t1, &
+                                                            t2, theta, tolerance, zc, zr
+      TYPE(set_c_1d_type), DIMENSION(:), POINTER         :: zdiag_all, zdiag_me
+      TYPE(set_c_2d_type), DIMENSION(:), POINTER         :: xyz_mix, xyz_mix_ns
+
+      NULLIFY (zdiag_all, zdiag_me)
+      NULLIFY (xyz_mix, xyz_mix_ns)
+      NULLIFY (mii, mij, mjj)
+
+      ALLOCATE (mii(dim2), mij(dim2), mjj(dim2))
+
+      ALLOCATE (rcount(para_env%num_pe), STAT=istat)
+      ALLOCATE (rdispl(para_env%num_pe), STAT=istat)
+
+      tolerance = 1.0e10_dp
+      sweeps = 0
+
+      ! number of processor pairs and number of permutations
+      npair = (para_env%num_pe + 1)/2
+      nperm = para_env%num_pe - MOD(para_env%num_pe + 1, 2)
+      ALLOCATE (list_pair(2, npair))
+
+      ! initialize rotation matrix
       rotmat = 0.0_dp
       DO i = ns_bound(para_env%mepos, 1), ns_bound(para_env%mepos, 2)
          ii = i - ns_bound(para_env%mepos, 1) + 1
@@ -1493,7 +2547,8 @@ CONTAINS
          WRITE (output_unit, '(T20,A12,T32, A22,T60, A12,A8 )') "Iteration", "Functional", "Tolerance", " Time "
       END IF
 
-      DO sweeps = 1, max_iter + 1
+      DO lsweep = 1, max_iter + 1
+         sweeps = lsweep
          IF (sweeps == max_iter + 1) THEN
             IF (output_unit > 0) THEN
                WRITE (output_unit, *) ' LOCALIZATION! loop did not converge within the maximum number of iterations.'
@@ -1615,12 +2670,21 @@ CONTAINS
                                 rotmat(1:nstate, k:k + n2 - 1), ip_partner, para_env%group)
 
                IF (ilow1 < ilow2) THEN
-              CALL dgemm("N", "N", nstate, n1, n2, 1.0_dp, rotmat(1, k), nstate, rmat_loc(1 + n1, 1), n1 + n2, 0.0_dp, gmat, nstate)
-                  CALL dgemm("N", "N", nstate, n1, n1, 1.0_dp, rotmat(1, 1), nstate, rmat_loc(1, 1), n1 + n2, 1.0_dp, gmat, nstate)
+                  ! no longer compiles in official sdgb:
+                  !CALL dgemm("N", "N", nstate, n1, n2, 1.0_dp, rotmat(1, k), nstate, rmat_loc(1 + n1, 1), n1 + n2, 0.0_dp, gmat, nstate)
+                  ! probably inefficient:
+                  CALL dgemm("N", "N", nstate, n1, n2, 1.0_dp, rotmat(1:, k:), nstate, rmat_loc(1 + n1:, 1:n1), &
+                             n2, 0.0_dp, gmat(:, :), nstate)
+                  CALL dgemm("N", "N", nstate, n1, n1, 1.0_dp, rotmat(1:, 1:), nstate, rmat_loc(1:, 1:), &
+                             n1 + n2, 1.0_dp, gmat(:, :), nstate)
                ELSE
-              CALL dgemm("N", "N", nstate, n1, n2, 1.0_dp, rotmat(1, k), nstate, rmat_loc(1, n2 + 1), n1 + n2, 0.0_dp, gmat, nstate)
-                  CALL dgemm("N", "N", nstate, n1, n1, 1.0_dp, rotmat(1, 1), nstate, &
-                             rmat_loc(n2 + 1, n2 + 1), n1 + n2, 1.0_dp, gmat, nstate)
+                  CALL dgemm("N", "N", nstate, n1, n2, 1.0_dp, rotmat(1:, k:), nstate, &
+                             rmat_loc(1:, n2 + 1:), n1 + n2, 0.0_dp, gmat(:, :), nstate)
+                  ! no longer compiles in official sdgb:
+                  !CALL dgemm("N", "N", nstate, n1, n1, 1.0_dp, rotmat(1, 1), nstate, rmat_loc(n2 + 1, n2 + 1), n1 + n2, 1.0_dp, gmat, nstate)
+                  ! probably inefficient:
+                  CALL dgemm("N", "N", nstate, n1, n1, 1.0_dp, rotmat(1:, 1:), nstate, rmat_loc(n2 + 1:, n2 + 1:), &
+                             n1, 1.0_dp, gmat(:, :), nstate)
                END IF
 
                CALL dcopy(nstate*n1, gmat(1, 1), 1, rotmat(1, 1), 1)
@@ -1814,6 +2878,7 @@ CONTAINS
 
          CALL mp_max(gmax, para_env%group)
          tolerance = gmax
+         IF (PRESENT(tol_out)) tol_out = tolerance
 
          func = 0.0_dp
          DO i = ns_bound(para_env%mepos, 1), ns_bound(para_env%mepos, 2)
@@ -1831,11 +2896,15 @@ CONTAINS
             WRITE (output_unit, '(T20,I12,T35,F20.10,T60,E12.4,F8.3)') sweeps, func, tolerance, t2 - t1
             CALL m_flush(output_unit)
          END IF
-         IF (tolerance < eps_localization) EXIT
-         CALL external_control(should_stop, "LOC", target_time=target_time, start_time=start_time)
-         IF (should_stop) EXIT
+         IF (PRESENT(eps_localization)) THEN
+            IF (tolerance < eps_localization) EXIT
+         END IF
+         IF (PRESENT(target_time) .AND. PRESENT(start_time)) THEN
+            CALL external_control(should_stop, "LOC", target_time=target_time, start_time=start_time)
+            IF (should_stop) EXIT
+         END IF
 
-      END DO ! sweeps
+      END DO ! lsweep
 
       ! buffer for message passing
       DEALLOCATE (rmat_recv_all)
@@ -1864,66 +2933,9 @@ CONTAINS
       DEALLOCATE (mii)
       DEALLOCATE (mij)
       DEALLOCATE (mjj)
+      DEALLOCATE (list_pair)
 
-      ilow1 = ns_bound(para_env%mepos, 1)
-      ns_me = ns_bound(para_env%mepos, 2) - ns_bound(para_env%mepos, 1) + 1
-      ALLOCATE (z_ij_loc_re(nstate, nblock_max))
-      ALLOCATE (z_ij_loc_im(nstate, nblock_max))
-      DO idim = 1, dim2
-         DO ip = 0, para_env%num_pe - 1
-            z_ij_loc_re = 0.0_dp
-            z_ij_loc_im = 0.0_dp
-            nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
-            IF (ip == para_env%mepos) THEN
-               ns_me = nblock
-               DO i = 1, ns_me
-                  ii = ilow1 + i - 1
-                  DO j = 1, nstate
-                     z_ij_loc_re(j, i) = REAL(cz_ij_loc(idim)%c_array(j, i), dp)
-                     z_ij_loc_im(j, i) = AIMAG(cz_ij_loc(idim)%c_array(j, i))
-                  END DO
-               END DO
-            END IF
-            CALL mp_bcast(z_ij_loc_re, ip, para_env%group)
-            CALL mp_bcast(z_ij_loc_im, ip, para_env%group)
-            CALL cp_fm_set_submatrix(zij(1, idim)%matrix, z_ij_loc_re, 1, ns_bound(ip, 1), nstate, nblock)
-            CALL cp_fm_set_submatrix(zij(2, idim)%matrix, z_ij_loc_im, 1, ns_bound(ip, 1), nstate, nblock)
-         END DO ! ip
-      END DO
-
-      DO ip = 0, para_env%num_pe - 1
-         z_ij_loc_re = 0.0_dp
-         nblock = ns_bound(ip, 2) - ns_bound(ip, 1) + 1
-         IF (ip == para_env%mepos) THEN
-            ns_me = nblock
-            DO i = 1, ns_me
-               ii = ilow1 + i - 1
-               DO j = 1, nstate
-                  z_ij_loc_re(j, i) = rotmat(j, i)
-               END DO
-            END DO
-         END IF
-         CALL mp_bcast(z_ij_loc_re, ip, para_env%group)
-         CALL cp_fm_set_submatrix(rmat, z_ij_loc_re, 1, ns_bound(ip, 1), nstate, nblock)
-      END DO
-
-      DEALLOCATE (z_ij_loc_re)
-      DEALLOCATE (z_ij_loc_im)
-      DO idim = 1, dim2
-         DEALLOCATE (cz_ij_loc(idim)%c_array)
-      END DO
-      DEALLOCATE (cz_ij_loc)
-
-      CALL mp_sync(para_env%group)
-      CALL rotate_orbitals(rmat, vectors)
-      CALL cp_fm_release(rmat)
-
-      DEALLOCATE (rotmat)
-      DEALLOCATE (ns_bound, list_pair)
-
-      CALL timestop(handle)
-
-   END SUBROUTINE jacobi_rot_para
+   END SUBROUTINE jacobi_rot_para_core
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1974,18 +2986,17 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE zij_matrix(vectors, op_sm_set, zij_fm_set)
 
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: op_sm_set
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'zij_matrix'
 
       INTEGER                                            :: handle, i, j, nao, nmoloc
-      TYPE(cp_fm_type), POINTER                          :: opvec
+      TYPE(cp_fm_type)                                   :: opvec
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (opvec)
       ! get rows and cols of the input
       CALL cp_fm_get_info(vectors, nrow_global=nao, ncol_global=nmoloc)
       ! replicate the input kind of matrix
@@ -1996,8 +3007,8 @@ CONTAINS
          DO j = 1, SIZE(zij_fm_set, 1)
             CALL cp_fm_set_all(zij_fm_set(j, i)%matrix, 0.0_dp)
             CALL cp_dbcsr_sm_fm_multiply(op_sm_set(j, i)%matrix, vectors, opvec, ncol=nmoloc)
-            CALL cp_gemm("T", "N", nmoloc, nmoloc, nao, 1.0_dp, vectors, opvec, 0.0_dp, &
-                         zij_fm_set(j, i)%matrix)
+            CALL parallel_gemm("T", "N", nmoloc, nmoloc, nao, 1.0_dp, vectors, opvec, 0.0_dp, &
+                               zij_fm_set(j, i)%matrix)
          END DO
       END DO
 
@@ -2012,14 +3023,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE scdm_qrfact(vectors)
 
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'scdm_qrfact'
 
       INTEGER                                            :: handle, ncolT, nrowT
       REAL(KIND=dp), DIMENSION(:), POINTER               :: tau
       TYPE(cp_fm_struct_type), POINTER                   :: cstruct
-      TYPE(cp_fm_type), POINTER                          :: CTp, Qf, tmp
+      TYPE(cp_fm_type)                                   :: CTp, Qf, tmp
 
       CALL timeset(routineN, handle)
 
@@ -2055,7 +3066,7 @@ CONTAINS
       CALL cp_fm_create(tmp, vectors%matrix_struct)
       CALL cp_fm_set_all(tmp, 0.0_dp, 1.0_dp)
       CALL cp_fm_to_fm(vectors, tmp)
-      CALL cp_gemm('N', 'N', ncolT, nrowT, nrowT, 1.0_dp, tmp, Qf, 0.0_dp, vectors)
+      CALL parallel_gemm('N', 'N', ncolT, nrowT, nrowT, 1.0_dp, tmp, Qf, 0.0_dp, vectors)
 
       ! Cleanup
       CALL cp_fm_release(CTp)

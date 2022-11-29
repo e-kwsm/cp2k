@@ -37,6 +37,7 @@
     &END SCF
     &XC
       2ND_DERIV_ANALYTICAL .FALSE.
+      NSTEPS 3
       STEP_SIZE 1E-4
       &XC_FUNCTIONAL NONE
       &END XC_FUNCTIONAL
@@ -55,7 +56,9 @@
       &END HF
       &WF_CORRELATION
         &RI_MP2
-          BLOCK_SIZE  1
+          BLOCK_SIZE  -1
+        &END
+        &CANONICAL_GRADIENTS
           EPS_CANONICAL 0.0001
           FREE_HFX_BUFFER .FALSE.
           &CPHF

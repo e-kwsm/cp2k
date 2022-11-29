@@ -13,17 +13,20 @@
 !> \author Manuel Guidon
 ! **************************************************************************************************
 MODULE admm_types
+   USE admm_dm_types,                   ONLY: admm_dm_release,&
+                                              admm_dm_type
    USE bibliography,                    ONLY: Guidon2010,&
                                               cite_reference
    USE cp_control_types,                ONLY: admm_control_type
+   USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
    USE cp_para_types,                   ONLY: cp_para_env_type
+   USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE input_constants,                 ONLY: do_admm_blocked_projection,&
                                               do_admm_blocking_purify_full,&
                                               do_admm_charge_constrained_projection
@@ -34,17 +37,22 @@ MODULE admm_types
                                               qs_kind_type
    USE qs_local_rho_types,              ONLY: local_rho_set_release,&
                                               local_rho_type
-   USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+   USE qs_mo_types,                     ONLY: deallocate_mo_set,&
+                                              get_mo_set,&
+                                              mo_set_type
+   USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type,&
+                                              release_neighbor_list_sets
    USE qs_oce_types,                    ONLY: deallocate_oce_set,&
                                               oce_matrix_type
+   USE qs_rho_types,                    ONLY: qs_rho_release,&
+                                              qs_rho_type
    USE task_list_types,                 ONLY: deallocate_task_list,&
                                               task_list_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
    PRIVATE
-   PUBLIC :: admm_env_create, admm_env_release, admm_type, admm_gapw_type
+   PUBLIC :: admm_env_create, admm_env_release, admm_type, admm_gapw_type, set_admm_env, get_admm_env
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'admm_types'
 
@@ -116,7 +124,7 @@ MODULE admm_types
                                                   work_aux_aux4 => Null(), &
                                                   work_aux_aux5 => Null()
 
-      TYPE(cp_fm_p_type), DIMENSION(:), &
+      TYPE(cp_fm_type), DIMENSION(:), &
          POINTER                                :: lambda => Null(), &
                                                    lambda_inv => Null(), &
                                                    lambda_inv_sqrt => Null(), &
@@ -159,6 +167,21 @@ MODULE admm_types
       INTEGER, DIMENSION(:, :), POINTER        :: block_map => Null()
       TYPE(admm_gapw_type), POINTER            :: admm_gapw_env
       LOGICAL                                  :: do_gapw = .FALSE.
+      TYPE(admm_dm_type), POINTER              :: admm_dm => Null()
+
+      TYPE(mo_set_type), DIMENSION(:), &
+         POINTER                               :: mos_aux_fit
+      TYPE(neighbor_list_set_p_type), &
+         DIMENSION(:), POINTER                 :: sab_aux_fit, sab_aux_fit_asymm, sab_aux_fit_vs_orb
+      TYPE(dbcsr_p_type), DIMENSION(:), &
+         POINTER                               :: matrix_ks_aux_fit, matrix_ks_aux_fit_im, &
+                                                  matrix_ks_aux_fit_dft, matrix_ks_aux_fit_hfx, &
+                                                  matrix_s_aux_fit, matrix_s_aux_fit_vs_orb
+      TYPE(qs_rho_type), POINTER               :: rho_aux_fit, rho_aux_fit_buffer
+      TYPE(task_list_type), POINTER            :: task_list_aux_fit
+      TYPE(cp_fm_type), DIMENSION(:), &
+         POINTER                               :: mo_derivs_aux_fit
+
    END TYPE
 
 CONTAINS
@@ -169,22 +192,23 @@ CONTAINS
 !> \param admm_env The ADMM env
 !> \param admm_control ...
 !> \param mos the MO's of the orbital basis set
-!> \param mos_aux_fit the MO's of the auxiliary fitting basis set
 !> \param para_env The parallel env
 !> \param natoms ...
+!> \param nao_aux_fit ...
 !> \par History
 !>      05.2008 created [Manuel Guidon]
 !> \author Manuel Guidon
 ! **************************************************************************************************
-   SUBROUTINE admm_env_create(admm_env, admm_control, mos, mos_aux_fit, para_env, natoms)
+   SUBROUTINE admm_env_create(admm_env, admm_control, mos, para_env, natoms, nao_aux_fit)
+
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(admm_control_type), POINTER                   :: admm_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos, mos_aux_fit
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      INTEGER, INTENT(IN)                                :: natoms
+      INTEGER, INTENT(IN)                                :: natoms, nao_aux_fit
 
       INTEGER                                            :: i, iatom, iblock, ispin, j, jatom, &
-                                                            nao_aux_fit, nao_orb, nmo, nspins
+                                                            nao_orb, nmo, nspins
       TYPE(cp_fm_struct_type), POINTER :: fm_struct_aux_aux, fm_struct_aux_nmo, fm_struct_aux_orb, &
          fm_struct_nmo_nmo, fm_struct_orb_aux, fm_struct_orb_nmo, fm_struct_orb_orb
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
@@ -194,8 +218,7 @@ CONTAINS
       ALLOCATE (admm_env)
 
       nspins = SIZE(mos)
-      CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff, nmo=nmo, nao=nao_orb)
-      CALL get_mo_set(mos_aux_fit(1)%mo_set, nao=nao_aux_fit)
+      CALL get_mo_set(mos(1), mo_coeff=mo_coeff, nmo=nmo, nao=nao_orb)
       admm_env%nmo = 0
       admm_env%nao_aux_fit = nao_aux_fit
       admm_env%nao_orb = nao_orb
@@ -220,6 +243,16 @@ CONTAINS
                                ncol_global=nao_orb, &
                                para_env=para_env)
 
+      NULLIFY (admm_env%S, admm_env%S_inv, admm_env%Q, admm_env%A, admm_env%B, &
+               admm_env%work_orb_orb, admm_env%work_orb_orb2, admm_env%work_orb_orb3, &
+               admm_env%work_aux_orb, admm_env%work_aux_orb2, admm_env%work_aux_orb3, &
+               admm_env%work_aux_aux, admm_env%work_aux_aux2, admm_env%work_aux_aux3, &
+               admm_env%work_aux_aux4, admm_env%work_aux_aux5)
+      ALLOCATE (admm_env%S, admm_env%S_inv, admm_env%Q, admm_env%A, admm_env%B, &
+                admm_env%work_orb_orb, admm_env%work_orb_orb2, admm_env%work_orb_orb3, &
+                admm_env%work_aux_orb, admm_env%work_aux_orb2, admm_env%work_aux_orb3, &
+                admm_env%work_aux_aux, admm_env%work_aux_aux2, admm_env%work_aux_aux3, &
+                admm_env%work_aux_aux4, admm_env%work_aux_aux5)
       CALL cp_fm_create(admm_env%S, fm_struct_aux_aux, name="aux_fit_overlap")
       CALL cp_fm_create(admm_env%S_inv, fm_struct_aux_aux, name="aux_fit_overlap_inv")
       CALL cp_fm_create(admm_env%Q, fm_struct_aux_orb, name="mixed_overlap")
@@ -263,7 +296,7 @@ CONTAINS
       ALLOCATE (admm_env%P_tilde(nspins))
 
       DO ispin = 1, nspins
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nmo=nmo)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nmo=nmo)
          admm_env%nmo(ispin) = nmo
          CALL cp_fm_struct_create(fm_struct_aux_nmo, &
                                   context=mo_coeff%matrix_struct%context, &
@@ -281,30 +314,28 @@ CONTAINS
                                   ncol_global=nmo, &
                                   para_env=para_env)
 
-         CALL cp_fm_create(admm_env%work_orb_nmo(ispin)%matrix, fm_struct_orb_nmo, name="work_orb_nmo")
-         CALL cp_fm_create(admm_env%work_nmo_nmo1(ispin)%matrix, fm_struct_nmo_nmo, name="work_nmo_nmo1")
-         CALL cp_fm_create(admm_env%R_schur_R_t(ispin)%matrix, fm_struct_nmo_nmo, name="R_schur_R_t")
-         CALL cp_fm_create(admm_env%work_nmo_nmo2(ispin)%matrix, fm_struct_nmo_nmo, name="work_nmo_nmo2")
-         CALL cp_fm_create(admm_env%lambda(ispin)%matrix, fm_struct_nmo_nmo, name="lambda")
-         CALL cp_fm_create(admm_env%lambda_inv(ispin)%matrix, fm_struct_nmo_nmo, name="lambda_inv")
-         CALL cp_fm_create(admm_env%lambda_inv_sqrt(ispin)%matrix, fm_struct_nmo_nmo, name="lambda_inv_sqrt")
-         CALL cp_fm_create(admm_env%R(ispin)%matrix, fm_struct_nmo_nmo, name="R")
-         CALL cp_fm_create(admm_env%R_purify(ispin)%matrix, fm_struct_aux_aux, name="R_purify")
-         CALL cp_fm_create(admm_env%K(ispin)%matrix, fm_struct_aux_aux, name="K")
-         CALL cp_fm_create(admm_env%H(ispin)%matrix, fm_struct_aux_nmo, name="H")
-         CALL cp_fm_create(admm_env%H_corr(ispin)%matrix, fm_struct_orb_orb, name="H_corr")
-         CALL cp_fm_create(admm_env%M(ispin)%matrix, fm_struct_nmo_nmo, name="M")
-         CALL cp_fm_create(admm_env%M_purify(ispin)%matrix, fm_struct_aux_aux, name="M aux")
-         CALL cp_fm_create(admm_env%P_to_be_purified(ispin)%matrix, fm_struct_aux_aux, name="P_to_be_purified")
-         CALL cp_fm_create(admm_env%work_aux_nmo(ispin)%matrix, fm_struct_aux_nmo, name="work_aux_nmo")
-         CALL cp_fm_create(admm_env%work_aux_nmo2(ispin)%matrix, fm_struct_aux_nmo, name="work_aux_nmo2")
-         CALL cp_fm_create(admm_env%mo_derivs_tmp(ispin)%matrix, fm_struct_orb_nmo, name="mo_derivs_tmp")
-
-         CALL cp_fm_create(admm_env%lambda_inv2(ispin)%matrix, fm_struct_nmo_nmo, name="lambda_inv2")
-         CALL cp_fm_create(admm_env%C_hat(ispin)%matrix, fm_struct_aux_nmo, name="C_hat")
-         CALL cp_fm_create(admm_env%P_tilde(ispin)%matrix, fm_struct_aux_aux, name="P_tilde")
-
-         CALL cp_fm_create(admm_env%ks_to_be_merged(ispin)%matrix, fm_struct_orb_orb, name="KS_to_be_merged ")
+         CALL cp_fm_create(admm_env%work_orb_nmo(ispin), fm_struct_orb_nmo, name="work_orb_nmo")
+         CALL cp_fm_create(admm_env%work_nmo_nmo1(ispin), fm_struct_nmo_nmo, name="work_nmo_nmo1")
+         CALL cp_fm_create(admm_env%R_schur_R_t(ispin), fm_struct_nmo_nmo, name="R_schur_R_t")
+         CALL cp_fm_create(admm_env%work_nmo_nmo2(ispin), fm_struct_nmo_nmo, name="work_nmo_nmo2")
+         CALL cp_fm_create(admm_env%lambda(ispin), fm_struct_nmo_nmo, name="lambda")
+         CALL cp_fm_create(admm_env%lambda_inv(ispin), fm_struct_nmo_nmo, name="lambda_inv")
+         CALL cp_fm_create(admm_env%lambda_inv_sqrt(ispin), fm_struct_nmo_nmo, name="lambda_inv_sqrt")
+         CALL cp_fm_create(admm_env%R(ispin), fm_struct_nmo_nmo, name="R")
+         CALL cp_fm_create(admm_env%R_purify(ispin), fm_struct_aux_aux, name="R_purify")
+         CALL cp_fm_create(admm_env%K(ispin), fm_struct_aux_aux, name="K")
+         CALL cp_fm_create(admm_env%H(ispin), fm_struct_aux_nmo, name="H")
+         CALL cp_fm_create(admm_env%H_corr(ispin), fm_struct_orb_orb, name="H_corr")
+         CALL cp_fm_create(admm_env%M(ispin), fm_struct_nmo_nmo, name="M")
+         CALL cp_fm_create(admm_env%M_purify(ispin), fm_struct_aux_aux, name="M aux")
+         CALL cp_fm_create(admm_env%P_to_be_purified(ispin), fm_struct_aux_aux, name="P_to_be_purified")
+         CALL cp_fm_create(admm_env%work_aux_nmo(ispin), fm_struct_aux_nmo, name="work_aux_nmo")
+         CALL cp_fm_create(admm_env%work_aux_nmo2(ispin), fm_struct_aux_nmo, name="work_aux_nmo2")
+         CALL cp_fm_create(admm_env%mo_derivs_tmp(ispin), fm_struct_orb_nmo, name="mo_derivs_tmp")
+         CALL cp_fm_create(admm_env%lambda_inv2(ispin), fm_struct_nmo_nmo, name="lambda_inv2")
+         CALL cp_fm_create(admm_env%C_hat(ispin), fm_struct_aux_nmo, name="C_hat")
+         CALL cp_fm_create(admm_env%P_tilde(ispin), fm_struct_aux_aux, name="P_tilde")
+         CALL cp_fm_create(admm_env%ks_to_be_merged(ispin), fm_struct_orb_orb, name="KS_to_be_merged ")
 
          ALLOCATE (admm_env%eigvals_lambda(ispin)%eigvals)
          ALLOCATE (admm_env%eigvals_P_to_be_purified(ispin)%eigvals)
@@ -322,7 +353,8 @@ CONTAINS
       CALL cp_fm_struct_release(fm_struct_orb_aux)
       CALL cp_fm_struct_release(fm_struct_orb_orb)
 
-      ! copy settings from admm_control
+      ! Copy settings from admm_control
+      CPASSERT(ASSOCIATED(admm_control))
       admm_env%purification_method = admm_control%purification_method
       admm_env%scaling_model = admm_control%scaling_model
       admm_env%aux_exch_func = admm_control%aux_exch_func
@@ -335,7 +367,7 @@ CONTAINS
 
       IF ((admm_control%method == do_admm_blocking_purify_full) .OR. &
           (admm_control%method == do_admm_blocked_projection)) THEN
-         ! create block map
+         ! Create block map
          ALLOCATE (admm_env%block_map(natoms, natoms))
          admm_env%block_map(:, :) = 0
          DO iblock = 1, SIZE(admm_control%blocks)
@@ -352,6 +384,11 @@ CONTAINS
       NULLIFY (admm_env%admm_gapw_env)
       admm_env%do_gapw = .FALSE.
 
+      NULLIFY (admm_env%mos_aux_fit, admm_env%sab_aux_fit, admm_env%sab_aux_fit_asymm, admm_env%sab_aux_fit_vs_orb)
+      NULLIFY (admm_env%matrix_ks_aux_fit, admm_env%matrix_ks_aux_fit_im, admm_env%matrix_ks_aux_fit_dft)
+      NULLIFY (admm_env%matrix_ks_aux_fit_hfx, admm_env%matrix_s_aux_fit, admm_env%matrix_s_aux_fit_vs_orb)
+      NULLIFY (admm_env%rho_aux_fit, admm_env%rho_aux_fit_buffer, admm_env%task_list_aux_fit, admm_env%mo_derivs_aux_fit)
+
    END SUBROUTINE admm_env_create
 
 ! **************************************************************************************************
@@ -363,9 +400,12 @@ CONTAINS
 !> \author Manuel Guidon
 ! **************************************************************************************************
    SUBROUTINE admm_env_release(admm_env)
+
       TYPE(admm_type), POINTER                           :: admm_env
 
       INTEGER                                            :: ispin
+
+      CPASSERT(ASSOCIATED(admm_env))
 
       CALL cp_fm_release(admm_env%S)
       CALL cp_fm_release(admm_env%S_inv)
@@ -383,30 +423,36 @@ CONTAINS
       CALL cp_fm_release(admm_env%work_aux_orb)
       CALL cp_fm_release(admm_env%work_aux_orb2)
       CALL cp_fm_release(admm_env%work_aux_orb3)
+      DEALLOCATE (admm_env%S, admm_env%S_inv, admm_env%Q, admm_env%A, admm_env%B, &
+                  admm_env%work_orb_orb, admm_env%work_orb_orb2, admm_env%work_orb_orb3, &
+                  admm_env%work_aux_orb, admm_env%work_aux_orb2, admm_env%work_aux_orb3, &
+                  admm_env%work_aux_aux, admm_env%work_aux_aux2, admm_env%work_aux_aux3, &
+                  admm_env%work_aux_aux4, admm_env%work_aux_aux5)
       DO ispin = 1, SIZE(admm_env%lambda)
-         CALL cp_fm_release(admm_env%lambda(ispin)%matrix)
-         CALL cp_fm_release(admm_env%lambda_inv(ispin)%matrix)
-         CALL cp_fm_release(admm_env%lambda_inv_sqrt(ispin)%matrix)
-         CALL cp_fm_release(admm_env%lambda_inv2(ispin)%matrix)
-         CALL cp_fm_release(admm_env%C_hat(ispin)%matrix)
-         CALL cp_fm_release(admm_env%P_tilde(ispin)%matrix)
-         CALL cp_fm_release(admm_env%R(ispin)%matrix)
-         CALL cp_fm_release(admm_env%R_purify(ispin)%matrix)
-         CALL cp_fm_release(admm_env%H(ispin)%matrix)
-         CALL cp_fm_release(admm_env%H_corr(ispin)%matrix)
-         CALL cp_fm_release(admm_env%K(ispin)%matrix)
-         CALL cp_fm_release(admm_env%M(ispin)%matrix)
-         CALL cp_fm_release(admm_env%M_purify(ispin)%matrix)
-         CALL cp_fm_release(admm_env%P_to_be_purified(ispin)%matrix)
-         CALL cp_fm_release(admm_env%work_orb_nmo(ispin)%matrix)
-         CALL cp_fm_release(admm_env%work_nmo_nmo1(ispin)%matrix)
-         CALL cp_fm_release(admm_env%R_schur_R_t(ispin)%matrix)
-         CALL cp_fm_release(admm_env%work_nmo_nmo2(ispin)%matrix)
-         CALL cp_fm_release(admm_env%work_aux_nmo(ispin)%matrix)
-         CALL cp_fm_release(admm_env%work_aux_nmo2(ispin)%matrix)
-         CALL cp_fm_release(admm_env%mo_derivs_tmp(ispin)%matrix)
-         CALL cp_fm_release(admm_env%ks_to_be_merged(ispin)%matrix)
-         CALL cp_fm_release(admm_env%lambda_inv2(ispin)%matrix)
+         CALL cp_fm_release(admm_env%lambda(ispin))
+         CALL cp_fm_release(admm_env%lambda_inv(ispin))
+         CALL cp_fm_release(admm_env%lambda_inv_sqrt(ispin))
+         CALL cp_fm_release(admm_env%lambda_inv2(ispin))
+         CALL cp_fm_release(admm_env%C_hat(ispin))
+         CALL cp_fm_release(admm_env%P_tilde(ispin))
+         CALL cp_fm_release(admm_env%R(ispin))
+         CALL cp_fm_release(admm_env%R_purify(ispin))
+         CALL cp_fm_release(admm_env%H(ispin))
+         CALL cp_fm_release(admm_env%H_corr(ispin))
+         CALL cp_fm_release(admm_env%K(ispin))
+         CALL cp_fm_release(admm_env%M(ispin))
+         CALL cp_fm_release(admm_env%M_purify(ispin))
+         CALL cp_fm_release(admm_env%P_to_be_purified(ispin))
+         CALL cp_fm_release(admm_env%work_orb_nmo(ispin))
+         CALL cp_fm_release(admm_env%work_nmo_nmo1(ispin))
+         CALL cp_fm_release(admm_env%R_schur_R_t(ispin))
+         CALL cp_fm_release(admm_env%work_nmo_nmo2(ispin))
+         CALL cp_fm_release(admm_env%work_aux_nmo(ispin))
+         CALL cp_fm_release(admm_env%work_aux_nmo2(ispin))
+         CALL cp_fm_release(admm_env%mo_derivs_tmp(ispin))
+         CALL cp_fm_release(admm_env%ks_to_be_merged(ispin))
+         CALL cp_fm_release(admm_env%lambda_inv2(ispin))
+
          DEALLOCATE (admm_env%eigvals_lambda(ispin)%eigvals%data)
          DEALLOCATE (admm_env%eigvals_P_to_be_purified(ispin)%eigvals%data)
          DEALLOCATE (admm_env%eigvals_lambda(ispin)%eigvals)
@@ -446,6 +492,42 @@ CONTAINS
          CALL section_vals_release(admm_env%xc_section_aux)
 
       IF (ASSOCIATED(admm_env%admm_gapw_env)) CALL admm_gapw_env_release(admm_env%admm_gapw_env)
+      IF (ASSOCIATED(admm_env%admm_dm)) CALL admm_dm_release(admm_env%admm_dm)
+
+      IF (ASSOCIATED(admm_env%mos_aux_fit)) THEN
+         DO ispin = 1, SIZE(admm_env%mos_aux_fit)
+            CALL deallocate_mo_set(admm_env%mos_aux_fit(ispin))
+         END DO
+         DEALLOCATE (admm_env%mos_aux_fit)
+      END IF
+      IF (ASSOCIATED(admm_env%mo_derivs_aux_fit)) THEN
+         DO ispin = 1, SIZE(admm_env%mo_derivs_aux_fit)
+            CALL cp_fm_release(admm_env%mo_derivs_aux_fit(ispin))
+         END DO
+         DEALLOCATE (admm_env%mo_derivs_aux_fit)
+      END IF
+
+      IF (ASSOCIATED(admm_env%sab_aux_fit)) CALL release_neighbor_list_sets(admm_env%sab_aux_fit)
+      IF (ASSOCIATED(admm_env%sab_aux_fit_vs_orb)) CALL release_neighbor_list_sets(admm_env%sab_aux_fit_vs_orb)
+      IF (ASSOCIATED(admm_env%sab_aux_fit_asymm)) CALL release_neighbor_list_sets(admm_env%sab_aux_fit_asymm)
+
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit)
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit_im)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit_im)
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit_dft)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit_dft)
+      IF (ASSOCIATED(admm_env%matrix_ks_aux_fit_hfx)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_ks_aux_fit_hfx)
+      IF (ASSOCIATED(admm_env%matrix_s_aux_fit)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_s_aux_fit)
+      IF (ASSOCIATED(admm_env%matrix_s_aux_fit_vs_orb)) CALL dbcsr_deallocate_matrix_set(admm_env%matrix_s_aux_fit_vs_orb)
+
+      IF (ASSOCIATED(admm_env%rho_aux_fit)) THEN
+         CALL qs_rho_release(admm_env%rho_aux_fit)
+         DEALLOCATE (admm_env%rho_aux_fit)
+      END IF
+      IF (ASSOCIATED(admm_env%rho_aux_fit_buffer)) THEN
+         CALL qs_rho_release(admm_env%rho_aux_fit_buffer)
+         DEALLOCATE (admm_env%rho_aux_fit_buffer)
+      END IF
+
+      IF (ASSOCIATED(admm_env%task_list_aux_fit)) CALL deallocate_task_list(admm_env%task_list_aux_fit)
 
       DEALLOCATE (admm_env)
 
@@ -478,6 +560,128 @@ CONTAINS
       DEALLOCATE (admm_gapw_env)
 
    END SUBROUTINE admm_gapw_env_release
+
+! **************************************************************************************************
+!> \brief Get routine for the ADMM env
+!> \param admm_env ...
+!> \param mo_derivs_aux_fit ...
+!> \param mos_aux_fit ...
+!> \param sab_aux_fit ...
+!> \param sab_aux_fit_asymm ...
+!> \param sab_aux_fit_vs_orb ...
+!> \param matrix_s_aux_fit ...
+!> \param matrix_s_aux_fit_vs_orb ...
+!> \param task_list_aux_fit ...
+!> \param matrix_ks_aux_fit ...
+!> \param matrix_ks_aux_fit_im ...
+!> \param matrix_ks_aux_fit_dft ...
+!> \param matrix_ks_aux_fit_hfx ...
+!> \param rho_aux_fit ...
+!> \param rho_aux_fit_buffer ...
+!> \param admm_dm ...
+! **************************************************************************************************
+   SUBROUTINE get_admm_env(admm_env, mo_derivs_aux_fit, mos_aux_fit, sab_aux_fit, sab_aux_fit_asymm, &
+                           sab_aux_fit_vs_orb, matrix_s_aux_fit, matrix_s_aux_fit_vs_orb, &
+                           task_list_aux_fit, matrix_ks_aux_fit, matrix_ks_aux_fit_im, &
+                           matrix_ks_aux_fit_dft, matrix_ks_aux_fit_hfx, rho_aux_fit, &
+                           rho_aux_fit_buffer, admm_dm)
+
+      TYPE(admm_type), INTENT(IN), POINTER               :: admm_env
+      TYPE(cp_fm_type), DIMENSION(:), OPTIONAL, POINTER  :: mo_derivs_aux_fit
+      TYPE(mo_set_type), DIMENSION(:), OPTIONAL, POINTER :: mos_aux_fit
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         OPTIONAL, POINTER                               :: sab_aux_fit, sab_aux_fit_asymm, &
+                                                            sab_aux_fit_vs_orb
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: matrix_s_aux_fit, matrix_s_aux_fit_vs_orb
+      TYPE(task_list_type), OPTIONAL, POINTER            :: task_list_aux_fit
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: matrix_ks_aux_fit, matrix_ks_aux_fit_im, &
+                                                            matrix_ks_aux_fit_dft, &
+                                                            matrix_ks_aux_fit_hfx
+      TYPE(qs_rho_type), OPTIONAL, POINTER               :: rho_aux_fit, rho_aux_fit_buffer
+      TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
+
+      CPASSERT(ASSOCIATED(admm_env))
+
+      IF (PRESENT(mo_derivs_aux_fit)) mo_derivs_aux_fit => admm_env%mo_derivs_aux_fit
+      IF (PRESENT(mos_aux_fit)) mos_aux_fit => admm_env%mos_aux_fit
+      IF (PRESENT(sab_aux_fit)) sab_aux_fit => admm_env%sab_aux_fit
+      IF (PRESENT(sab_aux_fit_asymm)) sab_aux_fit_asymm => admm_env%sab_aux_fit_asymm
+      IF (PRESENT(sab_aux_fit_vs_orb)) sab_aux_fit_vs_orb => admm_env%sab_aux_fit_vs_orb
+      IF (PRESENT(matrix_s_aux_fit)) matrix_s_aux_fit => admm_env%matrix_s_aux_fit
+      IF (PRESENT(matrix_s_aux_fit_vs_orb)) matrix_s_aux_fit_vs_orb => admm_env%matrix_s_aux_fit_vs_orb
+      IF (PRESENT(task_list_aux_fit)) task_list_aux_fit => admm_env%task_list_aux_fit
+      IF (PRESENT(matrix_ks_aux_fit)) matrix_ks_aux_fit => admm_env%matrix_ks_aux_fit
+      IF (PRESENT(matrix_ks_aux_fit_im)) matrix_ks_aux_fit_im => admm_env%matrix_ks_aux_fit_im
+      IF (PRESENT(matrix_ks_aux_fit_dft)) matrix_ks_aux_fit_dft => admm_env%matrix_ks_aux_fit_dft
+      IF (PRESENT(matrix_ks_aux_fit_hfx)) matrix_ks_aux_fit_hfx => admm_env%matrix_ks_aux_fit_hfx
+      IF (PRESENT(rho_aux_fit)) rho_aux_fit => admm_env%rho_aux_fit
+      IF (PRESENT(rho_aux_fit_buffer)) rho_aux_fit_buffer => admm_env%rho_aux_fit_buffer
+      IF (PRESENT(admm_dm)) admm_dm => admm_env%admm_dm
+
+   END SUBROUTINE get_admm_env
+
+! **************************************************************************************************
+!> \brief Set routine for the ADMM env
+!> \param admm_env ...
+!> \param mo_derivs_aux_fit ...
+!> \param mos_aux_fit ...
+!> \param sab_aux_fit ...
+!> \param sab_aux_fit_asymm ...
+!> \param sab_aux_fit_vs_orb ...
+!> \param matrix_s_aux_fit ...
+!> \param matrix_s_aux_fit_vs_orb ...
+!> \param task_list_aux_fit ...
+!> \param matrix_ks_aux_fit ...
+!> \param matrix_ks_aux_fit_im ...
+!> \param matrix_ks_aux_fit_dft ...
+!> \param matrix_ks_aux_fit_hfx ...
+!> \param rho_aux_fit ...
+!> \param rho_aux_fit_buffer ...
+!> \param admm_dm ...
+! **************************************************************************************************
+   SUBROUTINE set_admm_env(admm_env, mo_derivs_aux_fit, mos_aux_fit, sab_aux_fit, sab_aux_fit_asymm, &
+                           sab_aux_fit_vs_orb, matrix_s_aux_fit, matrix_s_aux_fit_vs_orb, &
+                           task_list_aux_fit, matrix_ks_aux_fit, matrix_ks_aux_fit_im, &
+                           matrix_ks_aux_fit_dft, matrix_ks_aux_fit_hfx, rho_aux_fit, &
+                           rho_aux_fit_buffer, admm_dm)
+
+      TYPE(admm_type), INTENT(INOUT), POINTER            :: admm_env
+      TYPE(cp_fm_type), DIMENSION(:), OPTIONAL, POINTER  :: mo_derivs_aux_fit
+      TYPE(mo_set_type), DIMENSION(:), OPTIONAL, POINTER :: mos_aux_fit
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         OPTIONAL, POINTER                               :: sab_aux_fit, sab_aux_fit_asymm, &
+                                                            sab_aux_fit_vs_orb
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: matrix_s_aux_fit, matrix_s_aux_fit_vs_orb
+      TYPE(task_list_type), OPTIONAL, POINTER            :: task_list_aux_fit
+      TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
+         POINTER                                         :: matrix_ks_aux_fit, matrix_ks_aux_fit_im, &
+                                                            matrix_ks_aux_fit_dft, &
+                                                            matrix_ks_aux_fit_hfx
+      TYPE(qs_rho_type), OPTIONAL, POINTER               :: rho_aux_fit, rho_aux_fit_buffer
+      TYPE(admm_dm_type), OPTIONAL, POINTER              :: admm_dm
+
+      CPASSERT(ASSOCIATED(admm_env))
+
+      IF (PRESENT(mo_derivs_aux_fit)) admm_env%mo_derivs_aux_fit => mo_derivs_aux_fit
+      IF (PRESENT(mos_aux_fit)) admm_env%mos_aux_fit => mos_aux_fit
+      IF (PRESENT(sab_aux_fit)) admm_env%sab_aux_fit => sab_aux_fit
+      IF (PRESENT(sab_aux_fit_asymm)) admm_env%sab_aux_fit_asymm => sab_aux_fit_asymm
+      IF (PRESENT(sab_aux_fit_vs_orb)) admm_env%sab_aux_fit_vs_orb => sab_aux_fit_vs_orb
+      IF (PRESENT(matrix_s_aux_fit)) admm_env%matrix_s_aux_fit => matrix_s_aux_fit
+      IF (PRESENT(matrix_s_aux_fit_vs_orb)) admm_env%matrix_s_aux_fit_vs_orb => matrix_s_aux_fit_vs_orb
+      IF (PRESENT(task_list_aux_fit)) admm_env%task_list_aux_fit => task_list_aux_fit
+      IF (PRESENT(matrix_ks_aux_fit)) admm_env%matrix_ks_aux_fit => matrix_ks_aux_fit
+      IF (PRESENT(matrix_ks_aux_fit_im)) admm_env%matrix_ks_aux_fit_im => matrix_ks_aux_fit_im
+      IF (PRESENT(matrix_ks_aux_fit_dft)) admm_env%matrix_ks_aux_fit_dft => matrix_ks_aux_fit_dft
+      IF (PRESENT(matrix_ks_aux_fit_hfx)) admm_env%matrix_ks_aux_fit_hfx => matrix_ks_aux_fit_hfx
+      IF (PRESENT(rho_aux_fit)) admm_env%rho_aux_fit => rho_aux_fit
+      IF (PRESENT(rho_aux_fit_buffer)) admm_env%rho_aux_fit_buffer => rho_aux_fit_buffer
+      IF (PRESENT(admm_dm)) admm_env%admm_dm => admm_dm
+
+   END SUBROUTINE set_admm_env
 
 END MODULE admm_types
 

@@ -32,7 +32,6 @@ MODULE qs_loc_utils
         cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_get_submatrix, cp_fm_maxabsval, &
         cp_fm_p_type, cp_fm_release, cp_fm_set_all, cp_fm_set_submatrix, cp_fm_to_fm, cp_fm_type, &
         cp_fm_write_unformatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_type,&
@@ -50,9 +49,9 @@ MODULE qs_loc_utils
                                               dbcsr_type
    USE distribution_1d_types,           ONLY: distribution_1d_type
    USE input_constants,                 ONLY: &
-        do_loc_crazy, do_loc_direct, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_none, do_loc_scdm, &
-        energy_loc_range, op_loc_berry, op_loc_boys, op_loc_pipek, state_loc_all, state_loc_list, &
-        state_loc_none, state_loc_range
+        do_loc_crazy, do_loc_direct, do_loc_gapo, do_loc_jacobi, do_loc_l1_norm_sd, do_loc_none, &
+        do_loc_scdm, energy_loc_range, op_loc_berry, op_loc_boys, op_loc_pipek, state_loc_all, &
+        state_loc_list, state_loc_mixed, state_loc_none, state_loc_range
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
@@ -64,6 +63,7 @@ MODULE qs_loc_utils
    USE memory_utilities,                ONLY: reallocate
    USE message_passing,                 ONLY: mp_bcast
    USE orbital_pointers,                ONLY: ncoset
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -74,13 +74,13 @@ MODULE qs_loc_utils
                                               localized_wfn_control_create,&
                                               localized_wfn_control_release,&
                                               localized_wfn_control_type,&
-                                              qs_loc_env_new_type,&
+                                              qs_loc_env_type,&
                                               set_qs_loc_env
    USE qs_localization_methods,         ONLY: initialize_weights,&
                                               rotate_orbitals
    USE qs_mo_methods,                   ONLY: make_mo_eig
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: get_iterator_info,&
                                               neighbor_list_iterate,&
                                               neighbor_list_iterator_create,&
@@ -124,6 +124,7 @@ CONTAINS
       IF (.NOT. ASSOCIATED(mo_loc_history)) THEN
          ALLOCATE (mo_loc_history(SIZE(mo_loc)))
          DO i = 1, SIZE(mo_loc_history)
+            ALLOCATE (mo_loc_history(i)%matrix)
             CALL cp_fm_create(mo_loc_history(i)%matrix, mo_loc(i)%matrix%matrix_struct)
          END DO
       END IF
@@ -148,7 +149,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rotate_state_to_ref(mo_new, mo_ref, matrix_S)
 
-      TYPE(cp_fm_type), POINTER                          :: mo_new, mo_ref
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_new, mo_ref
       TYPE(dbcsr_type), POINTER                          :: matrix_S
 
       CHARACTER(len=*), PARAMETER :: routineN = 'rotate_state_to_ref'
@@ -156,7 +157,7 @@ CONTAINS
       INTEGER                                            :: handle, ncol, ncol_ref, nrow
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eigenvalues
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: o1, o2, o3, o4, smo
+      TYPE(cp_fm_type)                                   :: o1, o2, o3, o4, smo
 
       CALL timeset(routineN, handle)
 
@@ -164,7 +165,7 @@ CONTAINS
       CALL cp_fm_get_info(mo_ref, ncol_global=ncol_ref)
       CPASSERT(ncol == ncol_ref)
 
-      NULLIFY (fm_struct_tmp, o1, o2, o3, o4, smo)
+      NULLIFY (fm_struct_tmp)
       CALL cp_fm_create(smo, mo_ref%matrix_struct)
 
       CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=ncol, &
@@ -178,10 +179,10 @@ CONTAINS
 
       ! o1 = (mo_new)^T matrix_S mo_ref
       CALL cp_dbcsr_sm_fm_multiply(matrix_S, mo_ref, smo, ncol)
-      CALL cp_gemm('T', 'N', ncol, ncol, nrow, 1.0_dp, mo_new, smo, 0.0_dp, o1)
+      CALL parallel_gemm('T', 'N', ncol, ncol, nrow, 1.0_dp, mo_new, smo, 0.0_dp, o1)
 
       ! o2 = (o1^T o1)
-      CALL cp_gemm('T', 'N', ncol, ncol, ncol, 1.0_dp, o1, o1, 0.0_dp, o2)
+      CALL parallel_gemm('T', 'N', ncol, ncol, ncol, 1.0_dp, o1, o1, 0.0_dp, o2)
 
       ! o2 = (o1^T o1)^-1/2
       ALLOCATE (eigenvalues(ncol))
@@ -189,19 +190,19 @@ CONTAINS
       CALL cp_fm_to_fm(o3, o4)
       eigenvalues(:) = 1.0_dp/SQRT(eigenvalues(:))
       CALL cp_fm_column_scale(o4, eigenvalues)
-      CALL cp_gemm('N', 'T', ncol, ncol, ncol, 1.0_dp, o3, o4, 0.0_dp, o2)
+      CALL parallel_gemm('N', 'T', ncol, ncol, ncol, 1.0_dp, o3, o4, 0.0_dp, o2)
 
       ! o3 = o1 (o1^T o1)^-1/2
-      CALL cp_gemm('N', 'N', ncol, ncol, ncol, 1.0_dp, o1, o2, 0.0_dp, o3)
+      CALL parallel_gemm('N', 'N', ncol, ncol, ncol, 1.0_dp, o1, o2, 0.0_dp, o3)
 
       ! mo_new o1 (o1^T o1)^-1/2
-      CALL cp_gemm('N', 'N', nrow, ncol, ncol, 1.0_dp, mo_new, o3, 0.0_dp, smo)
+      CALL parallel_gemm('N', 'N', nrow, ncol, ncol, 1.0_dp, mo_new, o3, 0.0_dp, smo)
       CALL cp_fm_to_fm(smo, mo_new)
 
       ! XXXXXXX testing
-      ! CALL cp_gemm('N','T',ncol,ncol,ncol,1.0_dp,o3,o3,0.0_dp,o1)
+      ! CALL parallel_gemm('N','T',ncol,ncol,ncol,1.0_dp,o3,o3,0.0_dp,o1)
       ! WRITE(*,*) o1%local_data
-      ! CALL cp_gemm('T','N',ncol,ncol,ncol,1.0_dp,o3,o3,0.0_dp,o1)
+      ! CALL parallel_gemm('T','N',ncol,ncol,ncol,1.0_dp,o3,o3,0.0_dp,o1)
       ! WRITE(*,*) o1%local_data
 
       CALL cp_fm_release(o1)
@@ -227,15 +228,13 @@ CONTAINS
    SUBROUTINE jacobi_rotation_pipek(zij_fm_set, vectors, sweeps)
 
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: zij_fm_set
-      TYPE(cp_fm_type), POINTER                          :: vectors
+      TYPE(cp_fm_type), INTENT(IN)                       :: vectors
       INTEGER                                            :: sweeps
 
       INTEGER                                            :: iatom, istate, jstate, natom, nstate
       REAL(KIND=dp)                                      :: aij, bij, ct, mii, mij, mjj, ratio, st, &
                                                             theta, tolerance
-      TYPE(cp_fm_type), POINTER                          :: rmat
-
-      NULLIFY (rmat)
+      TYPE(cp_fm_type)                                   :: rmat
 
       CALL cp_fm_create(rmat, zij_fm_set(1, 1)%matrix%matrix_struct)
       CALL cp_fm_set_all(rmat, 0.0_dp, 1.0_dp)
@@ -305,7 +304,7 @@ CONTAINS
 
       INTEGER, INTENT(IN)                      :: istate, jstate
       REAL(dp), INTENT(IN)                     :: st, ct
-      TYPE(cp_fm_type), POINTER                :: rmat
+      TYPE(cp_fm_type), INTENT(IN)             :: rmat
 
       INTEGER                                  :: nstate
 #if defined(__SCALAPACK)
@@ -390,9 +389,9 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(dp)                                           :: grad_ij, zii, zij, zjj
       REAL(dp), DIMENSION(:, :), POINTER                 :: diag
-      TYPE(cp_fm_type), POINTER                          :: force
+      TYPE(cp_fm_type)                                   :: force
 
-      NULLIFY (force, diag, col_indices, row_indices)
+      NULLIFY (diag, col_indices, row_indices)
       natom = SIZE(zij_fm_set, 1)
       CALL cp_fm_get_info(zij_fm_set(1, 1)%matrix, nrow_local=nrow_local, &
                           ncol_local=ncol_local, nrow_global=nrow_global, &
@@ -447,7 +446,7 @@ CONTAINS
    SUBROUTINE qs_loc_env_init(qs_loc_env, localized_wfn_control, qs_env, myspin, do_localize, &
                               loc_coeff, mo_loc_history)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
       INTEGER, INTENT(IN), OPTIONAL                      :: myspin
@@ -470,7 +469,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(distribution_1d_type), POINTER                :: local_molecules
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
 
       CALL timeset(routineN, handle)
@@ -491,16 +490,18 @@ CONTAINS
          ALLOCATE (moloc_coeff(s_spin:l_spin))
          DO ispin = s_spin, l_spin
             NULLIFY (tmp_fm_struct, mo_coeff)
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
             nmosub = localized_wfn_control%nloc_states(ispin)
             CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
                                      ncol_global=nmosub, para_env=para_env, context=mo_coeff%matrix_struct%context)
+            ALLOCATE (moloc_coeff(ispin)%matrix)
             CALL cp_fm_create(moloc_coeff(ispin)%matrix, tmp_fm_struct)
 
             CALL cp_fm_get_info(moloc_coeff(ispin)%matrix, nrow_global=naosub, &
                                 ncol_global=nmosub)
             CPASSERT(nao == naosub)
-            IF (localized_wfn_control%do_homo) THEN
+            IF ((localized_wfn_control%do_homo) .OR. &
+                (localized_wfn_control%set_of_states == state_loc_mixed)) THEN
                CPASSERT(nmo >= nmosub)
             ELSE
                CPASSERT(nao - nmo >= nmosub)
@@ -511,7 +512,7 @@ CONTAINS
          ! Copy the submatrix
 
          DO ispin = s_spin, l_spin
-            CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, &
+            CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, &
                             occupation_numbers=occupations, nao=nao, nmo=nmo)
             lb = localized_wfn_control%lu_bound_states(1, ispin)
             ub = localized_wfn_control%lu_bound_states(2, ispin)
@@ -521,7 +522,8 @@ CONTAINS
             ELSE
                mat_ptr => mo_coeff
             END IF
-            IF (localized_wfn_control%set_of_states == state_loc_list) THEN
+            IF ((localized_wfn_control%set_of_states == state_loc_list) .OR. &
+                (localized_wfn_control%set_of_states == state_loc_mixed)) THEN
                ALLOCATE (vecbuffer(1, nao))
                IF (localized_wfn_control%do_homo) THEN
                   my_occ = occupations(localized_wfn_control%loc_states(1, ispin))
@@ -581,7 +583,7 @@ CONTAINS
          ! Prepare the operators
          NULLIFY (tmp_fm_struct, mo_coeff)
          nmosub = MAXVAL(localized_wfn_control%nloc_states)
-         CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(1), mo_coeff=mo_coeff)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmosub, &
                                   ncol_global=nmosub, para_env=para_env, context=mo_coeff%matrix_struct%context)
 
@@ -608,9 +610,9 @@ CONTAINS
             ALLOCATE (qs_loc_env%op_fm_set(natoms, 1))
             CALL set_qs_loc_env(qs_loc_env=qs_loc_env, dim_op=natoms)
             DO ispin = 1, SIZE(qs_loc_env%op_fm_set, 2)
-               CALL get_mo_set(mos(ispin)%mo_set, nmo=nmo)
+               CALL get_mo_set(mos(ispin), nmo=nmo)
                DO iatom = 1, natoms
-                  NULLIFY (qs_loc_env%op_fm_set(iatom, ispin)%matrix)
+                  ALLOCATE (qs_loc_env%op_fm_set(iatom, ispin)%matrix)
 
                   CALL cp_fm_create(qs_loc_env%op_fm_set(iatom, ispin)%matrix, tmp_fm_struct)
 
@@ -654,7 +656,7 @@ CONTAINS
 !> \author MI
 ! **************************************************************************************************
    SUBROUTINE get_berry_operator(qs_loc_env, qs_env)
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
       CHARACTER(len=*), PARAMETER :: routineN = 'get_berry_operator'
@@ -906,16 +908,18 @@ CONTAINS
 !> \param coeff_localized ...
 !> \param do_homo ...
 !> \param evals ...
+!> \param do_mixed ...
 ! **************************************************************************************************
    SUBROUTINE loc_write_restart(qs_loc_env, section, mo_array, coeff_localized, &
-                                do_homo, evals)
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+                                do_homo, evals, do_mixed)
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: section
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mo_array
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: coeff_localized
       LOGICAL, INTENT(IN)                                :: do_homo
       TYPE(cp_1d_r_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: evals
+      LOGICAL, INTENT(IN), OPTIONAL                      :: do_mixed
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'loc_write_restart'
 
@@ -923,6 +927,7 @@ CONTAINS
       CHARACTER(LEN=default_string_length)               :: my_middle
       INTEGER                                            :: handle, ispin, max_block, nao, nloc, &
                                                             nmo, output_unit, rst_unit
+      LOGICAL                                            :: my_do_mixed
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER                   :: print_key
@@ -942,8 +947,12 @@ CONTAINS
             ! Open file
             rst_unit = -1
 
+            my_do_mixed = .FALSE.
+            IF (PRESENT(do_mixed)) my_do_mixed = do_mixed
             IF (do_homo) THEN
                my_middle = "LOC_HOMO"
+            ELSEIF (my_do_mixed) THEN
+               my_middle = "LOC_MIXED"
             ELSE
                my_middle = "LOC_LUMO"
             END IF
@@ -974,13 +983,13 @@ CONTAINS
                nloc = qs_loc_env%localized_wfn_control%nloc_states(ispin)
                IF (rst_unit > 0) THEN
                   WRITE (rst_unit) qs_loc_env%localized_wfn_control%loc_states(1:nloc, ispin)
-                  IF (do_homo) THEN
+                  IF (do_homo .OR. my_do_mixed) THEN
                      WRITE (rst_unit) nmo, &
-                        mo_array(ispin)%mo_set%homo, &
-                        mo_array(ispin)%mo_set%lfomo, &
-                        mo_array(ispin)%mo_set%nelectron
-                     WRITE (rst_unit) mo_array(ispin)%mo_set%eigenvalues(1:nmo), &
-                        mo_array(ispin)%mo_set%occupation_numbers(1:nmo)
+                        mo_array(ispin)%homo, &
+                        mo_array(ispin)%lfomo, &
+                        mo_array(ispin)%nelectron
+                     WRITE (rst_unit) mo_array(ispin)%eigenvalues(1:nmo), &
+                        mo_array(ispin)%occupation_numbers(1:nmo)
                   ELSE
                      WRITE (rst_unit) nmo
                      WRITE (rst_unit) evals(ispin)%array(1:nmo)
@@ -1012,12 +1021,13 @@ CONTAINS
 !> \param do_homo ...
 !> \param restart_found ...
 !> \param evals ...
+!> \param do_mixed ...
 ! **************************************************************************************************
    SUBROUTINE loc_read_restart(qs_loc_env, mos, mos_localized, section, section2, para_env, &
-                               do_homo, restart_found, evals)
+                               do_homo, restart_found, evals, do_mixed)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_localized
       TYPE(section_vals_type), POINTER                   :: section, section2
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -1025,6 +1035,7 @@ CONTAINS
       LOGICAL, INTENT(INOUT)                             :: restart_found
       TYPE(cp_1d_r_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: evals
+      LOGICAL, INTENT(IN), OPTIONAL                      :: do_mixed
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'loc_read_restart'
 
@@ -1033,7 +1044,7 @@ CONTAINS
       CHARACTER(LEN=default_string_length)               :: my_middle
       INTEGER :: group, handle, homo_read, i, ispin, lfomo_read, max_nloc, n_rep_val, nao, &
          nelectron_read, nloc, nmo, nmo_read, nspin, output_unit, rst_unit, source
-      LOGICAL                                            :: file_exists
+      LOGICAL                                            :: file_exists, my_do_mixed
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: eig_read, occ_read
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: vecbuffer
       TYPE(cp_logger_type), POINTER                      :: logger
@@ -1044,7 +1055,7 @@ CONTAINS
       logger => cp_get_default_logger()
 
       nspin = SIZE(mos_localized)
-      nao = mos(1)%mo_set%nao
+      nao = mos(1)%nao
       rst_unit = -1
 
       group = para_env%group
@@ -1052,8 +1063,12 @@ CONTAINS
       output_unit = cp_print_key_unit_nr(logger, section2, &
                                          "PROGRAM_RUN_INFO", extension=".Log")
 
+      my_do_mixed = .FALSE.
+      IF (PRESENT(do_mixed)) my_do_mixed = do_mixed
       IF (do_homo) THEN
          fname_key = "LOCHOMO_RESTART_FILE_NAME"
+      ELSEIF (my_do_mixed) THEN
+         fname_key = "LOCMIXD_RESTART_FILE_NAME"
       ELSE
          fname_key = "LOCLUMO_RESTART_FILE_NAME"
          IF (.NOT. PRESENT(evals)) &
@@ -1069,6 +1084,8 @@ CONTAINS
          print_key => section_vals_get_subs_vals(section2, "LOC_RESTART")
          IF (do_homo) THEN
             my_middle = "LOC_HOMO"
+         ELSEIF (my_do_mixed) THEN
+            my_middle = "LOC_MIXED"
          ELSE
             my_middle = "LOC_LUMO"
          END IF
@@ -1114,15 +1131,15 @@ CONTAINS
          qs_loc_env%localized_wfn_control%loc_states = 0
 
          DO ispin = 1, nspin
-            IF (do_homo) THEN
-               nmo = mos(ispin)%mo_set%nmo
+            IF (do_homo .OR. do_mixed) THEN
+               nmo = mos(ispin)%nmo
             ELSE
                nmo = SIZE(evals(ispin)%array, 1)
             END IF
             IF (para_env%ionode .AND. (nmo > 0)) THEN
                nloc = qs_loc_env%localized_wfn_control%nloc_states(ispin)
                READ (rst_unit) qs_loc_env%localized_wfn_control%loc_states(1:nloc, ispin)
-               IF (do_homo) THEN
+               IF (do_homo .OR. do_mixed) THEN
                   READ (rst_unit) nmo_read, homo_read, lfomo_read, nelectron_read
                   ALLOCATE (eig_read(nmo_read), occ_read(nmo_read))
                   eig_read = 0.0_dp
@@ -1144,9 +1161,9 @@ CONTAINS
                                "the allocated MOs. The read MO set will be truncated!")
 
                nmo = MIN(nmo, nmo_read)
-               IF (do_homo) THEN
-                  mos(ispin)%mo_set%eigenvalues(1:nmo) = eig_read(1:nmo)
-                  mos(ispin)%mo_set%occupation_numbers(1:nmo) = occ_read(1:nmo)
+               IF (do_homo .OR. do_mixed) THEN
+                  mos(ispin)%eigenvalues(1:nmo) = eig_read(1:nmo)
+                  mos(ispin)%occupation_numbers(1:nmo) = occ_read(1:nmo)
                   DEALLOCATE (eig_read, occ_read)
                ELSE
                   evals(ispin)%array(1:nmo) = eig_read(1:nmo)
@@ -1154,9 +1171,9 @@ CONTAINS
                END IF
 
             END IF
-            IF (do_homo) THEN
-               CALL mp_bcast(mos(ispin)%mo_set%eigenvalues, source, group)
-               CALL mp_bcast(mos(ispin)%mo_set%occupation_numbers, source, group)
+            IF (do_homo .OR. do_mixed) THEN
+               CALL mp_bcast(mos(ispin)%eigenvalues, source, group)
+               CALL mp_bcast(mos(ispin)%occupation_numbers, source, group)
             ELSE
                CALL mp_bcast(evals(ispin)%array, source, group)
             END IF
@@ -1193,31 +1210,40 @@ CONTAINS
 !> \param qs_loc_env ...
 !> \param loc_section ...
 !> \param do_homo ...
+!> \param do_mixed ...
 !> \param do_xas ...
 !> \param nloc_xas ...
 !> \param spin_xas ...
 !> \par History
 !>      2009 created
 ! **************************************************************************************************
-   SUBROUTINE qs_loc_control_init(qs_loc_env, loc_section, do_homo, do_xas, nloc_xas, spin_xas)
+   SUBROUTINE qs_loc_control_init(qs_loc_env, loc_section, do_homo, do_mixed, &
+                                  do_xas, nloc_xas, spin_xas)
 
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: loc_section
       LOGICAL, INTENT(IN)                                :: do_homo
-      LOGICAL, INTENT(IN), OPTIONAL                      :: do_xas
+      LOGICAL, INTENT(IN), OPTIONAL                      :: do_mixed, do_xas
       INTEGER, INTENT(IN), OPTIONAL                      :: nloc_xas, spin_xas
 
+      LOGICAL                                            :: my_do_mixed
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
 
       NULLIFY (localized_wfn_control)
 
+      IF (PRESENT(do_mixed)) THEN
+         my_do_mixed = do_mixed
+      ELSE
+         my_do_mixed = .FALSE.
+      END IF
       CALL localized_wfn_control_create(localized_wfn_control)
       CALL set_qs_loc_env(qs_loc_env, localized_wfn_control=localized_wfn_control)
       CALL localized_wfn_control_release(localized_wfn_control)
       CALL get_qs_loc_env(qs_loc_env, localized_wfn_control=localized_wfn_control)
       localized_wfn_control%do_homo = do_homo
-      CALL read_loc_section(localized_wfn_control, loc_section, &
-                            qs_loc_env%do_localize, do_xas, nloc_xas, spin_xas)
+      localized_wfn_control%do_mixed = my_do_mixed
+      CALL read_loc_section(localized_wfn_control, loc_section, qs_loc_env%do_localize, &
+                            my_do_mixed, do_xas, nloc_xas, spin_xas)
 
    END SUBROUTINE qs_loc_control_init
 
@@ -1231,11 +1257,14 @@ CONTAINS
 !> \param do_mo_cubes ...
 !> \param mo_loc_history ...
 !> \param evals ...
+!> \param tot_zeff_corr ...
+!> \param do_mixed ...
 ! **************************************************************************************************
    SUBROUTINE qs_loc_init(qs_env, qs_loc_env, localize_section, mos_localized, &
-                          do_homo, do_mo_cubes, mo_loc_history, evals)
+                          do_homo, do_mo_cubes, mo_loc_history, evals, &
+                          tot_zeff_corr, do_mixed)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: localize_section
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_localized
       LOGICAL, OPTIONAL                                  :: do_homo, do_mo_cubes
@@ -1243,21 +1272,23 @@ CONTAINS
          POINTER                                         :: mo_loc_history
       TYPE(cp_1d_r_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: evals
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: tot_zeff_corr
+      LOGICAL, OPTIONAL                                  :: do_mixed
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'qs_loc_init'
 
-      INTEGER                                            :: handle, homo, i, ilast_intocc, ilow, &
-                                                            ispin, iup, n_mo(2), n_mos(2), nao, &
-                                                            nelectron, nmoloc(2), nspin, &
-                                                            output_unit
-      LOGICAL                                            :: my_do_homo, my_do_mo_cubes, restart_found
+      INTEGER :: handle, homo, i, ilast_intocc, ilow, ispin, iup, n_mo(2), n_mos(2), nao, &
+         nelectron, nextra, nmoloc(2), nocc, npocc, nspin, output_unit
+      LOGICAL                                            :: my_do_homo, my_do_mixed, my_do_mo_cubes, &
+                                                            restart_found
+      REAL(KIND=dp)                                      :: maxocc, my_tot_zeff_corr
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues, occupation
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: ks_rmpv, mo_derivs
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(scf_control_type), POINTER                    :: scf_control
       TYPE(section_vals_type), POINTER                   :: loc_print_section
 
@@ -1287,22 +1318,65 @@ CONTAINS
       ELSE
          my_do_mo_cubes = .FALSE.
       END IF
+      IF (PRESENT(do_mixed)) THEN
+         my_do_mixed = do_mixed
+      ELSE
+         my_do_mixed = .FALSE.
+      END IF
+      IF (PRESENT(tot_zeff_corr)) THEN
+         my_tot_zeff_corr = tot_zeff_corr
+      ELSE
+         my_tot_zeff_corr = 0.0_dp
+      END IF
       restart_found = .FALSE.
+
       IF (qs_loc_env%do_localize) THEN
          ! Some setup for MOs to be localized
          CALL get_qs_loc_env(qs_loc_env, localized_wfn_control=localized_wfn_control)
          IF (localized_wfn_control%loc_restart) THEN
+            IF (localized_wfn_control%nextra > 0) THEN
+               ! currently only the occupied guess is read
+               my_do_homo = .FALSE.
+            END IF
             CALL loc_read_restart(qs_loc_env, mos, mos_localized, localize_section, &
-                                  loc_print_section, para_env, my_do_homo, restart_found, evals=evals)
+                                  loc_print_section, para_env, my_do_homo, restart_found, evals=evals, &
+                                  do_mixed=my_do_mixed)
             IF (output_unit > 0) WRITE (output_unit, "(/,T2,A,A)") "LOCALIZATION| ", &
                "   The orbitals to be localized are read from localization restart file."
             nmoloc = localized_wfn_control%nloc_states
+            localized_wfn_control%nguess = nmoloc
+            IF (localized_wfn_control%nextra > 0) THEN
+               ! reset different variables in localized_wfn_control:
+               ! lu_bound_states, nloc_states, loc_states
+               localized_wfn_control%loc_restart = restart_found
+               localized_wfn_control%set_of_states = state_loc_mixed
+               DO ispin = 1, nspin
+                  CALL get_mo_set(mos(ispin), homo=homo, occupation_numbers=occupation, &
+                                  maxocc=maxocc)
+                  nextra = localized_wfn_control%nextra
+                  nocc = homo
+                  DO i = nocc, 1, -1
+                     IF (maxocc - occupation(i) < localized_wfn_control%eps_occ) THEN
+                        ilast_intocc = i
+                        EXIT
+                     END IF
+                  END DO
+                  nocc = ilast_intocc
+                  npocc = homo - nocc
+                  nmoloc(ispin) = nocc + nextra
+                  localized_wfn_control%lu_bound_states(1, ispin) = 1
+                  localized_wfn_control%lu_bound_states(2, ispin) = nmoloc(ispin)
+                  localized_wfn_control%nloc_states(ispin) = nmoloc(ispin)
+               END DO
+               my_do_homo = .FALSE.
+            END IF
          END IF
          IF (.NOT. restart_found) THEN
             nmoloc = 0
             DO ispin = 1, nspin
-               CALL get_mo_set(mos(ispin)%mo_set, nmo=n_mo(ispin), nelectron=nelectron, homo=homo, nao=nao, &
-                               mo_coeff=mo_coeff, eigenvalues=mo_eigenvalues, occupation_numbers=occupation)
+               CALL get_mo_set(mos(ispin), nmo=n_mo(ispin), nelectron=nelectron, homo=homo, nao=nao, &
+                               mo_coeff=mo_coeff, eigenvalues=mo_eigenvalues, occupation_numbers=occupation, &
+                               maxocc=maxocc)
                ! Get eigenstates (only needed if not already calculated before)
                IF ((.NOT. my_do_mo_cubes) &
                    !                  .OR. section_get_ival(dft_section,"PRINT%MO_CUBES%NHOMO")==0)&
@@ -1366,6 +1440,28 @@ CONTAINS
                      "LOCALIZATION| Spin ", ispin, " The first ", &
                      nmoloc(ispin), " virtual orbitals are localized,", " with energies from ", &
                      mo_eigenvalues(homo + 1), " to ", mo_eigenvalues(n_mo(ispin)), " [a.u.]."
+               ELSE IF (localized_wfn_control%set_of_states == state_loc_mixed) THEN
+                  nextra = localized_wfn_control%nextra
+                  nocc = homo
+                  DO i = nocc, 1, -1
+                     IF (maxocc - occupation(i) < localized_wfn_control%eps_occ) THEN
+                        ilast_intocc = i
+                        EXIT
+                     END IF
+                  END DO
+                  nocc = ilast_intocc
+                  npocc = homo - nocc
+                  nmoloc(ispin) = nocc + nextra
+                  localized_wfn_control%lu_bound_states(1, ispin) = 1
+                  localized_wfn_control%lu_bound_states(2, ispin) = nmoloc(ispin)
+                  IF (output_unit > 0) &
+                     WRITE (output_unit, "(/,T2,A,I4,A,I6,A,/,T15,A,I6,/,T15,A,I6,/,T15,A,I6,/,T15,A,F12.6,A)") &
+                     "LOCALIZATION| Spin ", ispin, " The first ", &
+                     nmoloc(ispin), " orbitals are localized.", &
+                     "Number of fully occupied MOs: ", nocc, &
+                     "Number of partially occupied MOs: ", npocc, &
+                     "Number of extra degrees of freedom: ", nextra, &
+                     "Excess charge: ", my_tot_zeff_corr, " electrons"
                ELSE
                   nmoloc(ispin) = MIN(localized_wfn_control%nloc_states(1), n_mo(ispin))
                   IF (output_unit > 0 .AND. my_do_homo) WRITE (output_unit, "(/,T2,A,I4,A,I6,A)") "LOCALIZATION| Spin ", ispin, &
@@ -1389,11 +1485,11 @@ CONTAINS
                END IF
             END DO ! ispin
             n_mos(:) = nao - n_mo(:)
-            IF (my_do_homo) n_mos = n_mo
+            IF (my_do_homo .OR. my_do_mixed) n_mos = n_mo
             CALL set_loc_wfn_lists(localized_wfn_control, nmoloc, n_mos, nspin)
          END IF
          CALL set_loc_centers(localized_wfn_control, nmoloc, nspin)
-         IF (my_do_homo) THEN
+         IF (my_do_homo .OR. my_do_mixed) THEN
             CALL qs_loc_env_init(qs_loc_env, localized_wfn_control, qs_env, &
                                  loc_coeff=mos_localized, mo_loc_history=mo_loc_history)
          END IF
@@ -1413,6 +1509,7 @@ CONTAINS
 !> \param localized_wfn_control ...
 !> \param loc_section ...
 !> \param localize ...
+!> \param do_mixed ...
 !> \param do_xas ...
 !> \param nloc_xas ...
 !> \param spin_channel_xas ...
@@ -1420,19 +1517,19 @@ CONTAINS
 !>      05.2005 created [MI]
 ! **************************************************************************************************
    SUBROUTINE read_loc_section(localized_wfn_control, loc_section, &
-                               localize, do_xas, nloc_xas, spin_channel_xas)
+                               localize, do_mixed, do_xas, nloc_xas, spin_channel_xas)
 
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
       TYPE(section_vals_type), POINTER                   :: loc_section
       LOGICAL, INTENT(OUT)                               :: localize
-      LOGICAL, INTENT(IN), OPTIONAL                      :: do_xas
+      LOGICAL, INTENT(IN), OPTIONAL                      :: do_mixed, do_xas
       INTEGER, INTENT(IN), OPTIONAL                      :: nloc_xas, spin_channel_xas
 
       INTEGER                                            :: i, ind, ir, n_list, n_rep, n_state, &
-                                                            nline, other_spin, output_unit, &
-                                                            spin_xas
+                                                            nextra, nline, other_spin, &
+                                                            output_unit, spin_xas
       INTEGER, DIMENSION(:), POINTER                     :: list, loc_list
-      LOGICAL                                            :: my_do_xas
+      LOGICAL                                            :: my_do_mixed, my_do_xas
       REAL(dp), POINTER                                  :: ene(:)
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER                   :: loc_print_section
@@ -1444,6 +1541,10 @@ CONTAINS
          CPASSERT(PRESENT(nloc_xas))
       END IF
       IF (PRESENT(spin_channel_xas)) spin_xas = spin_channel_xas
+      my_do_mixed = .FALSE.
+      IF (PRESENT(do_mixed)) THEN
+         my_do_mixed = do_mixed
+      END IF
       CPASSERT(ASSOCIATED(loc_section))
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -1457,6 +1558,7 @@ CONTAINS
          localized_wfn_control%lu_ene_bound = 0.0_dp
          localized_wfn_control%nloc_states = 0
          localized_wfn_control%set_of_states = 0
+         localized_wfn_control%nextra = 0
          n_state = 0
 
          CALL section_vals_val_get(loc_section, "MAX_ITER", &
@@ -1487,6 +1589,14 @@ CONTAINS
                                    l_val=localized_wfn_control%loc_restart)
          CALL section_vals_val_get(loc_section, "USE_HISTORY", &
                                    l_val=localized_wfn_control%use_history)
+         CALL section_vals_val_get(loc_section, "NEXTRA", &
+                                   i_val=localized_wfn_control%nextra)
+         CALL section_vals_val_get(loc_section, "CPO_GUESS", &
+                                   i_val=localized_wfn_control%coeff_po_guess)
+         CALL section_vals_val_get(loc_section, "CPO_GUESS_SPACE", &
+                                   i_val=localized_wfn_control%coeff_po_guess_mo_space)
+         CALL section_vals_val_get(loc_section, "CG_PO", &
+                                   l_val=localized_wfn_control%do_cg_po)
 
          IF (localized_wfn_control%do_homo) THEN
             ! List of States HOMO
@@ -1569,6 +1679,9 @@ CONTAINS
                localized_wfn_control%nloc_states(spin_xas) = nloc_xas
                localized_wfn_control%lu_bound_states(1, spin_xas) = 1
                localized_wfn_control%lu_bound_states(2, spin_xas) = nloc_xas
+            ELSE IF (my_do_mixed) THEN
+               localized_wfn_control%set_of_states = state_loc_mixed
+               nextra = localized_wfn_control%nextra
             ELSE
                localized_wfn_control%set_of_states = state_loc_all
             END IF
@@ -1622,6 +1735,9 @@ CONTAINS
                WRITE (UNIT=output_unit, FMT="(T2,A,T65,/,f16.6,A,f16.6,A)") &
                   "LOCALIZE| Orbitals to be localized: Those with energy in the range between ", &
                   localized_wfn_control%lu_ene_bound(1), " and ", localized_wfn_control%lu_ene_bound(2), " a.u."
+            CASE (state_loc_mixed)
+               WRITE (UNIT=output_unit, FMT="(T2,A,I4,A)") &
+                  "LOCALIZE| Orbitals to be localized: Occupied orbitals + ", nextra, " orbitals"
             CASE DEFAULT
                WRITE (UNIT=output_unit, FMT="(T2,A)") &
                   "LOCALIZE| Orbitals to be localized: None "
@@ -1652,6 +1768,10 @@ CONTAINS
                   "LOCALIZE| scaling: ", localized_wfn_control%crazy_scale
                WRITE (UNIT=output_unit, FMT="(T2,A,L1)") &
                   "LOCALIZE| use diag:", localized_wfn_control%crazy_use_diag
+            CASE (do_loc_gapo)
+               WRITE (UNIT=output_unit, FMT="(T2,A)") &
+                  "LOCALIZE| Optimal unitary transformation generated by gradient ascent algorithm "// &
+                  " for partially occupied wannier functions"
             CASE (do_loc_direct)
                WRITE (UNIT=output_unit, FMT="(T2,A)") &
                   "LOCALIZE| Optimal unitary transformation generated by direct algorithm"
@@ -1790,6 +1910,15 @@ CONTAINS
                END DO
             END DO
          END IF
+      CASE (state_loc_mixed)
+         ! Mixed
+         ALLOCATE (localized_wfn_control%loc_states(max_nmoloc, 2))
+         localized_wfn_control%loc_states = 0
+         DO ispin = 1, nspins
+            DO i = 1, nmoloc(ispin)
+               localized_wfn_control%loc_states(i, ispin) = i
+            END DO
+         END DO
       END SELECT
 
       CALL timestop(state)

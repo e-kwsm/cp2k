@@ -6,6 +6,7 @@
 /*----------------------------------------------------------------------------*/
 
 #ifndef DBM_HYPERPARAMS_H
+#define DBM_HYPERPARAMS_H
 
 // TODO: Tune parameters, check if dynamic OpenMP scheduling is really faster?
 

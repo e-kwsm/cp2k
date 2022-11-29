@@ -3,12 +3,12 @@
 # Usage: docker build -f ./Dockerfile.prod_ssmp ../../
 #
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 # Install requirements for the toolchain.
 WORKDIR /opt/cp2k-toolchain
 COPY ./tools/toolchain/install_requirements*.sh ./
-RUN ./install_requirements.sh ubuntu:20.04
+RUN ./install_requirements.sh ubuntu:22.04
 
 # Install the toolchain.
 RUN mkdir scripts
@@ -22,7 +22,7 @@ COPY ./tools/toolchain/scripts/VERSION \
 COPY ./tools/toolchain/install_cp2k_toolchain.sh .
 RUN ./install_cp2k_toolchain.sh \
     --install-all \
-    --mpi-mode=mpich \
+    --with-gcc=system \
     --dry-run
 
 # Dry-run leaves behind config files for the followup install scripts.
@@ -73,6 +73,8 @@ RUN /bin/bash -c " \
     echo 'Compiling cp2k...' && \
     source /opt/cp2k-toolchain/install/setup && \
     make -j ARCH=local VERSION=ssmp && \
+    ln -sf ./cp2k.ssmp ./exe/local/cp2k && \
+    ln -sf ./cp2k_shell.ssmp ./exe/local/cp2k_shell && \
     rm -rf lib obj exe/local/libcp2k_unittest.ssmp"
 COPY ./data ./data
 COPY ./tests ./tests

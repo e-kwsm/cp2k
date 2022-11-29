@@ -1,16 +1,13 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-gcc_ver="11.2.0"
-gcc_sha256="f0837f1bf8244a5cc23bd96ff6366712a791cfae01df8e25b137698aca26efc1"
+gcc_ver="12.2.0"
+gcc_sha256="ac6b317eb4d25444d87cf29c0d141dedc1323a1833ec9995211b13e1a851261c"
 
 source "${SCRIPT_DIR}"/common_vars.sh
 source "${SCRIPT_DIR}"/tool_kit.sh
@@ -34,19 +31,14 @@ case "${with_gcc}" in
     if verify_checksums "${install_lock_file}"; then
       echo "gcc-${gcc_ver} is already installed, skipping it."
     else
-      if [ "${gcc_ver}" = "master" ]; then
-        [ -d gcc-master ] && rm -rf gcc-master
-        svn checkout svn://gcc.gnu.org/svn/gcc/trunk gcc-master > svn-gcc.log 2>&1 || tail -n ${LOG_LINES} svn-gcc.log
+      if [ -f gcc-${gcc_ver}.tar.gz ]; then
+        echo "gcc-${gcc_ver}.tar.gz is found"
       else
-        if [ -f gcc-${gcc_ver}.tar.gz ]; then
-          echo "gcc-${gcc_ver}.tar.gz is found"
-        else
-          download_pkg ${DOWNLOADER_FLAGS} ${gcc_sha256} \
-            "https://www.cp2k.org/static/downloads/gcc-${gcc_ver}.tar.gz"
-        fi
-        [ -d gcc-${gcc_ver} ] && rm -rf gcc-${gcc_ver}
-        tar -xzf gcc-${gcc_ver}.tar.gz
+        download_pkg_from_cp2k_org "${gcc_sha256}" "gcc-${gcc_ver}.tar.gz"
       fi
+      [ -d gcc-${gcc_ver} ] && rm -rf gcc-${gcc_ver}
+      tar -xzf gcc-${gcc_ver}.tar.gz
+
       echo "Installing GCC from scratch into ${pkg_install_dir}"
       cd gcc-${gcc_ver}
       ./contrib/download_prerequisites > prereq.log 2>&1 || tail -n ${LOG_LINES} prereq.log
@@ -120,7 +112,7 @@ case "${with_gcc}" in
     F90="${FC}"
     F77="${FC}"
     GCC_CFLAGS="-I'${pkg_install_dir}/include'"
-    GCC_LDFLAGS="-L'${pkg_install_dir}/lib64' -L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib64' -Wl,-rpath='${pkg_install_dir}/lib64'"
+    GCC_LDFLAGS="-L'${pkg_install_dir}/lib64' -L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib64' -Wl,-rpath,'${pkg_install_dir}/lib64'"
     ;;
   __SYSTEM__)
     echo "==================== Finding GCC from system paths ===================="
@@ -148,7 +140,7 @@ case "${with_gcc}" in
     F90="${FC}"
     F77="${FC}"
     GCC_CFLAGS="-I'${pkg_install_dir}/include'"
-    GCC_LDFLAGS="-L'${pkg_install_dir}/lib64' -L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib64' -Wl,-rpath='${pkg_install_dir}/lib64'"
+    GCC_LDFLAGS="-L'${pkg_install_dir}/lib64' -L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib64' -Wl,-rpath,'${pkg_install_dir}/lib64'"
     ;;
 esac
 if [ "${ENABLE_TSAN}" = "__TRUE__" ]; then

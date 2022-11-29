@@ -50,7 +50,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_heevd(matrix, eigenvectors, eigenvalues)
 
-      TYPE(cp_cfm_type), POINTER               :: matrix, eigenvectors
+      TYPE(cp_cfm_type), INTENT(IN)            :: matrix, eigenvectors
       REAL(KIND=dp), DIMENSION(:), INTENT(OUT) :: eigenvalues
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_heevd'
@@ -73,9 +73,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(matrix))
-      CPASSERT(ASSOCIATED(eigenvectors))
-
       n = matrix%matrix_struct%nrow_global
       m => matrix%local_data
       ALLOCATE (iwork(1), rwork(1), work(1))
@@ -90,7 +87,9 @@ CONTAINS
       descv(:) = eigenvectors%matrix_struct%descriptor(:)
       CALL PZHEEVD('V', 'U', n, m(1, 1), 1, 1, descm, eigenvalues(1), v(1, 1), 1, 1, descv, &
                    work(1), lwork, rwork(1), lrwork, iwork(1), liwork, info)
-      lwork = CEILING(REAL(work(1), KIND=dp))
+      ! The work space query for lwork does not return always sufficiently large values.
+      ! Let's add some margin to avoid crashes.
+      lwork = CEILING(REAL(work(1), KIND=dp)) + 1000
       ! needed to correct for a bug in scalapack, unclear how much the right number is
       lrwork = CEILING(REAL(rwork(1), KIND=dp)) + 1000000
       liwork = iwork(1)
@@ -150,9 +149,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_geeig(amatrix, bmatrix, eigenvectors, eigenvalues, work)
 
-      TYPE(cp_cfm_type), POINTER                         :: amatrix, bmatrix, eigenvectors
+      TYPE(cp_cfm_type), INTENT(IN)                      :: amatrix, bmatrix, eigenvectors
       REAL(KIND=dp), DIMENSION(:)                        :: eigenvalues
-      TYPE(cp_cfm_type), POINTER                         :: work
+      TYPE(cp_cfm_type), INTENT(IN)                      :: work
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_cfm_geeig'
 
@@ -196,9 +195,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_geeig_canon(amatrix, bmatrix, eigenvectors, eigenvalues, work, epseig)
 
-      TYPE(cp_cfm_type), POINTER                         :: amatrix, bmatrix, eigenvectors
+      TYPE(cp_cfm_type), INTENT(IN)                      :: amatrix, bmatrix, eigenvectors
       REAL(KIND=dp), DIMENSION(:)                        :: eigenvalues
-      TYPE(cp_cfm_type), POINTER                         :: work
+      TYPE(cp_cfm_type), INTENT(IN)                      :: work
       REAL(KIND=dp), INTENT(IN)                          :: epseig
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_geeig_canon'

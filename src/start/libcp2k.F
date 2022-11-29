@@ -29,8 +29,8 @@ MODULE libcp2k
    USE cp_fm_types,                     ONLY: cp_fm_get_element
    USE f77_interface,                   ONLY: &
         calc_energy_force, create_force_env, destroy_force_env, f_env_add_defaults, &
-        f_env_rm_defaults, f_env_type, finalize_cp2k, get_energy, get_force, get_natom, &
-        get_nparticle, get_pos, get_result_r1, init_cp2k, set_cell, set_pos, set_vel
+        f_env_rm_defaults, f_env_type, finalize_cp2k, get_cell, get_energy, get_force, get_natom, &
+        get_nparticle, get_pos, get_qmmm_cell, get_result_r1, init_cp2k, set_cell, set_pos, set_vel
    USE force_env_types,                 ONLY: force_env_get,&
                                               use_qs_force
    USE input_cp2k,                      ONLY: create_cp2k_root_section
@@ -335,6 +335,36 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 !> \param env_id ...
+!> \param cell ...
+! **************************************************************************************************
+   SUBROUTINE cp2k_get_cell(env_id, cell) BIND(C)
+      INTEGER(C_INT), VALUE                              :: env_id
+      REAL(C_DOUBLE), DIMENSION(3, 3), INTENT(OUT)       :: cell
+
+      INTEGER                                            :: ierr
+
+      CALL get_cell(env_id, cell=cell, ierr=ierr)
+      CPASSERT(ierr == 0)
+   END SUBROUTINE cp2k_get_cell
+
+! **************************************************************************************************
+!> \brief ...
+!> \param env_id ...
+!> \param cell ...
+! **************************************************************************************************
+   SUBROUTINE cp2k_get_qmmm_cell(env_id, cell) BIND(C)
+      INTEGER(C_INT), VALUE                              :: env_id
+      REAL(C_DOUBLE), DIMENSION(3, 3), INTENT(OUT)       :: cell
+
+      INTEGER                                            :: ierr
+
+      CALL get_qmmm_cell(env_id, cell=cell, ierr=ierr)
+      CPASSERT(ierr == 0)
+   END SUBROUTINE cp2k_get_qmmm_cell
+
+! **************************************************************************************************
+!> \brief ...
+!> \param env_id ...
 ! **************************************************************************************************
    SUBROUTINE cp2k_calc_energy_force(env_id) BIND(C)
       INTEGER(C_INT), VALUE                              :: env_id
@@ -457,7 +487,7 @@ CONTAINS
          IF (.NOT. ASSOCIATED(active_space_env)) &
             EXIT try
 
-         CALL get_mo_set(active_space_env%mos_active(1)%mo_set, nmo=nmo)
+         CALL get_mo_set(active_space_env%mos_active(1), nmo=nmo)
       END BLOCK try
 
       CALL f_env_rm_defaults(f_env, ierr)
@@ -497,7 +527,7 @@ CONTAINS
          IF (.NOT. ASSOCIATED(active_space_env)) &
             EXIT try
 
-         CALL get_mo_set(active_space_env%mos_active(1)%mo_set, nmo=norb)
+         CALL get_mo_set(active_space_env%mos_active(1), nmo=norb)
 
          IF (buf_len < norb*norb) &
             EXIT try
@@ -592,7 +622,7 @@ CONTAINS
             IF (buf_coords_len < 4*nze .OR. buf_values_len < nze) &
                EXIT try
 
-            CALL active_space_env%eri%eri_foreach(1, eri2array(buf_coords, buf_values))
+            CALL active_space_env%eri%eri_foreach(1, active_space_env%active_orbitals, eri2array(buf_coords, buf_values))
 
             nelem = INT(nze, KIND(nelem))
          END ASSOCIATE

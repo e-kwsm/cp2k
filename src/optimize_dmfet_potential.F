@@ -20,7 +20,6 @@ MODULE optimize_dmfet_potential
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_create,&
                                               dbcsr_init_p,&
@@ -34,10 +33,11 @@ MODULE optimize_dmfet_potential
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -118,20 +118,21 @@ CONTAINS
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       ! Read the input
       CALL read_opt_dmfet_section(opt_dmfet, opt_dmfet_section)
 
       ! Get the orbital coefficients
       CALL get_qs_env(qs_env=qs_env, mos=mos, para_env=para_env)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff, nao=nao)
+      CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff, nao=nao)
 
       ! Make cp_fm matrices
       NULLIFY (blacs_env)
       CALL cp_blacs_env_create(blacs_env=blacs_env, para_env=para_env)
 
       NULLIFY (opt_dmfet%dmfet_pot, opt_dmfet%dm_1, opt_dmfet%dm_2, opt_dmfet%dm_total, opt_dmfet%dm_diff)
+      DEALLOCATE (opt_dmfet%dmfet_pot, opt_dmfet%dm_subsys, opt_dmfet%dm_total, opt_dmfet%dm_diff)
       NULLIFY (fm_struct)
 
       CALL cp_fm_struct_create(fm_struct, para_env=para_env, context=blacs_env, &
@@ -148,6 +149,10 @@ CONTAINS
 
       ! Beta spin counterparts
       IF (opt_dmfet%open_shell_embed) THEN
+         NULLIFY (opt_dmfet%dmfet_pot_beta, opt_dmfet%dm_subsys_beta, &
+                  opt_dmfet%dm_total_beta, opt_dmfet%dm_diff_beta)
+         ALLOCATE (opt_dmfet%dmfet_pot_beta, opt_dmfet%dm_subsys_beta, &
+                   opt_dmfet%dm_total_beta, opt_dmfet%dm_diff_beta)
          CALL cp_fm_create(opt_dmfet%dmfet_pot_beta, fm_struct, name="dmfet_pot_beta")
          CALL cp_fm_create(opt_dmfet%dm_subsys_beta, fm_struct, name="dm_subsys_beta")
          CALL cp_fm_create(opt_dmfet%dm_total_beta, fm_struct, name="dm_total_beta")
@@ -182,16 +187,48 @@ CONTAINS
    SUBROUTINE release_dmfet_opt(opt_dmfet)
       TYPE(opt_dmfet_pot_type)                           :: opt_dmfet
 
-      CALL cp_fm_release(opt_dmfet%dmfet_pot)
-      CALL cp_fm_release(opt_dmfet%dm_subsys)
-      CALL cp_fm_release(opt_dmfet%dm_total)
-      CALL cp_fm_release(opt_dmfet%dm_diff)
+      IF (ASSOCIATED(opt_dmfet%dmfet_pot)) THEN
+         CALL cp_fm_release(opt_dmfet%dmfet_pot)
+         DEALLOCATE (opt_dmfet%dmfet_pot)
+         NULLIFY (opt_dmfet%dmfet_pot)
+      END IF
+      IF (ASSOCIATED(opt_dmfet%dm_subsys)) THEN
+         CALL cp_fm_release(opt_dmfet%dm_subsys)
+         DEALLOCATE (opt_dmfet%dm_subsys)
+         NULLIFY (opt_dmfet%dm_subsys)
+      END IF
+      IF (ASSOCIATED(opt_dmfet%dm_total)) THEN
+         CALL cp_fm_release(opt_dmfet%dm_total)
+         DEALLOCATE (opt_dmfet%dm_total)
+         NULLIFY (opt_dmfet%dm_total)
+      END IF
+      IF (ASSOCIATED(opt_dmfet%dm_diff)) THEN
+         CALL cp_fm_release(opt_dmfet%dm_diff)
+         DEALLOCATE (opt_dmfet%dm_diff)
+         NULLIFY (opt_dmfet%dm_diff)
+      END IF
 
       IF (opt_dmfet%open_shell_embed) THEN
-         CALL cp_fm_release(opt_dmfet%dmfet_pot_beta)
-         CALL cp_fm_release(opt_dmfet%dm_subsys_beta)
-         CALL cp_fm_release(opt_dmfet%dm_total_beta)
-         CALL cp_fm_release(opt_dmfet%dm_diff_beta)
+         IF (ASSOCIATED(opt_dmfet%dmfet_pot_beta)) THEN
+            CALL cp_fm_release(opt_dmfet%dmfet_pot_beta)
+            DEALLOCATE (opt_dmfet%dmfet_pot_beta)
+            NULLIFY (opt_dmfet%dmfet_pot_beta)
+         END IF
+         IF (ASSOCIATED(opt_dmfet%dm_subsys_beta)) THEN
+            CALL cp_fm_release(opt_dmfet%dm_subsys_beta)
+            DEALLOCATE (opt_dmfet%dm_subsys_beta)
+            NULLIFY (opt_dmfet%dm_subsys_beta)
+         END IF
+         IF (ASSOCIATED(opt_dmfet%dm_total_beta)) THEN
+            CALL cp_fm_release(opt_dmfet%dm_total_beta)
+            DEALLOCATE (opt_dmfet%dm_total_beta)
+            NULLIFY (opt_dmfet%dm_total_beta)
+         END IF
+         IF (ASSOCIATED(opt_dmfet%dm_diff_beta)) THEN
+            CALL cp_fm_release(opt_dmfet%dm_diff_beta)
+            DEALLOCATE (opt_dmfet%dm_diff_beta)
+            NULLIFY (opt_dmfet%dm_diff_beta)
+         END IF
       END IF
 
       DEALLOCATE (opt_dmfet%w_func)
@@ -211,9 +248,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE build_full_dm(qs_env, dm, open_shell, open_shell_embed, dm_beta)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_type), POINTER                          :: dm
+      TYPE(cp_fm_type), INTENT(IN)                       :: dm
       LOGICAL                                            :: open_shell, open_shell_embed
-      TYPE(cp_fm_type), POINTER                          :: dm_beta
+      TYPE(cp_fm_type), INTENT(IN)                       :: dm_beta
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'build_full_dm'
 
@@ -221,7 +258,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: coeff
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
@@ -230,26 +267,26 @@ CONTAINS
 
       ! Get the orbital coefficients
       CALL get_qs_env(qs_env=qs_env, mos=mos)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=mo_coeff, nao=nao, homo=homo)
+      CALL get_mo_set(mo_set=mos(1), mo_coeff=mo_coeff, nao=nao, homo=homo)
 
       ! Build the density matrix
-      CALL cp_gemm(transa="N", transb="T", m=nao, n=nao, &
-                   k=homo, alpha=coeff, &
-                   matrix_a=mo_coeff, matrix_b=mo_coeff, &
-                   beta=0.0_dp, matrix_c=dm)
+      CALL parallel_gemm(transa="N", transb="T", m=nao, n=nao, &
+                         k=homo, alpha=coeff, &
+                         matrix_a=mo_coeff, matrix_b=mo_coeff, &
+                         beta=0.0_dp, matrix_c=dm)
 
       ! Open shell
       IF (open_shell) THEN
-         CALL get_mo_set(mo_set=mos(2)%mo_set, mo_coeff=mo_coeff, nao=nao, homo=homo)
+         CALL get_mo_set(mo_set=mos(2), mo_coeff=mo_coeff, nao=nao, homo=homo)
 
          ! Build the density matrix
-         CALL cp_gemm(transa="N", transb="T", m=nao, n=nao, &
-                      k=homo, alpha=coeff, &
-                      matrix_a=mo_coeff, matrix_b=mo_coeff, &
-                      beta=0.0_dp, matrix_c=dm_beta)
+         CALL parallel_gemm(transa="N", transb="T", m=nao, n=nao, &
+                            k=homo, alpha=coeff, &
+                            matrix_a=mo_coeff, matrix_b=mo_coeff, &
+                            beta=0.0_dp, matrix_c=dm_beta)
       END IF
 
-      ! If embedding is open shell, but subsystem is not, copy alpha-spin DM intou beta-spin DM
+      ! If embedding is open shell, but subsystem is not, copy alpha-spin DM into beta-spin DM
       IF (open_shell_embed .AND. (.NOT. open_shell)) THEN
          CALL get_qs_env(qs_env=qs_env, para_env=para_env)
          CALL cp_fm_copy_general(dm, dm_beta, para_env)

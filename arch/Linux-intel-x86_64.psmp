@@ -2,10 +2,10 @@
 #
 # CP2K (Intel/MKL x86_64) arch file for Linux clusters
 #
-# Tested with: Intel 20.4/21.4/22.1 , Intel MPI, Intel MKL,
-#              LIBINT 2.6.0, LIBXC 5.2.2, ELPA 2021.11.002,
-#              PLUMED 2.7.3, SPGLIB 1.16.2, LIBVORI 210412,
-#              GSL 2.7, COSMA 2.5.1, SIRIUS 7.3.1
+# Tested with: Intel 20.4/21.4/22.2 , Intel MPI, Intel MKL,
+#              LIBINT 2.6.0, LIBXC 6.0.0, ELPA 2022.05.001,
+#              PLUMED 2.8.0, SPGLIB 1.16.2, LIBVORI 220621,
+#              GSL 2.7, COSMA 2.6.2, SIRIUS 7.3.2
 # on the Merlin cluster (PSI)
 #
 # Usage: Source this arch file and then run make as instructed.
@@ -13,7 +13,7 @@
 #        Optionally, the Intel compiler version can be specified as argument.
 #        Replace or adapt the "module add" commands below if needed.
 #
-# Author: Matthias Krack (11.03.2022)
+# Author: Matthias Krack (26.10.2022)
 #
 # \
    if [[ "${0}" == "${BASH_SOURCE}" ]]; then \
@@ -23,42 +23,44 @@
    fi; \
    this_file=${BASH_SOURCE##*/}; \
    cd tools/toolchain; \
+   [[ -z "${target_cpu}" ]] && target_cpu="native"; \
    if [[ -n "${1}" ]]; then \
       module add ${1}; \
       module list; \
    fi; \
-   ./install_cp2k_toolchain.sh --install-all --with-intelmpi --with-mkl; \
+   ./install_cp2k_toolchain.sh --install-all --no-arch-files --target-cpu=${target_cpu} --with-intelmpi --with-mkl; \
    source ./install/setup; \
    cd ../..; \
    echo; \
    echo "Check the output above for error messages and consistency!"; \
    echo "If everything is OK, you can build a CP2K production binary with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.}"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.}"; \
    echo "Alternatively, you can add further checks, e.g. for regression testing, with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} DO_CHECKS=yes"; \
    echo "or build CP2K only with shared libraries using"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} SHARED=yes"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} SHARED=yes"; \
    echo "or build CP2K as a library with"; \
-   echo "   make -j ARCH=${this_file%%.*} VERSION=${this_file##*.} libcp2k"; \
+   echo "   make -j ARCH=${this_file%.*} VERSION=${this_file##*.} libcp2k"; \
    return
 
 # Set options
 DO_CHECKS      := no
 SHARED         := no
-USE_COSMA      := 2.5.1
-USE_ELPA       := 2021.11.002
+TARGET_CPU     := native
+USE_COSMA      := 2.6.2
+USE_ELPA       := 2022.05.001
 USE_LIBINT     := 2.6.0
 USE_LIBPEXSI   := 1.2.0
-USE_LIBVORI    := 210412
-USE_LIBXC      := 5.2.2
+USE_LIBVORI    := 220621
+USE_LIBXC      := 6.0.0
 USE_LIBXSMM    := 1.17
-USE_PLUMED     := 2.7.3
-USE_SIRIUS     := 7.3.1
+USE_PLUMED     := 2.8.0
+USE_SIRIUS     := 7.3.2
 USE_SPGLIB     := 1.16.2
 # Only needed for SIRIUS
 LIBVDWXC_VER   := 0.4.0
-SPFFT_VER      := 1.0.5
-SPLA_VER       := 1.5.3
+SPFFT_VER      := 1.0.6
+SPLA_VER       := 1.5.4
 HDF5_VER       := 1.12.0
 # Only needed for LIBPEXSI
 SCOTCH_VER     := 6.0.0
@@ -72,7 +74,11 @@ FC             := mpiifort
 LD             := mpiifort
 AR             := ar -r
 
-CFLAGS         := -O2 -fopenmp -fp-model precise -funroll-loops -g -qopenmp-simd -traceback -xHost
+ifeq ($(strip $(TARGET_CPU)), native)
+   CFLAGS         := -O2 -fopenmp -fp-model precise -funroll-loops -g -qopenmp-simd -traceback -xHost
+else
+   CFLAGS         := -O2 -fopenmp -fp-model precise -funroll-loops -g -mtune=$(TARGET_CPU) -qopenmp-simd
+endif
 
 DFLAGS         := -D__parallel
 DFLAGS         += -D__SCALAPACK
@@ -269,6 +275,19 @@ ifneq ($(USE_COSMA),)
    endif
 endif
 
+ifneq ($(USE_GSL),)
+   USE_GSL        := $(strip $(USE_GSL))
+   GSL_INC        := $(INSTALL_PATH)/gsl-$(USE_GSL)/include
+   GSL_LIB        := $(INSTALL_PATH)/gsl-$(USE_GSL)/lib
+   CFLAGS         += -I$(GSL_INC)
+   DFLAGS         += -D__GSL
+   ifeq ($(SHARED), yes)
+      LIBS           += -Wl,-rpath=$(GSL_LIB) -L$(GSL_LIB) -lgsl
+   else
+      LIBS           += $(GSL_LIB)/libgsl.a
+   endif
+endif
+
 ifeq ($(SHARED), yes)
    LIBS           += -Wl,-rpath=$(MKL_LIB) -L$(MKL_LIB) -lbmkl_scalapack_lp64
    LIBS           += -Wl,--start-group
@@ -285,20 +304,6 @@ else
    LIBS           += $(MKL_LIB)/libmkl_core.a
    LIBS           += $(MKL_LIB)/libmkl_blacs_intelmpi_lp64.a
    LIBS           += -Wl,--end-group
-endif
-
-ifneq ($(USE_GSL),)
-   USE_GSL        := $(strip $(USE_GSL))
-   GSL_INC        := $(INSTALL_PATH)/gsl-$(USE_GSL)/include
-   GSL_LIB        := $(INSTALL_PATH)/gsl-$(USE_GSL)/lib
-   CFLAGS         += -I$(GSL_INC)
-   DFLAGS         += -D__GSL
-   ifeq ($(SHARED), yes)
-      LIBS           += -Wl,-rpath=$(GSL_LIB) -L$(GSL_LIB) -lgsl -lgslcblas
-   else
-      LIBS           += $(GSL_LIB)/libgsl.a
-      LIBS           += $(GSL_LIB)/libgslcblas.a
-   endif
 endif
 
 CFLAGS         += $(DFLAGS)

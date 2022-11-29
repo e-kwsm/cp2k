@@ -23,7 +23,6 @@ MODULE qs_dcdr_ao
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE dbcsr_api,                       ONLY: dbcsr_copy,&
@@ -37,6 +36,7 @@ MODULE qs_dcdr_ao
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE orbital_pointers,                ONLY: ncoset
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
@@ -55,7 +55,7 @@ MODULE qs_dcdr_ao
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_drho_core,&
                                               calculate_drho_elec_dR
    USE qs_energy_types,                 ONLY: qs_energy_type
@@ -122,21 +122,20 @@ CONTAINS
       TYPE(dcdr_env_type)                                :: dcdr_env
       TYPE(dbcsr_p_type), OPTIONAL                       :: overlap1
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'apply_op_constant_term', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'apply_op_constant_term'
 
       INTEGER                                            :: handle
       REAL(KIND=dp)                                      :: energy_hartree
-      TYPE(cp_fm_type), POINTER                          :: rho_ao_fm, rho_ao_s1, rho_ao_s1_rho_ao, &
+      TYPE(cp_fm_type)                                   :: rho_ao_fm, rho_ao_s1, rho_ao_s1_rho_ao, &
                                                             s1_ao
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho1_ao, rho_ao
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: rho1_tot_gspace, v_hartree_gspace, &
-                                                            v_hartree_rspace
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho1_g, rho1_g_pw, rho1_r, rho_r, &
-                                                            tau1_r, v_rspace_new, v_xc, v_xc_tau
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: rho1_tot_gspace, v_hartree_gspace, &
+                                                            v_hartree_rspace, v_rspace_new
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho1_g, rho1_g_pw, rho1_r, rho_r, &
+                                                            tau1_r, v_xc, v_xc_tau
       TYPE(qs_rho_type), POINTER                         :: perturbed_density, rho
       TYPE(section_vals_type), POINTER                   :: input, xc_section
       TYPE(xc_derivative_set_type)                       :: deriv_set
@@ -162,7 +161,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (auxbas_pw_pool, pw_env, v_rspace_new, rho1_r, rho1_g_pw, &
+      NULLIFY (auxbas_pw_pool, pw_env, rho1_r, rho1_g_pw, &
                v_xc, poisson_env, input, rho, rho1_g, v_xc_tau)
 
       CALL dbcsr_set(dcdr_env%perturbed_dm_correction, 0._dp)
@@ -178,17 +177,17 @@ CONTAINS
          CALL copy_dbcsr_to_fm(dcdr_env%matrix_s1(dcdr_env%beta + 1)%matrix, s1_ao)
       END IF
 
-      CALL cp_gemm('N', 'T', dcdr_env%nao, dcdr_env%nao, dcdr_env%nmo, &
-                   1.0_dp, dcdr_env%mo_coeff(1)%matrix, dcdr_env%mo_coeff(1)%matrix, &
-                   0.0_dp, rho_ao_fm)
+      CALL parallel_gemm('N', 'T', dcdr_env%nao, dcdr_env%nao, dcdr_env%nmo, &
+                         1.0_dp, dcdr_env%mo_coeff(1)%matrix, dcdr_env%mo_coeff(1)%matrix, &
+                         0.0_dp, rho_ao_fm)
 
-      CALL cp_gemm('N', 'N', dcdr_env%nao, dcdr_env%nao, dcdr_env%nao, &
-                   1.0_dp, rho_ao_fm, s1_ao, &
-                   0.0_dp, rho_ao_s1)
+      CALL parallel_gemm('N', 'N', dcdr_env%nao, dcdr_env%nao, dcdr_env%nao, &
+                         1.0_dp, rho_ao_fm, s1_ao, &
+                         0.0_dp, rho_ao_s1)
 
-      CALL cp_gemm('N', 'N', dcdr_env%nao, dcdr_env%nao, dcdr_env%nao, &
-                   -1._dp, rho_ao_s1, rho_ao_fm, &   ! this is the sign mentioned above.
-                   0.0_dp, rho_ao_s1_rho_ao)
+      CALL parallel_gemm('N', 'N', dcdr_env%nao, dcdr_env%nao, dcdr_env%nao, &
+                         -1._dp, rho_ao_s1, rho_ao_fm, &   ! this is the sign mentioned above.
+                         0.0_dp, rho_ao_s1_rho_ao)
 
       CALL copy_fm_to_dbcsr(rho_ao_s1_rho_ao, dcdr_env%perturbed_dm_correction)
       CALL cp_fm_release(rho_ao_fm)
@@ -201,6 +200,7 @@ CONTAINS
 
       ! Build the density struct from the environment
       NULLIFY (perturbed_density)
+      ALLOCATE (perturbed_density)
       CALL qs_rho_create(perturbed_density)
       CALL qs_rho_rebuild(perturbed_density, qs_env=qs_env)
 
@@ -236,34 +236,33 @@ CONTAINS
 
       ! Done with deriv_set and rho_set
 
-      ALLOCATE (v_rspace_new(1))
-      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_rspace%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
       ! Calculate the Hartree potential on the total density
-      CALL pw_pool_create_pw(auxbas_pw_pool, rho1_tot_gspace%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, rho1_tot_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
 
       CALL qs_rho_get(perturbed_density, rho_g=rho1_g, rho_r=rho1_r, tau_r=tau1_r)
-      CALL pw_copy(rho1_g(1)%pw, rho1_tot_gspace%pw)
+      CALL pw_copy(rho1_g(1), rho1_tot_gspace)
 
-      CALL pw_poisson_solve(poisson_env, rho1_tot_gspace%pw, &
+      CALL pw_poisson_solve(poisson_env, rho1_tot_gspace, &
                             energy_hartree, &
-                            v_hartree_gspace%pw)
-      CALL pw_transfer(v_hartree_gspace%pw, v_hartree_rspace%pw)
+                            v_hartree_gspace)
+      CALL pw_transfer(v_hartree_gspace, v_hartree_rspace)
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho1_tot_gspace%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho1_tot_gspace)
 
       ! Calculate the second derivative of the exchange-correlation potential
       CALL xc_calc_2nd_deriv(v_xc, v_xc_tau, deriv_set, rho_set, &
                              rho1_r, rho1_g_pw, tau1_r, auxbas_pw_pool, xc_section, gapw=.FALSE.)
 
-      v_rspace_new(1)%pw => v_xc(1)%pw
+      v_rspace_new = v_xc(1)
       DEALLOCATE (v_xc)
 
       ! Done calculating the potentials
@@ -271,36 +270,36 @@ CONTAINS
       !-------------------------------!
       ! Add both hartree and xc terms !
       !-------------------------------!
-      CALL pw_scale(v_rspace_new(1)%pw, 2._dp*v_rspace_new(1)%pw%pw_grid%dvol)
-      CALL pw_scale(v_hartree_rspace%pw, 2._dp*v_hartree_rspace%pw%pw_grid%dvol)
+      CALL pw_scale(v_rspace_new, 2._dp*v_rspace_new%pw_grid%dvol)
+      CALL pw_scale(v_hartree_rspace, 2._dp*v_hartree_rspace%pw_grid%dvol)
 
       ! pw2 = 1.*pw1 + pw2
-      CALL pw_axpy(v_hartree_rspace%pw, v_rspace_new(1)%pw, 1._dp)
+      CALL pw_axpy(v_hartree_rspace, v_rspace_new, 1._dp)
 
       CALL dbcsr_set(dcdr_env%matrix_apply_op_constant(1)%matrix, 0.0_dp)
-      CALL integrate_v_rspace(v_rspace=v_rspace_new(1), &
+      CALL integrate_v_rspace(v_rspace=v_rspace_new, &
                               hmat=dcdr_env%matrix_apply_op_constant(1), &
                               qs_env=qs_env, &
                               calculate_forces=.FALSE.)
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_rspace_new(1)%pw)
-      DEALLOCATE (v_rspace_new)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_rspace_new)
 
       IF (ASSOCIATED(v_xc_tau)) THEN
-         CALL pw_scale(v_xc_tau(1)%pw, 2._dp*v_xc_tau(1)%pw%pw_grid%dvol)
+         CALL pw_scale(v_xc_tau(1), 2._dp*v_xc_tau(1)%pw_grid%dvol)
          CALL integrate_v_rspace(v_rspace=v_xc_tau(1), &
                                  hmat=dcdr_env%matrix_apply_op_constant(1), &
                                  qs_env=qs_env, &
                                  compute_tau=.TRUE., &
                                  calculate_forces=.FALSE.)
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_xc_tau(1)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_xc_tau(1))
          DEALLOCATE (v_xc_tau)
       END IF
 
       CALL qs_rho_release(perturbed_density)
+      DEALLOCATE (perturbed_density)
       CALL xc_rho_set_release(rho_set, auxbas_pw_pool)
       CALL xc_dset_release(deriv_set)
 
@@ -321,18 +320,17 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dcdr_env_type)                                :: dcdr_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'd_core_charge_density_dR', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'd_core_charge_density_dR'
 
       INTEGER                                            :: beta, handle
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: drho_g, v_hartree_gspace, &
-                                                            v_hartree_rspace
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: drho_g, v_hartree_gspace, &
+                                                            v_hartree_rspace
       TYPE(qs_rho_type), POINTER                         :: rho
 
       CALL timeset(routineN, handle)
@@ -340,7 +338,7 @@ CONTAINS
       logger => cp_get_default_logger()
 
       NULLIFY (pw_env, auxbas_pw_pool, pw_pools, poisson_env, dft_control, &
-               v_hartree_gspace%pw, v_hartree_rspace%pw, rho)
+               rho)
 
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env, rho=rho, &
                       dft_control=dft_control)
@@ -350,29 +348,29 @@ CONTAINS
 
       ! Create the Hartree potential grids in real and reciprocal space.
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_hartree_gspace%pw, &
+                             v_hartree_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             v_hartree_rspace%pw, &
+                             v_hartree_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
       ! Create the grid for the derivative of the core potential
-      CALL pw_pool_create_pw(auxbas_pw_pool, drho_g%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, drho_g, &
                              use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
       DO beta = 1, 3
-         CALL pw_zero(v_hartree_gspace%pw)
-         CALL pw_zero(v_hartree_rspace%pw)
-         CALL pw_zero(drho_g%pw)
+         CALL pw_zero(v_hartree_gspace)
+         CALL pw_zero(v_hartree_rspace)
+         CALL pw_zero(drho_g)
 
          ! Calculate the Hartree potential on the perturbed density and Poisson solve it
          CALL calculate_drho_core(drho_core=drho_g, qs_env=qs_env, &
                                   beta=beta, lambda=dcdr_env%lambda)
-         CALL pw_poisson_solve(poisson_env, drho_g%pw, &
-                               vhartree=v_hartree_gspace%pw)
-         CALL pw_transfer(v_hartree_gspace%pw, v_hartree_rspace%pw)
-         CALL pw_scale(v_hartree_rspace%pw, v_hartree_rspace%pw%pw_grid%dvol)
+         CALL pw_poisson_solve(poisson_env, drho_g, &
+                               vhartree=v_hartree_gspace)
+         CALL pw_transfer(v_hartree_gspace, v_hartree_rspace)
+         CALL pw_scale(v_hartree_rspace, v_hartree_rspace%pw_grid%dvol)
 
          ! Calculate the integrals
          CALL integrate_v_rspace(v_rspace=v_hartree_rspace, &
@@ -381,9 +379,9 @@ CONTAINS
                                  calculate_forces=.FALSE.)
       END DO
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_g%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_g)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace)
 
       CALL timestop(handle)
    END SUBROUTINE d_core_charge_density_dR
@@ -398,7 +396,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dcdr_env_type)                                :: dcdr_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'core_dR', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'core_dR'
 
       CHARACTER(LEN=default_string_length)               :: my_basis_type
       INTEGER                                            :: handle, nder
@@ -488,16 +486,17 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dcdr_env_type)                                :: dcdr_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'd_vhxc_dR', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'd_vhxc_dR'
 
       INTEGER                                            :: handle, idir
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_hartree_gspace, v_hartree_rspace
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: drho_g, drho_r, rho_r, v_xc, v_xc_tau
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: v_hartree_gspace, v_hartree_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER               :: drho_g, drho_r, dtau_r, rho_r, v_xc, &
+                                                            v_xc_tau
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(section_vals_type), POINTER                   :: input, xc_section
       TYPE(xc_derivative_set_type)                       :: my_deriv_set
@@ -519,22 +518,22 @@ CONTAINS
 
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool, &
                       pw_pools=pw_pools, poisson_env=poisson_env)
-      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_rspace%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
 
-      CALL pw_pool_create_pw(auxbas_pw_pool, drho_r(1)%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, drho_r(1), &
                              use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, drho_g(1)%pw, &
+      CALL pw_pool_create_pw(auxbas_pw_pool, drho_g(1), &
                              use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
       DO idir = 1, 3
-         CALL pw_zero(v_hartree_gspace%pw)
-         CALL pw_zero(v_hartree_rspace%pw)
-         CALL pw_zero(drho_r(1)%pw)
-         CALL pw_zero(drho_g(1)%pw)
+         CALL pw_zero(v_hartree_gspace)
+         CALL pw_zero(v_hartree_rspace)
+         CALL pw_zero(drho_r(1))
+         CALL pw_zero(drho_g(1))
 
          ! Get the density
          CALL calculate_drho_elec_dR(matrix_p=rho_ao(1)%matrix, &
@@ -544,17 +543,18 @@ CONTAINS
                                      beta=idir, lambda=dcdr_env%lambda)
 
          ! Get the Hartree potential corresponding to the perturbed density
-         CALL pw_poisson_solve(poisson_env, drho_g(1)%pw, &
-                               vhartree=v_hartree_gspace%pw)
-         CALL pw_transfer(v_hartree_gspace%pw, v_hartree_rspace%pw)
+         CALL pw_poisson_solve(poisson_env, drho_g(1), &
+                               vhartree=v_hartree_gspace)
+         CALL pw_transfer(v_hartree_gspace, v_hartree_rspace)
 
          ! Get the XC potential corresponding to the perturbed density
          CALL xc_prep_2nd_deriv(my_deriv_set, my_rho_set, &
                                 rho_r, auxbas_pw_pool, &
                                 xc_section=xc_section)
 
+         NULLIFY (dtau_r)
          CALL xc_calc_2nd_deriv(v_xc, v_xc_tau, my_deriv_set, my_rho_set, &
-                                drho_r, drho_g, NULL(), auxbas_pw_pool, xc_section, gapw=.FALSE.)
+                                drho_r, drho_g, dtau_r, auxbas_pw_pool, xc_section, gapw=.FALSE.)
          IF (ASSOCIATED(v_xc_tau)) CPABORT("Meta functionals are not supported!")
 
          CALL xc_dset_release(my_deriv_set)
@@ -564,8 +564,8 @@ CONTAINS
          ! Add both hartree and xc terms !
          !-------------------------------!
          ! Can the dvol be different?
-         CALL pw_scale(v_xc(1)%pw, v_xc(1)%pw%pw_grid%dvol)
-         CALL pw_axpy(v_hartree_rspace%pw, v_xc(1)%pw, v_hartree_rspace%pw%pw_grid%dvol)
+         CALL pw_scale(v_xc(1), v_xc(1)%pw_grid%dvol)
+         CALL pw_axpy(v_hartree_rspace, v_xc(1), v_hartree_rspace%pw_grid%dvol)
 
          CALL integrate_v_rspace(v_rspace=v_xc(1), &
                                  hmat=dcdr_env%matrix_d_vhxc_dR(idir), &
@@ -573,14 +573,14 @@ CONTAINS
                                  calculate_forces=.FALSE.)
 
          ! v_xc gets allocated again in xc_calc_2nd_deriv
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_xc(1)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, v_xc(1))
          DEALLOCATE (v_xc)
       END DO ! idir
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_g(1)%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_r(1)%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_rspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_g(1))
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, drho_r(1))
 
       DEALLOCATE (drho_g)
       DEALLOCATE (drho_r)
@@ -600,16 +600,15 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dcdr_env_type)                                :: dcdr_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'vhxc_R_perturbed_basis_functions', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'vhxc_R_perturbed_basis_functions'
 
       INTEGER                                            :: handle
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_vhxc_dbasis
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_p
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_hartree_r
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: v_hxc_r, v_tau_rspace
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: v_hxc_r, v_tau_rspace
+      TYPE(pw_type), POINTER                             :: v_hartree_r
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho_struct
@@ -624,7 +623,7 @@ CONTAINS
                       input=input, &
                       ks_env=ks_env, &
                       pw_env=pw_env, &
-                      v_hartree_rspace=v_hartree_r%pw)
+                      v_hartree_rspace=v_hartree_r)
       CALL qs_rho_get(rho_struct, rho_ao_kp=matrix_p)
       xc_section => section_vals_get_subs_vals(input, "DFT%XC")
 
@@ -638,10 +637,10 @@ CONTAINS
       CALL qs_vxc_create(ks_env=ks_env, rho_struct=rho_struct, xc_section=xc_section, &
                          vxc_rho=v_hxc_r, vxc_tau=v_tau_rspace, exc=energy%exc)
 
-      CALL pw_scale(v_hxc_r(1)%pw, v_hxc_r(1)%pw%pw_grid%dvol)
+      CALL pw_scale(v_hxc_r(1), v_hxc_r(1)%pw_grid%dvol)
 
       ! sum up potentials and integrate
-      CALL pw_axpy(v_hartree_r%pw, v_hxc_r(1)%pw, 1._dp)
+      CALL pw_axpy(v_hartree_r, v_hxc_r(1), 1._dp)
 
       matrix_vhxc_dbasis => dcdr_env%matrix_vhxc_perturbed_basis(1, :)
       CALL integrate_v_dbasis(v_rspace=v_hxc_r(1), &
@@ -650,7 +649,7 @@ CONTAINS
                               qs_env=qs_env, &
                               lambda=dcdr_env%lambda)
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hxc_r(1)%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hxc_r(1))
 
       DEALLOCATE (v_hxc_r)
 
@@ -676,8 +675,7 @@ CONTAINS
       INTEGER, INTENT(IN)                                :: lambda
       LOGICAL, INTENT(IN)                                :: direction_Or
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'hr_mult_by_delta_1d', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'hr_mult_by_delta_1d'
 
       INTEGER                                            :: handle, iatom, icol, ikind, irow, jatom, &
                                                             jkind, ldsab, mepos, nkind, nseta, &

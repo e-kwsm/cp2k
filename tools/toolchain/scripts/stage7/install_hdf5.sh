@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -34,8 +31,7 @@ case "$with_hdf5" in
       if [ -f hdf5-${hdf5_ver}.tar.bz2 ]; then
         echo "hdf5-${hdf5_ver}.tar.bz2 is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${hdf5_sha256} \
-          https://www.cp2k.org/static/downloads/hdf5-${hdf5_ver}.tar.bz2
+        download_pkg_from_cp2k_org "${hdf5_sha256}" "hdf5-${hdf5_ver}.tar.bz2"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       [ -d hdf5-${hdf5_ver} ] && rm -rf hdf5-${hdf5_ver}
@@ -53,7 +49,7 @@ case "$with_hdf5" in
     fi
 
     HDF5_CFLAGS="-I${pkg_install_dir}/include"
-    HDF5_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    HDF5_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding hdf5 from system paths ===================="
