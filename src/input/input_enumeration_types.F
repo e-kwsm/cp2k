@@ -24,14 +24,12 @@ MODULE input_enumeration_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .TRUE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'input_enumeration_types'
-   INTEGER, SAVE, PRIVATE :: last_enumeration_id = 0
 
    PUBLIC :: enumeration_type
    PUBLIC :: enum_create, enum_retain, enum_release, enum_i2c, enum_c2i
 
 ! **************************************************************************************************
 !> \brief represents an enumaration, i.e. a mapping between strings and numbers
-!> \param id_nr identification number (unique)
 !> \param ref_count reference count
 !> \param c_vals string values
 !> \param i_vals integer values
@@ -43,7 +41,7 @@ MODULE input_enumeration_types
    END TYPE char_array
 
    TYPE enumeration_type
-      INTEGER :: id_nr, ref_count
+      INTEGER :: ref_count
       CHARACTER(len=default_string_length), DIMENSION(:), POINTER :: c_vals
       TYPE(char_array), DIMENSION(:), POINTER :: desc => Null()
       INTEGER, DIMENSION(:), POINTER :: i_vals
@@ -75,11 +73,10 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(enum))
       CPASSERT(SIZE(c_vals) == SIZE(i_vals))
       ALLOCATE (enum)
-      last_enumeration_id = last_enumeration_id + 1
-      enum%id_nr = last_enumeration_id
       enum%ref_count = 1
       ALLOCATE (enum%c_vals(SIZE(c_vals)))
       DO i = 1, SIZE(enum%c_vals)
+         CPASSERT(LEN_TRIM(c_vals(i)) > 0)
          enum%c_vals(i) = c_vals(i)
          CALL uppercase(enum%c_vals(i))
       END DO

@@ -95,6 +95,8 @@ MODULE qs_neighbor_lists
                                               subcell_type
    USE util,                            ONLY: locate,&
                                               sort
+   USE xtb_types,                       ONLY: get_xtb_atom_param,&
+                                              xtb_atom_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -326,9 +328,9 @@ CONTAINS
       TYPE(local_atoms_type), ALLOCATABLE, DIMENSION(:)  :: atom2d
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
       TYPE(neighbor_list_set_p_type), DIMENSION(:), POINTER :: saa_list, sab_all, sab_almo, &
-         sab_aux_fit, sab_aux_fit_asymm, sab_aux_fit_vs_orb, sab_cn, sab_core, sab_gcp, sab_kp, &
-         sab_lrc, sab_orb, sab_scp, sab_se, sab_tbe, sab_vdw, sab_xb, sab_xtb_nonbond, sac_ae, &
-         sac_lri, sac_ppl, sap_oce, sap_ppnl, soa_list, soo_list
+         sab_cn, sab_core, sab_gcp, sab_kp, sab_lrc, sab_orb, sab_scp, sab_se, sab_tbe, sab_vdw, &
+         sab_xb, sab_xtb_nonbond, sab_xtbe, sac_ae, sac_lri, sac_ppl, sap_oce, sap_ppnl, soa_list, &
+         soo_list
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(paw_proj_set_type), POINTER                   :: paw_proj
       TYPE(qs_dftb_atom_type), POINTER                   :: dftb_atom
@@ -338,6 +340,7 @@ CONTAINS
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(section_vals_type), POINTER                   :: hfx_sections, neighbor_list_section
       TYPE(sgp_potential_type), POINTER                  :: sgp_potential
+      TYPE(xtb_atom_type), POINTER                       :: xtb_atom
 
       CALL timeset(routineN, handle)
       NULLIFY (logger)
@@ -356,14 +359,13 @@ CONTAINS
       NULLIFY (sab_se)
       NULLIFY (sab_lrc)
       NULLIFY (sab_tbe)
+      NULLIFY (sab_xtbe)
       NULLIFY (sab_core)
       NULLIFY (sab_xb)
       NULLIFY (sab_xtb_nonbond)
       NULLIFY (sab_all)
       NULLIFY (sab_vdw)
       NULLIFY (sab_cn)
-      NULLIFY (sab_aux_fit)
-      NULLIFY (sab_aux_fit_vs_orb)
       NULLIFY (soo_list)
       NULLIFY (sab_scp)
       NULLIFY (sab_almo)
@@ -390,9 +392,6 @@ CONTAINS
 
       CALL get_ks_env(ks_env=ks_env, &
                       sab_orb=sab_orb, &
-                      sab_aux_fit=sab_aux_fit, &
-                      sab_aux_fit_vs_orb=sab_aux_fit_vs_orb, &
-                      sab_aux_fit_asymm=sab_aux_fit_asymm, &
                       sac_ae=sac_ae, &
                       sac_ppl=sac_ppl, &
                       sac_lri=sac_lri, &
@@ -402,6 +401,7 @@ CONTAINS
                       sab_se=sab_se, &
                       sab_lrc=sab_lrc, &
                       sab_tbe=sab_tbe, &
+                      sab_xtbe=sab_xtbe, &
                       sab_core=sab_core, &
                       sab_xb=sab_xb, &
                       sab_xtb_nonbond=sab_xtb_nonbond, &
@@ -606,28 +606,6 @@ CONTAINS
                                    "/SAB_CORE", "sab_core", "CORE CORE")
       END IF
 
-      IF (dft_control%do_admm) THEN
-         CALL pair_radius_setup(aux_fit_present, aux_fit_present, aux_fit_radius, aux_fit_radius, pair_radius)
-         CALL build_neighbor_lists(sab_aux_fit, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, molecular=molecule_only, subcells=subcells, nlname="sab_aux_fit")
-         CALL build_neighbor_lists(sab_aux_fit_asymm, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
-                                   nlname="sab_aux_fit_asymm")
-         CALL pair_radius_setup(aux_fit_present, orb_present, aux_fit_radius, orb_radius, pair_radius)
-         CALL build_neighbor_lists(sab_aux_fit_vs_orb, particle_set, atom2d, cell, pair_radius, &
-                                   mic=mic, symmetric=.FALSE., molecular=molecule_only, subcells=subcells, &
-                                   nlname="sab_aux_fit_vs_orb")
-
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit=sab_aux_fit)
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit_vs_orb=sab_aux_fit_vs_orb)
-         CALL set_ks_env(ks_env=ks_env, sab_aux_fit_asymm=sab_aux_fit_asymm)
-
-         CALL write_neighbor_lists(sab_aux_fit, particle_set, cell, para_env, neighbor_list_section, &
-                                   "/SAB_AUX_FIT", "sab_aux_fit", "AUX_FIT_ORBITAL AUX_FIT_ORBITAL")
-         CALL write_neighbor_lists(sab_aux_fit_vs_orb, particle_set, cell, para_env, neighbor_list_section, &
-                                   "/SAB_AUX_FIT_VS_ORB", "sab_aux_fit_vs_orb", "ORBITAL AUX_FIT_ORBITAL")
-      END IF
-
       IF (dokp) THEN
          ! We try to guess an integration radius for K-points
          ! For non-HFX calculations we use the overlap list
@@ -785,6 +763,16 @@ CONTAINS
                                       subcells=subcells, nlname="sab_tbe")
             CALL set_ks_env(ks_env=ks_env, sab_tbe=sab_tbe)
          END IF
+         ! SR part of Coulomb interaction
+         DO ikind = 1, nkind
+            CALL get_qs_kind(qs_kind_set(ikind), xtb_parameter=xtb_atom)
+            CALL get_xtb_atom_param(xtb_parameter=xtb_atom, rcut=c_radius(ikind))
+         END DO
+         default_present = .TRUE.
+         CALL pair_radius_setup(default_present, default_present, c_radius, c_radius, pair_radius)
+         CALL build_neighbor_lists(sab_xtbe, particle_set, atom2d, cell, pair_radius, &
+                                   subcells=subcells, nlname="sab_xtbe")
+         CALL set_ks_env(ks_env=ks_env, sab_xtbe=sab_xtbe)
          ! XB list
          ALLOCATE (xb1_atom(nkind), xb2_atom(nkind))
          c_radius = 0.5_dp*dft_control%qs_control%xtb_control%xb_radius
@@ -1348,7 +1336,8 @@ CONTAINS
                                           include_ab = .TRUE.
                                           IF (my_mic) THEN
                                              ! only if rab is minimum image the pair will be included
-                                             ! ideally the range of the pair list is < L/2 so that this never triggers
+                                             ! ideally the range of the pair list is < L/2 so
+                                             ! that this never triggers
                                              rab_pbc(:) = pbc(rab(:), cell)
                                              IF (SUM((rab_pbc - rab)**2) > EPSILON(1.0_dp)) THEN
                                                 include_ab = .FALSE.
@@ -1394,7 +1383,6 @@ CONTAINS
       DEALLOCATE (index_list)
       DEALLOCATE (r_pbc)
 
-!deb
       nentry = 0
       CALL neighbor_list_iterator_create(nl_iterator, ab_list)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
@@ -1426,7 +1414,6 @@ CONTAINS
          END IF
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
-!deb
 
       CALL timestop(handle)
 

@@ -14,7 +14,7 @@ MODULE xc_atom
                                               section_vals_type
    USE kinds,                           ONLY: dp
    USE pw_pool_types,                   ONLY: pw_pool_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE xc,                              ONLY: divide_by_norm_drho,&
                                               xc_calc_2nd_deriv_analytical
    USE xc_derivative_desc,              ONLY: &
@@ -352,7 +352,7 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: xc_section
       TYPE(xc_derivative_set_type), INTENT(INOUT)        :: deriv_set
       REAL(dp), DIMENSION(:, :), POINTER                 :: w
-      REAL(dp), DIMENSION(:, :, :), POINTER              :: vxc
+      REAL(dp), CONTIGUOUS, DIMENSION(:, :, :), POINTER  :: vxc
       REAL(dp), DIMENSION(:, :, :, :), POINTER           :: vxg
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xc_2nd_deriv_of_r'
@@ -361,8 +361,8 @@ CONTAINS
       LOGICAL                                            :: lsd
       REAL(dp)                                           :: drho_cutoff
       TYPE(cp_sll_xc_deriv_type), POINTER                :: pos
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vxc_pw, vxc_tau_pw
       TYPE(pw_pool_type), POINTER                        :: pw_pool
+      TYPE(pw_type), DIMENSION(:), POINTER               :: vxc_pw, vxc_tau_pw
       TYPE(section_vals_type), POINTER                   :: xc_fun_section
       TYPE(xc_derivative_type), POINTER                  :: deriv_att
 
@@ -396,8 +396,7 @@ CONTAINS
       NULLIFY (pw_pool)
       ALLOCATE (vxc_pw(nspins))
       DO ispin = 1, nspins
-         ALLOCATE (vxc_pw(ispin)%pw)
-         vxc_pw(ispin)%pw%cr3d => vxc(:, :, ispin:ispin)
+         vxc_pw(ispin)%cr3d => vxc(:, :, ispin:ispin)
       END DO
 
       NULLIFY (vxc_tau_pw)
@@ -405,9 +404,6 @@ CONTAINS
       CALL xc_calc_2nd_deriv_analytical(vxc_pw, vxc_tau_pw, deriv_set, rho_set, rho1_set, pw_pool, &
                                         xc_section, gapw=.TRUE., vxg=vxg)
 
-      DO ispin = 1, nspins
-         DEALLOCATE (vxc_pw(ispin)%pw)
-      END DO
       DEALLOCATE (vxc_pw)
 
       ! zero the derivative data for the next call
@@ -593,9 +589,9 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: lsd
       INTEGER, INTENT(IN)                                :: nspins
       TYPE(xc_rho_cflags_type), INTENT(IN)               :: needs
-      REAL(dp), DIMENSION(:, :), INTENT(IN)              :: rho
+      REAL(dp), DIMENSION(:, :, :), INTENT(IN)           :: rho
       REAL(dp), DIMENSION(:, :, :, :), INTENT(IN)        :: drho
-      REAL(dp), DIMENSION(:, :), INTENT(IN)              :: tau
+      REAL(dp), DIMENSION(:, :, :), INTENT(IN)           :: tau
       INTEGER, INTENT(IN)                                :: na, ir
 
       REAL(KIND=dp), PARAMETER                           :: f13 = (1.0_dp/3.0_dp)
@@ -613,7 +609,7 @@ CONTAINS
       ! some checks
       IF (lsd) THEN
       ELSE
-         CPASSERT(SIZE(rho, 2) == 1)
+         CPASSERT(SIZE(rho, 3) == 1)
       END IF
       SELECT CASE (my_nspins)
       CASE (1)
@@ -634,7 +630,7 @@ CONTAINS
          ! Give rho to 1/3
          IF (needs%rho_1_3) THEN
             DO ia = 1, na
-               rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, 1), 0.0_dp)**f13
+               rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, ir, 1), 0.0_dp)**f13
             END DO
             rho_set%owns%rho_1_3 = .TRUE.
             rho_set%has%rho_1_3 = .TRUE.
@@ -642,7 +638,7 @@ CONTAINS
          ! Give the density
          IF (needs%rho) THEN
             DO ia = 1, na
-               rho_set%rho(ia, ir, 1) = rho(ia, 1)
+               rho_set%rho(ia, ir, 1) = rho(ia, ir, 1)
             END DO
             rho_set%owns%rho = .TRUE.
             rho_set%has%rho = .TRUE.
@@ -671,11 +667,11 @@ CONTAINS
             ! this should never be the case unless you use LDA functionals with LSD
             IF (.NOT. tddft_split) THEN
                DO ia = 1, na
-                  rho_set%rho(ia, ir, 1) = rho(ia, 1) + rho(ia, 2)
+                  rho_set%rho(ia, ir, 1) = rho(ia, ir, 1) + rho(ia, ir, 2)
                END DO
             ELSE
                DO ia = 1, na
-                  rho_set%rho(ia, ir, 1) = rho(ia, 1)
+                  rho_set%rho(ia, ir, 1) = rho(ia, ir, 1)
                END DO
             END IF
             rho_set%owns%rho = .TRUE.
@@ -685,11 +681,11 @@ CONTAINS
          IF (needs%rho_1_3) THEN
             IF (.NOT. tddft_split) THEN
                DO ia = 1, na
-                  rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, 1) + rho(ia, 2), 0.0_dp)**f13
+                  rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, ir, 1) + rho(ia, ir, 2), 0.0_dp)**f13
                END DO
             ELSE
                DO ia = 1, na
-                  rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, 1), 0.0_dp)**f13
+                  rho_set%rho_1_3(ia, ir, 1) = MAX(rho(ia, ir, 1), 0.0_dp)**f13
                END DO
             END IF
             rho_set%owns%rho_1_3 = .TRUE.
@@ -699,12 +695,12 @@ CONTAINS
          IF (needs%rho_spin_1_3) THEN
             IF (.NOT. tddft_split) THEN
                DO ia = 1, na
-                  rho_set%rhoa_1_3(ia, ir, 1) = MAX(rho(ia, 1), 0.0_dp)**f13
-                  rho_set%rhob_1_3(ia, ir, 1) = MAX(rho(ia, 2), 0.0_dp)**f13
+                  rho_set%rhoa_1_3(ia, ir, 1) = MAX(rho(ia, ir, 1), 0.0_dp)**f13
+                  rho_set%rhob_1_3(ia, ir, 1) = MAX(rho(ia, ir, 2), 0.0_dp)**f13
                END DO
             ELSE
                DO ia = 1, na
-                  rho_set%rhoa_1_3(ia, ir, 1) = MAX(0.5_dp*rho(ia, 1), 0.0_dp)**f13
+                  rho_set%rhoa_1_3(ia, ir, 1) = MAX(0.5_dp*rho(ia, ir, 1), 0.0_dp)**f13
                   rho_set%rhob_1_3(ia, ir, 1) = rho_set%rhoa_1_3(ia, ir, 1)
                END DO
             END IF
@@ -715,12 +711,12 @@ CONTAINS
          IF (needs%rho_spin) THEN
             IF (.NOT. tddft_split) THEN
                DO ia = 1, na
-                  rho_set%rhoa(ia, ir, 1) = rho(ia, 1)
-                  rho_set%rhob(ia, ir, 1) = rho(ia, 2)
+                  rho_set%rhoa(ia, ir, 1) = rho(ia, ir, 1)
+                  rho_set%rhob(ia, ir, 1) = rho(ia, ir, 2)
                END DO
             ELSE
                DO ia = 1, na
-                  rho_set%rhoa(ia, ir, 1) = 0.5_dp*rho(ia, 1)
+                  rho_set%rhoa(ia, ir, 1) = 0.5_dp*rho(ia, ir, 1)
                   rho_set%rhob(ia, ir, 1) = rho_set%rhoa(ia, ir, 1)
                END DO
             END IF
@@ -739,10 +735,6 @@ CONTAINS
             ELSE
                DO ia = 1, na
                   rho_set%norm_drho(ia, ir, 1) = drho(4, ia, ir, 1)
-!!                rho_set%norm_drho(ia,ir,1) = SQRT(&
-!!                     (drho(1,ia,ir,1))**2+&
-!!                     (drho(2,ia,ir,1))**2+&
-!!                     (drho(3,ia,ir,1))**2)
                END DO
             END IF
             rho_set%owns%norm_drho = .TRUE.
@@ -807,18 +799,18 @@ CONTAINS
 
       ! tau part
       IF (needs%tau .OR. needs%tau_spin) THEN
-         CPASSERT(SIZE(tau, 2) == my_nspins)
+         CPASSERT(SIZE(tau, 3) == my_nspins)
       END IF
       IF (needs%tau) THEN
          IF (my_nspins == 2) THEN
             DO ia = 1, na
-               rho_set%tau(ia, ir, 1) = tau(ia, 1) + tau(ia, 2)
+               rho_set%tau(ia, ir, 1) = tau(ia, ir, 1) + tau(ia, ir, 2)
             END DO
             rho_set%owns%tau = .TRUE.
             rho_set%has%tau = .TRUE.
          ELSE
             DO ia = 1, na
-               rho_set%tau(ia, ir, 1) = tau(ia, 1)
+               rho_set%tau(ia, ir, 1) = tau(ia, ir, 1)
             END DO
             rho_set%owns%tau = .TRUE.
             rho_set%has%tau = .TRUE.
@@ -826,8 +818,8 @@ CONTAINS
       END IF
       IF (needs%tau_spin) THEN
          DO ia = 1, na
-            rho_set%tau_a(ia, ir, 1) = tau(ia, 1)
-            rho_set%tau_b(ia, ir, 1) = tau(ia, 2)
+            rho_set%tau_a(ia, ir, 1) = tau(ia, ir, 1)
+            rho_set%tau_b(ia, ir, 1) = tau(ia, ir, 2)
          END DO
          rho_set%owns%tau_spin = .TRUE.
          rho_set%has%tau_spin = .TRUE.

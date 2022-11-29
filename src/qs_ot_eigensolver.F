@@ -72,8 +72,8 @@ CONTAINS
                              iter_max, size_ortho_space, silent, ot_settings)
 
       TYPE(dbcsr_type), POINTER                          :: matrix_h, matrix_s
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: matrix_orthogonal_space_fm
-      TYPE(cp_fm_type), POINTER                          :: matrix_c_fm
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: matrix_orthogonal_space_fm
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix_c_fm
       TYPE(preconditioner_type), OPTIONAL, POINTER       :: preconditioner
       REAL(KIND=dp)                                      :: eps_gradient
       INTEGER, INTENT(IN)                                :: iter_max
@@ -106,7 +106,6 @@ CONTAINS
       END IF
 
       NULLIFY (matrix_c) ! fm->dbcsr
-      !XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx
 
       CALL cp_fm_get_info(matrix_c_fm, nrow_global=n, ncol_global=k) ! fm->dbcsr
       ALLOCATE (matrix_c)
@@ -248,7 +247,7 @@ CONTAINS
             END IF
          END IF
 
-!     *** Eigensolver loop ***
+         ! *** Eigensolver loop ***
          ieigensolver = 0
          eigensolver_loop: DO
 

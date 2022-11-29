@@ -8,15 +8,11 @@
 #ifndef DBM_MULTIPLY_GPU_H
 #define DBM_MULTIPLY_GPU_H
 
-#if defined(__DBM_CUDA) || defined(__DBM_HIP)
-
 #include "../offload/offload_runtime.h"
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_DBM)
+
 #include "dbm_multiply_internal.h"
 #include "dbm_shard.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*******************************************************************************
  * \brief Internal struct for storing per shard gpu objects.
@@ -25,6 +21,7 @@ extern "C" {
 typedef struct {
   double *data; // on the device
   int data_size;
+  int data_allocated;
   offloadStream_t stream;
 } dbm_shard_gpu_t;
 
@@ -67,7 +64,6 @@ void dbm_multiply_gpu_upload_packs(const dbm_pack_t *pack_a,
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_multiply_gpu_process_batch(const int ntasks, const dbm_task_t *batch,
-                                    const bool transa, const bool transb,
                                     const double alpha, const int kshard,
                                     dbm_multiply_gpu_context_t *ctx);
 
@@ -83,11 +79,7 @@ void dbm_multiply_gpu_download_results(dbm_multiply_gpu_context_t *ctx);
  ******************************************************************************/
 void dbm_multiply_gpu_stop(dbm_multiply_gpu_context_t *ctx);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif // (defined(__DBM_CUDA) || defined(__DBM_HIP))
+#endif // defined(__OFFLOAD) && !defined(__NO_OFFLOAD_DBM)
 #endif
 
 // EOF

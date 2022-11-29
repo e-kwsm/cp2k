@@ -51,7 +51,6 @@ MODULE hfx_pw_methods
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
                                               pw_create,&
-                                              pw_p_type,&
                                               pw_release,&
                                               pw_type
    USE qs_collocate_density,            ONLY: calculate_wavefunction
@@ -59,7 +58,7 @@ MODULE hfx_pw_methods
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: qs_kind_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -108,13 +107,12 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_type), POINTER                          :: mo_coeff_b
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mo_array
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_grid_type), POINTER                        :: grid
-      TYPE(pw_p_type)                                    :: pot_g, rho_g, rho_r
-      TYPE(pw_p_type), ALLOCATABLE, DIMENSION(:)         :: rho_i, rho_j
-      TYPE(pw_type), POINTER                             :: greenfn
+      TYPE(pw_type)                                      :: greenfn, pot_g, rho_g, rho_r
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: rho_i, rho_j
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: ip_section
 
@@ -132,24 +130,23 @@ CONTAINS
                          atomic_kind_set=atomic_kind_set, qs_kind_set=qs_kind_set)
 
          ! limit the blocksize by the number of orbitals
-         CALL get_mo_set(mo_set=mo_array(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mo_array(1), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, ncol_global=norb)
          blocksize = MAX(1, MIN(blocksize, norb))
 
-         CALL pw_pool_create_pw(auxbas_pw_pool, rho_r%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, rho_r, &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
-         CALL pw_pool_create_pw(auxbas_pw_pool, rho_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, rho_g, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
-         CALL pw_pool_create_pw(auxbas_pw_pool, pot_g%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, pot_g, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
 
          ALLOCATE (rho_i(blocksize))
          ALLOCATE (rho_j(blocksize))
 
-         NULLIFY (greenfn)
          CALL pw_pool_create_pw(auxbas_pw_pool, greenfn, &
                                 use_data=COMPLEXDATA1D, &
                                 in_space=RECIPROCALSPACE)
@@ -188,12 +185,10 @@ CONTAINS
          END IF
 
          DO iorb_block = 1, blocksize
-            NULLIFY (rho_i(iorb_block)%pw)
-            CALL pw_create(rho_i(iorb_block)%pw, rho_r%pw%pw_grid, &
+            CALL pw_create(rho_i(iorb_block), rho_r%pw_grid, &
                            use_data=REALDATA3D, &
                            in_space=REALSPACE)
-            NULLIFY (rho_j(iorb_block)%pw)
-            CALL pw_create(rho_j(iorb_block)%pw, rho_r%pw%pw_grid, &
+            CALL pw_create(rho_j(iorb_block), rho_r%pw_grid, &
                            use_data=REALDATA3D, &
                            in_space=REALSPACE)
          END DO
@@ -201,9 +196,9 @@ CONTAINS
          exchange_energy = 0.0_dp
 
          DO ispin = 1, SIZE(mo_array)
-            CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
+            CALL get_mo_set(mo_set=mo_array(ispin), mo_coeff=mo_coeff, mo_coeff_b=mo_coeff_b)
 
-            IF (mo_array(ispin)%mo_set%use_mo_coeff_b) THEN !fm->dbcsr
+            IF (mo_array(ispin)%use_mo_coeff_b) THEN !fm->dbcsr
                CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff) !fm->dbcsr
             END IF !fm->dbcsr
 
@@ -238,11 +233,11 @@ CONTAINS
                         IF (jorb < iorb) CYCLE
 
                         ! compute the pair density
-                        rho_r%pw%cr3d = rho_i(iloc)%pw%cr3d*rho_j(jloc)%pw%cr3d
+                        rho_r%cr3d = rho_i(iloc)%cr3d*rho_j(jloc)%cr3d
 
                         ! go the g-space and compute hartree energy
-                        CALL pw_transfer(rho_r%pw, rho_g%pw)
-                        CALL pw_poisson_solve(poisson_env, rho_g%pw, pair_energy, pot_g%pw, &
+                        CALL pw_transfer(rho_r, rho_g)
+                        CALL pw_poisson_solve(poisson_env, rho_g, pair_energy, pot_g, &
                                               greenfn=greenfn)
 
                         ! sum up to the full energy
@@ -260,13 +255,13 @@ CONTAINS
          END DO
 
          DO iorb_block = 1, blocksize
-            CALL pw_release(rho_i(iorb_block)%pw)
-            CALL pw_release(rho_j(iorb_block)%pw)
+            CALL pw_release(rho_i(iorb_block))
+            CALL pw_release(rho_j(iorb_block))
          END DO
 
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_r%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g%pw)
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, pot_g%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_r)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_g)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, pot_g)
          CALL pw_pool_give_back_pw(auxbas_pw_pool, greenfn)
 
          iw = cp_print_key_unit_nr(logger, hfx_section, "HF_INFO", &

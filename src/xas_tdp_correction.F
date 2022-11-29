@@ -41,7 +41,6 @@ MODULE xas_tdp_correction
                                               cp_fm_to_fm,&
                                               cp_fm_to_fm_submat,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: &
@@ -65,6 +64,7 @@ MODULE xas_tdp_correction
    USE machine,                         ONLY: m_flush
    USE mathlib,                         ONLY: complex_diag
    USE message_passing,                 ONLY: mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE physcon,                         ONLY: evolt
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -72,7 +72,7 @@ MODULE xas_tdp_correction
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
                                               duplicate_mo_set,&
                                               get_mo_set,&
-                                              mo_set_p_type,&
+                                              mo_set_type,&
                                               reassign_allocated_mos
    USE util,                            ONLY: get_limit
    USE xas_tdp_kernel,                  ONLY: contract2_AO_to_doMO,&
@@ -108,7 +108,7 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'GW2X_shift', routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER                        :: routineN = 'GW2X_shift'
 
       INTEGER :: ex_idx, exat, first_domo(2), handle, i, ido_mo, iloc, ilocat, ispin, jspin, &
          locat, nao, natom, ndo_mo, nhomo(2), nlumo(2), nonloc, nspins, start_sgf
@@ -123,20 +123,19 @@ CONTAINS
       TYPE(cp_fm_struct_p_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: all_struct, homo_struct, lumo_struct
       TYPE(cp_fm_struct_type), POINTER                   :: hoho_struct, lulu_struct
-      TYPE(cp_fm_type), POINTER                          :: hoho_fock, hoho_work, homo_work, &
-                                                            lulu_fock, lulu_work, lumo_work, &
-                                                            mo_coeff
+      TYPE(cp_fm_type)                                   :: hoho_fock, hoho_work, homo_work, &
+                                                            lulu_fock, lulu_work, lumo_work
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: dbcsr_work, fock_matrix, matrix_ks
       TYPE(dbt_type), ALLOCATABLE, DIMENSION(:)          :: ja_X, oI_Y
       TYPE(dbt_type), ALLOCATABLE, DIMENSION(:, :)       :: mo_template
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: backup_mos, mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: xc_fun_empty, xc_fun_original, xc_section
 
-      NULLIFY (xc_fun_empty, xc_fun_original, xc_section, backup_mos, mos, dft_control, dbcsr_work, &
-               fock_matrix, matrix_ks, para_env, hoho_fock, hoho_work, homo_work, lulu_fock, lulu_work, &
-               lumo_work, mo_coeff, blacs_env, nsgf_blk)
+      NULLIFY (xc_fun_empty, xc_fun_original, xc_section, mos, dft_control, dbcsr_work, &
+               fock_matrix, matrix_ks, para_env, mo_coeff, blacs_env, nsgf_blk)
 
       CALL cite_reference(Shigeta2001)
       CALL cite_reference(Bussy2021b)
@@ -172,12 +171,13 @@ CONTAINS
       ALLOCATE (lumo_struct(nspins), lumo_coeffs(nspins))
 
       DO ispin = 1, nspins
-         CALL get_mo_set(mos(ispin)%mo_set, homo=nhomo(ispin), nao=nao)
+         CALL get_mo_set(mos(ispin), homo=nhomo(ispin), nao=nao)
          nlumo(ispin) = nao - nhomo(ispin)
 
          CALL cp_fm_struct_create(lumo_struct(ispin)%struct, para_env=para_env, context=blacs_env, &
                                   ncol_global=nlumo(ispin), nrow_global=nao)
 
+         ALLOCATE (lumo_coeffs(ispin)%matrix)
          CALL cp_fm_create(lumo_coeffs(ispin)%matrix, lumo_struct(ispin)%struct)
          CALL cp_fm_to_fm(xas_tdp_env%lumo_evecs(ispin)%matrix, lumo_coeffs(ispin)%matrix)
       END DO
@@ -194,9 +194,10 @@ CONTAINS
 
          CALL cp_fm_struct_create(homo_struct(ispin)%struct, para_env=para_env, context=blacs_env, &
                                   ncol_global=locat + nonloc, nrow_global=nao)
+         ALLOCATE (homo_coeffs(ispin)%matrix)
          CALL cp_fm_create(homo_coeffs(ispin)%matrix, homo_struct(ispin)%struct)
 
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
          CALL cp_fm_to_fm_submat(mo_coeff, homo_coeffs(ispin)%matrix, nrow=nao, ncol=nonloc, s_firstrow=1, &
                                  s_firstcol=xas_tdp_control%n_search + 1, t_firstrow=1, t_firstcol=locat + 1)
 
@@ -218,74 +219,77 @@ CONTAINS
       IF (ASSOCIATED(xas_tdp_env%fock_matrix)) THEN
          fock_matrix => xas_tdp_env%fock_matrix
       ELSE
+         BLOCK
+            TYPE(mo_set_type), DIMENSION(:), ALLOCATABLE :: backup_mos
 
-         ALLOCATE (xas_tdp_env%fock_matrix(nspins))
-         fock_matrix => xas_tdp_env%fock_matrix
+            ALLOCATE (xas_tdp_env%fock_matrix(nspins))
+            fock_matrix => xas_tdp_env%fock_matrix
 
-         ! remove the xc_functionals and set HF fraction to 1
-         xc_section => section_vals_get_subs_vals(qs_env%input, "DFT%XC")
-         xc_fun_original => section_vals_get_subs_vals(xc_section, "XC_FUNCTIONAL")
-         CALL section_vals_retain(xc_fun_original)
-         CALL section_vals_create(xc_fun_empty, xc_fun_original%section)
-         CALL section_vals_set_subs_vals(xc_section, "XC_FUNCTIONAL", xc_fun_empty)
-         CALL section_vals_release(xc_fun_empty)
-         og_hfx_frac = qs_env%x_data(1, 1)%general_parameter%fraction
-         qs_env%x_data(:, :)%general_parameter%fraction = 1.0_dp
+            ! remove the xc_functionals and set HF fraction to 1
+            xc_section => section_vals_get_subs_vals(qs_env%input, "DFT%XC")
+            xc_fun_original => section_vals_get_subs_vals(xc_section, "XC_FUNCTIONAL")
+            CALL section_vals_retain(xc_fun_original)
+            CALL section_vals_create(xc_fun_empty, xc_fun_original%section)
+            CALL section_vals_set_subs_vals(xc_section, "XC_FUNCTIONAL", xc_fun_empty)
+            CALL section_vals_release(xc_fun_empty)
+            og_hfx_frac = qs_env%x_data(1, 1)%general_parameter%fraction
+            qs_env%x_data(:, :)%general_parameter%fraction = 1.0_dp
 
-         !In case of ADMM, we need to re-create the admm XC section for the new hfx_fraction
-         !We also need to make a backup of the MOs as theiy are modified
-         CALL get_qs_env(qs_env, dft_control=dft_control, admm_env=admm_env)
-         IF (dft_control%do_admm) THEN
-            IF (ASSOCIATED(admm_env%xc_section_primary)) CALL section_vals_release(admm_env%xc_section_primary)
-            IF (ASSOCIATED(admm_env%xc_section_aux)) CALL section_vals_release(admm_env%xc_section_aux)
-            CALL create_admm_xc_section(qs_env, xc_section, admm_env)
+            !In case of ADMM, we need to re-create the admm XC section for the new hfx_fraction
+            !We also need to make a backup of the MOs as theiy are modified
+            CALL get_qs_env(qs_env, dft_control=dft_control, admm_env=admm_env)
+            IF (dft_control%do_admm) THEN
+               IF (ASSOCIATED(admm_env%xc_section_primary)) CALL section_vals_release(admm_env%xc_section_primary)
+               IF (ASSOCIATED(admm_env%xc_section_aux)) CALL section_vals_release(admm_env%xc_section_aux)
+               CALL create_admm_xc_section(qs_env%x_data, xc_section, admm_env)
 
-            ALLOCATE (backup_mos(SIZE(mos)))
-            DO i = 1, SIZE(mos)
-               CALL duplicate_mo_set(backup_mos(i)%mo_set, mos(i)%mo_set)
-            END DO
-         END IF
+               ALLOCATE (backup_mos(SIZE(mos)))
+               DO i = 1, SIZE(mos)
+                  CALL duplicate_mo_set(backup_mos(i), mos(i))
+               END DO
+            END IF
 
-         ALLOCATE (dbcsr_work(nspins))
-         DO ispin = 1, nspins
-            ALLOCATE (dbcsr_work(ispin)%matrix)
-            CALL dbcsr_copy(dbcsr_work(ispin)%matrix, matrix_ks(ispin)%matrix)
-         END DO
-
-         !both spins treated internally
-         CALL qs_ks_build_kohn_sham_matrix(qs_env, calculate_forces=.FALSE., just_energy=.FALSE.)
-
-         DO ispin = 1, nspins
-            ALLOCATE (fock_matrix(ispin)%matrix)
-            CALL dbcsr_copy(fock_matrix(ispin)%matrix, matrix_ks(ispin)%matrix, name="FOCK MATRIX")
-            CALL dbcsr_release(matrix_ks(ispin)%matrix)
-            CALL dbcsr_copy(matrix_ks(ispin)%matrix, dbcsr_work(ispin)%matrix)
-         END DO
-         CALL dbcsr_deallocate_matrix_set(dbcsr_work)
-
-         !In case of ADMM, we want to correct for eigenvalues
-         IF (dft_control%do_admm) THEN
+            ALLOCATE (dbcsr_work(nspins))
             DO ispin = 1, nspins
-               CALL admm_correct_for_eigenvalues(ispin, admm_env, fock_matrix(ispin)%matrix)
+               ALLOCATE (dbcsr_work(ispin)%matrix)
+               CALL dbcsr_copy(dbcsr_work(ispin)%matrix, matrix_ks(ispin)%matrix)
             END DO
-         END IF
 
-         !restore xc and HF fraction
-         CALL section_vals_set_subs_vals(xc_section, "XC_FUNCTIONAL", xc_fun_original)
-         CALL section_vals_release(xc_fun_original)
-         qs_env%x_data(:, :)%general_parameter%fraction = og_hfx_frac
+            !both spins treated internally
+            CALL qs_ks_build_kohn_sham_matrix(qs_env, calculate_forces=.FALSE., just_energy=.FALSE.)
 
-         IF (dft_control%do_admm) THEN
-            IF (ASSOCIATED(admm_env%xc_section_primary)) CALL section_vals_release(admm_env%xc_section_primary)
-            IF (ASSOCIATED(admm_env%xc_section_aux)) CALL section_vals_release(admm_env%xc_section_aux)
-            CALL create_admm_xc_section(qs_env, xc_section, admm_env)
-
-            DO i = 1, SIZE(mos)
-               CALL reassign_allocated_mos(mos(i)%mo_set, backup_mos(i)%mo_set)
-               CALL deallocate_mo_set(backup_mos(i)%mo_set)
+            DO ispin = 1, nspins
+               ALLOCATE (fock_matrix(ispin)%matrix)
+               CALL dbcsr_copy(fock_matrix(ispin)%matrix, matrix_ks(ispin)%matrix, name="FOCK MATRIX")
+               CALL dbcsr_release(matrix_ks(ispin)%matrix)
+               CALL dbcsr_copy(matrix_ks(ispin)%matrix, dbcsr_work(ispin)%matrix)
             END DO
-            DEALLOCATE (backup_mos)
-         END IF
+            CALL dbcsr_deallocate_matrix_set(dbcsr_work)
+
+            !In case of ADMM, we want to correct for eigenvalues
+            IF (dft_control%do_admm) THEN
+               DO ispin = 1, nspins
+                  CALL admm_correct_for_eigenvalues(ispin, admm_env, fock_matrix(ispin)%matrix)
+               END DO
+            END IF
+
+            !restore xc and HF fraction
+            CALL section_vals_set_subs_vals(xc_section, "XC_FUNCTIONAL", xc_fun_original)
+            CALL section_vals_release(xc_fun_original)
+            qs_env%x_data(:, :)%general_parameter%fraction = og_hfx_frac
+
+            IF (dft_control%do_admm) THEN
+               IF (ASSOCIATED(admm_env%xc_section_primary)) CALL section_vals_release(admm_env%xc_section_primary)
+               IF (ASSOCIATED(admm_env%xc_section_aux)) CALL section_vals_release(admm_env%xc_section_aux)
+               CALL create_admm_xc_section(qs_env%x_data, xc_section, admm_env)
+
+               DO i = 1, SIZE(mos)
+                  CALL reassign_allocated_mos(mos(i), backup_mos(i))
+                  CALL deallocate_mo_set(backup_mos(i))
+               END DO
+               DEALLOCATE (backup_mos)
+            END IF
+         END BLOCK
       END IF
 
       !4,5) Build pseudo-canonical MOs if needed + get related Fock matrix elements
@@ -315,13 +319,13 @@ CONTAINS
             ALLOCATE (homo_evals(ispin)%array(nhomo(ispin)))
             CALL cp_dbcsr_sm_fm_multiply(fock_matrix(ispin)%matrix, homo_coeffs(ispin)%matrix, &
                                          homo_work, ncol=nhomo(ispin))
-            CALL cp_gemm('T', 'N', nhomo(ispin), nhomo(ispin), nao, 1.0_dp, homo_coeffs(ispin)%matrix, &
-                         homo_work, 0.0_dp, hoho_fock)
+            CALL parallel_gemm('T', 'N', nhomo(ispin), nhomo(ispin), nao, 1.0_dp, homo_coeffs(ispin)%matrix, &
+                               homo_work, 0.0_dp, hoho_fock)
 
             !diagonalize and get pseudo-canonical MOs
             CALL choose_eigv_solver(hoho_fock, hoho_work, homo_evals(ispin)%array)
-            CALL cp_gemm('N', 'N', nao, nhomo(ispin), nhomo(ispin), 1.0_dp, homo_coeffs(ispin)%matrix, &
-                         hoho_work, 0.0_dp, homo_work)
+            CALL parallel_gemm('N', 'N', nao, nhomo(ispin), nhomo(ispin), 1.0_dp, homo_coeffs(ispin)%matrix, &
+                               hoho_work, 0.0_dp, homo_work)
             CALL cp_fm_to_fm(homo_work, homo_coeffs(ispin)%matrix)
 
             !overwrite the donor_state's contract coeffs with those
@@ -339,13 +343,13 @@ CONTAINS
             ALLOCATE (lumo_evals(ispin)%array(nlumo(ispin)))
             CALL cp_dbcsr_sm_fm_multiply(fock_matrix(ispin)%matrix, lumo_coeffs(ispin)%matrix, &
                                          lumo_work, ncol=nlumo(ispin))
-            CALL cp_gemm('T', 'N', nlumo(ispin), nlumo(ispin), nao, 1.0_dp, lumo_coeffs(ispin)%matrix, &
-                         lumo_work, 0.0_dp, lulu_fock)
+            CALL parallel_gemm('T', 'N', nlumo(ispin), nlumo(ispin), nao, 1.0_dp, lumo_coeffs(ispin)%matrix, &
+                               lumo_work, 0.0_dp, lulu_fock)
 
             !diagonalize and get pseudo-canonical MOs
             CALL choose_eigv_solver(lulu_fock, lulu_work, lumo_evals(ispin)%array)
-            CALL cp_gemm('N', 'N', nao, nlumo(ispin), nlumo(ispin), 1.0_dp, lumo_coeffs(ispin)%matrix, &
-                         lulu_work, 0.0_dp, lumo_work)
+            CALL parallel_gemm('N', 'N', nao, nlumo(ispin), nlumo(ispin), 1.0_dp, lumo_coeffs(ispin)%matrix, &
+                               lulu_work, 0.0_dp, lumo_work)
             CALL cp_fm_to_fm(lumo_work, lumo_coeffs(ispin)%matrix)
 
             CALL cp_fm_release(lulu_fock)
@@ -357,15 +361,15 @@ CONTAINS
             ALLOCATE (homo_evals(ispin)%array(nhomo(ispin)))
             CALL cp_dbcsr_sm_fm_multiply(fock_matrix(ispin)%matrix, homo_coeffs(ispin)%matrix, &
                                          homo_work, ncol=nhomo(ispin))
-            CALL cp_gemm('T', 'N', nhomo(ispin), nhomo(ispin), nao, 1.0_dp, homo_coeffs(ispin)%matrix, &
-                         homo_work, 0.0_dp, hoho_work)
+            CALL parallel_gemm('T', 'N', nhomo(ispin), nhomo(ispin), nao, 1.0_dp, homo_coeffs(ispin)%matrix, &
+                               homo_work, 0.0_dp, hoho_work)
             CALL cp_fm_get_diag(hoho_work, homo_evals(ispin)%array)
 
             ALLOCATE (lumo_evals(ispin)%array(nlumo(ispin)))
             CALL cp_dbcsr_sm_fm_multiply(fock_matrix(ispin)%matrix, lumo_coeffs(ispin)%matrix, &
                                          lumo_work, ncol=nlumo(ispin))
-            CALL cp_gemm('T', 'N', nlumo(ispin), nlumo(ispin), nao, 1.0_dp, lumo_coeffs(ispin)%matrix, &
-                         lumo_work, 0.0_dp, lulu_work)
+            CALL parallel_gemm('T', 'N', nlumo(ispin), nlumo(ispin), nao, 1.0_dp, lumo_coeffs(ispin)%matrix, &
+                               lumo_work, 0.0_dp, lulu_work)
             CALL cp_fm_get_diag(lulu_work, lumo_evals(ispin)%array)
 
          END IF
@@ -379,6 +383,7 @@ CONTAINS
          !Put back homo and lumo coeffs together, to fit tensor structure
          CALL cp_fm_struct_create(all_struct(ispin)%struct, para_env=para_env, context=blacs_env, &
                                   ncol_global=nhomo(ispin) + nlumo(ispin), nrow_global=nao)
+         ALLOCATE (all_coeffs(ispin)%matrix)
          CALL cp_fm_create(all_coeffs(ispin)%matrix, all_struct(ispin)%struct)
          CALL cp_fm_to_fm(homo_coeffs(ispin)%matrix, all_coeffs(ispin)%matrix, ncol=nhomo(ispin), &
                           source_start=1, target_start=1)
@@ -396,6 +401,7 @@ CONTAINS
          CALL cp_fm_release(all_coeffs(ispin)%matrix)
          CALL cp_fm_release(homo_coeffs(ispin)%matrix)
          CALL cp_fm_release(lumo_coeffs(ispin)%matrix)
+         DEALLOCATE (all_coeffs(ispin)%matrix, homo_coeffs(ispin)%matrix, lumo_coeffs(ispin)%matrix)
          CALL cp_fm_struct_release(all_struct(ispin)%struct)
          CALL cp_fm_struct_release(lumo_struct(ispin)%struct)
          CALL cp_fm_struct_release(homo_struct(ispin)%struct)
@@ -950,9 +956,6 @@ CONTAINS
       TYPE(xas_tdp_env_type), POINTER                    :: xas_tdp_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'get_full_pqX_from_3c_ex', &
-         routineP = moduleN//':'//routineN
-
       INTEGER                                            :: i, ind(3), natom, nblk_ri, nsgf_x
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: orb_blk_size, proc_dist_1, proc_dist_2, &
                                                             proc_dist_3
@@ -985,6 +988,9 @@ CONTAINS
       CALL dbt_distribution_destroy(t_dist)
 
       !dist of 3c_ex and work match, can simply copy blocks over. Diagonal with factor 0.5
+
+!$OMP PARALLEL DEFAULT(NONE) SHARED(xas_tdp_env,exat,work,orb_blk_size,nsgf_x) &
+!$OMP PRIVATE(iter,ind,pblock,found)
       CALL dbt_iterator_start(iter, xas_tdp_env%ri_3c_ex)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind)
@@ -999,6 +1005,7 @@ CONTAINS
          DEALLOCATE (pblock)
       END DO
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
       CALL dbt_finalize(work)
 
       !create (pq|X) based on work and copy over
@@ -1061,8 +1068,7 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'contract_AOs_to_MOs', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'contract_AOs_to_MOs'
 
       INTEGER                                            :: bo(2), handle, i, ispin, jspin, &
                                                             nblk_aos, nblk_mos(2), nblk_occ(2), &
@@ -1331,6 +1337,9 @@ CONTAINS
          CALL dbt_distribution_destroy(t_dist)
 
          !copy block by block, dist match
+
+!$OMP PARALLEL DEFAULT(NONE) SHARED(t_work,t_pI_Y,nblk_ri,ri_blk_size,ao_blk_size) &
+!$OMP PRIVATE(iter,ind,pblock,found,bo)
          CALL dbt_iterator_start(iter, t_work)
          DO WHILE (dbt_iterator_blocks_left(iter))
             CALL dbt_iterator_next_block(iter, ind)
@@ -1346,6 +1355,7 @@ CONTAINS
             DEALLOCATE (pblock)
          END DO
          CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
          CALL dbt_finalize(t_pI_Y)
 
          !get optimal pgrid  for (oI|Y)
@@ -1412,8 +1422,7 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: occ_evals, virt_evals
       REAL(dp), INTENT(in)                               :: omega, c_ss
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_ss_oov_contrib', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_ss_oov_contrib'
 
       INTEGER                                            :: a, boff(3), bsize(3), handle, idx1, &
                                                             idx2, idx3, ind(3), j, k, nocc
@@ -1430,6 +1439,10 @@ CONTAINS
       nocc = SIZE(occ_evals, 1)
 
       !Iterate over the tensors and sum. Both tensors have same dist
+
+!$OMP PARALLEL DEFAULT(NONE) REDUCTION(+:contrib,dev) &
+!$OMP SHARED(ja_Ik_diff,occ_evals,virt_evals,omega,c_ss,nocc) &
+!$OMP PRIVATE(iter,ind,boff,bsize,tensor_blk,found,idx1,idx2,idx3,j,A,k,denom,tmp)
       CALL dbt_iterator_start(iter, ja_Ik_diff)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind, blk_offset=boff, blk_size=bsize)
@@ -1462,6 +1475,7 @@ CONTAINS
          DEALLOCATE (tensor_blk)
       END DO
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 
@@ -1490,8 +1504,7 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: omega, c_os
       INTEGER, INTENT(IN)                                :: a_offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_os_oov_contrib', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_os_oov_contrib'
 
       INTEGER                                            :: a, boff(3), bsize(3), handle, idx1, &
                                                             idx2, idx3, ind(3), j, k
@@ -1509,6 +1522,10 @@ CONTAINS
       !      of the 2 terms, but with a factor 2
 
       !Iterate over the tensor and sum
+
+!$OMP PARALLEL DEFAULT(NONE) REDUCTION(+:contrib,dev) &
+!$OMP SHARED(ja_Ik,j_evals,a_evals,k_evals,omega,c_os,a_offset) &
+!$OMP PRIVATE(iter,ind,boff,bsize,ja_Ik_blk,found,idx1,idx2,idx3,j,A,k,denom,tmp)
       CALL dbt_iterator_start(iter, ja_Ik)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind, blk_offset=boff, blk_size=bsize)
@@ -1542,6 +1559,7 @@ CONTAINS
          DEALLOCATE (ja_Ik_blk)
       END DO
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 
@@ -1567,8 +1585,7 @@ CONTAINS
       REAL(dp), DIMENSION(:), INTENT(IN)                 :: occ_evals, virt_evals
       REAL(dp), INTENT(in)                               :: omega, c_ss
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_ss_ovv_contrib', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_ss_ovv_contrib'
 
       INTEGER                                            :: a, b, boff(3), bsize(3), handle, idx1, &
                                                             idx2, idx3, ind(3), j, nocc
@@ -1585,6 +1602,10 @@ CONTAINS
       nocc = SIZE(occ_evals, 1)
 
       !tensors have matching distributions, can do that safely
+
+!$OMP PARALLEL DEFAULT(NONE) REDUCTION(+:contrib,dev) &
+!$OMP SHARED(aj_Ib_diff,occ_evals,virt_evals,omega,c_ss,nocc) &
+!$OMP PRIVATE(iter,ind,boff,bsize,tensor_blk,found,idx1,idx2,idx3,j,A,b,denom,tmp)
       CALL dbt_iterator_start(iter, aj_Ib_diff)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind, blk_offset=boff, blk_size=bsize)
@@ -1617,6 +1638,7 @@ CONTAINS
          DEALLOCATE (tensor_blk)
       END DO
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 
@@ -1647,8 +1669,7 @@ CONTAINS
       REAL(dp), INTENT(in)                               :: omega, c_os
       INTEGER, INTENT(IN)                                :: a_offset, b_offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calc_os_ovv_contrib', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calc_os_ovv_contrib'
 
       INTEGER                                            :: a, b, boff(3), bsize(3), handle, idx1, &
                                                             idx2, idx3, ind(3), j
@@ -1664,6 +1685,9 @@ CONTAINS
       !       MOs on one center have one spin and the 2 MOs on the other center have another spin
       !       In the end, the sum is such that can take one of those with a factor 2
 
+!$OMP PARALLEL DEFAULT(NONE) REDUCTION(+:contrib,dev) &
+!$OMP SHARED(aj_Ib,a_evals,j_evals,b_evals,omega,c_os,a_offset,b_offset) &
+!$OMP PRIVATE(iter,ind,boff,bsize,aj_Ib_blk,found,idx1,idx2,idx3,j,A,b,denom,tmp)
       CALL dbt_iterator_start(iter, aj_Ib)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind, blk_offset=boff, blk_size=bsize)
@@ -1696,6 +1720,7 @@ CONTAINS
          DEALLOCATE (aj_Ib_blk)
       END DO
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 
@@ -1729,19 +1754,18 @@ CONTAINS
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: evals
       REAL(dp), ALLOCATABLE, DIMENSION(:, :)             :: tmp_shifts
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_cfm_type), POINTER                         :: hami_cfm
+      TYPE(cp_cfm_type)                                  :: hami_cfm
       TYPE(cp_fm_struct_type), POINTER                   :: ao_domo_struct, domo_domo_struct, &
                                                             doso_doso_struct
-      TYPE(cp_fm_type), POINTER                          :: alpha_gs_coeffs, ao_domo_work, &
+      TYPE(cp_fm_type)                                   :: alpha_gs_coeffs, ao_domo_work, &
                                                             beta_gs_coeffs, domo_domo_work, &
                                                             img_fm, real_fm
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks
       TYPE(dbcsr_type), POINTER                          :: orb_soc_x, orb_soc_y, orb_soc_z
 
-      NULLIFY (matrix_ks, para_env, blacs_env, hami_cfm, ao_domo_struct, domo_domo_struct, &
-               doso_doso_struct, alpha_gs_coeffs, ao_domo_work, beta_gs_coeffs, domo_domo_work, &
-               img_fm, real_fm, orb_soc_x, orb_soc_y, orb_soc_z)
+      NULLIFY (matrix_ks, para_env, blacs_env, ao_domo_struct, domo_domo_struct, &
+               doso_doso_struct, orb_soc_x, orb_soc_y, orb_soc_z)
 
       CALL timeset(routineN, handle)
 
@@ -1793,59 +1817,59 @@ CONTAINS
       ! Compute the KS matrix in this basis, add it to the real part of the final matrix
       !alpha-alpha block in upper left quadrant
       CALL cp_dbcsr_sm_fm_multiply(matrix_ks(1)%matrix, alpha_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=real_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=1, t_firstcol=1)
 
       !beta-beta block in lower right quadrant
       beta_spin = 1; IF (xas_tdp_control%do_uks .OR. xas_tdp_control%do_roks) beta_spin = 2
       CALL cp_dbcsr_sm_fm_multiply(matrix_ks(beta_spin)%matrix, beta_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=real_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=ndo_mo + 1, t_firstcol=ndo_mo + 1)
 
       ! Compute the SOC matrix elements and add them to the real or imaginary part of the matrix
       ! alpha-alpha block, only Hz not zero, purely imaginary, addition
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_z, alpha_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=img_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=1, t_firstcol=1)
 
       ! beta-beta block, only Hz not zero, purely imaginary, substraciton
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_z, beta_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, -1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, -1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=img_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=ndo_mo + 1, t_firstcol=ndo_mo + 1)
 
       ! alpha-beta block, two non-zero terms in Hx and Hy
       ! Hx term, purely imaginary, addition
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_x, beta_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=img_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=1, t_firstcol=ndo_mo + 1)
       ! Hy term, purely real, addition
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_y, beta_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, alpha_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=real_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=1, t_firstcol=ndo_mo + 1)
 
       ! beta-alpha block, two non-zero terms in Hx and Hy
       ! Hx term, purely imaginary, addition
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_x, alpha_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, 1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=img_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=ndo_mo + 1, t_firstcol=1)
       ! Hy term, purely real, substraction
       CALL cp_dbcsr_sm_fm_multiply(orb_soc_y, alpha_gs_coeffs, ao_domo_work, ncol=ndo_mo)
-      CALL cp_gemm('T', 'N', ndo_mo, ndo_mo, nao, -1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
-                   domo_domo_work)
+      CALL parallel_gemm('T', 'N', ndo_mo, ndo_mo, nao, -1.0_dp, beta_gs_coeffs, ao_domo_work, 0.0_dp, &
+                         domo_domo_work)
       CALL cp_fm_to_fm_submat(msource=domo_domo_work, mtarget=real_fm, nrow=ndo_mo, ncol=ndo_mo, &
                               s_firstrow=1, s_firstcol=1, t_firstrow=ndo_mo + 1, t_firstcol=1)
 

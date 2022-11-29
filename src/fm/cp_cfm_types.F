@@ -19,7 +19,6 @@ MODULE cp_cfm_types
                                               cp_fm_struct_retain,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_type
-   USE cp_log_handling,                 ONLY: cp_to_string
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: z_one,&
@@ -36,8 +35,6 @@ MODULE cp_cfm_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_cfm_types'
    INTEGER, PARAMETER, PRIVATE :: src_tag = 3, dest_tag = 5, send_tag = 7, recv_tag = 11
 
-   INTEGER, SAVE, PRIVATE :: last_cfm_id_nr = 0
-
    PUBLIC :: cp_cfm_type, cp_cfm_p_type, copy_cfm_info_type
    PUBLIC :: cp_cfm_cleanup_copy_general, &
              cp_cfm_create, &
@@ -46,7 +43,6 @@ MODULE cp_cfm_types
              cp_cfm_get_info, &
              cp_cfm_get_submatrix, &
              cp_cfm_release, &
-             cp_cfm_retain, &
              cp_cfm_set_all, &
              cp_cfm_set_element, &
              cp_cfm_set_submatrix, &
@@ -63,9 +59,6 @@ MODULE cp_cfm_types
 ! **************************************************************************************************
 !> \brief Represent a complex full matrix.
 !> \param name           the name of the matrix, used for printing
-!> \param id_nr         identification number that makes this matrix unique
-!> \param ref_cont      reference count (see doc/ReferenceCounting.html)
-!> \param print_count   sequential number to make the printed files unique
 !> \param matrix_struct structure of this matrix
 !> \param local_data    array with the data of the matrix (its content depends on
 !>                      the matrix type used: in parallel run it will be in
@@ -73,9 +66,8 @@ MODULE cp_cfm_types
 ! **************************************************************************************************
    TYPE cp_cfm_type
       CHARACTER(len=60) :: name
-      INTEGER :: id_nr, ref_count, print_count
       TYPE(cp_fm_struct_type), POINTER :: matrix_struct
-      COMPLEX(kind=dp), DIMENSION(:, :), POINTER :: local_data
+      COMPLEX(kind=dp), DIMENSION(:, :), POINTER, CONTIGUOUS :: local_data
    END TYPE cp_cfm_type
 
 ! **************************************************************************************************
@@ -125,8 +117,8 @@ CONTAINS
 !>      preferred allocation routine
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_create(matrix, matrix_struct, name)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
-      TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct
+      TYPE(cp_cfm_type), INTENT(OUT)                     :: matrix
+      TYPE(cp_fm_struct_type), POINTER, INTENT(IN)       :: matrix_struct
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: name
 
       INTEGER                                            :: ncol_local, npcol, nprow, nrow_local
@@ -137,14 +129,9 @@ CONTAINS
 #endif
 
       CPASSERT(ASSOCIATED(matrix_struct))
-      ALLOCATE (matrix)
       context => matrix_struct%context
       matrix%matrix_struct => matrix_struct
       CALL cp_fm_struct_retain(matrix%matrix_struct)
-      last_cfm_id_nr = last_cfm_id_nr + 1
-      matrix%id_nr = last_cfm_id_nr
-      matrix%ref_count = 1
-      matrix%print_count = 0
 
       nprow = context%num_pe(1)
       npcol = context%num_pe(2)
@@ -160,42 +147,22 @@ CONTAINS
       IF (PRESENT(name)) THEN
          matrix%name = name
       ELSE
-         matrix%name = 'full matrix'//cp_to_string(matrix%id_nr)
+         matrix%name = 'full complex matrix'
       END IF
    END SUBROUTINE cp_cfm_create
-
-! **************************************************************************************************
-!> \brief Retains a full matrix.
-!> \param matrix the matrix to retain
-! **************************************************************************************************
-   SUBROUTINE cp_cfm_retain(matrix)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
-
-      CPASSERT(ASSOCIATED(matrix))
-      CPASSERT(matrix%ref_count > 0)
-      matrix%ref_count = matrix%ref_count + 1
-   END SUBROUTINE cp_cfm_retain
 
 ! **************************************************************************************************
 !> \brief Releases a full matrix.
 !> \param matrix the matrix to release
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_release(matrix)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
+      TYPE(cp_cfm_type), INTENT(INOUT)                   :: matrix
 
-      IF (ASSOCIATED(matrix)) THEN
-         CPASSERT(matrix%ref_count > 0)
-         matrix%ref_count = matrix%ref_count - 1
-         IF (matrix%ref_count < 1) THEN
-            IF (ASSOCIATED(matrix%local_data)) THEN
-               DEALLOCATE (matrix%local_data)
-            END IF
-            matrix%name = ""
-            CALL cp_fm_struct_release(matrix%matrix_struct)
-            DEALLOCATE (matrix)
-         END IF
+      IF (ASSOCIATED(matrix%local_data)) THEN
+         DEALLOCATE (matrix%local_data)
       END IF
-      NULLIFY (matrix)
+      matrix%name = ""
+      CALL cp_fm_struct_release(matrix%matrix_struct)
    END SUBROUTINE cp_cfm_release
 
 ! **************************************************************************************************
@@ -209,7 +176,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_set_all(matrix, alpha, beta)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
+      TYPE(cp_cfm_type), INTENT(IN)                   :: matrix
       COMPLEX(kind=dp), INTENT(in)                       :: alpha
       COMPLEX(kind=dp), INTENT(in), OPTIONAL             :: beta
 
@@ -262,7 +229,7 @@ CONTAINS
 !>      always return the answer
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_get_element(matrix, irow_global, icol_global, alpha)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
+      TYPE(cp_cfm_type), INTENT(IN)                      :: matrix
       INTEGER, INTENT(in)                                :: irow_global, icol_global
       COMPLEX(kind=dp), INTENT(out)                      :: alpha
 
@@ -309,7 +276,7 @@ CONTAINS
 !> \version 1.0
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_set_element(matrix, irow_global, icol_global, alpha)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
+      TYPE(cp_cfm_type), INTENT(IN)                   :: matrix
       INTEGER, INTENT(in)                                :: irow_global, icol_global
       COMPLEX(kind=dp), INTENT(in)                       :: alpha
 
@@ -363,7 +330,7 @@ CONTAINS
 !>      Optimized for full column updates. The matrix target_m is replicated and valid on all CPUs.
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_get_submatrix(fm, target_m, start_row, start_col, n_rows, n_cols, transpose)
-      TYPE(cp_cfm_type), POINTER                         :: fm
+      TYPE(cp_cfm_type), INTENT(IN)                      :: fm
       COMPLEX(kind=dp), DIMENSION(:, :), INTENT(out)     :: target_m
       INTEGER, INTENT(in), OPTIONAL                      :: start_row, start_col, n_rows, n_cols
       LOGICAL, INTENT(in), OPTIONAL                      :: transpose
@@ -379,9 +346,6 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(fm))
-      CPASSERT(fm%ref_count .GT. 0)
 
       IF (SIZE(target_m) /= 0) THEN
 #if defined(__SCALAPACK)
@@ -503,7 +467,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_set_submatrix(matrix, new_values, start_row, &
                                    start_col, n_rows, n_cols, alpha, beta, transpose)
-      TYPE(cp_cfm_type), POINTER                         :: matrix
+      TYPE(cp_cfm_type), INTENT(IN)                      :: matrix
       COMPLEX(kind=dp), DIMENSION(:, :), INTENT(in)      :: new_values
       INTEGER, INTENT(in), OPTIONAL                      :: start_row, start_col, n_rows, n_cols
       COMPLEX(kind=dp), INTENT(in), OPTIONAL             :: alpha, beta
@@ -520,9 +484,6 @@ CONTAINS
       LOGICAL                                            :: tr_a
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(matrix))
-      CPASSERT(matrix%ref_count > 0)
 
       al = z_one
       be = z_zero
@@ -643,87 +604,26 @@ CONTAINS
                               nrow_block, ncol_block, nrow_local, ncol_local, &
                               row_indices, col_indices, local_data, context, &
                               matrix_struct, para_env)
-      TYPE(cp_cfm_type), POINTER        :: matrix
-      CHARACTER(len=*), OPTIONAL, INTENT(OUT) :: name
-      INTEGER, OPTIONAL, INTENT(OUT)          :: ncol_block, ncol_global, &
-                                                 nrow_block, nrow_global, &
-                                                 nrow_local, ncol_local
-      INTEGER, OPTIONAL, DIMENSION(:), POINTER   :: row_indices, col_indices
-      TYPE(cp_para_env_type), POINTER, OPTIONAL :: para_env
-      TYPE(cp_blacs_env_type), POINTER, OPTIONAL :: context
-      TYPE(cp_fm_struct_type), POINTER, OPTIONAL :: matrix_struct
-      COMPLEX(kind=dp), DIMENSION(:, :), POINTER, OPTIONAL :: local_data
-
-      INTEGER i, nprow, npcol, myprow, mypcol
-      TYPE(cp_blacs_env_type), POINTER :: ctxt
-#if defined(__SCALAPACK)
-      INTEGER, EXTERNAL :: indxl2g
-#endif
+      TYPE(cp_cfm_type), INTENT(IN)                      :: matrix
+      CHARACTER(len=*), INTENT(OUT), OPTIONAL            :: name
+      INTEGER, INTENT(OUT), OPTIONAL                     :: nrow_global, ncol_global, nrow_block, &
+                                                            ncol_block, nrow_local, ncol_local
+      INTEGER, DIMENSION(:), OPTIONAL, POINTER           :: row_indices, col_indices
+      COMPLEX(kind=dp), CONTIGUOUS, DIMENSION(:, :), &
+         OPTIONAL, POINTER                               :: local_data
+      TYPE(cp_blacs_env_type), OPTIONAL, POINTER         :: context
+      TYPE(cp_fm_struct_type), OPTIONAL, POINTER         :: matrix_struct
+      TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
       IF (PRESENT(name)) name = matrix%name
-      IF (PRESENT(nrow_global)) nrow_global = matrix%matrix_struct%nrow_global
-      IF (PRESENT(ncol_global)) ncol_global = matrix%matrix_struct%ncol_global
-      IF (PRESENT(nrow_block)) nrow_block = matrix%matrix_struct%nrow_block
-      IF (PRESENT(ncol_block)) ncol_block = matrix%matrix_struct%ncol_block
-      IF (PRESENT(context)) context => matrix%matrix_struct%context
       IF (PRESENT(matrix_struct)) matrix_struct => matrix%matrix_struct
       IF (PRESENT(local_data)) local_data => matrix%local_data ! not hiding things anymore :-(
 
-      ctxt => matrix%matrix_struct%context
-      myprow = ctxt%mepos(1)
-      mypcol = ctxt%mepos(2)
-      nprow = ctxt%num_pe(1)
-      npcol = ctxt%num_pe(2)
-
-      IF (PRESENT(nrow_local)) THEN
-         nrow_local = matrix%matrix_struct%nrow_locals(myprow)
-      END IF
-
-      IF (PRESENT(ncol_local)) THEN
-         ncol_local = matrix%matrix_struct%ncol_locals(mypcol)
-      END IF
-
-      IF (PRESENT(row_indices)) THEN
-         row_indices => matrix%matrix_struct%row_indices
-         IF (.NOT. ASSOCIATED(row_indices)) THEN
-            ALLOCATE (matrix%matrix_struct%row_indices &
-                      (matrix%matrix_struct%nrow_locals(myprow)))
-            row_indices => matrix%matrix_struct%row_indices
-#if defined(__SCALAPACK)
-            DO i = 1, SIZE(row_indices)
-               row_indices(i) = &
-                  indxl2g(i, matrix%matrix_struct%nrow_block, myprow, &
-                          matrix%matrix_struct%first_p_pos(1), nprow)
-            END DO
-#else
-            DO i = 1, SIZE(row_indices)
-               row_indices(i) = i
-            END DO
-#endif
-         END IF
-      END IF
-
-      IF (PRESENT(col_indices)) THEN
-         col_indices => matrix%matrix_struct%col_indices
-         IF (.NOT. ASSOCIATED(col_indices)) THEN
-            ALLOCATE (matrix%matrix_struct%col_indices &
-                      (matrix%matrix_struct%ncol_locals(mypcol)))
-            col_indices => matrix%matrix_struct%col_indices
-#if defined(__SCALAPACK)
-            DO i = 1, SIZE(col_indices)
-               col_indices(i) = &
-                  indxl2g(i, matrix%matrix_struct%ncol_block, mypcol, &
-                          matrix%matrix_struct%first_p_pos(2), npcol)
-            END DO
-#else
-            DO i = 1, SIZE(col_indices)
-               col_indices(i) = i
-            END DO
-#endif
-         END IF
-      END IF
-
-      IF (PRESENT(para_env)) para_env => matrix%matrix_struct%para_env
+      CALL cp_fm_struct_get(matrix%matrix_struct, nrow_local=nrow_local, &
+                            ncol_local=ncol_local, nrow_global=nrow_global, &
+                            ncol_global=ncol_global, nrow_block=nrow_block, &
+                            ncol_block=ncol_block, context=context, &
+                            row_indices=row_indices, col_indices=col_indices, para_env=para_env)
 
    END SUBROUTINE cp_cfm_get_info
 
@@ -734,7 +634,7 @@ CONTAINS
 !> \author Joost VandeVondele
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_to_cfm_matrix(source, destination)
-      TYPE(cp_cfm_type), POINTER                         :: source, destination
+      TYPE(cp_cfm_type), INTENT(IN)                      :: source, destination
 
       INTEGER                                            :: npcol, nprow
 
@@ -775,7 +675,7 @@ CONTAINS
    SUBROUTINE cp_cfm_to_cfm_columns(msource, mtarget, ncol, source_start, &
                                     target_start)
 
-      TYPE(cp_cfm_type), POINTER                         :: msource, mtarget
+      TYPE(cp_cfm_type), INTENT(IN)                   :: msource, mtarget
       INTEGER, INTENT(IN)                                :: ncol
       INTEGER, INTENT(IN), OPTIONAL                      :: source_start, target_start
 
@@ -822,7 +722,7 @@ CONTAINS
 !> \param uplo    'U' for upper triangular, 'L' for lower triangular
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_to_cfm_triangular(msource, mtarget, uplo)
-      TYPE(cp_cfm_type), POINTER                         :: msource, mtarget
+      TYPE(cp_cfm_type), INTENT(IN)                   :: msource, mtarget
       CHARACTER(len=*), INTENT(IN)                       :: uplo
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_to_cfm_triangular'
@@ -863,8 +763,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_to_fm(msource, mtargetr, mtargeti)
 
-      TYPE(cp_cfm_type), POINTER                         :: msource
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: mtargetr, mtargeti
+      TYPE(cp_cfm_type), INTENT(IN)                      :: msource
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: mtargetr, mtargeti
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_cfm_to_fm'
 
@@ -914,8 +814,8 @@ CONTAINS
 !>        Matrix structures are assumed to be equivalent.
 ! **************************************************************************************************
    SUBROUTINE cp_fm_to_cfm(msourcer, msourcei, mtarget)
-      TYPE(cp_fm_type), OPTIONAL, POINTER                :: msourcer, msourcei
-      TYPE(cp_cfm_type), POINTER                         :: mtarget
+      TYPE(cp_fm_type), INTENT(IN), OPTIONAL             :: msourcer, msourcei
+      TYPE(cp_cfm_type), INTENT(IN)                      :: mtarget
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_fm_to_cfm'
 
@@ -976,8 +876,8 @@ CONTAINS
 !>       allocatable arrays instead of pointers wherever possible.
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_start_copy_general(source, destination, para_env, info)
-      TYPE(cp_cfm_type), POINTER                         :: source, destination
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(cp_cfm_type), INTENT(IN), POINTER             :: source, destination
+      TYPE(cp_para_env_type), INTENT(IN), POINTER        :: para_env
       TYPE(copy_cfm_info_type), INTENT(out)              :: info
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_start_copy_general'
@@ -1289,7 +1189,7 @@ CONTAINS
 !>       allocatable arrays instead of pointers wherever possible.
 ! **************************************************************************************************
    SUBROUTINE cp_cfm_finish_copy_general(destination, info)
-      TYPE(cp_cfm_type), POINTER                         :: destination
+      TYPE(cp_cfm_type), INTENT(IN)                      :: destination
       TYPE(copy_cfm_info_type), INTENT(inout)            :: info
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_finish_copy_general'
@@ -1300,8 +1200,6 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: recv_col_indices, recv_row_indices
 
       CALL timeset(routineN, handle)
-
-      CPASSERT(ASSOCIATED(destination))
 
       IF (.NOT. cp2k_is_parallel) THEN
          ! Now unpack the data from the 'send buffer'
@@ -1353,13 +1251,11 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Complete the copy operation: wait for comms clean up MPI state.
-!> \param source  cfm matrix
 !> \param info    all of the data that will be needed to complete the copy operation
 !> \note a slightly modified version of the subroutine cp_fm_cleanup_copy_general() that uses
 !>       allocatable arrays instead of pointers wherever possible.
 ! **************************************************************************************************
-   SUBROUTINE cp_cfm_cleanup_copy_general(source, info)
-      TYPE(cp_cfm_type), POINTER                         :: source
+   SUBROUTINE cp_cfm_cleanup_copy_general(info)
       TYPE(copy_cfm_info_type), INTENT(inout)            :: info
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_cfm_cleanup_copy_general'
@@ -1368,12 +1264,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CPASSERT(ASSOCIATED(source))
-      MARK_USED(source)
-
-      IF (.NOT. cp2k_is_parallel) THEN
-         ! Don't do anything - no MPI state for the serial case
-      ELSE
+      IF (cp2k_is_parallel) THEN
          ! SRC_2
          ! If this process is also in the destination decomposition, this deallocate
          ! Was already done in cp_fm_finish_copy_general

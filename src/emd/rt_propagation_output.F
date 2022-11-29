@@ -26,8 +26,8 @@ MODULE rt_propagation_output
                                               cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
+                                              cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
                                               cp_logger_get_default_unit_nr,&
@@ -51,9 +51,11 @@ MODULE rt_propagation_output
                                               section_vals_type
    USE kahan_sum,                       ONLY: accurate_sum
    USE kinds,                           ONLY: default_path_length,&
+                                              default_string_length,&
                                               dp
    USE machine,                         ONLY: m_flush
    USE message_passing,                 ONLY: mp_max
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -66,14 +68,20 @@ MODULE rt_propagation_output
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: get_qs_kind_set,&
                                               qs_kind_type
    USE qs_linres_current,               ONLY: calculate_jrho_resp
    USE qs_linres_types,                 ONLY: current_env_type
-   USE qs_mo_io,                        ONLY: write_rt_mos_to_restart
+   USE qs_mo_io,                        ONLY: write_mo_set_to_output_unit,&
+                                              write_rt_mos_to_restart
+   USE qs_mo_types,                     ONLY: allocate_mo_set,&
+                                              deallocate_mo_set,&
+                                              get_mo_set,&
+                                              init_mo_set,&
+                                              mo_set_type
    USE qs_rho_types,                    ONLY: qs_rho_get,&
                                               qs_rho_type
    USE qs_scf_post_gpw,                 ONLY: qs_scf_post_moments,&
@@ -240,6 +248,7 @@ CONTAINS
             END IF
             CALL write_rt_mos_to_restart(qs_env%mos, mos_new, particle_set, &
                                          dft_section, qs_kind_set)
+            CALL write_rtp_mos_to_output_unit(qs_env, mos_new)
          END IF
       END IF
 
@@ -250,6 +259,79 @@ CONTAINS
                        "or use a smaller TIMESTEP")
 
    END SUBROUTINE rt_prop_output
+
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param mos_new ...
+! **************************************************************************************************
+   SUBROUTINE write_rtp_mos_to_output_unit(qs_env, mos_new)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'write_rtp_mos_to_output_unit'
+
+      CHARACTER(LEN=10)                                  :: spin
+      CHARACTER(LEN=2*default_string_length)             :: name
+      INTEGER                                            :: i, ispin, nao, nelectron, nmo, nspins
+      REAL(KIND=dp)                                      :: flexible_electron_count, maxocc, n_el_f
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(mo_set_type)                                  :: mo_set_rtp
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(section_vals_type), POINTER                   :: dft_section, input
+
+      NULLIFY (atomic_kind_set, particle_set, qs_kind_set, input, mos)
+
+      CALL get_qs_env(qs_env, &
+                      atomic_kind_set=atomic_kind_set, &
+                      qs_kind_set=qs_kind_set, &
+                      particle_set=particle_set, &
+                      input=input, &
+                      mos=mos)
+
+      NULLIFY (dft_section)
+      dft_section => section_vals_get_subs_vals(input, "DFT")
+      nspins = SIZE(mos_new)/2
+
+      DO ispin = 1, nspins
+         ! initiate mo_set
+         CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo, nelectron=nelectron, &
+                         n_el_f=n_el_f, maxocc=maxocc, flexible_electron_count=flexible_electron_count)
+
+         CALL allocate_mo_set(mo_set_rtp, &
+                              nao=nao, &
+                              nmo=nmo, &
+                              nelectron=nelectron, &
+                              n_el_f=n_el_f, &
+                              maxocc=maxocc, &
+                              flexible_electron_count=flexible_electron_count)
+
+         WRITE (name, fmt="(a,I6)") "RTP MO SET, SPIN ", ispin
+         CALL init_mo_set(mo_set_rtp, fm_ref=mos_new(2*ispin - 1)%matrix, name=name)
+
+         IF (nspins > 1) THEN
+            IF (ispin == 1) THEN
+               spin = "ALPHA SPIN"
+            ELSE
+               spin = "BETA SPIN"
+            END IF
+         ELSE
+            spin = ""
+         END IF
+
+         !loop for real (odd) and imaginary (even) parts
+         DO i = 1, 0, -1
+            CALL cp_fm_to_fm(mos_new(2*ispin - i)%matrix, mo_set_rtp%mo_coeff)
+            CALL write_mo_set_to_output_unit(mo_set_rtp, atomic_kind_set, qs_kind_set, particle_set, &
+                                          dft_section, 4, 0, rtp=.TRUE., spin=TRIM(spin), cpart=MOD(i, 2), sim_step=qs_env%sim_step)
+         END DO
+
+         CALL deallocate_mo_set(mo_set_rtp)
+      END DO
+
+   END SUBROUTINE write_rtp_mos_to_output_unit
 
 ! **************************************************************************************************
 !> \brief computes the effective orthonormality of a set of mos given an s-matrix
@@ -271,9 +353,9 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
       REAL(KIND=dp)                                      :: alpha, max_alpha, max_beta
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: overlap_re, svec_im, svec_re
+      TYPE(cp_fm_type)                                   :: overlap_re, svec_im, svec_re
 
-      NULLIFY (tmp_fm_struct, svec_im, svec_re, overlap_re)
+      NULLIFY (tmp_fm_struct)
 
       CALL timeset(routineN, handle)
 
@@ -301,10 +383,10 @@ CONTAINS
 
          CALL cp_fm_struct_release(tmp_fm_struct)
 
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(re)%matrix, &
-                      svec_re, 0.0_dp, overlap_re)
-         CALL cp_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(im)%matrix, &
-                      svec_im, 1.0_dp, overlap_re)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(re)%matrix, &
+                            svec_re, 0.0_dp, overlap_re)
+         CALL parallel_gemm('T', 'N', k, k, n, 1.0_dp, mos_new(im)%matrix, &
+                            svec_im, 1.0_dp, overlap_re)
 
          CALL cp_fm_release(svec_re)
          CALL cp_fm_release(svec_im)
@@ -353,7 +435,7 @@ CONTAINS
       REAL(KIND=dp)                                      :: alpha, max_alpha
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
       TYPE(cp_fm_struct_type), POINTER                   :: newstruct, newstruct1, tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: work, work1, work2
+      TYPE(cp_fm_type)                                   :: work, work1, work2
 
       NULLIFY (tmp_fm_struct)
 
@@ -410,11 +492,11 @@ CONTAINS
          CALL cp_fm_create(work, matrix_struct=newstruct1)
          CALL cp_fm_create(work2, matrix_struct=newstruct1)
 
-         CALL cp_gemm("T", "N", nmo, newdim, nao, one, delta_mos(re)%matrix, &
-                      work1, zero, work)
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, one, delta_mos(re)%matrix, &
+                            work1, zero, work)
 
-         CALL cp_gemm("T", "N", nmo, newdim, nao, one, delta_mos(im)%matrix, &
-                      work1, zero, work2)
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, one, delta_mos(im)%matrix, &
+                            work1, zero, work2)
 
          CALL cp_fm_get_info(work, nrow_local=lrow)
          DO i = 1, lrow
@@ -685,8 +767,8 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: tmp, zero
       TYPE(particle_list_type), POINTER                  :: particles
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type), POINTER                           :: gs, rs
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: gs, rs
       TYPE(qs_subsys_type), POINTER                      :: subsys
 
       CALL timeset(routineN, handle)
@@ -696,9 +778,7 @@ CONTAINS
       CALL qs_subsys_get(subsys, particles=particles)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
 
-      NULLIFY (zero, rs, gs, tmp)
-      ALLOCATE (rs, gs)
-      NULLIFY (rs%pw, gs%pw)
+      NULLIFY (zero, tmp)
       ALLOCATE (zero, tmp)
       CALL dbcsr_create(zero, template=P_im)
       CALL dbcsr_copy(zero, P_im)
@@ -710,16 +790,16 @@ CONTAINS
       END IF
       current_env%gauge = -1
       current_env%gauge_init = .FALSE.
-      CALL pw_pool_create_pw(auxbas_pw_pool, rs%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, gs%pw, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, rs, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, gs, use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
 
       NULLIFY (stride)
       ALLOCATE (stride(3))
 
       DO dir = 1, 3
 
-         CALL pw_zero(rs%pw)
-         CALL pw_zero(gs%pw)
+         CALL pw_zero(rs)
+         CALL pw_zero(gs)
 
          CALL calculate_jrho_resp(zero, tmp, zero, zero, dir, dir, rs, gs, qs_env, current_env, retain_rsgrid=.TRUE.)
 
@@ -740,7 +820,7 @@ CONTAINS
                                            extension=ext, file_status="REPLACE", file_action="WRITE", &
                                            log_filename=.FALSE., mpi_io=mpi_io)
 
-         CALL cp_pw_to_cube(rs%pw, print_unit, "EMD current", particles=particles, stride=stride, &
+         CALL cp_pw_to_cube(rs, print_unit, "EMD current", particles=particles, stride=stride, &
                             mpi_io=mpi_io)
 
          CALL cp_print_key_finished_output(print_unit, logger, dft_section, "REAL_TIME_PROPAGATION%PRINT%CURRENT", &
@@ -748,11 +828,8 @@ CONTAINS
 
       END DO
 
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rs%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, gs%pw)
-
-      DEALLOCATE (rs)
-      DEALLOCATE (gs)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rs)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, gs)
 
       CALL dbcsr_deallocate_matrix(zero)
       CALL dbcsr_deallocate_matrix(tmp)

@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -28,8 +25,7 @@ cd "${BUILDDIR}"
 case "$with_libxsmm" in
   __INSTALL__)
     echo "==================== Installing Libxsmm ===================="
-    if [[ ("$OPENBLAS_ARCH" != "x86_64") && (\
-      "$OPENBLAS_ARCH" != "arm64" || "$libxsmm_ver" != "master") ]]; then
+    if [[ ("$OPENBLAS_ARCH" != "x86_64") && ("$OPENBLAS_ARCH" != "arm64") ]]; then
       report_warning $LINENO "libxsmm is not supported on arch ${OPENBLAS_ARCH}"
       cat << EOF > "${BUILDDIR}/setup_libxsmm"
 with_libxsmm="__DONTUSE__"
@@ -41,22 +37,14 @@ EOF
     if verify_checksums "${install_lock_file}"; then
       echo "libxsmm-${libxsmm_ver} is already installed, skipping it."
     else
-      if [ "$libxsmm_ver" = "master" ]; then
-        download_pkg_no_checksum ${DOWNLOADER_FLAGS} \
-          -o libxsmm-master.zip \
-          https://github.com/hfp/libxsmm/archive/master.zip
-        [ -d libxsmm-master ] && rm -rf libxsmm-master
-        unzip -q -o libxsmm-master.zip
+      if [ -f libxsmm-${libxsmm_ver}.tar.gz ]; then
+        echo "libxsmm-${libxsmm_ver}.tar.gz is found"
       else
-        if [ -f libxsmm-${libxsmm_ver}.tar.gz ]; then
-          echo "libxsmm-${libxsmm_ver}.tar.gz is found"
-        else
-          download_pkg ${DOWNLOADER_FLAGS} ${libxsmm_sha256} \
-            https://www.cp2k.org/static/downloads/libxsmm-${libxsmm_ver}.tar.gz
-        fi
-        [ -d libxsmm-${libxsmm_ver} ] && rm -rf libxsmm-${libxsmm_ver}
-        tar -xzf libxsmm-${libxsmm_ver}.tar.gz
+        download_pkg_from_cp2k_org "${libxsmm_sha256}" "libxsmm-${libxsmm_ver}.tar.gz"
       fi
+      [ -d libxsmm-${libxsmm_ver} ] && rm -rf libxsmm-${libxsmm_ver}
+      tar -xzf libxsmm-${libxsmm_ver}.tar.gz
+
       echo "Installing from scratch into ${pkg_install_dir}"
       # note that we do not have to set -L flags to ld for the
       # linked math libraries for the libxsmm build, as for a
@@ -71,23 +59,24 @@ EOF
         CXX=$CXX \
         CC=$CC \
         FC=$FC \
+        INTRINSICS=1 \
         PREFIX=${pkg_install_dir} \
         > make.log 2>&1 || tail -n ${LOG_LINES} make.log
       make -j $(get_nprocs) \
         CXX=$CXX \
         CC=$CC \
         FC=$FC \
+        INTRINSICS=1 \
         PREFIX=${pkg_install_dir} \
         install > install.log 2>&1 || tail -n ${LOG_LINES} install.log
       cd ..
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage4/$(basename ${SCRIPT_NAME})"
     fi
     LIBXSMM_CFLAGS="-I'${pkg_install_dir}/include'"
-    LIBXSMM_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    LIBXSMM_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding Libxsmm from system paths ===================="
-    check_command libxsmm_generator "libxsmm"
     check_lib -lxsmm "libxsmm"
     check_lib -lxsmmf "libxsmm"
     add_include_from_paths LIBXSMM_CFLAGS "libxsmm.h" $INCLUDE_PATHS
@@ -102,7 +91,7 @@ EOF
     check_dir "${pkg_install_dir}/include"
     check_dir "${pkg_install_dir}/lib"
     LIBXSMM_CFLAGS="-I'${pkg_install_dir}/include'"
-    LIBXSMM_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    LIBXSMM_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_libxsmm" != "__DONTUSE__" ]; then

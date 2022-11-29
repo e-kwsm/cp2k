@@ -40,7 +40,6 @@ MODULE qs_integrate_potential_product
                                               pbc
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
-   USE cube_utils,                      ONLY: cube_info_type
    USE dbcsr_api,                       ONLY: dbcsr_copy,&
                                               dbcsr_finalize,&
                                               dbcsr_get_block_p,&
@@ -56,7 +55,7 @@ MODULE qs_integrate_potential_product
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
-   USE pw_types,                        ONLY: pw_p_type
+   USE pw_types,                        ONLY: pw_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
    USE qs_force_types,                  ONLY: qs_force_type
@@ -64,9 +63,7 @@ MODULE qs_integrate_potential_product
                                               get_qs_kind_set,&
                                               qs_kind_type
    USE realspace_grid_types,            ONLY: realspace_grid_desc_p_type,&
-                                              realspace_grid_p_type,&
-                                              rs_grid_release,&
-                                              rs_grid_retain
+                                              realspace_grid_type
    USE rs_pw_interface,                 ONLY: potential_pw2rs
    USE task_list_methods,               ONLY: rs_copy_to_buffer,&
                                               rs_copy_to_matrices,&
@@ -110,7 +107,7 @@ CONTAINS
 !> \param lambda The atom index.
 ! **************************************************************************************************
    SUBROUTINE integrate_v_dbasis(v_rspace, matrix_vhxc_dbasis, matrix_p, qs_env, lambda)
-      TYPE(pw_p_type)                                    :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_vhxc_dbasis
       TYPE(dbcsr_type), POINTER                          :: matrix_p
       TYPE(qs_environment_type), POINTER                 :: qs_env
@@ -142,7 +139,6 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(block_p_type), ALLOCATABLE, DIMENSION(:)      :: vhxc_block
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cube_info_type), DIMENSION(:), POINTER        :: cube_info
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: deltap
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
@@ -153,7 +149,7 @@ CONTAINS
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(realspace_grid_desc_p_type), DIMENSION(:), &
          POINTER                                         :: rs_descs
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: rs_rho
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_rho
       TYPE(task_list_type), POINTER                      :: task_list, task_list_soft
       TYPE(task_type), DIMENSION(:), POINTER             :: tasks
 
@@ -174,7 +170,6 @@ CONTAINS
 
       ! *** assign from pw_env
       gridlevel_info => pw_env%gridlevel_info
-      cube_info => pw_env%cube_info
 
       ! get all the general information on the system we are working on
       CALL get_qs_env(qs_env=qs_env, &
@@ -189,11 +184,10 @@ CONTAINS
       CPASSERT(ASSOCIATED(pw_env))
       CALL pw_env_get(pw_env, rs_descs=rs_descs, rs_grids=rs_rho)
       DO igrid_level = 1, gridlevel_info%ngrid_levels
-         CALL rs_grid_retain(rs_rho(igrid_level)%rs_grid)
-         distributed_grids = rs_rho(igrid_level)%rs_grid%desc%distributed
+         distributed_grids = rs_rho(igrid_level)%desc%distributed
       END DO
       ! get mpi group from rs_rho
-      group = rs_rho(1)%rs_grid%desc%group
+      group = rs_rho(1)%desc%group
 
       ! transform the potential on the rs_multigrids
       CALL potential_pw2rs(rs_rho, v_rspace, pw_env)
@@ -243,7 +237,7 @@ CONTAINS
 !$OMP PARALLEL DEFAULT(NONE), &
 !$OMP SHARED(workt,habt,hdabt,hadbt,pabt,tasks,particle_set,natom,maxset), &
 !$OMP SHARED(maxpgf,my_gapw,matrix_vhxc_dbasis,deltap), &
-!$OMP SHARED(pab_required,ncoset,rs_rho,cube_info,my_compute_tau), &
+!$OMP SHARED(pab_required,ncoset,rs_rho,my_compute_tau), &
 !$OMP SHARED(eps_rho_rspace,force,cell), &
 !$OMP SHARED(gridlevel_info,task_list,block_touched,nthread,qs_kind_set), &
 !$OMP SHARED(nimages,lambda, dh_duplicated), &
@@ -413,7 +407,7 @@ CONTAINS
             nb2 = jpgf*ncoset(lb_max(jset))
 
             ! check whether we need to use fawzi's generalised collocation scheme
-            IF (rs_rho(igrid_level)%rs_grid%desc%distributed) THEN
+            IF (rs_rho(igrid_level)%desc%distributed) THEN
                !tasks(4,:) is 0 for replicated, 1 for distributed 2 for exceptional distributed tasks
                IF (tasks(itask)%dist_type .EQ. 2) THEN
                   use_subpatch = .TRUE.
@@ -429,8 +423,7 @@ CONTAINS
                   CALL integrate_pgf_product( &
                   la_max(iset), zeta(ipgf, iset), la_min(iset), &
                   lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
-                  ra, rab, rs_rho(igrid_level)%rs_grid, cell, &
-                  cube_info(igrid_level), &
+                  ra, rab, rs_rho(igrid_level), &
                   hab, o1=na1 - 1, o2=nb1 - 1, &
                   radius=radius, &
                   calculate_forces=.TRUE., &
@@ -441,8 +434,7 @@ CONTAINS
                   CALL integrate_pgf_product( &
                   la_max(iset), zeta(ipgf, iset), la_min(iset), &
                   lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
-                  ra, rab, rs_rho(igrid_level)%rs_grid, cell, &
-                  cube_info(igrid_level), &
+                  ra, rab, rs_rho(igrid_level), &
                   hab, o1=na1 - 1, o2=nb1 - 1, &
                   radius=radius, &
                   calculate_forces=.TRUE., &
@@ -455,8 +447,7 @@ CONTAINS
                   CALL integrate_pgf_product( &
                   lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
                   la_max(iset), zeta(ipgf, iset), la_min(iset), &
-                  rb, rab_inv, rs_rho(igrid_level)%rs_grid, cell, &
-                  cube_info(igrid_level), &
+                  rb, rab_inv, rs_rho(igrid_level), &
                   hab, o1=nb1 - 1, o2=na1 - 1, &
                   radius=radius, &
                   calculate_forces=.TRUE., &
@@ -468,8 +459,7 @@ CONTAINS
                   CALL integrate_pgf_product( &
                   lb_max(jset), zetb(jpgf, jset), lb_min(jset), &
                   la_max(iset), zeta(ipgf, iset), la_min(iset), &
-                  rb, rab_inv, rs_rho(igrid_level)%rs_grid, cell, &
-                  cube_info(igrid_level), &
+                  rb, rab_inv, rs_rho(igrid_level), &
                   hab, o1=nb1 - 1, o2=na1 - 1, &
                   radius=radius, &
                   calculate_forces=.TRUE., &
@@ -548,12 +538,6 @@ CONTAINS
 
       DEALLOCATE (pabt, habt, workt, hdabt, hadbt)
 
-      IF (ASSOCIATED(rs_rho)) THEN
-         DO i = 1, SIZE(rs_rho)
-            CALL rs_grid_release(rs_rho(i)%rs_grid)
-         END DO
-      END IF
-
       CALL timestop(handle)
    END SUBROUTINE integrate_v_dbasis
 
@@ -594,7 +578,7 @@ CONTAINS
                                  qs_env, calculate_forces, force_adm, ispin, &
                                  compute_tau, gapw, basis_type, pw_env_external, task_list_external)
 
-      TYPE(pw_p_type)                                    :: v_rspace
+      TYPE(pw_type), INTENT(IN)                          :: v_rspace
       TYPE(dbcsr_p_type), INTENT(INOUT), OPTIONAL        :: hmat
       TYPE(dbcsr_p_type), DIMENSION(:), OPTIONAL, &
          POINTER                                         :: hmat_kp
@@ -613,7 +597,7 @@ CONTAINS
       CHARACTER(len=*), PARAMETER :: routineN = 'integrate_v_rspace'
 
       CHARACTER(len=default_string_length)               :: my_basis_type
-      INTEGER                                            :: atom_a, group, handle, i, iatom, &
+      INTEGER                                            :: atom_a, group, handle, iatom, &
                                                             igrid_level, ikind, img, maxco, &
                                                             maxsgf_set, natoms, nimages, nkind
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
@@ -626,7 +610,6 @@ CONTAINS
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cube_info_type), DIMENSION(:), POINTER        :: cube_info
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: deltap, dhmat
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
@@ -634,7 +617,7 @@ CONTAINS
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(realspace_grid_p_type), DIMENSION(:), POINTER :: rs_v
+      TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_v
       TYPE(task_list_type), POINTER                      :: task_list, task_list_soft
       TYPE(virial_type), POINTER                         :: virial
 
@@ -717,16 +700,12 @@ CONTAINS
 
       CPASSERT(ASSOCIATED(pw_env))
       CALL pw_env_get(pw_env, rs_grids=rs_v)
-      DO i = 1, SIZE(rs_v)
-         CALL rs_grid_retain(rs_v(i)%rs_grid)
-      END DO
 
       ! get mpi group from rs_v
-      group = rs_v(1)%rs_grid%desc%group
+      group = rs_v(1)%desc%group
 
       ! assign from pw_env
       gridlevel_info => pw_env%gridlevel_info
-      cube_info => pw_env%cube_info
 
       ! transform the potential on the rs_multigrids
       CALL potential_pw2rs(rs_v, v_rspace, pw_env)
@@ -746,7 +725,7 @@ CONTAINS
 
       distributed_grids = .FALSE.
       DO igrid_level = 1, gridlevel_info%ngrid_levels
-         IF (rs_v(igrid_level)%rs_grid%desc%distributed) THEN
+         IF (rs_v(igrid_level)%desc%distributed) THEN
             distributed_grids = .TRUE.
          END IF
       END DO
@@ -821,12 +800,6 @@ CONTAINS
          CALL rs_copy_to_matrices(task_list%hab_buffer, dhmat, task_list)
       END IF
       DEALLOCATE (dhmat)
-
-      IF (ASSOCIATED(rs_v)) THEN
-         DO i = 1, SIZE(rs_v)
-            CALL rs_grid_release(rs_v(i)%rs_grid)
-         END DO
-      END IF
 
       CALL timestop(handle)
 

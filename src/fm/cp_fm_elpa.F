@@ -62,7 +62,7 @@ MODULE cp_fm_elpa
                              ELPA_2STAGE_REAL_AVX512_BLOCK6, &
                              ELPA_2STAGE_REAL_NVIDIA_GPU, &
                              ELPA_2STAGE_REAL_AMD_GPU, &
-                             ELPA_2STAGE_REAL_INTEL_GPU
+                             ELPA_2STAGE_REAL_INTEL_GPU_SYCL
 
    USE elpa, ONLY: elpa_t, elpa_solver_2stage, &
                    elpa_init, elpa_uninit, &
@@ -97,7 +97,7 @@ MODULE cp_fm_elpa
                                         ELPA_2STAGE_REAL_AVX512_BLOCK6, &
                                         ELPA_2STAGE_REAL_NVIDIA_GPU, &
                                         ELPA_2STAGE_REAL_AMD_GPU, &
-                                        ELPA_2STAGE_REAL_INTEL_GPU]
+                                        ELPA_2STAGE_REAL_INTEL_GPU_SYCL]
 
    CHARACTER(len=14), DIMENSION(SIZE(elpa_kernel_ids)), PARAMETER :: &
       elpa_kernel_names = [CHARACTER(len=14) :: &
@@ -153,7 +153,9 @@ MODULE cp_fm_elpa
    CHARACTER(len=44), DIMENSION(1), PARAMETER :: elpa_kernel_descriptions = ["Automatically selected kernel"]
 #endif
 
+#if defined(__ELPA)
    INTEGER, SAVE :: elpa_kernel = elpa_kernel_ids(1) ! auto
+#endif
    LOGICAL, SAVE :: elpa_qr = .FALSE., &
                     elpa_qr_unsafe = .FALSE., &
                     elpa_should_print = .FALSE.
@@ -229,7 +231,7 @@ CONTAINS
          elpa_kernel = ELPA_2STAGE_REAL_AMD_GPU
 #endif
 #if defined (__ELPA_INTEL_GPU)
-         elpa_kernel = ELPA_2STAGE_REAL_INTEL_GPU
+         elpa_kernel = ELPA_2STAGE_REAL_INTEL_GPU_SYCL
 #endif
 
          ! If we could not find a suitable kernel then use ELPA_2STAGE_REAL_DEFAULT.
@@ -275,14 +277,14 @@ CONTAINS
 !> \param eigenvalues eigenvalues of the input matrix
 ! **************************************************************************************************
    SUBROUTINE cp_fm_diag_elpa(matrix, eigenvectors, eigenvalues)
-      TYPE(cp_fm_type), POINTER                :: matrix, eigenvectors
-      REAL(KIND=dp), DIMENSION(:)              :: eigenvalues
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_diag_elpa'
+      TYPE(cp_fm_type), INTENT(IN)          :: matrix, eigenvectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(OUT) :: eigenvalues
 
 #if defined(__ELPA)
+      CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_diag_elpa'
+
       INTEGER                                  :: handle
-      TYPE(cp_fm_type), POINTER                :: eigenvectors_new, matrix_new
+      TYPE(cp_fm_type)                         :: eigenvectors_new, matrix_new
       TYPE(cp_fm_redistribute_info)            :: rdinfo
 
       CALL timeset(routineN, handle)
@@ -296,7 +298,7 @@ CONTAINS
                                     caller_is_elpa=.TRUE., redist_info=rdinfo)
 
       ! Call ELPA on CPUs that hold the new matrix
-      IF (ASSOCIATED(matrix_new)) &
+      IF (ASSOCIATED(matrix_new%matrix_struct)) &
          CALL cp_fm_diag_elpa_base(matrix_new, eigenvectors_new, eigenvalues, rdinfo)
 
       ! Redistribute results and clean up
@@ -322,8 +324,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_diag_elpa_base(matrix, eigenvectors, eigenvalues, rdinfo)
 
-      TYPE(cp_fm_type), INTENT(INOUT), POINTER           :: matrix, eigenvectors
-      REAL(KIND=dp), DIMENSION(:), INTENT(INOUT)         :: eigenvalues
+      TYPE(cp_fm_type), INTENT(IN)                       :: matrix, eigenvectors
+      REAL(KIND=dp), DIMENSION(:), INTENT(OUT)           :: eigenvalues
       TYPE(cp_fm_redistribute_info), INTENT(IN)          :: rdinfo
 
       CHARACTER(len=*), PARAMETER :: routineN = 'cp_fm_diag_elpa_base'
@@ -340,7 +342,7 @@ CONTAINS
       LOGICAL                                  :: use_qr, check_eigenvalues
       REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: eval, eval_noqr
       TYPE(cp_blacs_env_type), POINTER         :: context
-      TYPE(cp_fm_type), POINTER                :: matrix_noqr, eigenvectors_noqr
+      TYPE(cp_fm_type)                         :: matrix_noqr, eigenvectors_noqr
       TYPE(cp_logger_type), POINTER            :: logger
       REAL(KIND=dp), PARAMETER                 :: th = 1.0E-14_dp
       INTEGER, DIMENSION(:), POINTER           :: ncol_locals
@@ -511,7 +513,7 @@ CONTAINS
          CALL elpa_obj%set("amd-gpu", 1, success)
          CPASSERT(success == elpa_ok)
       END IF
-      IF (elpa_kernel == ELPA_2STAGE_REAL_INTEL_GPU) THEN
+      IF (elpa_kernel == ELPA_2STAGE_REAL_INTEL_GPU_SYCL) THEN
          CALL elpa_obj%set("intel-gpu", 1, success)
          CPASSERT(success == elpa_ok)
       END IF

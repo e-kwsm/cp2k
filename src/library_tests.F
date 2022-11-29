@@ -42,7 +42,6 @@ MODULE library_tests
                                               cp_fm_set_submatrix,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type
    USE cp_output_handling,              ONLY: cp_print_key_finished_output,&
@@ -51,6 +50,7 @@ MODULE library_tests
    USE cp_realspace_grid_init,          ONLY: init_input_type
    USE dbcsr_api,                       ONLY: dbcsr_reset_randmat_seed,&
                                               dbcsr_run_tests
+   USE dbm_tests,                       ONLY: dbm_run_tests
    USE fft_tools,                       ONLY: BWFFT,&
                                               FFT_RADIX_CLOSEST,&
                                               FWFFT,&
@@ -80,6 +80,7 @@ MODULE library_tests
                                               mpi_perf_test
    USE minimax_exp,                     ONLY: validate_exp_minimax
    USE mp2_grids,                       ONLY: test_least_square_ft
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE parallel_rng_types,              ONLY: UNIFORM,&
                                               rng_stream_type
    USE pw_grid_types,                   ONLY: FULLSPACE,&
@@ -96,8 +97,8 @@ MODULE library_tests
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
                                               pw_create,&
-                                              pw_p_type,&
-                                              pw_release
+                                              pw_release,&
+                                              pw_type
    USE realspace_grid_types,            ONLY: &
         pw2rs, realspace_grid_desc_type, realspace_grid_input_type, realspace_grid_type, rs2pw, &
         rs_grid_create, rs_grid_create_descriptor, rs_grid_print, rs_grid_release, &
@@ -138,8 +139,8 @@ CONTAINS
       LOGICAL                                            :: explicit
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(section_vals_type), POINTER :: cp_dbcsr_test_section, cp_fm_gemm_test_section, &
-         eigensolver_section, eri_mme_test_section, pw_transfer_section, rs_pw_transfer_section, &
-         shg_integrals_test_section
+         dbm_test_section, eigensolver_section, eri_mme_test_section, pw_transfer_section, &
+         rs_pw_transfer_section, shg_integrals_test_section
 
       CALL timeset(routineN, handle)
 
@@ -212,12 +213,17 @@ CONTAINS
       END IF
 
       ! DBCSR tests
-      ! matrix_multiplication
-      cp_dbcsr_test_section => section_vals_get_subs_vals(root_section, &
-                                                          "TEST%CP_DBCSR")
+      cp_dbcsr_test_section => section_vals_get_subs_vals(root_section, "TEST%CP_DBCSR")
       CALL section_vals_get(cp_dbcsr_test_section, explicit=explicit)
       IF (explicit) THEN
          CALL cp_dbcsr_tests(para_env, iw, cp_dbcsr_test_section)
+      END IF
+
+      ! DBM tests
+      dbm_test_section => section_vals_get_subs_vals(root_section, "TEST%DBM")
+      CALL section_vals_get(dbm_test_section, explicit=explicit)
+      IF (explicit) THEN
+         CALL run_dbm_tests(para_env, iw, dbm_test_section)
       END IF
 
       CALL cp_print_key_finished_output(iw, logger, root_section, "TEST%PROGRAM_RUN_INFO")
@@ -713,10 +719,10 @@ CONTAINS
       REAL(KIND=dp)                                      :: tend, tstart
       TYPE(cell_type), POINTER                           :: box
       TYPE(pw_grid_type), POINTER                        :: grid
-      TYPE(pw_p_type)                                    :: ca
+      TYPE(pw_type)                                      :: ca
       TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
       TYPE(realspace_grid_input_type)                    :: input_settings
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
+      TYPE(realspace_grid_type)                          :: rs_grid
       TYPE(section_vals_type), POINTER                   :: rs_grid_section
 
       CALL timeset(routineN, handle)
@@ -742,10 +748,9 @@ CONTAINS
       CALL pw_grid_setup(box%hmat, grid, grid_span=FULLSPACE, npts=np, fft_usage=.TRUE., iounit=iw)
       no = grid%npts
 
-      NULLIFY (ca%pw)
-      CALL pw_create(ca%pw, grid, REALDATA3D)
-      ca%pw%in_space = REALSPACE
-      CALL pw_zero(ca%pw)
+      CALL pw_create(ca, grid, REALDATA3D)
+      ca%in_space = REALSPACE
+      CALL pw_zero(ca)
 
       ! .. rs input setting type
       CALL section_vals_val_get(rs_pw_transfer_section, "HALO_SIZE", i_val=halo_size)
@@ -754,7 +759,6 @@ CONTAINS
       CALL init_input_type(input_settings, ns_max, rs_grid_section, 1, (/-1, -1, -1/))
 
       ! .. rs type
-      NULLIFY (rs_grid)
       NULLIFY (rs_desc)
       CALL rs_grid_create_descriptor(rs_desc, pw_grid=grid, input_settings=input_settings)
       CALL rs_grid_create(rs_grid, rs_desc)
@@ -782,7 +786,7 @@ CONTAINS
       DO i_loop = 1, N_loop
          CALL mp_sync(para_env%group)
          tstart = m_walltime()
-         CALL rs_pw_transfer(rs_grid, ca%pw, dir)
+         CALL rs_pw_transfer(rs_grid, ca, dir)
          CALL mp_sync(para_env%group)
          tend = m_walltime()
          IF (para_env%ionode) THEN
@@ -793,7 +797,7 @@ CONTAINS
       !cleanup
       CALL rs_grid_release(rs_grid)
       CALL rs_grid_release_descriptor(rs_desc)
-      CALL pw_release(ca%pw)
+      CALL pw_release(ca)
       CALL pw_grid_release(grid)
       CALL cell_release(box)
       CALL finalize_fft(para_env, wisdom_file=globenv%fftw_wisdom_file_name)
@@ -835,7 +839,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: t_end, t_start
       TYPE(cell_type), POINTER                           :: box
       TYPE(pw_grid_type), POINTER                        :: grid
-      TYPE(pw_p_type)                                    :: ca, cb, cc
+      TYPE(pw_type)                                      :: ca, cb, cc
 
 !..set fft lib
 
@@ -942,23 +946,19 @@ CONTAINS
             ! note that the number of grid points might be different from what the user requested (fft-able needed)
             no = grid%npts
 
-            NULLIFY (ca%pw)
-            NULLIFY (cb%pw)
-            NULLIFY (cc%pw)
-
-            CALL pw_create(ca%pw, grid, COMPLEXDATA1D)
-            CALL pw_create(cb%pw, grid, COMPLEXDATA3D)
-            CALL pw_create(cc%pw, grid, COMPLEXDATA1D)
+            CALL pw_create(ca, grid, COMPLEXDATA1D)
+            CALL pw_create(cb, grid, COMPLEXDATA3D)
+            CALL pw_create(cc, grid, COMPLEXDATA1D)
 
             ! initialize data
-            CALL pw_zero(ca%pw)
-            CALL pw_zero(cb%pw)
-            CALL pw_zero(cc%pw)
-            ca%pw%in_space = RECIPROCALSPACE
-            nn = SIZE(ca%pw%cc)
+            CALL pw_zero(ca)
+            CALL pw_zero(cb)
+            CALL pw_zero(cc)
+            ca%in_space = RECIPROCALSPACE
+            nn = SIZE(ca%cc)
             DO ig = 1, nn
                gsq = grid%gsq(ig)
-               ca%pw%cc(ig) = EXP(-gsq)
+               ca%cc(ig) = EXP(-gsq)
             END DO
 
             flops = PRODUCT(no)*30.0_dp*LOG(REAL(MAXVAL(no), KIND=dp))
@@ -966,8 +966,8 @@ CONTAINS
             DO ip = 1, n_loop
                CALL mp_sync(para_env%group)
                t_start(ip) = m_walltime()
-               CALL pw_transfer(ca%pw, cb%pw, debug)
-               CALL pw_transfer(cb%pw, cc%pw, debug)
+               CALL pw_transfer(ca, cb, debug)
+               CALL pw_transfer(cb, cc, debug)
                CALL mp_sync(para_env%group)
                t_end(ip) = m_walltime()
             END DO
@@ -979,9 +979,9 @@ CONTAINS
                perf = 0.0_dp
             END IF
 
-            em = MAXVAL(ABS(ca%pw%cc(:) - cc%pw%cc(:)))
+            em = MAXVAL(ABS(ca%cc(:) - cc%cc(:)))
             CALL mp_max(em, para_env%group)
-            et = SUM(ABS(ca%pw%cc(:) - cc%pw%cc(:)))
+            et = SUM(ABS(ca%cc(:) - cc%cc(:)))
             CALL mp_sum(et, para_env%group)
             t_min = MINVAL(t_end - t_start)
             t_max = MAXVAL(t_end - t_start)
@@ -1000,14 +1000,14 @@ CONTAINS
             ! need debugging ???
             IF (em > toler .OR. et > toler) THEN
                CPWARN("The FFT results are not accurate ... starting debug pw_transfer")
-               CALL pw_transfer(ca%pw, cb%pw, .TRUE.)
-               CALL pw_transfer(cb%pw, cc%pw, .TRUE.)
+               CALL pw_transfer(ca, cb, .TRUE.)
+               CALL pw_transfer(cb, cc, .TRUE.)
             END IF
 
             ! done with these grids
-            CALL pw_release(ca%pw)
-            CALL pw_release(cb%pw)
-            CALL pw_release(cc%pw)
+            CALL pw_release(ca)
+            CALL pw_release(cb)
+            CALL pw_release(cc)
             CALL pw_grid_release(grid)
 
          END DO
@@ -1048,7 +1048,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: buffer
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
-      TYPE(cp_fm_type), POINTER                          :: eigenvectors, matrix, work
+      TYPE(cp_fm_type)                                   :: eigenvectors, matrix, work
       TYPE(rng_stream_type), ALLOCATABLE                 :: rng_stream
 
       group = para_env%group
@@ -1111,19 +1111,16 @@ CONTAINS
                                   ncol_global=n)
 
          ! create all needed matrices, and buffers for the eigenvalues
-         NULLIFY (matrix)
          CALL cp_fm_create(matrix=matrix, &
                            matrix_struct=fmstruct, &
                            name="MATRIX")
          CALL cp_fm_set_all(matrix, 0.0_dp)
 
-         NULLIFY (eigenvectors)
          CALL cp_fm_create(matrix=eigenvectors, &
                            matrix_struct=fmstruct, &
                            name="EIGENVECTORS")
          CALL cp_fm_set_all(eigenvectors, 0.0_dp)
 
-         NULLIFY (work)
          CALL cp_fm_create(matrix=work, &
                            matrix_struct=fmstruct, &
                            name="WORK")
@@ -1273,7 +1270,7 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER         :: blacs_env
       TYPE(cp_fm_struct_type), POINTER         :: fmstruct_a, fmstruct_b, &
                                                   fmstruct_c
-      TYPE(cp_fm_type), POINTER                :: matrix_a, matrix_b, matrix_c
+      TYPE(cp_fm_type)               :: matrix_a, matrix_b, matrix_c
 #if defined(__SCALAPACK)
       INTEGER                                  :: pilaenv
 #endif
@@ -1366,11 +1363,8 @@ CONTAINS
          IF (iw > 0) WRITE (iw, '(T2,A,I9,A,I9,A,I5,A,I5)') 'matrix C ', nrow_global, " by ", ncol_global, &
             ' using blocks of ', nrow_block_actual, ' by ', ncol_block_actual
 
-         NULLIFY (matrix_a)
          CALL cp_fm_create(matrix=matrix_a, matrix_struct=fmstruct_a, name="MATRIX A")
-         NULLIFY (matrix_b)
          CALL cp_fm_create(matrix=matrix_b, matrix_struct=fmstruct_b, name="MATRIX B")
-         NULLIFY (matrix_c)
          CALL cp_fm_create(matrix=matrix_c, matrix_struct=fmstruct_c, name="MATRIX C")
 
          CALL RANDOM_NUMBER(matrix_a%local_data)
@@ -1382,7 +1376,7 @@ CONTAINS
          t1 = m_walltime()
          DO i_loop = 1, N_loop
             t3 = m_walltime()
-            CALL cp_gemm(transa, transb, k, n, m, 1.0_dp, matrix_a, matrix_b, 0.0_dp, matrix_c)
+            CALL parallel_gemm(transa, transb, k, n, m, 1.0_dp, matrix_a, matrix_b, 0.0_dp, matrix_c)
             t4 = m_walltime()
             IF (iw > 0) THEN
                WRITE (iw, '(T2,A,T50,F12.6)') "cp_fm_gemm timing: ", (t4 - t3)
@@ -1484,5 +1478,64 @@ CONTAINS
                               always_checksum=always_checksum)
       END DO
    END SUBROUTINE cp_dbcsr_tests
+
+! **************************************************************************************************
+!> \brief Tests the DBM library.
+!> \param para_env ...
+!> \param iw ...
+!> \param input_section ...
+! **************************************************************************************************
+   SUBROUTINE run_dbm_tests(para_env, iw, input_section)
+
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      INTEGER                                            :: iw
+      TYPE(section_vals_type), POINTER                   :: input_section
+
+      INTEGER                                            :: i_rep, k, m, n, N_loop, n_rep
+      INTEGER, DIMENSION(:), POINTER                     :: bs_k, bs_m, bs_n
+      LOGICAL                                            :: always_checksum, retain_sparsity, &
+                                                            transa_p, transb_p
+      REAL(KIND=dp)                                      :: alpha, beta, filter_eps, s_a, s_b, s_c
+
+!   ---------------------------------------------------------------------------
+
+      NULLIFY (bs_m, bs_n, bs_k)
+      CALL section_vals_get(input_section, n_repetition=n_rep)
+      CALL dbcsr_reset_randmat_seed()
+      DO i_rep = 1, n_rep
+         CALL section_vals_val_get(input_section, "N_loop", i_rep_section=i_rep, i_val=N_loop)
+         CALL section_vals_val_get(input_section, "K", i_rep_section=i_rep, i_val=k)
+         CALL section_vals_val_get(input_section, "N", i_rep_section=i_rep, i_val=n)
+         CALL section_vals_val_get(input_section, "M", i_rep_section=i_rep, i_val=m)
+         CALL section_vals_val_get(input_section, "transa", i_rep_section=i_rep, l_val=transa_p)
+         CALL section_vals_val_get(input_section, "transb", i_rep_section=i_rep, l_val=transb_p)
+         CALL section_vals_val_get(input_section, "bs_m", i_rep_section=i_rep, i_vals=bs_m)
+         CALL section_vals_val_get(input_section, "bs_n", i_rep_section=i_rep, i_vals=bs_n)
+         CALL section_vals_val_get(input_section, "bs_k", i_rep_section=i_rep, i_vals=bs_k)
+         CALL section_vals_val_get(input_section, "keepsparse", i_rep_section=i_rep, l_val=retain_sparsity)
+         CALL section_vals_val_get(input_section, "asparsity", i_rep_section=i_rep, r_val=s_a)
+         CALL section_vals_val_get(input_section, "bsparsity", i_rep_section=i_rep, r_val=s_b)
+         CALL section_vals_val_get(input_section, "csparsity", i_rep_section=i_rep, r_val=s_c)
+         CALL section_vals_val_get(input_section, "alpha", i_rep_section=i_rep, r_val=alpha)
+         CALL section_vals_val_get(input_section, "beta", i_rep_section=i_rep, r_val=beta)
+         CALL section_vals_val_get(input_section, "filter_eps", i_rep_section=i_rep, r_val=filter_eps)
+         CALL section_vals_val_get(input_section, "ALWAYS_CHECKSUM", i_rep_section=i_rep, l_val=always_checksum)
+
+         CALL dbm_run_tests(mp_group=para_env%group, &
+                            io_unit=iw, &
+                            matrix_sizes=(/m, n, k/), &
+                            trs=(/transa_p, transb_p/), &
+                            bs_m=bs_m, &
+                            bs_n=bs_n, &
+                            bs_k=bs_k, &
+                            sparsities=(/s_a, s_b, s_c/), &
+                            alpha=alpha, &
+                            beta=beta, &
+                            n_loops=n_loop, &
+                            eps=filter_eps, &
+                            retain_sparsity=retain_sparsity, &
+                            always_checksum=always_checksum)
+      END DO
+   END SUBROUTINE run_dbm_tests
 
 END MODULE library_tests

@@ -198,7 +198,7 @@ public:
         ((fabs(dh_[0] * dh_[3] + dh_[1] * dh_[4] + dh_[2] * dh_[5]) * norm1 *
           norm2) < 1e-12);
 
-    orthorhombic_ = orthogonal[0] * orthogonal[1] * orthogonal[2];
+    orthorhombic_ = orthogonal[0] && orthogonal[1] && orthogonal[2];
   }
 
   inline void copy_to_host(double *data__, offloadStream_t &stream) {
@@ -401,7 +401,7 @@ public:
   void initialize_basis_sets(const grid_basis_set **basis_sets,
                              const int nkinds__) {
     nkinds = nkinds__;
-    if (nkinds__ > sphi.size()) {
+    if (nkinds__ > (int)sphi.size()) {
       for (auto &phi : sphi)
         if (phi != nullptr) {
           offloadFree(phi);
@@ -442,7 +442,7 @@ public:
     offloadStreamCreate(&main_stream);
 
     // allocate one hip stream per grid level
-    if (level_streams.size() < nlevels) {
+    if ((int)level_streams.size() < nlevels) {
       level_streams.resize(nlevels);
       for (auto &stream : level_streams) {
         offloadStreamCreate(&stream);

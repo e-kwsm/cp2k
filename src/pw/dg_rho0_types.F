@@ -20,18 +20,17 @@ MODULE dg_rho0_types
                                               do_ewald_spme
    USE pw_types,                        ONLY: REALDATA3D,&
                                               pw_create,&
-                                              pw_p_type,&
-                                              pw_release
+                                              pw_release,&
+                                              pw_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
 
    PRIVATE
    PUBLIC:: dg_rho0_type, dg_rho0_init, dg_rho0_set, dg_rho0_get, &
-            dg_rho0_create, dg_rho0_retain, dg_rho0_release
+            dg_rho0_create, dg_rho0_release
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'dg_rho0_types'
-   INTEGER, PRIVATE, SAVE :: last_dg_rho0_id_nr = 0
 
 ! **************************************************************************************************
 !> \brief   Type for Gaussian Densities
@@ -41,14 +40,13 @@ MODULE dg_rho0_types
 !>              zet = Gaussian exponent
 ! **************************************************************************************************
    TYPE dg_rho0_type
-      INTEGER :: ref_count, id_nr
       INTEGER :: TYPE
       INTEGER :: grid
       INTEGER :: kind
       REAL(KIND=dp) :: cutoff_radius
       REAL(KIND=dp), DIMENSION(:), POINTER :: gcc
       REAL(KIND=dp), DIMENSION(:), POINTER :: zet
-      TYPE(pw_p_type) :: density
+      TYPE(pw_type), POINTER :: density
    END TYPE dg_rho0_type
 
 CONTAINS
@@ -72,11 +70,11 @@ CONTAINS
       INTEGER, OPTIONAL                                  :: grid, kind
       REAL(KIND=dp), OPTIONAL                            :: cutoff_radius
       REAL(KIND=dp), OPTIONAL, POINTER                   :: gcc(:), zet(:)
-      TYPE(pw_p_type), OPTIONAL                          :: density
+      TYPE(pw_type), OPTIONAL, POINTER                   :: density
 
       IF (PRESENT(grid)) dg_rho0%grid = grid
       IF (PRESENT(kind)) dg_rho0%kind = kind
-      IF (PRESENT(density)) dg_rho0%density = density
+      IF (PRESENT(density)) dg_rho0%density => density
       IF (PRESENT(gcc)) dg_rho0%gcc => gcc
       IF (PRESENT(zet)) dg_rho0%zet => zet
       IF (PRESENT(TYPE)) dg_rho0%type = TYPE
@@ -102,11 +100,11 @@ CONTAINS
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
       INTEGER, OPTIONAL                                  :: grid, kind
       REAL(KIND=dp), OPTIONAL, POINTER                   :: gcc(:), zet(:)
-      TYPE(pw_p_type), OPTIONAL, POINTER                 :: density
+      TYPE(pw_type), OPTIONAL, POINTER                   :: density
 
       IF (PRESENT(grid)) grid = dg_rho0%grid
       IF (PRESENT(kind)) kind = dg_rho0%kind
-      IF (PRESENT(density)) density = dg_rho0%density
+      IF (PRESENT(density)) density => dg_rho0%density
       IF (PRESENT(gcc)) gcc => dg_rho0%gcc
       IF (PRESENT(zet)) zet => dg_rho0%zet
       IF (PRESENT(TYPE)) TYPE = dg_rho0%type
@@ -129,29 +127,9 @@ CONTAINS
       dg_rho0%grid = 0
       dg_rho0%kind = 0
       dg_rho0%type = do_ewald_none
-      last_dg_rho0_id_nr = last_dg_rho0_id_nr + 1
-      dg_rho0%id_nr = last_dg_rho0_id_nr
-      dg_rho0%ref_count = 1
-      NULLIFY (dg_rho0%density%pw)
+      NULLIFY (dg_rho0%density)
 
    END SUBROUTINE dg_rho0_create
-
-! **************************************************************************************************
-!> \brief retains the given dg_rho0_type
-!> \param dg_rho0 the dg_rho0_type to retain
-!> \par History
-!>      04.2003 created [fawzi]
-!> \author fawzi
-!> \note
-!>      see doc/ReferenceCounting.html
-! **************************************************************************************************
-   SUBROUTINE dg_rho0_retain(dg_rho0)
-      TYPE(dg_rho0_type), POINTER                        :: dg_rho0
-
-      CPASSERT(ASSOCIATED(dg_rho0))
-      CPASSERT(dg_rho0%ref_count > 0)
-      dg_rho0%ref_count = dg_rho0%ref_count + 1
-   END SUBROUTINE dg_rho0_retain
 
 ! **************************************************************************************************
 !> \brief releases the given dg_rho0_type
@@ -166,20 +144,19 @@ CONTAINS
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
 
       IF (ASSOCIATED(dg_rho0)) THEN
-         CPASSERT(dg_rho0%ref_count > 0)
-         dg_rho0%ref_count = dg_rho0%ref_count - 1
-         IF (dg_rho0%ref_count == 0) THEN
-            IF (ASSOCIATED(dg_rho0%gcc)) THEN
-               DEALLOCATE (dg_rho0%gcc)
-            END IF
-            IF (ASSOCIATED(dg_rho0%zet)) THEN
-               DEALLOCATE (dg_rho0%zet)
-            END IF
-            CALL pw_release(dg_rho0%density%pw)
-            NULLIFY (dg_rho0%gcc)
-            NULLIFY (dg_rho0%zet)
-            DEALLOCATE (dg_rho0)
+         IF (ASSOCIATED(dg_rho0%gcc)) THEN
+            DEALLOCATE (dg_rho0%gcc)
          END IF
+         IF (ASSOCIATED(dg_rho0%zet)) THEN
+            DEALLOCATE (dg_rho0%zet)
+         END IF
+         IF (ASSOCIATED(dg_rho0%density)) THEN
+            CALL pw_release(dg_rho0%density)
+            DEALLOCATE (dg_rho0%density)
+         END IF
+         NULLIFY (dg_rho0%gcc)
+         NULLIFY (dg_rho0%zet)
+         DEALLOCATE (dg_rho0)
       END IF
       NULLIFY (dg_rho0)
    END SUBROUTINE dg_rho0_release
@@ -193,13 +170,17 @@ CONTAINS
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
       TYPE(pw_grid_type), POINTER                        :: pw_grid
 
-      CALL pw_release(dg_rho0%density%pw)
+      IF (ASSOCIATED(dg_rho0%density)) THEN
+         CALL pw_release(dg_rho0%density)
+      ELSE
+         ALLOCATE (dg_rho0%density)
+      END IF
       SELECT CASE (dg_rho0%type)
       CASE (do_ewald_ewald)
-         CALL pw_create(dg_rho0%density%pw, pw_grid, REALDATA3D)
+         CALL pw_create(dg_rho0%density, pw_grid, REALDATA3D)
          CALL dg_rho0_pme_gauss(dg_rho0%density, dg_rho0%zet(1))
       CASE (do_ewald_pme)
-         CALL pw_create(dg_rho0%density%pw, pw_grid, REALDATA3D)
+         CALL pw_create(dg_rho0%density, pw_grid, REALDATA3D)
          CALL dg_rho0_pme_gauss(dg_rho0%density, dg_rho0%zet(1))
       CASE (do_ewald_spme)
          CPABORT('SPME type not implemented')
@@ -214,7 +195,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dg_rho0_pme_gauss(dg_rho0, alpha)
 
-      TYPE(pw_p_type), INTENT(INOUT)                     :: dg_rho0
+      TYPE(pw_type), INTENT(INOUT)                       :: dg_rho0
       REAL(KIND=dp), INTENT(IN)                          :: alpha
 
       INTEGER, PARAMETER                                 :: IMPOSSIBLE = 10000
@@ -228,7 +209,7 @@ CONTAINS
 
       const = 1.0_dp/(8.0_dp*alpha**2)
 
-      pw_grid => dg_rho0%pw%pw_grid
+      pw_grid => dg_rho0%pw_grid
       bds => pw_grid%bounds
 
       IF (-bds(1, 1) == bds(2, 1)) THEN
@@ -249,9 +230,9 @@ CONTAINS
          n0 = bds(1, 3)
       END IF
 
-      CALL pw_zero(dg_rho0%pw)
+      CALL pw_zero(dg_rho0)
 
-      rho0 => dg_rho0%pw%cr3d
+      rho0 => dg_rho0%cr3d
 
       DO gpt = 1, pw_grid%ngpts_cut_local
          ghat => pw_grid%g_hat(:, gpt)

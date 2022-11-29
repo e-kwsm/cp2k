@@ -16,11 +16,14 @@ MODULE exstates_types
    USE cp_fm_types,                     ONLY: cp_fm_p_type,&
                                               cp_fm_release
    USE dbcsr_api,                       ONLY: dbcsr_p_type
+   USE input_constants,                 ONLY: xc_kernel_method_best
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE pw_types,                        ONLY: pw_p_type,&
-                                              pw_release
+   USE pw_types,                        ONLY: pw_release,&
+                                              pw_type
+   USE qs_local_rho_types,              ONLY: local_rho_set_release,&
+                                              local_rho_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -30,6 +33,7 @@ MODULE exstates_types
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'exstates_types'
 
    PUBLIC :: excited_energy_type, exstate_release, exstate_create
+   PUBLIC :: exstate_matrix_release, exstate_potential_release
 
 ! *****************************************************************************
 !> \brief Contains information on the excited states energy
@@ -48,12 +52,16 @@ MODULE exstates_types
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_pe_admm => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_px1 => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_px1_admm => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_px1_asymm => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_px1_admm_asymm => NULL()
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_wx1 => NULL()
-      TYPE(pw_p_type), POINTER                           :: vh_rspace => NULL()
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vxc_rspace => NULL()
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vtau_rspace => NULL()
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: vadmm_rspace => NULL()
-      REAL(KIND=dp), DIMENSION(:, :), POINTER             :: fingerprint
+      TYPE(pw_type)                                      :: vh_rspace
+      TYPE(pw_type), DIMENSION(:), POINTER             :: vxc_rspace => NULL()
+      TYPE(pw_type), DIMENSION(:), POINTER             :: vtau_rspace => NULL()
+      TYPE(pw_type), DIMENSION(:), POINTER             :: vadmm_rspace => NULL()
+      TYPE(local_rho_type), POINTER                      :: local_rho_set => NULL()
+      TYPE(local_rho_type), POINTER                      :: local_rho_set_admm => NULL()
+      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: fingerprint
    END TYPE excited_energy_type
 
 CONTAINS
@@ -65,60 +73,29 @@ CONTAINS
    SUBROUTINE exstate_release(ex_env)
       TYPE(excited_energy_type), POINTER                 :: ex_env
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'exstate_release', &
-         routineP = moduleN//':'//routineN
-
-      INTEGER                                            :: iab, is
+      INTEGER                                            :: is
 
       IF (ASSOCIATED(ex_env)) THEN
 
          IF (ASSOCIATED(ex_env%evect)) THEN
             DO is = 1, SIZE(ex_env%evect)
                CALL cp_fm_release(ex_env%evect(is)%matrix)
+               DEALLOCATE (ex_env%evect(is)%matrix)
             END DO
             DEALLOCATE (ex_env%evect)
          END IF
          IF (ASSOCIATED(ex_env%cpmos)) THEN
             DO is = 1, SIZE(ex_env%cpmos)
                CALL cp_fm_release(ex_env%cpmos(is)%matrix)
+               DEALLOCATE (ex_env%cpmos(is)%matrix)
             END DO
             DEALLOCATE (ex_env%cpmos)
          END IF
-         IF (ASSOCIATED(ex_env%matrix_pe)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_pe)
-         NULLIFY (ex_env%matrix_pe)
-         IF (ASSOCIATED(ex_env%matrix_hz)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_hz)
-         NULLIFY (ex_env%matrix_hz)
-         IF (ASSOCIATED(ex_env%matrix_pe_admm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_pe_admm)
-         NULLIFY (ex_env%matrix_pe_admm)
-         IF (ASSOCIATED(ex_env%matrix_px1)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1)
-         NULLIFY (ex_env%matrix_px1)
-         IF (ASSOCIATED(ex_env%matrix_px1_admm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1_admm)
-         NULLIFY (ex_env%matrix_px1_admm)
-         IF (ASSOCIATED(ex_env%matrix_wx1)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_wx1)
-         NULLIFY (ex_env%matrix_wx1)
          !
-         IF (ASSOCIATED(ex_env%vh_rspace)) THEN
-            CALL pw_release(ex_env%vh_rspace%pw)
-            DEALLOCATE (ex_env%vh_rspace)
-         END IF
-         IF (ASSOCIATED(ex_env%vxc_rspace)) THEN
-            DO iab = 1, SIZE(ex_env%vxc_rspace)
-               CALL pw_release(ex_env%vxc_rspace(iab)%pw)
-            END DO
-            DEALLOCATE (ex_env%vxc_rspace)
-         END IF
-         IF (ASSOCIATED(ex_env%vtau_rspace)) THEN
-            DO iab = 1, SIZE(ex_env%vtau_rspace)
-               CALL pw_release(ex_env%vtau_rspace(iab)%pw)
-            END DO
-            DEALLOCATE (ex_env%vtau_rspace)
-         END IF
-         IF (ASSOCIATED(ex_env%vadmm_rspace)) THEN
-            DO iab = 1, SIZE(ex_env%vadmm_rspace)
-               CALL pw_release(ex_env%vadmm_rspace(iab)%pw)
-            END DO
-            DEALLOCATE (ex_env%vadmm_rspace)
-         END IF
+         CALL exstate_matrix_release(ex_env)
+         !
+         CALL exstate_potential_release(ex_env)
+         !
          IF (ASSOCIATED(ex_env%fingerprint)) THEN
             DEALLOCATE (ex_env%fingerprint)
             NULLIFY (ex_env%fingerprint)
@@ -129,6 +106,80 @@ CONTAINS
       END IF
 
    END SUBROUTINE exstate_release
+
+! **************************************************************************************************
+!> \brief ...
+!> \param ex_env ...
+! **************************************************************************************************
+   SUBROUTINE exstate_matrix_release(ex_env)
+      TYPE(excited_energy_type), POINTER                 :: ex_env
+
+      IF (ASSOCIATED(ex_env)) THEN
+         IF (ASSOCIATED(ex_env%matrix_pe)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_pe)
+         NULLIFY (ex_env%matrix_pe)
+         IF (ASSOCIATED(ex_env%matrix_hz)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_hz)
+         NULLIFY (ex_env%matrix_hz)
+         IF (ASSOCIATED(ex_env%matrix_pe_admm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_pe_admm)
+         NULLIFY (ex_env%matrix_pe_admm)
+         IF (ASSOCIATED(ex_env%matrix_px1)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1)
+         NULLIFY (ex_env%matrix_px1)
+         IF (ASSOCIATED(ex_env%matrix_px1_admm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1_admm)
+         NULLIFY (ex_env%matrix_px1_admm)
+         IF (ASSOCIATED(ex_env%matrix_px1_asymm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1_asymm)
+         NULLIFY (ex_env%matrix_px1_asymm)
+         IF (ASSOCIATED(ex_env%matrix_px1_admm_asymm)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_px1_admm_asymm)
+         NULLIFY (ex_env%matrix_px1_admm_asymm)
+         IF (ASSOCIATED(ex_env%matrix_wx1)) CALL dbcsr_deallocate_matrix_set(ex_env%matrix_wx1)
+         NULLIFY (ex_env%matrix_wx1)
+      END IF
+
+   END SUBROUTINE exstate_matrix_release
+
+! **************************************************************************************************
+!> \brief ...
+!> \param ex_env ...
+! **************************************************************************************************
+   SUBROUTINE exstate_potential_release(ex_env)
+      TYPE(excited_energy_type), POINTER                 :: ex_env
+
+      INTEGER                                            :: iab
+
+      IF (ASSOCIATED(ex_env)) THEN
+         IF (ASSOCIATED(ex_env%vh_rspace%pw_grid)) THEN
+            CALL pw_release(ex_env%vh_rspace)
+         END IF
+         IF (ASSOCIATED(ex_env%vxc_rspace)) THEN
+            DO iab = 1, SIZE(ex_env%vxc_rspace)
+               CALL pw_release(ex_env%vxc_rspace(iab))
+            END DO
+            DEALLOCATE (ex_env%vxc_rspace)
+            NULLIFY (ex_env%vxc_rspace)
+         END IF
+         IF (ASSOCIATED(ex_env%vtau_rspace)) THEN
+            DO iab = 1, SIZE(ex_env%vtau_rspace)
+               CALL pw_release(ex_env%vtau_rspace(iab))
+            END DO
+            DEALLOCATE (ex_env%vtau_rspace)
+            NULLIFY (ex_env%vtau_rspace)
+         END IF
+         IF (ASSOCIATED(ex_env%vadmm_rspace)) THEN
+            DO iab = 1, SIZE(ex_env%vadmm_rspace)
+               CALL pw_release(ex_env%vadmm_rspace(iab))
+            END DO
+            DEALLOCATE (ex_env%vadmm_rspace)
+            NULLIFY (ex_env%vadmm_rspace)
+         END IF
+         IF (ASSOCIATED(ex_env%local_rho_set)) THEN
+            CALL local_rho_set_release(ex_env%local_rho_set)
+            NULLIFY (ex_env%local_rho_set)
+         END IF
+         IF (ASSOCIATED(ex_env%local_rho_set_admm)) THEN
+            CALL local_rho_set_release(ex_env%local_rho_set_admm)
+            NULLIFY (ex_env%local_rho_set_admm)
+         END IF
+      END IF
+
+   END SUBROUTINE exstate_potential_release
 
 ! **************************************************************************************************
 !> \brief Allocates and intitializes exstate_env
@@ -144,8 +195,6 @@ CONTAINS
       LOGICAL, INTENT(IN)                                :: excited_state
       TYPE(section_vals_type), POINTER                   :: dft_section
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'exstate_create', routineP = moduleN//':'//routineN
-
       CPASSERT(.NOT. ASSOCIATED(ex_env))
       ALLOCATE (ex_env)
       ex_env%evalue = 0.0_dp
@@ -156,6 +205,7 @@ CONTAINS
                                    i_val=ex_env%xc_kernel_method)
       ELSE
          ex_env%state = 0
+         ex_env%xc_kernel_method = xc_kernel_method_best
       END IF
       NULLIFY (ex_env%fingerprint)
 

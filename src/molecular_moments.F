@@ -53,7 +53,7 @@ MODULE molecular_moments
                                               qs_environment_type
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               qs_kind_type
-   USE qs_loc_types,                    ONLY: qs_loc_env_new_type
+   USE qs_loc_types,                    ONLY: qs_loc_env_type
    USE qs_moments,                      ONLY: build_local_moment_matrix
 #include "./base/base_uses.f90"
 
@@ -80,7 +80,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_molecular_moments(qs_env, qs_loc_env, mo_local, loc_print_key, molecule_set)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(qs_loc_env_new_type), INTENT(IN)              :: qs_loc_env
+      TYPE(qs_loc_env_type), INTENT(IN)                  :: qs_loc_env
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_local
       TYPE(section_vals_type), POINTER                   :: loc_print_key
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
@@ -99,7 +99,7 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: mo_localized, momv, mvector, omvector
+      TYPE(cp_fm_type)                                   :: momv, mvector, omvector
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, moments
@@ -167,19 +167,20 @@ CONTAINS
                END IF
                CALL mp_bcast(states, iproc, para_env%group)
                ! assemble local states for this molecule
-               mo_localized => mo_local(ispin)%matrix
-               CALL cp_fm_get_info(mo_localized, ncol_global=ncol_global, nrow_global=nrow_global)
-               CALL cp_fm_struct_create(fm_struct, nrow_global=nrow_global, ncol_global=ns, &
-                                        para_env=mo_localized%matrix_struct%para_env, &
-                                        context=mo_localized%matrix_struct%context)
-               CALL cp_fm_create(mvector, fm_struct, name="mvector")
-               CALL cp_fm_create(omvector, fm_struct, name="omvector")
-               CALL cp_fm_create(momv, fm_struct, name="omvector")
-               CALL cp_fm_struct_release(fm_struct)
-               !
-               DO i = 1, ns
-                  CALL cp_fm_to_fm(mo_localized, mvector, 1, states(i), i)
-               END DO
+               ASSOCIATE (mo_localized => mo_local(ispin)%matrix)
+                  CALL cp_fm_get_info(mo_localized, ncol_global=ncol_global, nrow_global=nrow_global)
+                  CALL cp_fm_struct_create(fm_struct, nrow_global=nrow_global, ncol_global=ns, &
+                                           para_env=mo_localized%matrix_struct%para_env, &
+                                           context=mo_localized%matrix_struct%context)
+                  CALL cp_fm_create(mvector, fm_struct, name="mvector")
+                  CALL cp_fm_create(omvector, fm_struct, name="omvector")
+                  CALL cp_fm_create(momv, fm_struct, name="omvector")
+                  CALL cp_fm_struct_release(fm_struct)
+                  !
+                  DO i = 1, ns
+                     CALL cp_fm_to_fm(mo_localized, mvector, 1, states(i), i)
+                  END DO
+               END ASSOCIATE
                DO i = 1, nm
                   CALL cp_dbcsr_sm_fm_multiply(moments(i)%matrix, mvector, omvector, ns)
                   CALL cp_fm_schur_product(mvector, omvector, momv)

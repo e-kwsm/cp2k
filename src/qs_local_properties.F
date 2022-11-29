@@ -45,7 +45,7 @@ MODULE qs_local_properties
                                               REALDATA3D,&
                                               REALSPACE,&
                                               RECIPROCALSPACE,&
-                                              pw_p_type
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_rho_elec
    USE qs_core_energies,                ONLY: calculate_ptrace
    USE qs_energy_matrix_w,              ONLY: qs_energies_compute_w
@@ -83,7 +83,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE qs_local_energy(qs_env, energy_density)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), INTENT(INOUT)                     :: energy_density
+      TYPE(pw_type), INTENT(INOUT)                       :: energy_density
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'qs_local_energy'
 
@@ -97,13 +97,12 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: matrix
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: band_density, edens_g, edens_r, &
-                                                            hartree_density, rho_tot_gspace, &
-                                                            rho_tot_rspace, v_hartree_rspace, &
-                                                            xc_density
-      TYPE(pw_p_type), DIMENSION(:), POINTER             :: rho_r
-      TYPE(pw_p_type), POINTER                           :: rho_core
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: band_density, edens_g, edens_r, &
+                                                            hartree_density, xc_density
+      TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
+      TYPE(pw_type), POINTER                             :: rho_core, rho_tot_gspace, &
+                                                            rho_tot_rspace, v_hartree_rspace
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho, rho_struct
@@ -128,9 +127,9 @@ CONTAINS
       ! get working arrays
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, band_density%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, hartree_density%pw, use_data=REALDATA3D, in_space=REALSPACE)
-      CALL pw_pool_create_pw(auxbas_pw_pool, xc_density%pw, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, band_density, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, hartree_density, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, xc_density, use_data=REALDATA3D, in_space=REALSPACE)
 
       ! w matrix
       CALL get_qs_env(qs_env, matrix_w_kp=matrix_w)
@@ -153,53 +152,55 @@ CONTAINS
       CALL qs_energies_compute_w(qs_env, .TRUE.)
       CALL get_qs_env(qs_env, ks_env=ks_env, matrix_w_kp=matrix_w)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             edens_r%pw, &
+                             edens_r, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             edens_g%pw, &
+                             edens_g, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
-      CALL pw_zero(band_density%pw)
+      CALL pw_zero(band_density)
       DO ispin = 1, nspins
          rho_ao => matrix_w(ispin, :)
          CALL calculate_rho_elec(matrix_p_kp=rho_ao, &
                                  rho=edens_r, &
                                  rho_gspace=edens_g, &
                                  ks_env=ks_env, soft_valid=(gapw .OR. gapw_xc))
-         CALL pw_axpy(edens_r%pw, band_density%pw)
+         CALL pw_axpy(edens_r, band_density)
       END DO
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, edens_r%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, edens_g%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, edens_r)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, edens_g)
 
       ! Hartree energy density correction = -0.5 * V_H(r) * [rho(r) - rho_core(r)]
+      ALLOCATE (rho_tot_gspace, rho_tot_rspace)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             rho_tot_gspace%pw, &
+                             rho_tot_gspace, &
                              use_data=COMPLEXDATA1D, &
                              in_space=RECIPROCALSPACE)
       CALL pw_pool_create_pw(auxbas_pw_pool, &
-                             rho_tot_rspace%pw, &
+                             rho_tot_rspace, &
                              use_data=REALDATA3D, &
                              in_space=REALSPACE)
       NULLIFY (rho_core)
       CALL get_qs_env(qs_env, &
-                      v_hartree_rspace=v_hartree_rspace%pw, &
+                      v_hartree_rspace=v_hartree_rspace, &
                       rho_core=rho_core, rho=rho)
       CALL qs_rho_get(rho, rho_r=rho_r)
       IF (ASSOCIATED(rho_core)) THEN
          CALL calc_rho_tot_gspace(rho_tot_gspace, qs_env, rho)
-         CALL pw_transfer(rho_core%pw, rho_tot_rspace%pw)
+         CALL pw_transfer(rho_core, rho_tot_rspace)
       ELSE
-         CALL pw_zero(rho_tot_rspace%pw)
+         CALL pw_zero(rho_tot_rspace)
       END IF
       DO ispin = 1, nspins
-         CALL pw_axpy(rho_r(ispin)%pw, rho_tot_rspace%pw, alpha=-1.0_dp)
+         CALL pw_axpy(rho_r(ispin), rho_tot_rspace, alpha=-1.0_dp)
       END DO
-      CALL pw_zero(hartree_density%pw)
-      ovol = 0.5_dp/hartree_density%pw%pw_grid%dvol
-      CALL pw_multiply(hartree_density%pw, v_hartree_rspace%pw, rho_tot_rspace%pw, alpha=ovol)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_gspace%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_rspace%pw)
+      CALL pw_zero(hartree_density)
+      ovol = 0.5_dp/hartree_density%pw_grid%dvol
+      CALL pw_multiply(hartree_density, v_hartree_rspace, rho_tot_rspace, alpha=ovol)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_gspace)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, rho_tot_rspace)
+      DEALLOCATE (rho_tot_gspace, rho_tot_rspace)
 
       IF (dft_control%do_admm) THEN
          CALL cp_warn(__LOCATION__, "ADMM not supported for local energy calculation")
@@ -216,9 +217,9 @@ CONTAINS
       !
       ! energies
       CALL get_qs_env(qs_env=qs_env, energy=energy)
-      eban = pw_integrate_function(band_density%pw)
-      eh = pw_integrate_function(hartree_density%pw)
-      exc = pw_integrate_function(xc_density%pw)
+      eban = pw_integrate_function(band_density)
+      eh = pw_integrate_function(hartree_density)
+      exc = pw_integrate_function(xc_density)
 
       ! band energy
       CALL get_qs_env(qs_env, matrix_ks_kp=matrix_ks)
@@ -226,9 +227,9 @@ CONTAINS
       CALL calculate_ptrace(matrix_ks, rho_ao_kp, eband, nspins)
 
       ! get full density
-      CALL pw_copy(band_density%pw, energy_density%pw)
-      CALL pw_axpy(hartree_density%pw, energy_density%pw)
-      CALL pw_axpy(xc_density%pw, energy_density%pw)
+      CALL pw_copy(band_density, energy_density)
+      CALL pw_axpy(hartree_density, energy_density)
+      CALL pw_axpy(xc_density, energy_density)
 
       IF (iounit > 0) THEN
          WRITE (UNIT=iounit, FMT="(/,T3,A)") REPEAT("=", 78)
@@ -242,9 +243,9 @@ CONTAINS
       END IF
 
       ! return temp arrays
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, band_density%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, hartree_density%pw)
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, xc_density%pw)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, band_density)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, hartree_density)
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, xc_density)
 
       CALL timestop(handle)
 
@@ -254,34 +255,31 @@ CONTAINS
 !> \brief Routine to calculate the local stress
 !> \param qs_env the qs_env to update
 !> \param stress_tensor ...
-!> \param pressure ...
 !> \param beta ...
 !> \par History
 !>      07.2019 created
 !> \author JGH
 ! **************************************************************************************************
-   SUBROUTINE qs_local_stress(qs_env, stress_tensor, pressure, beta)
+   SUBROUTINE qs_local_stress(qs_env, stress_tensor, beta)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(pw_p_type), DIMENSION(:, :), INTENT(INOUT), &
+      TYPE(pw_type), DIMENSION(:, :), INTENT(INOUT), &
          OPTIONAL                                        :: stress_tensor
-      TYPE(pw_p_type), INTENT(INOUT), OPTIONAL           :: pressure
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: beta
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'qs_local_stress'
 
       INTEGER                                            :: handle, i, iounit, j, nimages, nkind, &
                                                             nspins
-      LOGICAL                                            :: do_pressure, do_stress, gapw, gapw_xc, &
-                                                            use_virial
+      LOGICAL                                            :: do_stress, gapw, gapw_xc, use_virial
       REAL(KIND=dp)                                      :: my_beta
       REAL(KIND=dp), DIMENSION(3, 3)                     :: pv_loc
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(pw_env_type), POINTER                         :: pw_env
-      TYPE(pw_p_type)                                    :: v_hartree_gspace, v_hartree_rspace, &
-                                                            xc_density
-      TYPE(pw_p_type), DIMENSION(3)                      :: efield
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: v_hartree_gspace, xc_density
+      TYPE(pw_type), DIMENSION(3)                        :: efield
+      TYPE(pw_type), POINTER                             :: v_hartree_rspace
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho_struct
       TYPE(section_vals_type), POINTER                   :: input, xc_section
@@ -301,11 +299,6 @@ CONTAINS
          do_stress = .TRUE.
       ELSE
          do_stress = .FALSE.
-      END IF
-      IF (PRESENT(pressure)) THEN
-         do_pressure = .TRUE.
-      ELSE
-         do_pressure = .FALSE.
       END IF
       IF (PRESENT(beta)) THEN
          my_beta = beta
@@ -331,13 +324,13 @@ CONTAINS
       ! get working arrays
       CALL get_qs_env(qs_env=qs_env, pw_env=pw_env)
       CALL pw_env_get(pw_env, auxbas_pw_pool=auxbas_pw_pool)
-      CALL pw_pool_create_pw(auxbas_pw_pool, xc_density%pw, use_data=REALDATA3D, in_space=REALSPACE)
+      CALL pw_pool_create_pw(auxbas_pw_pool, xc_density, use_data=REALDATA3D, in_space=REALSPACE)
 
       ! init local stress tensor
       IF (do_stress) THEN
          DO i = 1, 3
             DO j = 1, 3
-               CALL pw_zero(stress_tensor(i, j)%pw)
+               CALL pw_zero(stress_tensor(i, j))
             END DO
          END DO
       END IF
@@ -355,22 +348,21 @@ CONTAINS
       CALL qs_xc_density(ks_env, rho_struct, xc_section, xc_density)
 
       ! Electrical field terms
-      CALL get_qs_env(qs_env, v_hartree_rspace=v_hartree_rspace%pw)
-      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace%pw, &
+      CALL get_qs_env(qs_env, v_hartree_rspace=v_hartree_rspace)
+      CALL pw_pool_create_pw(auxbas_pw_pool, v_hartree_gspace, &
                              use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-      CALL pw_transfer(v_hartree_rspace%pw, v_hartree_gspace%pw)
+      CALL pw_transfer(v_hartree_rspace, v_hartree_gspace)
       DO i = 1, 3
-         NULLIFY (efield(i)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, efield(i)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, efield(i), &
                                 use_data=COMPLEXDATA1D, in_space=RECIPROCALSPACE)
-         CALL pw_copy(v_hartree_gspace%pw, efield(i)%pw)
+         CALL pw_copy(v_hartree_gspace, efield(i))
       END DO
-      CALL pw_derive(efield(1)%pw, (/1, 0, 0/))
-      CALL pw_derive(efield(2)%pw, (/0, 1, 0/))
-      CALL pw_derive(efield(3)%pw, (/0, 0, 1/))
-      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace%pw)
+      CALL pw_derive(efield(1), (/1, 0, 0/))
+      CALL pw_derive(efield(2), (/0, 1, 0/))
+      CALL pw_derive(efield(3), (/0, 0, 1/))
+      CALL pw_pool_give_back_pw(auxbas_pw_pool, v_hartree_gspace)
       DO i = 1, 3
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, efield(i)%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, efield(i))
       END DO
 
       pv_loc = 0.0_dp

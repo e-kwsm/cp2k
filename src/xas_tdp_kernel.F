@@ -669,8 +669,6 @@ CONTAINS
       TYPE(xas_tdp_control_type), POINTER                :: xas_tdp_control
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'ondiag_ex', routineP = moduleN//':'//routineN
-
       INTEGER                                            :: blk, group, iblk, iso, jblk, jso, nblk, &
                                                             ndo_mo, ndo_so, nsgfa, nsgfp, ri_atom, &
                                                             source
@@ -1105,8 +1103,7 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'contract3_RI_to_doMOs'
 
-      INTEGER                                            :: handle, iatom, ik, ind(3), jatom, katom, &
-                                                            nk, s1, s2
+      INTEGER                                            :: handle, i, iatom, ind(3), j, jatom, katom
       LOGICAL                                            :: found, t_found
       REAL(dp)                                           :: prefac
       REAL(dp), ALLOCATABLE, DIMENSION(:, :, :)          :: iabc
@@ -1118,8 +1115,9 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      nk = SIZE(vec)
-
+!$OMP PARALLEL DEFAULT(NONE) &
+!$OMP SHARED(ab_Q,vec,mat_abIJ,atom_k) &
+!$OMP PRIVATE(iter,ind,iatom,jatom,katom,prefac,iabc,t_found,found,pblock,i,j)
       CALL dbt_iterator_start(iter, ab_Q)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind)
@@ -1138,14 +1136,17 @@ CONTAINS
          CALL dbcsr_get_block_p(mat_abIJ, iatom, jatom, pblock, found)
          IF ((.NOT. found) .OR. (.NOT. t_found)) CYCLE
 
-         s1 = SIZE(pblock, 1); s2 = SIZE(pblock, 2)
-         DO ik = 1, nk
-            CALL daxpy(s1*s2, prefac*vec(ik), iabc(:, :, ik), 1, pblock(:, :), 1)
+         DO i = 1, SIZE(pblock, 1)
+            DO j = 1, SIZE(pblock, 2)
+!$OMP ATOMIC
+               pblock(i, j) = pblock(i, j) + prefac*DOT_PRODUCT(vec(:), iabc(i, j, :))
+            END DO
          END DO
 
          DEALLOCATE (iabc)
       END DO !iter
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       !matrix only half filled => need to add its transpose
       CALL dbcsr_create(work, template=mat_abIJ)
@@ -1183,7 +1184,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'contract2_AO_to_doMO_low'
 
       INTEGER                                            :: handle, i, iatom, ind(3), j, jatom, &
-                                                            katom, n, s1, s2
+                                                            katom, s1, s2
       INTEGER, DIMENSION(:), POINTER                     :: atom_blk_size
       LOGICAL                                            :: found, t_found
       REAL(dp), ALLOCATABLE, DIMENSION(:, :, :)          :: iabc
@@ -1196,6 +1197,9 @@ CONTAINS
 
       CALL dbcsr_get_info(mat_aIb, row_blk_size=atom_blk_size)
 
+!$OMP PARALLEL DEFAULT(NONE) &
+!$OMP SHARED(ab_Q,vec,mat_aIb,mat_bIa,atom_k,atom_blk_size) &
+!$OMP PRIVATE(iter,ind,iatom,jatom,katom,iabc,t_found,found,s1,s2,j,i,pblock)
       CALL dbt_iterator_start(iter, ab_Q)
       DO WHILE (dbt_iterator_blocks_left(iter))
          CALL dbt_iterator_next_block(iter, ind)
@@ -1211,16 +1215,16 @@ CONTAINS
 
          ! Deal with mat_aIb
          IF (jatom == atom_k) THEN
-            n = SIZE(vec)
             s1 = atom_blk_size(iatom)
             s2 = SIZE(iabc, 3)
 
             CALL dbcsr_get_block_p(matrix=mat_aIb, row=iatom, col=jatom, BLOCK=pblock, found=found)
 
             IF (found) THEN
-               DO j = 1, s2
-                  DO i = 1, n
-                     pblock(:, j) = pblock(:, j) + vec(i)*iabc(:, i, j)
+               DO i = 1, s1
+                  DO j = 1, s2
+!$OMP ATOMIC
+                     pblock(i, j) = pblock(i, j) + DOT_PRODUCT(vec, iabc(i, :, j))
                   END DO
                END DO
             END IF
@@ -1229,16 +1233,17 @@ CONTAINS
          ! Deal with mat_bIa, keep block diagonal empty
          IF (iatom == jatom) CYCLE
          IF (iatom == atom_k) THEN
-
-            n = SIZE(vec)
             s1 = SIZE(iabc, 3)
             s2 = atom_blk_size(jatom)
 
             CALL dbcsr_get_block_p(matrix=mat_bIa, row=iatom, col=jatom, BLOCK=pblock, found=found)
 
             IF (found) THEN
-               DO i = 1, n
-                  CALL daxpy(s1*s2, vec(i), TRANSPOSE(iabc(i, :, :)), 1, pblock(:, :), 1)
+               DO i = 1, s1
+                  DO j = 1, s2
+!$OMP ATOMIC
+                     pblock(i, j) = pblock(i, j) + DOT_PRODUCT(vec, iabc(:, j, i))
+                  END DO
                END DO
             END IF
          END IF !iatom== atom_k
@@ -1246,6 +1251,7 @@ CONTAINS
          DEALLOCATE (iabc)
       END DO !iter
       CALL dbt_iterator_stop(iter)
+!$OMP END PARALLEL
 
       CALL timestop(handle)
 

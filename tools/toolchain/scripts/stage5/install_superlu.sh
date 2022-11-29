@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -38,11 +35,10 @@ case "$with_superlu" in
       if [ -f superlu_dist_${superlu_ver}.tar.gz ]; then
         echo "superlu_dist_${superlu_ver}.tar.gz is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${superlu_sha256} \
-          https://www.cp2k.org/static/downloads/superlu_dist_${superlu_ver}.tar.gz
+        download_pkg_from_cp2k_org "${superlu_sha256}" "superlu_dist_${superlu_ver}.tar.gz"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
-      [ -d SuperLU_DIST_${superlu_ver} ] && rm -rf SuperLU_DIST_${superlu_ver}
+      [ -d superlu_dist-${superlu_ver} ] && rm -rf superlu_dist-${superlu_ver}
       tar -xzf superlu_dist_${superlu_ver}.tar.gz
       cd superlu_dist-${superlu_ver}
       cd build
@@ -61,7 +57,7 @@ case "$with_superlu" in
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage5/$(basename ${SCRIPT_NAME})"
     fi
     SUPERLU_CFLAGS="-I'${pkg_install_dir}/include'"
-    SUPERLU_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    SUPERLU_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding SuperLU_DIST from system paths ===================="
@@ -77,7 +73,7 @@ case "$with_superlu" in
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
     SUPERLU_CFLAGS="-I'${pkg_install_dir}/include'"
-    SUPERLU_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    SUPERLU_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_superlu" != "__DONTUSE__" ]; then

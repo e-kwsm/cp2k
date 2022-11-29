@@ -53,8 +53,8 @@ MODULE mp2_gpw_method
                                               pw_pool_type
    USE pw_types,                        ONLY: REALDATA3D,&
                                               REALSPACE,&
-                                              pw_p_type,&
-                                              pw_release
+                                              pw_release,&
+                                              pw_type
    USE qs_collocate_density,            ONLY: calculate_wavefunction
    USE qs_environment_types,            ONLY: qs_environment_type
    USE qs_integrate_potential,          ONLY: integrate_v_rspace
@@ -119,7 +119,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(cp_fm_type), POINTER                          :: mo_coeff
+      TYPE(cp_fm_type), INTENT(IN)                       :: mo_coeff
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
       INTEGER, INTENT(IN)                                :: nmo, homo
       TYPE(dbcsr_p_type), INTENT(INOUT)                  :: mat_munu
@@ -149,7 +149,7 @@ CONTAINS
          size_EX_send, size_of_exchange_group, sub_sub_color, virtual, virtual_beta, wfn_calc, &
          wfn_calc_best
       INTEGER(KIND=int_8)                                :: mem
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: proc_map, sub_proc_map, vector_B_sizes, &
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: vector_B_sizes, &
                                                             vector_batch_A_size_group, &
                                                             vector_batch_I_size_group
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: color_array, local_col_row_info
@@ -162,7 +162,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: BIb_C, BIb_Ex, BIb_send
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: data_block
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: fm_BIb_jb
+      TYPE(cp_fm_type)                                   :: fm_BIb_jb
       TYPE(cp_para_env_type), POINTER                    :: para_env_exchange
       TYPE(dbcsr_iterator_type)                          :: iter
       TYPE(dbcsr_type)                                   :: matrix_ia_jb, matrix_ia_jb_beta, &
@@ -170,10 +170,10 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(group_dist_d1_type)                           :: gd_exchange
       TYPE(pw_env_type), POINTER                         :: pw_env_sub
-      TYPE(pw_p_type)                                    :: pot_g, psi_a, rho_g, rho_r
-      TYPE(pw_p_type), ALLOCATABLE, DIMENSION(:)         :: psi_i
       TYPE(pw_poisson_type), POINTER                     :: poisson_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
+      TYPE(pw_type)                                      :: pot_g, psi_a, rho_g, rho_r
+      TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: psi_i
       TYPE(task_list_type), POINTER                      :: task_list_sub
 
       CALL timeset(routineN, handle)
@@ -199,7 +199,6 @@ CONTAINS
 
       IF (calc_ex) THEN
          ! create the analogous of matrix_ia_jb in fm type
-         NULLIFY (fm_BIb_jb)
          NULLIFY (fm_struct)
          CALL dbcsr_get_info(matrix_ia_jb, nfullrows_total=nfullrows_total, nfullcols_total=nfullcols_total)
          CALL cp_fm_struct_create(fm_struct, context=blacs_env_sub, nrow_global=nfullrows_total, &
@@ -248,7 +247,7 @@ CONTAINS
 
       virtual = nmo - homo
 
-      wfn_size = REAL(SIZE(rho_r%pw%cr3d), KIND=dp)
+      wfn_size = REAL(SIZE(rho_r%cr3d), KIND=dp)
       CALL mp_max(wfn_size, para_env%group)
 
       ngroup = para_env%num_pe/para_env_sub%num_pe
@@ -387,21 +386,6 @@ CONTAINS
       ! in mp_comm_split_direct the color is given by my_a_virtual_start and my_b_virtual_start
       CALL cp_para_env_split(para_env_exchange, para_env, sub_sub_color)
 
-      ! crate the proc maps
-      ALLOCATE (proc_map(-para_env_exchange%num_pe:2*para_env_exchange%num_pe - 1))
-      DO i = 0, para_env_exchange%num_pe - 1
-         proc_map(i) = i
-         proc_map(-i - 1) = para_env_exchange%num_pe - i - 1
-         proc_map(para_env_exchange%num_pe + i) = i
-      END DO
-
-      ALLOCATE (sub_proc_map(-para_env_sub%num_pe:2*para_env_sub%num_pe - 1))
-      DO i = 0, para_env_sub%num_pe - 1
-         sub_proc_map(i) = i
-         sub_proc_map(-i - 1) = para_env_sub%num_pe - i - 1
-         sub_proc_map(para_env_sub%num_pe + i) = i
-      END DO
-
       ! create an array containing the information for communication
       CALL create_group_dist(gd_exchange, my_I_occupied_start, my_I_occupied_end, my_I_batch_size, para_env_exchange)
 
@@ -410,8 +394,7 @@ CONTAINS
 
       ALLOCATE (psi_i(my_I_occupied_start:my_I_occupied_end))
       DO i = my_I_occupied_start, my_I_occupied_end
-         NULLIFY (psi_i(i)%pw)
-         CALL pw_pool_create_pw(auxbas_pw_pool, psi_i(i)%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, psi_i(i), &
                                 use_data=REALDATA3D, &
                                 in_space=REALSPACE)
          CALL calculate_wavefunction(mo_coeff, i, psi_i(i), rho_g, atomic_kind_set, &
@@ -441,8 +424,8 @@ CONTAINS
             i_counter = i_counter + 1
 
             ! potential
-            rho_r%pw%cr3d = psi_i(i)%pw%cr3d*psi_a%pw%cr3d
-            CALL pw_transfer(rho_r%pw, rho_g%pw)
+            rho_r%cr3d = psi_i(i)%cr3d*psi_a%cr3d
+            CALL pw_transfer(rho_r, rho_g)
             CALL calc_potential_gpw(rho_r, rho_g, poisson_env, pot_g, qs_env%mp2_env%potential_parameter)
 
             ! and finally (ia|munu)
@@ -513,8 +496,7 @@ CONTAINS
                CALL timeset(routineN//"_E_Ex_1", handle3)
                CALL copy_dbcsr_to_fm(matrix_ia_jb, fm_BIb_jb)
                CALL grep_my_integrals(para_env_sub, fm_BIb_jb, BIb_C(1:my_B_size, 1:homo, i_counter), max_row_col_local, &
-                                      sub_proc_map, local_col_row_info, &
-                                      my_B_virtual_end, my_B_virtual_start)
+                                      local_col_row_info, my_B_virtual_end, my_B_virtual_start)
                CALL timestop(handle3)
             END IF
 
@@ -536,8 +518,8 @@ CONTAINS
             ! start communicating and collecting exchange contributions from
             ! other processes in my exchange group
             DO index_proc_shift = 1, size_of_exchange_group - 1
-               proc_send = proc_map(mepos_in_EX_group + index_proc_shift)
-               proc_receive = proc_map(mepos_in_EX_group - index_proc_shift)
+               proc_send = MODULO(mepos_in_EX_group + index_proc_shift, size_of_exchange_group)
+               proc_receive = MODULO(mepos_in_EX_group - index_proc_shift, size_of_exchange_group)
 
                CALL get_group_dist(gd_exchange, proc_receive, EX_start, EX_end, size_EX)
 
@@ -587,8 +569,6 @@ CONTAINS
          DEALLOCATE (local_col_row_info)
          DEALLOCATE (BIb_C)
       END IF
-      DEALLOCATE (proc_map)
-      DEALLOCATE (sub_proc_map)
       CALL release_group_dist(gd_exchange)
 
       CALL cp_para_env_release(para_env_exchange)
@@ -601,11 +581,11 @@ CONTAINS
       END IF
 
       DO i = my_I_occupied_start, my_I_occupied_end
-         CALL pw_release(psi_i(i)%pw)
+         CALL pw_release(psi_i(i))
       END DO
       DEALLOCATE (psi_i)
 
-      CALL cleanup_gpw(qs_env, e_cutoff_old, cutoff_old, relative_cutoff_old, pw_env_sub, &
+      CALL cleanup_gpw(qs_env, e_cutoff_old, cutoff_old, relative_cutoff_old, para_env_sub, pw_env_sub, &
                        task_list_sub, auxbas_pw_pool, rho_r, rho_g, pot_g, psi_a)
 
       CALL timestop(handle)
@@ -687,19 +667,17 @@ CONTAINS
 !> \param fm_BIb_jb ...
 !> \param BIb_jb ...
 !> \param max_row_col_local ...
-!> \param proc_map ...
 !> \param local_col_row_info ...
 !> \param my_B_virtual_end ...
 !> \param my_B_virtual_start ...
 ! **************************************************************************************************
    SUBROUTINE grep_my_integrals(para_env_sub, fm_BIb_jb, BIb_jb, max_row_col_local, &
-                                proc_map, local_col_row_info, &
+                                local_col_row_info, &
                                 my_B_virtual_end, my_B_virtual_start)
       TYPE(cp_para_env_type), INTENT(IN)                 :: para_env_sub
-      TYPE(cp_fm_type), POINTER                          :: fm_BIb_jb
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_BIb_jb
       REAL(KIND=dp), DIMENSION(:, :), INTENT(OUT)        :: BIb_jb
       INTEGER, INTENT(IN)                                :: max_row_col_local
-      INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(IN)     :: proc_map
       INTEGER, ALLOCATABLE, DIMENSION(:, :), INTENT(IN)  :: local_col_row_info
       INTEGER, INTENT(IN)                                :: my_B_virtual_end, my_B_virtual_start
 
@@ -742,8 +720,8 @@ CONTAINS
          local_BI(1:nrow_rec, 1:ncol_rec) = fm_BIb_jb%local_data(1:nrow_rec, 1:ncol_rec)
 
          DO proc_shift = 1, para_env_sub%num_pe - 1
-            proc_send = proc_map(para_env_sub%mepos + proc_shift)
-            proc_receive = proc_map(para_env_sub%mepos - proc_shift)
+            proc_send = MODULO(para_env_sub%mepos + proc_shift, para_env_sub%num_pe)
+            proc_receive = MODULO(para_env_sub%mepos - proc_shift, para_env_sub%num_pe)
 
             ! first exchange information on the local data
             rec_col_row_info = 0

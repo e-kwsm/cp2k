@@ -13,7 +13,6 @@
 MODULE mp2_laplace
 !
    USE cp_fm_types,                     ONLY: cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_type
    USE kinds,                           ONLY: dp
 #include "./base/base_uses.f90"
@@ -31,67 +30,42 @@ CONTAINS
 ! **************************************************************************************************
 !> \brief ...
 !> \param fm_mat_S ...
-!> \param first_cycle ...
 !> \param homo ...
 !> \param virtual ...
 !> \param Eigenval ...
-!> \param ajquad ...
-!> \param alpha_old ...
+!> \param dajquad ...
 ! **************************************************************************************************
-   SUBROUTINE calc_fm_mat_S_laplace(fm_mat_S, first_cycle, homo, virtual, Eigenval, ajquad, alpha_old)
-      TYPE(cp_fm_type), POINTER                          :: fm_mat_S
-      LOGICAL, INTENT(IN)                                :: first_cycle
+   SUBROUTINE calc_fm_mat_S_laplace(fm_mat_S, homo, virtual, Eigenval, dajquad)
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_mat_S
       INTEGER, INTENT(IN)                                :: homo, virtual
       REAL(KIND=dp), DIMENSION(:), INTENT(IN)            :: Eigenval
-      REAL(KIND=dp), INTENT(IN)                          :: ajquad, alpha_old
+      REAL(KIND=dp), INTENT(IN)                          :: dajquad
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'calc_fm_mat_S_laplace'
 
-      INTEGER                                            :: avirt, handle, i_global, iiB, iocc, jjB, &
-                                                            ncol_local, nrow_local
-      INTEGER, DIMENSION(:), POINTER                     :: row_indices
+      INTEGER                                            :: avirt, handle, i_global, iiB, iocc, &
+                                                            ncol_local
+      INTEGER, DIMENSION(:), POINTER                     :: col_indices
       REAL(KIND=dp)                                      :: laplace_transf
 
       CALL timeset(routineN, handle)
 
       ! get info of fm_mat_S
       CALL cp_fm_get_info(matrix=fm_mat_S, &
-                          nrow_local=nrow_local, &
                           ncol_local=ncol_local, &
-                          row_indices=row_indices)
+                          col_indices=col_indices)
 
-      ! update G matrix with the new value of w and a
-      IF (first_cycle) THEN
-         DO jjB = 1, ncol_local
-            DO iiB = 1, nrow_local
-               i_global = row_indices(iiB)
+      DO iiB = 1, ncol_local
+         i_global = col_indices(iiB)
 
-               iocc = MAX(1, i_global - 1)/virtual + 1
-               avirt = i_global - (iocc - 1)*virtual
+         iocc = MAX(1, i_global - 1)/virtual + 1
+         avirt = i_global - (iocc - 1)*virtual
 
-               laplace_transf = EXP(Eigenval(iocc)*ajquad)*EXP(-Eigenval(avirt + homo)*ajquad)
-               laplace_transf = SQRT(laplace_transf)
+         laplace_transf = EXP(0.5_dp*(Eigenval(iocc) - Eigenval(avirt + homo))*dajquad)
 
-               fm_mat_S%local_data(iiB, jjB) = fm_mat_S%local_data(iiB, jjB)*laplace_transf
+         fm_mat_S%local_data(:, iiB) = fm_mat_S%local_data(:, iiB)*laplace_transf
 
-            END DO
-         END DO
-      ELSE
-         DO jjB = 1, ncol_local
-            DO iiB = 1, nrow_local
-               i_global = row_indices(iiB)
-
-               iocc = MAX(1, i_global - 1)/virtual + 1
-               avirt = i_global - (iocc - 1)*virtual
-
-               laplace_transf = EXP(Eigenval(iocc)*(ajquad - alpha_old))*EXP(-Eigenval(avirt + homo)*(ajquad - alpha_old))
-               laplace_transf = SQRT(laplace_transf)
-
-               fm_mat_S%local_data(iiB, jjB) = fm_mat_S%local_data(iiB, jjB)*laplace_transf
-
-            END DO
-         END DO
-      END IF
+      END DO
 
       CALL timestop(handle)
 
@@ -104,7 +78,7 @@ CONTAINS
 !> \param tau_wjquad ...
 ! **************************************************************************************************
    SUBROUTINE SOS_MP2_postprocessing(fm_mat_Q, Erpa, tau_wjquad)
-      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(IN)       :: fm_mat_Q
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: fm_mat_Q
       REAL(KIND=dp), INTENT(INOUT)                       :: Erpa
       REAL(KIND=dp), INTENT(IN)                          :: tau_wjquad
 
@@ -116,14 +90,14 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       ! get info of fm_mat_Q
-      CALL cp_fm_get_info(matrix=fm_mat_Q(1)%matrix, &
+      CALL cp_fm_get_info(matrix=fm_mat_Q(1), &
                           ncol_local=ncol_local)
 
       ! calculate the trace of the product Q*Q
       trace_XX = 0.0_dp
       DO jjB = 1, ncol_local
-         trace_XX = trace_XX + DOT_PRODUCT(fm_mat_Q(1)%matrix%local_data(:, jjB), &
-                                           fm_mat_Q(SIZE(fm_mat_Q))%matrix%local_data(:, jjB))
+         trace_XX = trace_XX + DOT_PRODUCT(fm_mat_Q(1)%local_data(:, jjB), &
+                                           fm_mat_Q(SIZE(fm_mat_Q))%local_data(:, jjB))
       END DO
 
       Erpa = Erpa - trace_XX*tau_wjquad

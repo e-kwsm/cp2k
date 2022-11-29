@@ -37,7 +37,6 @@ MODULE mixed_cdft_methods
                                               cp_fm_to_fm,&
                                               cp_fm_type,&
                                               cp_fm_write_formatted
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -94,6 +93,7 @@ MODULE mixed_cdft_methods
    USE mixed_environment_types,         ONLY: get_mixed_env,&
                                               mixed_environment_type,&
                                               set_mixed_env
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -115,12 +115,10 @@ MODULE mixed_cdft_methods
                                               make_basis_sm
    USE qs_mo_types,                     ONLY: allocate_mo_set,&
                                               deallocate_mo_set,&
-                                              mo_set_p_type,&
+                                              mo_set_type,&
                                               set_mo_set
    USE realspace_grid_types,            ONLY: realspace_grid_type,&
                                               rs2pw,&
-                                              rs_grid_release,&
-                                              rs_grid_retain,&
                                               rs_grid_zero,&
                                               rs_pw_transfer
    USE util,                            ONLY: sort
@@ -661,14 +659,15 @@ CONTAINS
       END IF
       ! In principle, we could reduce the memory footprint of becke_pot by only transferring the nonzero portion
       ! of the potential, but this would require a custom integrate_v_rspace
-      CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control_target%group(1)%weight%pw, &
+      ALLOCATE (cdft_control_target%group(1)%weight)
+      CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control_target%group(1)%weight, &
                              use_data=REALDATA3D, in_space=REALSPACE)
-      cdft_control_target%group(1)%weight%pw%cr3d = 0.0_dp
+      cdft_control_target%group(1)%weight%cr3d = 0.0_dp
       ! Assemble the recved slices
       DO j = 1, SIZE(mixed_cdft%source_list)
-         cdft_control_target%group(1)%weight%pw%cr3d(recvbuffer(j)%imap(1):recvbuffer(j)%imap(2), &
-                                                     recvbuffer(j)%imap(3):recvbuffer(j)%imap(4), &
-                                                     recvbuffer(j)%imap(5):recvbuffer(j)%imap(6)) = recvbuffer(j)%r3
+         cdft_control_target%group(1)%weight%cr3d(recvbuffer(j)%imap(1):recvbuffer(j)%imap(2), &
+                                                  recvbuffer(j)%imap(3):recvbuffer(j)%imap(4), &
+                                                  recvbuffer(j)%imap(5):recvbuffer(j)%imap(6)) = recvbuffer(j)%r3
       END DO
       ! Do the same for slices sent during dlb
       IF (mixed_cdft%dlb) THEN
@@ -682,9 +681,9 @@ CONTAINS
                                UBOUND(mixed_cdft%dlb_control%recvbuff(j)%buffs(i)%weight, 2), &
                                LBOUND(mixed_cdft%dlb_control%recvbuff(j)%buffs(i)%weight, 3), &
                                UBOUND(mixed_cdft%dlb_control%recvbuff(j)%buffs(i)%weight, 3)/)
-                     cdft_control_target%group(1)%weight%pw%cr3d(INDEX(1):INDEX(2), &
-                                                                 INDEX(3):INDEX(4), &
-                                                                 INDEX(5):INDEX(6)) = &
+                     cdft_control_target%group(1)%weight%cr3d(INDEX(1):INDEX(2), &
+                                                              INDEX(3):INDEX(4), &
+                                                              INDEX(5):INDEX(6)) = &
                         mixed_cdft%dlb_control%recvbuff(j)%buffs(i)%weight
                      DEALLOCATE (mixed_cdft%dlb_control%recvbuff(j)%buffs(i)%weight)
                   END DO
@@ -848,8 +847,8 @@ CONTAINS
          cdft_control_target%becke_control%confine_bounds(2) = ub_max
          cdft_control_target%becke_control%confine_bounds(1) = lb_min
       END IF
-      CALL pw_scale(cdft_control_target%group(1)%weight%pw, &
-                    cdft_control_target%group(1)%weight%pw%pw_grid%dvol)
+      CALL pw_scale(cdft_control_target%group(1)%weight, &
+                    cdft_control_target%group(1)%weight%pw_grid%dvol)
       ! Set flags for ET coupling calculation
       IF (mixed_env%do_mixed_et) THEN
          IF (MODULO(mixed_cdft%sim_step, mixed_env%et_freq) == 0) THEN
@@ -956,21 +955,23 @@ CONTAINS
          IF (mixed_cdft%identical_constraints) THEN
             ! Weight function
             DO igroup = 1, SIZE(cdft_control_target%group)
+               ALLOCATE (cdft_control_target%group(igroup)%weight)
                CALL pw_pool_create_pw(auxbas_pw_pool_target, &
-                                      cdft_control_target%group(igroup)%weight%pw, &
+                                      cdft_control_target%group(igroup)%weight, &
                                       use_data=REALDATA3D, in_space=REALSPACE)
                ! We have ensured that the grids are consistent => no danger in using explicit copy
-               cdft_control_target%group(igroup)%weight%pw%cr3d = cdft_control_source%group(igroup)%weight%pw%cr3d
-               CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%group(igroup)%weight%pw)
+               cdft_control_target%group(igroup)%weight%cr3d = cdft_control_source%group(igroup)%weight%cr3d
+               CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%group(igroup)%weight)
+               DEALLOCATE (cdft_control_source%group(igroup)%weight)
             END DO
             ! Cavity
             IF (cdft_control_source%type == outer_scf_becke_constraint) THEN
                IF (cdft_control_source%becke_control%cavity_confine) THEN
-                  CALL pw_pool_create_pw(auxbas_pw_pool_target, cdft_control_target%becke_control%cavity%pw, &
+                  CALL pw_pool_create_pw(auxbas_pw_pool_target, cdft_control_target%becke_control%cavity, &
                                          use_data=REALDATA3D, in_space=REALSPACE)
-                  cdft_control_target%becke_control%cavity%pw%cr3d(:, :, :) = &
-                     cdft_control_source%becke_control%cavity%pw%cr3d
-                  CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%becke_control%cavity%pw)
+                  cdft_control_target%becke_control%cavity%cr3d(:, :, :) = &
+                     cdft_control_source%becke_control%cavity%cr3d
+                  CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%becke_control%cavity)
                END IF
             END IF
             ! Gradients
@@ -997,10 +998,10 @@ CONTAINS
                   ALLOCATE (cdft_control_target%charge(cdft_control_target%natoms))
                DO iatom = 1, cdft_control_target%natoms
                   CALL pw_pool_create_pw(auxbas_pw_pool_target, &
-                                         cdft_control_target%charge(iatom)%pw, &
+                                         cdft_control_target%charge(iatom), &
                                          use_data=REALDATA3D, in_space=REALSPACE)
-                  cdft_control_target%charge(iatom)%pw%cr3d = cdft_control_source%charge(iatom)%pw%cr3d
-                  CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%charge(iatom)%pw)
+                  cdft_control_target%charge(iatom)%cr3d = cdft_control_source%charge(iatom)%cr3d
+                  CALL pw_pool_give_back_pw(auxbas_pw_pool_source, cdft_control_source%charge(iatom))
                END DO
             END IF
             ! Set some flags so the weight is not rebuilt during SCF
@@ -1183,7 +1184,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: mixed_mo_coeff
       TYPE(cp_fm_p_type), DIMENSION(:, :, :), POINTER    :: w_matrix_mo
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_mo, mo_mo_fmstruct
-      TYPE(cp_fm_type), POINTER                          :: inverse_mat, Tinverse, tmp2
+      TYPE(cp_fm_type)                                   :: inverse_mat, Tinverse, tmp2
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: density_matrix, density_matrix_diff, &
                                                             w_matrix
@@ -1198,8 +1199,8 @@ CONTAINS
 
       NULLIFY (force_env_section, print_section, mixed_cdft_section, &
                mixed_env, mixed_cdft, qs_env, dft_control, fm_struct_mo, &
-               density_matrix_diff, mo_mo_fmstruct, inverse_mat, mo_overlap, &
-               Tinverse, tmp2, w_matrix_mo, mixed_mo_coeff, mixed_matrix_s, &
+               density_matrix_diff, mo_mo_fmstruct, mo_overlap, &
+               w_matrix_mo, mixed_mo_coeff, mixed_matrix_s, &
                density_matrix, energy_qs, w_matrix, mo_eigval)
       logger => cp_get_default_logger()
       CPASSERT(ASSOCIATED(force_env))
@@ -1356,6 +1357,7 @@ CONTAINS
          CALL cp_fm_create(matrix=Tinverse, matrix_struct=mo_mo_fmstruct, &
                            name="T_INVERSE_"//TRIM(ADJUSTL(cp_to_string(ispin)))//"_MATRIX")
          DO istate = 1, npermutations
+            ALLOCATE (mo_overlap(istate)%matrix)
             CALL cp_fm_create(matrix=mo_overlap(istate)%matrix, matrix_struct=mo_mo_fmstruct, &
                               name="MO_OVERLAP_"//TRIM(ADJUSTL(cp_to_string(istate)))//"_"// &
                               TRIM(ADJUSTL(cp_to_string(ispin)))//"_MATRIX")
@@ -1365,6 +1367,7 @@ CONTAINS
                DO jstate = 1, nforce_eval
                   NULLIFY (w_matrix_mo(istate, jstate, ivar)%matrix)
                   IF (istate == jstate) CYCLE
+                  ALLOCATE (w_matrix_mo(istate, jstate, ivar)%matrix)
                   CALL cp_fm_create(matrix=w_matrix_mo(istate, jstate, ivar)%matrix, matrix_struct=mo_mo_fmstruct, &
                                     name="W_"//TRIM(ADJUSTL(cp_to_string(istate)))//"_"// &
                                     TRIM(ADJUSTL(cp_to_string(jstate)))//"_"// &
@@ -1396,9 +1399,9 @@ CONTAINS
                ipermutation = ipermutation + 1
                CALL cp_dbcsr_sm_fm_multiply(mixed_matrix_s, mixed_mo_coeff(istate, ispin)%matrix, &
                                             tmp2, nmo, 1.0_dp, 0.0_dp)
-               CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                            mixed_mo_coeff(jstate, ispin)%matrix, &
-                            tmp2, 0.0_dp, mo_overlap(ipermutation)%matrix)
+               CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                                  mixed_mo_coeff(jstate, ispin)%matrix, &
+                                  tmp2, 0.0_dp, mo_overlap(ipermutation)%matrix)
                IF (print_mo) &
                   CALL cp_fm_write_formatted(mo_overlap(ipermutation)%matrix, mounit, &
                                              "# MO overlap matrix (step "//TRIM(ADJUSTL(cp_to_string(mixed_cdft%sim_step)))// &
@@ -1416,9 +1419,9 @@ CONTAINS
                   CALL cp_dbcsr_sm_fm_multiply(w_matrix(istate, ivar)%matrix, &
                                                mixed_mo_coeff(istate, ispin)%matrix, &
                                                tmp2, nmo, 1.0_dp, 0.0_dp)
-                  CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                               mixed_mo_coeff(jstate, ispin)%matrix, &
-                               tmp2, 0.0_dp, w_matrix_mo(istate, jstate, ivar)%matrix)
+                  CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                                     mixed_mo_coeff(jstate, ispin)%matrix, &
+                                     tmp2, 0.0_dp, w_matrix_mo(istate, jstate, ivar)%matrix)
                END DO
             END DO
          END DO
@@ -1518,11 +1521,13 @@ CONTAINS
                DO istate = 1, nforce_eval
                   IF (istate == jstate) CYCLE
                   CALL cp_fm_release(w_matrix_mo(istate, jstate, ivar)%matrix)
+                  DEALLOCATE (w_matrix_mo(istate, jstate, ivar)%matrix)
                END DO
             END DO
          END DO
          DO ipermutation = 1, npermutations
             CALL cp_fm_release(mo_overlap(ipermutation)%matrix)
+            DEALLOCATE (mo_overlap(ipermutation)%matrix)
          END DO
          CALL cp_fm_release(Tinverse)
          CALL cp_fm_release(inverse_mat)
@@ -2065,16 +2070,16 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: mixed_mo_coeff
       TYPE(cp_fm_struct_type), POINTER                   :: mo_mo_fmstruct
-      TYPE(cp_fm_type), POINTER                          :: inverse_mat, mo_overlap_wfn, mo_tmp
+      TYPE(cp_fm_type)                                   :: inverse_mat, mo_overlap_wfn, mo_tmp
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_subsys_type), POINTER                      :: subsys_mix
       TYPE(dbcsr_type), POINTER                          :: mixed_matrix_s
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_set
+      TYPE(mo_set_type), ALLOCATABLE, DIMENSION(:)       :: mo_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(section_vals_type), POINTER                   :: force_env_section, mixed_cdft_section
 
-      NULLIFY (mixed_cdft_section, subsys_mix, mo_set, particle_set, qs_kind_set, atomic_kind_set, &
+      NULLIFY (mixed_cdft_section, subsys_mix, particle_set, qs_kind_set, atomic_kind_set, &
                mixed_mo_coeff, mixed_matrix_s, force_env_section)
       logger => cp_get_default_logger()
 
@@ -2096,17 +2101,17 @@ CONTAINS
       DO ispin = 1, nspins
          nao = nrow_mo(ispin)
          nmo = ncol_mo(ispin)
-         NULLIFY (mo_set(ispin)%mo_set)
          ! Only OT with fully occupied orbitals is implicitly supported
-         CALL allocate_mo_set(mo_set(ispin)%mo_set, nao=nao, nmo=nmo, nelectron=INT(maxocc*nmo), &
+         CALL allocate_mo_set(mo_set(ispin), nao=nao, nmo=nmo, nelectron=INT(maxocc*nmo), &
                               n_el_f=REAL(maxocc*nmo, dp), maxocc=maxocc, &
                               flexible_electron_count=0.0_dp)
-         CALL set_mo_set(mo_set(ispin)%mo_set, uniform_occupation=.TRUE., homo=nmo)
-         CALL cp_fm_create(matrix=mo_set(ispin)%mo_set%mo_coeff, &
+         CALL set_mo_set(mo_set(ispin), uniform_occupation=.TRUE., homo=nmo)
+         ALLOCATE (mo_set(ispin)%mo_coeff)
+         CALL cp_fm_create(matrix=mo_set(ispin)%mo_coeff, &
                            matrix_struct=mixed_mo_coeff(1, ispin)%matrix%matrix_struct, &
                            name="GS_MO_COEFF"//TRIM(ADJUSTL(cp_to_string(ispin)))//"MATRIX")
-         ALLOCATE (mo_set(ispin)%mo_set%eigenvalues(nmo))
-         ALLOCATE (mo_set(ispin)%mo_set%occupation_numbers(nmo))
+         ALLOCATE (mo_set(ispin)%eigenvalues(nmo))
+         ALLOCATE (mo_set(ispin)%occupation_numbers(nmo))
       END DO
       ! Read wfn file (note we assume that the basis set is the same)
       IF (force_env%mixed_env%do_mixed_qmmm_cdft) &
@@ -2138,9 +2143,9 @@ CONTAINS
       ! Orthonormalize wfn
       DO ispin = 1, nspins
          IF (mixed_cdft%has_unit_metric) THEN
-            CALL make_basis_simple(mo_set(ispin)%mo_set%mo_coeff, ncol_mo(ispin))
+            CALL make_basis_simple(mo_set(ispin)%mo_coeff, ncol_mo(ispin))
          ELSE
-            CALL make_basis_sm(mo_set(ispin)%mo_set%mo_coeff, ncol_mo(ispin), mixed_matrix_s)
+            CALL make_basis_sm(mo_set(ispin)%mo_coeff, ncol_mo(ispin), mixed_matrix_s)
          END IF
       END DO
       ! Calculate MO overlaps between reference state (R) and CDFT state pairs I/J
@@ -2164,25 +2169,25 @@ CONTAINS
          DO ipermutation = 1, npermutations
             CALL map_permutation_to_states(nforce_eval, ipermutation, istate, jstate)
             ! S*C_r
-            CALL cp_dbcsr_sm_fm_multiply(mixed_matrix_s, mo_set(ispin)%mo_set%mo_coeff, &
+            CALL cp_dbcsr_sm_fm_multiply(mixed_matrix_s, mo_set(ispin)%mo_coeff, &
                                          mo_tmp, nmo, 1.0_dp, 0.0_dp)
             ! C_i^T * (S*C_r)
             CALL cp_fm_set_all(mo_overlap_wfn, alpha=0.0_dp)
-            CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                         mixed_mo_coeff(istate, ispin)%matrix, &
-                         mo_tmp, 0.0_dp, mo_overlap_wfn)
+            CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                               mixed_mo_coeff(istate, ispin)%matrix, &
+                               mo_tmp, 0.0_dp, mo_overlap_wfn)
             CALL cp_fm_invert(mo_overlap_wfn, inverse_mat, overlaps(1, ipermutation, ispin), eps_svd=mixed_cdft%eps_svd)
             ! C_j^T * (S*C_r)
             CALL cp_fm_set_all(mo_overlap_wfn, alpha=0.0_dp)
-            CALL cp_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
-                         mixed_mo_coeff(jstate, ispin)%matrix, &
-                         mo_tmp, 0.0_dp, mo_overlap_wfn)
+            CALL parallel_gemm('T', 'N', nmo, nmo, nao, 1.0_dp, &
+                               mixed_mo_coeff(jstate, ispin)%matrix, &
+                               mo_tmp, 0.0_dp, mo_overlap_wfn)
             CALL cp_fm_invert(mo_overlap_wfn, inverse_mat, overlaps(2, ipermutation, ispin), eps_svd=mixed_cdft%eps_svd)
          END DO
          CALL cp_fm_release(mo_overlap_wfn)
          CALL cp_fm_release(inverse_mat)
          CALL cp_fm_release(mo_tmp)
-         CALL deallocate_mo_set(mo_set(ispin)%mo_set)
+         CALL deallocate_mo_set(mo_set(ispin))
       END DO
       DEALLOCATE (mo_set)
       DO ipermutation = 1, npermutations
@@ -2545,7 +2550,6 @@ CONTAINS
          CALL pw_env_get(pw_env=mixed_cdft%pw_env, auxbas_rs_grid=rs_cavity, &
                          auxbas_pw_pool=auxbas_pw_pool)
          ! be careful in parallel nsmax is chosen with multigrid in mind!
-         CALL rs_grid_retain(rs_cavity)
          CALL rs_grid_zero(rs_cavity)
          ALLOCATE (pab(1, 1))
          nthread = 1
@@ -2590,7 +2594,7 @@ CONTAINS
 
                      CALL collocate_pgf_product(0, alpha, 0, 0, 0.0_dp, 0, ra, &
                                                 (/0.0_dp, 0.0_dp, 0.0_dp/), 1.0_dp, pab, 0, 0, &
-                                                rs_cavity, cell, mixed_cdft%pw_env%cube_info(1), &
+                                                rs_cavity, &
                                                 radius=radius, ga_gb_function=GRID_FUNC_AB, &
                                                 use_subpatch=.TRUE., &
                                                 subpatch_pattern=0)
@@ -2600,11 +2604,10 @@ CONTAINS
             DEALLOCATE (cores)
          END DO
          DEALLOCATE (pab)
-         CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%becke_control%cavity%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, cdft_control%becke_control%cavity, &
                                 use_data=REALDATA3D, in_space=REALSPACE)
-         CALL rs_pw_transfer(rs_cavity, cdft_control%becke_control%cavity%pw, rs2pw)
-         CALL rs_grid_release(rs_cavity)
-         CALL hfun_zero(cdft_control%becke_control%cavity%pw%cr3d, &
+         CALL rs_pw_transfer(rs_cavity, cdft_control%becke_control%cavity, rs2pw)
+         CALL hfun_zero(cdft_control%becke_control%cavity%cr3d, &
                         cdft_control%becke_control%eps_cavity, &
                         just_zero=.FALSE., bounds=bounds, work=my_work)
          IF (bounds(2) .LT. bo(2, 3)) THEN
@@ -2632,7 +2635,7 @@ CONTAINS
          END IF
          cdft_control%becke_control%confine_bounds = bounds
          IF (cdft_control%becke_control%print_cavity) THEN
-            CALL hfun_zero(cdft_control%becke_control%cavity%pw%cr3d, &
+            CALL hfun_zero(cdft_control%becke_control%cavity%cr3d, &
                            cdft_control%becke_control%eps_cavity, just_zero=.TRUE.)
             NULLIFY (stride)
             ALLOCATE (stride(3))
@@ -2645,7 +2648,7 @@ CONTAINS
             IF (force_env%para_env%ionode .AND. unit_nr .LT. 1) &
                CALL cp_abort(__LOCATION__, &
                              "Please turn on PROGRAM_RUN_INFO to print cavity")
-            CALL cp_pw_to_cube(cdft_control%becke_control%cavity%pw, &
+            CALL cp_pw_to_cube(cdft_control%becke_control%cavity, &
                                unit_nr, "CAVITY", particles=particles, &
                                stride=stride, mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, print_section, '', mpi_io=mpi_io)
@@ -2672,23 +2675,23 @@ CONTAINS
             DO i = 1, SIZE(mixed_cdft%dest_list)
                ALLOCATE (mixed_cdft%sendbuff(i)%cavity(mixed_cdft%dest_list_bo(1, i):mixed_cdft%dest_list_bo(2, i), &
                                                        bo(1, 2):bo(2, 2), bo_conf(1, 3):bo_conf(2, 3)))
-               mixed_cdft%sendbuff(i)%cavity = cdft_control%becke_control%cavity%pw%cr3d(mixed_cdft%dest_list_bo(1, i): &
-                                                                                         mixed_cdft%dest_list_bo(2, i), &
-                                                                                         bo(1, 2):bo(2, 2), &
-                                                                                         bo_conf(1, 3):bo_conf(2, 3))
+               mixed_cdft%sendbuff(i)%cavity = cdft_control%becke_control%cavity%cr3d(mixed_cdft%dest_list_bo(1, i): &
+                                                                                      mixed_cdft%dest_list_bo(2, i), &
+                                                                                      bo(1, 2):bo(2, 2), &
+                                                                                      bo_conf(1, 3):bo_conf(2, 3))
             END DO
          ELSE IF (mixed_cdft%is_pencil) THEN
             ALLOCATE (mixed_cdft%cavity(bo(1, 1) + offset_dlb:bo(2, 1), bo(1, 2):bo(2, 2), bo_conf(1, 3):bo_conf(2, 3)))
-            mixed_cdft%cavity = cdft_control%becke_control%cavity%pw%cr3d(bo(1, 1) + offset_dlb:bo(2, 1), &
-                                                                          bo(1, 2):bo(2, 2), &
-                                                                          bo_conf(1, 3):bo_conf(2, 3))
+            mixed_cdft%cavity = cdft_control%becke_control%cavity%cr3d(bo(1, 1) + offset_dlb:bo(2, 1), &
+                                                                       bo(1, 2):bo(2, 2), &
+                                                                       bo_conf(1, 3):bo_conf(2, 3))
          ELSE
             ALLOCATE (mixed_cdft%cavity(bo(1, 1):bo(2, 1), bo(1, 2) + offset_dlb:bo(2, 2), bo_conf(1, 3):bo_conf(2, 3)))
-            mixed_cdft%cavity = cdft_control%becke_control%cavity%pw%cr3d(bo(1, 1):bo(2, 1), &
-                                                                          bo(1, 2) + offset_dlb:bo(2, 2), &
-                                                                          bo_conf(1, 3):bo_conf(2, 3))
+            mixed_cdft%cavity = cdft_control%becke_control%cavity%cr3d(bo(1, 1):bo(2, 1), &
+                                                                       bo(1, 2) + offset_dlb:bo(2, 2), &
+                                                                       bo_conf(1, 3):bo_conf(2, 3))
          END IF
-         CALL pw_pool_give_back_pw(auxbas_pw_pool, cdft_control%becke_control%cavity%pw)
+         CALL pw_pool_give_back_pw(auxbas_pw_pool, cdft_control%becke_control%cavity)
       END IF
       IF (mixed_cdft%is_special) THEN
          DO i = 1, SIZE(mixed_cdft%dest_list)
@@ -3153,21 +3156,21 @@ CONTAINS
                   ALLOCATE (cavity(bo_conf(1, 1) + offset: &
                                    bo_conf(1, 1) + offset + (mixed_cdft%dlb_control%target_list(2, i) - 1), &
                                    bo_conf(1, 2):bo_conf(2, 2), bo_conf(1, 3):bo_conf(2, 3)))
-                  cavity = cdft_control%becke_control%cavity%pw%cr3d(bo_conf(1, 1) + offset: &
-                                                                     bo_conf(1, 1) + offset + &
-                                                                     (mixed_cdft%dlb_control%target_list(2, i) - 1), &
-                                                                     bo_conf(1, 2):bo_conf(2, 2), &
-                                                                     bo_conf(1, 3):bo_conf(2, 3))
+                  cavity = cdft_control%becke_control%cavity%cr3d(bo_conf(1, 1) + offset: &
+                                                                  bo_conf(1, 1) + offset + &
+                                                                  (mixed_cdft%dlb_control%target_list(2, i) - 1), &
+                                                                  bo_conf(1, 2):bo_conf(2, 2), &
+                                                                  bo_conf(1, 3):bo_conf(2, 3))
                ELSE
                   ALLOCATE (cavity(bo_conf(1, 1):bo_conf(2, 1), &
                                    bo_conf(1, 2) + offset: &
                                    bo_conf(1, 2) + offset + (mixed_cdft%dlb_control%target_list(2, i) - 1), &
                                    bo_conf(1, 3):bo_conf(2, 3)))
-                  cavity = cdft_control%becke_control%cavity%pw%cr3d(bo_conf(1, 1):bo_conf(2, 1), &
-                                                                     bo_conf(1, 2) + offset: &
-                                                                     bo_conf(1, 2) + offset + &
-                                                                     (mixed_cdft%dlb_control%target_list(2, i) - 1), &
-                                                                     bo_conf(1, 3):bo_conf(2, 3))
+                  cavity = cdft_control%becke_control%cavity%cr3d(bo_conf(1, 1):bo_conf(2, 1), &
+                                                                  bo_conf(1, 2) + offset: &
+                                                                  bo_conf(1, 2) + offset + &
+                                                                  (mixed_cdft%dlb_control%target_list(2, i) - 1), &
+                                                                  bo_conf(1, 3):bo_conf(2, 3))
                END IF
                CALL mp_isend(msgin=cavity, &
                              dest=mixed_cdft%dlb_control%target_list(1, i), &
@@ -3218,9 +3221,9 @@ CONTAINS
                   ALLOCATE (cavity(mixed_cdft%dlb_control%target_list(offset_special + 2*(j - 1), i): &
                                    mixed_cdft%dlb_control%target_list(offset_special + 2*j - 1, i), &
                                    bo_conf(1, 2):bo_conf(2, 2), bo_conf(1, 3):bo_conf(2, 3)))
-                  cavity = cdft_control%becke_control%cavity%pw%cr3d(LBOUND(cavity, 1):UBOUND(cavity, 1), &
-                                                                     bo_conf(1, 2):bo_conf(2, 2), &
-                                                                     bo_conf(1, 3):bo_conf(2, 3))
+                  cavity = cdft_control%becke_control%cavity%cr3d(LBOUND(cavity, 1):UBOUND(cavity, 1), &
+                                                                  bo_conf(1, 2):bo_conf(2, 2), &
+                                                                  bo_conf(1, 3):bo_conf(2, 3))
                   CALL mp_isend(msgin=cavity, &
                                 dest=mixed_cdft%dlb_control%target_list(1, i), &
                                 request=req(1), comm=force_env%para_env%group)

@@ -127,6 +127,7 @@ CONTAINS
       ! initialize Ewald for sTDA
       IF (tddfpt_control%stda_control%do_ewald) THEN
          NULLIFY (ewald_env, ewald_pw)
+         ALLOCATE (ewald_env)
          CALL ewald_env_create(ewald_env, sub_env%para_env)
          poisson_section => section_vals_get_subs_vals(qs_env%input, "DFT%POISSON")
          CALL ewald_env_set(ewald_env, poisson_section=poisson_section)
@@ -134,6 +135,7 @@ CONTAINS
          print_section => section_vals_get_subs_vals(qs_env%input, "PRINT%GRID_INFORMATION")
          CALL get_qs_env(qs_env, cell=cell, cell_ref=cell_ref)
          CALL read_ewald_section_tb(ewald_env, ewald_section, cell_ref%hmat)
+         ALLOCATE (ewald_pw)
          CALL ewald_pw_create(ewald_pw, ewald_env, cell, cell_ref, print_section=print_section)
          work%ewald_env => ewald_env
          work%ewald_pw => ewald_pw
@@ -180,8 +182,9 @@ CONTAINS
 
       CALL get_qs_env(qs_env=qs_env, natom=natom)
       dbcsr_dist => sub_env%dbcsr_dist
+      ! Using the overlap list here can have a considerable effect on the number of
+      ! terms calculated. This makes gamma also dependent on EPS_DEFAULT -> Overlap
       n_list => sub_env%sab_orb
-      CALL get_qs_env(qs_env=qs_env, dbcsr_dist=dbcsr_dist, sab_orb=n_list)
 
       IF (PRESENT(ndim)) THEN
          nmat = ndim
@@ -332,9 +335,10 @@ CONTAINS
       LOGICAL                                            :: converged
       REAL(KIND=dp)                                      :: eps_lanczos, sij, threshold
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: slam
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
-      TYPE(cp_fm_type), POINTER                          :: fm_s_half, fm_work1
+      TYPE(cp_fm_type)                                   :: fm_s_half, fm_work1
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrixkp_s
       TYPE(dbcsr_type)                                   :: sm_hinv
@@ -528,7 +532,8 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: xtransformed
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct, fmstructjspin
-      TYPE(cp_fm_type), POINTER                          :: ct, ctjspin, cvec, cvecjspin, xt
+      TYPE(cp_fm_type)                                   :: cvec, cvecjspin
+      TYPE(cp_fm_type), POINTER                          :: ct, ctjspin, xt
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_iterator_type)                          :: iter
       TYPE(dbcsr_type)                                   :: pdens
@@ -571,6 +576,7 @@ CONTAINS
          NULLIFY (fmstruct)
          ct => work%ctransformed(ispin)%matrix
          CALL cp_fm_get_info(ct, matrix_struct=fmstruct)
+         ALLOCATE (xtransformed(ispin)%matrix)
          CALL cp_fm_create(matrix=xtransformed(ispin)%matrix, matrix_struct=fmstruct, name="XTRANSFORMED")
       END DO
       CALL get_lowdin_x(work%shalf, X, xtransformed)
@@ -731,6 +737,7 @@ CONTAINS
 
       DO ispin = 1, nspins
          CALL cp_fm_release(matrix=xtransformed(ispin)%matrix)
+         DEALLOCATE (xtransformed(ispin)%matrix)
       END DO
       DEALLOCATE (xtransformed)
       DEALLOCATE (tcharge, gtcharge)

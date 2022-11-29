@@ -30,7 +30,6 @@ MODULE qs_density_matrices
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_type
@@ -42,6 +41,7 @@ MODULE qs_density_matrices
                                               dbcsr_set,&
                                               dbcsr_type
    USE kinds,                           ONLY: dp
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               mo_set_type
 #include "./base/base_uses.f90"
@@ -79,17 +79,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_dm_sparse(mo_set, density_matrix, use_dbcsr, retain_sparsity)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(dbcsr_type), POINTER                          :: density_matrix
       LOGICAL, INTENT(IN), OPTIONAL                      :: use_dbcsr, retain_sparsity
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_dm_sparse', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_dm_sparse'
 
       INTEGER                                            :: handle
       LOGICAL                                            :: my_retain_sparsity, my_use_dbcsr
       REAL(KIND=dp)                                      :: alpha
-      TYPE(cp_fm_type), POINTER                          :: fm_tmp
+      TYPE(cp_fm_type)                                   :: fm_tmp
       TYPE(dbcsr_type)                                   :: dbcsr_tmp
 
       CALL timeset(routineN, handle)
@@ -117,7 +116,6 @@ CONTAINS
                                 last_k=mo_set%homo)
             CALL dbcsr_release(dbcsr_tmp)
          ELSE
-            NULLIFY (fm_tmp)
             CALL cp_fm_create(fm_tmp, mo_set%mo_coeff%matrix_struct)
             CALL cp_fm_to_fm(mo_set%mo_coeff, fm_tmp)
             CALL cp_fm_column_scale(fm_tmp, mo_set%occupation_numbers(1:mo_set%homo))
@@ -161,18 +159,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_w_matrix_1(mo_set, w_matrix)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(dbcsr_type), POINTER                          :: w_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_1', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_1'
 
       INTEGER                                            :: handle, imo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: eigocc
-      TYPE(cp_fm_type), POINTER                          :: weighted_vectors
+      TYPE(cp_fm_type)                                   :: weighted_vectors
 
       CALL timeset(routineN, handle)
-      NULLIFY (weighted_vectors)
 
       CALL dbcsr_set(w_matrix, 0.0_dp)
       CALL cp_fm_create(weighted_vectors, mo_set%mo_coeff%matrix_struct, "weighted_vectors")
@@ -213,11 +209,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_w_matrix_ot(mo_set, mo_deriv, w_matrix, s_matrix)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(dbcsr_type), POINTER                          :: mo_deriv, w_matrix, s_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_ot', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_ot'
       LOGICAL, PARAMETER                                 :: check_gradient = .FALSE., &
                                                             do_symm = .FALSE.
 
@@ -225,12 +220,12 @@ CONTAINS
                                                             nrow_block, nrow_global
       REAL(KIND=dp), DIMENSION(:), POINTER               :: occupation_numbers, scaling_factor
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: gradient, h_block, h_block_t, &
+      TYPE(cp_fm_type)                                   :: gradient, h_block, h_block_t, &
                                                             weighted_vectors
       TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL timeset(routineN, handle)
-      NULLIFY (weighted_vectors, h_block, fm_struct_tmp)
+      NULLIFY (fm_struct_tmp)
 
       CALL cp_fm_get_info(matrix=mo_set%mo_coeff, &
                           ncol_global=ncol_global, &
@@ -255,8 +250,8 @@ CONTAINS
 
       ! the convention seems to require the half here, the factor of two is presumably taken care of
       ! internally in qs_core_hamiltonian
-      CALL cp_gemm('T', 'N', ncol_global, ncol_global, nrow_global, 0.5_dp, &
-                   mo_set%mo_coeff, weighted_vectors, 0.0_dp, h_block)
+      CALL parallel_gemm('T', 'N', ncol_global, ncol_global, nrow_global, 0.5_dp, &
+                         mo_set%mo_coeff, weighted_vectors, 0.0_dp, h_block)
 
       IF (do_symm) THEN
          ! at the minimum things are anyway symmetric, but numerically it might not be the case
@@ -266,8 +261,8 @@ CONTAINS
       END IF
 
       ! this could overwrite the mo_derivs to save the weighted_vectors
-      CALL cp_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
-                   mo_set%mo_coeff, h_block, 0.0_dp, weighted_vectors)
+      CALL parallel_gemm('N', 'N', nrow_global, ncol_global, ncol_global, 1.0_dp, &
+                         mo_set%mo_coeff, h_block, 0.0_dp, weighted_vectors)
 
       CALL dbcsr_set(w_matrix, 0.0_dp)
       CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=w_matrix, &
@@ -313,27 +308,23 @@ CONTAINS
 !> \author 04.05.06,MK
 ! **************************************************************************************************
    SUBROUTINE calculate_w_matrix_roks(mo_set, matrix_ks, matrix_p, matrix_w)
-      TYPE(mo_set_type), POINTER                         :: mo_set
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
       TYPE(dbcsr_type), POINTER                          :: matrix_ks, matrix_p, matrix_w
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_roks', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_w_matrix_roks'
 
       INTEGER                                            :: handle, nao
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
-      TYPE(cp_fm_type), POINTER                          :: c, ks, p, work
+      TYPE(cp_fm_type)                                   :: ks, p, work
+      TYPE(cp_fm_type), POINTER                          :: c
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (c)
       NULLIFY (context)
       NULLIFY (fm_struct)
-      NULLIFY (ks)
-      NULLIFY (p)
       NULLIFY (para_env)
-      NULLIFY (work)
 
       CALL get_mo_set(mo_set=mo_set, mo_coeff=c)
       CALL cp_fm_get_info(c, context=context, nrow_global=nao, para_env=para_env)
@@ -347,7 +338,7 @@ CONTAINS
       CALL copy_dbcsr_to_fm(matrix_p, p)
       CALL cp_fm_upper_to_full(p, work)
       CALL cp_fm_symm("L", "U", nao, nao, 1.0_dp, ks, p, 0.0_dp, work)
-      CALL cp_gemm("T", "N", nao, nao, nao, 1.0_dp, p, work, 0.0_dp, ks)
+      CALL parallel_gemm("T", "N", nao, nao, nao, 1.0_dp, p, work, 0.0_dp, ks)
       CALL dbcsr_set(matrix_w, 0.0_dp)
       CALL copy_fm_to_dbcsr(ks, matrix_w, keep_sparsity=.TRUE.)
 
@@ -372,16 +363,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_wz_matrix(mo_set, psi1, ks_matrix, w_matrix)
 
-      TYPE(mo_set_type), POINTER                         :: mo_set
-      TYPE(cp_fm_type), POINTER                          :: psi1
+      TYPE(mo_set_type), INTENT(IN)                      :: mo_set
+      TYPE(cp_fm_type), INTENT(IN)                       :: psi1
       TYPE(dbcsr_type), POINTER                          :: ks_matrix, w_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_wz_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_wz_matrix'
 
       INTEGER                                            :: handle, ncol, nrow
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: ksmat, scrv
+      TYPE(cp_fm_type)                                   :: ksmat, scrv
 
       CALL timeset(routineN, handle)
 
@@ -393,13 +383,11 @@ CONTAINS
       CALL cp_fm_create(ksmat, fm_struct_tmp, name="KS")
       CALL cp_fm_struct_release(fm_struct_tmp)
       CALL cp_dbcsr_sm_fm_multiply(ks_matrix, mo_set%mo_coeff, scrv, ncol)
-      CALL cp_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, mo_set%mo_coeff, scrv, 0.0_dp, ksmat)
-      CALL cp_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, mo_set%mo_coeff, ksmat, 0.0_dp, scrv)
+      CALL parallel_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, mo_set%mo_coeff, scrv, 0.0_dp, ksmat)
+      CALL parallel_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, mo_set%mo_coeff, ksmat, 0.0_dp, scrv)
       CALL dbcsr_set(w_matrix, 0.0_dp)
       CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=scrv, matrix_g=psi1, &
-                                 ncol=mo_set%homo, alpha=0.5_dp)
-      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=psi1, matrix_g=scrv, &
-                                 ncol=mo_set%homo, alpha=0.5_dp)
+                                 ncol=mo_set%homo, symmetry_mode=1)
       CALL cp_fm_release(scrv)
       CALL cp_fm_release(ksmat)
 
@@ -420,17 +408,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_whz_matrix(c0vec, hzm, w_matrix, focc)
 
-      TYPE(cp_fm_type), POINTER                          :: c0vec
+      TYPE(cp_fm_type), INTENT(IN)                       :: c0vec
       TYPE(dbcsr_type), POINTER                          :: hzm, w_matrix
       REAL(KIND=dp), INTENT(IN)                          :: focc
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_whz_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_whz_matrix'
 
       INTEGER                                            :: handle, nao, norb
       REAL(KIND=dp)                                      :: falpha
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct, fm_struct_mat
-      TYPE(cp_fm_type), POINTER                          :: chcmat, hcvec
+      TYPE(cp_fm_type)                                   :: chcmat, hcvec
 
       CALL timeset(routineN, handle)
 
@@ -444,8 +431,8 @@ CONTAINS
       CALL cp_fm_struct_release(fm_struct_mat)
 
       CALL cp_dbcsr_sm_fm_multiply(hzm, c0vec, hcvec, norb)
-      CALL cp_gemm("T", "N", norb, norb, nao, 1.0_dp, c0vec, hcvec, 0.0_dp, chcmat)
-      CALL cp_gemm("N", "N", nao, norb, norb, 1.0_dp, c0vec, chcmat, 0.0_dp, hcvec)
+      CALL parallel_gemm("T", "N", norb, norb, nao, 1.0_dp, c0vec, hcvec, 0.0_dp, chcmat)
+      CALL parallel_gemm("N", "N", nao, norb, norb, 1.0_dp, c0vec, chcmat, 0.0_dp, hcvec)
 
       CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=hcvec, matrix_g=c0vec, ncol=norb, alpha=falpha)
 
@@ -468,15 +455,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_wx_matrix(mos_occ, xvec, ks_matrix, w_matrix)
 
-      TYPE(cp_fm_type), POINTER                          :: mos_occ, xvec
+      TYPE(cp_fm_type), INTENT(IN)                       :: mos_occ, xvec
       TYPE(dbcsr_type), POINTER                          :: ks_matrix, w_matrix
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_wx_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_wx_matrix'
 
       INTEGER                                            :: handle, ncol, nrow
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: ksmat, scrv
+      TYPE(cp_fm_type)                                   :: ksmat, scrv
 
       CALL timeset(routineN, handle)
 
@@ -488,10 +474,9 @@ CONTAINS
       CALL cp_fm_create(ksmat, fm_struct_tmp, name="KS")
       CALL cp_fm_struct_release(fm_struct_tmp)
       CALL cp_dbcsr_sm_fm_multiply(ks_matrix, mos_occ, scrv, ncol)
-      CALL cp_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, mos_occ, scrv, 0.0_dp, ksmat)
-      CALL cp_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, xvec, ksmat, 0.0_dp, scrv)
-      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=scrv, matrix_g=xvec, ncol=ncol, alpha=0.5_dp)
-      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=xvec, matrix_g=scrv, ncol=ncol, alpha=0.5_dp)
+      CALL parallel_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, mos_occ, scrv, 0.0_dp, ksmat)
+      CALL parallel_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, xvec, ksmat, 0.0_dp, scrv)
+      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=scrv, matrix_g=xvec, ncol=ncol, symmetry_mode=1)
       CALL cp_fm_release(scrv)
       CALL cp_fm_release(ksmat)
 
@@ -513,16 +498,15 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE calculate_xwx_matrix(mos_occ, xvec, s_matrix, ks_matrix, w_matrix, eval)
 
-      TYPE(cp_fm_type), POINTER                          :: mos_occ, xvec
+      TYPE(cp_fm_type), INTENT(IN)                       :: mos_occ, xvec
       TYPE(dbcsr_type), POINTER                          :: s_matrix, ks_matrix, w_matrix
       REAL(KIND=dp), INTENT(IN)                          :: eval
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_xwx_matrix', &
-         routineP = moduleN//':'//routineN
+      CHARACTER(len=*), PARAMETER :: routineN = 'calculate_xwx_matrix'
 
       INTEGER                                            :: handle, ncol, nrow
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: scrv, xsxmat
+      TYPE(cp_fm_type)                                   :: scrv, xsxmat
 
       CALL timeset(routineN, handle)
 
@@ -536,11 +520,10 @@ CONTAINS
 
       CALL cp_dbcsr_sm_fm_multiply(ks_matrix, xvec, scrv, ncol, 1.0_dp, 0.0_dp)
       CALL cp_dbcsr_sm_fm_multiply(s_matrix, xvec, scrv, ncol, eval, -1.0_dp)
-      CALL cp_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, xvec, scrv, 0.0_dp, xsxmat)
+      CALL parallel_gemm("T", "N", ncol, ncol, nrow, 1.0_dp, xvec, scrv, 0.0_dp, xsxmat)
 
-      CALL cp_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, mos_occ, xsxmat, 0.0_dp, scrv)
-      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=scrv, matrix_g=mos_occ, ncol=ncol, alpha=0.5_dp)
-      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=mos_occ, matrix_g=scrv, ncol=ncol, alpha=0.5_dp)
+      CALL parallel_gemm("N", "N", nrow, ncol, ncol, 1.0_dp, mos_occ, xsxmat, 0.0_dp, scrv)
+      CALL cp_dbcsr_plus_fm_fm_t(w_matrix, matrix_v=scrv, matrix_g=mos_occ, ncol=ncol, symmetry_mode=1)
 
       CALL cp_fm_release(scrv)
       CALL cp_fm_release(xsxmat)

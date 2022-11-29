@@ -25,7 +25,6 @@ typedef struct {
   int *row_sizes;
   int *col_sizes;
 
-  int nshards;
   dbm_shard_t *shards;
 } dbm_matrix_t;
 
@@ -90,12 +89,6 @@ void dbm_put_block(dbm_matrix_t *matrix, const int row, const int col,
 void dbm_clear(dbm_matrix_t *matrix);
 
 /*******************************************************************************
- * \brief Internal routine for re-computing any invalid block norms.
- * \author Ole Schuett
- ******************************************************************************/
-void dbm_compute_block_norms(dbm_matrix_t *matrix);
-
-/*******************************************************************************
  * \brief Removes all blocks from the matrix whose norm is below the threshold.
  *        Blocks of size zero are always kept.
  * \author Ole Schuett
@@ -104,6 +97,7 @@ void dbm_filter(dbm_matrix_t *matrix, const double eps);
 
 /*******************************************************************************
  * \brief Adds list of blocks efficiently. The blocks will be filled with zeros.
+ *        This routine must always be called within an OpenMP parallel region.
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_reserve_blocks(dbm_matrix_t *matrix, const int nblocks,
@@ -130,9 +124,16 @@ void dbm_add(dbm_matrix_t *matrix_a, const dbm_matrix_t *matrix_b);
 /*******************************************************************************
  * \brief Creates an iterator for the blocks of the given matrix.
  *        The iteration order is not stable.
+ *        This routine must always be called within an OpenMP parallel region.
  * \author Ole Schuett
  ******************************************************************************/
 void dbm_iterator_start(dbm_iterator_t **iter_out, const dbm_matrix_t *matrix);
+
+/*******************************************************************************
+ * \brief Returns number of blocks the iterator will provide to calling thread.
+ * \author Ole Schuett
+ ******************************************************************************/
+int dbm_iterator_num_blocks(const dbm_iterator_t *iter);
 
 /*******************************************************************************
  * \brief Tests whether the given iterator has any block left.
@@ -223,6 +224,25 @@ int dbm_get_stored_coordinates(const dbm_matrix_t *matrix, const int row,
  * \author Ole Schuett
  ******************************************************************************/
 const dbm_distribution_t *dbm_get_distribution(const dbm_matrix_t *matrix);
+
+/*******************************************************************************
+ * \brief Internal routine that returns the number of shards for given matrix.
+ * \author Ole Schuett
+ ******************************************************************************/
+static inline int dbm_get_num_shards(const dbm_matrix_t *matrix) {
+  return matrix->dist->rows.nshards * matrix->dist->cols.nshards;
+}
+
+/*******************************************************************************
+ * \brief Internal routine for getting a block's shard index.
+ * \author Ole Schuett
+ ******************************************************************************/
+static inline int dbm_get_shard_index(const dbm_matrix_t *matrix, const int row,
+                                      const int col) {
+  const int shard_row = row % matrix->dist->rows.nshards;
+  const int shard_col = col % matrix->dist->cols.nshards;
+  return shard_row * matrix->dist->cols.nshards + shard_col;
+}
 
 #endif
 

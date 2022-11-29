@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -33,8 +30,7 @@ case "$with_gsl" in
       if [ -f gsl-${gsl_ver}.tar.gz ]; then
         echo "gsl-${gsl_ver}.tar.gz is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${gls_sha256} \
-          "https://www.cp2k.org/static/downloads/gsl-${gsl_ver}.tar.gz"
+        download_pkg_from_cp2k_org "${gls_sha256}" "gsl-${gsl_ver}.tar.gz"
       fi
       echo "Installing from scratch into ${pkg_install_dir}"
       [ -d gsl-${gsl_ver} ] && rm -rf gsl-${gsl_ver}
@@ -52,7 +48,7 @@ case "$with_gsl" in
     fi
 
     GSL_CFLAGS="-I'${pkg_install_dir}/include'"
-    GSL_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    GSL_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding gsl from system paths ===================="
@@ -69,11 +65,11 @@ case "$with_gsl" in
     check_dir "$pkg_install_dir/lib"
     check_dir "$pkg_install_dir/include"
     GSL_CFLAGS="-I'${pkg_install_dir}/include'"
-    GSL_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    GSL_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_gsl" != "__DONTUSE__" ]; then
-  GSL_LIBS="-lgsl -lgslcblas"
+  GSL_LIBS="-lgsl"
   if [ "$with_gsl" != "__SYSTEM__" ]; then
     cat << EOF > "${BUILDDIR}/setup_gsl"
 prepend_path LD_LIBRARY_PATH "$pkg_install_dir/lib"
@@ -82,7 +78,6 @@ prepend_path LIBRARY_PATH "$pkg_install_dir/lib"
 prepend_path CPATH "$pkg_install_dir/include"
 export GSL_INCLUDE_DIR="$pkg_install_dir/include"
 export GSL_LIBRARY="-lgsl"
-export GSL_CBLAS_LIBRARY="-lgslcblas"
 export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$pkg_install_dir/lib64/pkgconfig:$pkg_install_dir/lib/pkgconfig"
 EOF
   fi
@@ -94,7 +89,6 @@ export CP_CFLAGS="\${CP_CFLAGS} ${GSL_CFLAGS}"
 export CP_LDFLAGS="\${CP_LDFLAGS} ${GSL_LDFLAGS}"
 export GSL_LIBRARY="-lgsl"
 export GSL_ROOT="$pkg_install_dir"
-export GSL_CBLAS_LIBRARY="-lgslcblas"
 export GSL_INCLUDE_DIR="$pkg_install_dir/include"
 export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$pkg_install_dir/lib64/pkgconfig:$pkg_install_dir/lib/pkgconfig"
 

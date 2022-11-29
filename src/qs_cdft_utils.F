@@ -71,8 +71,6 @@ MODULE qs_cdft_utils
                                               qs_subsys_type
    USE realspace_grid_types,            ONLY: realspace_grid_type,&
                                               rs2pw,&
-                                              rs_grid_release,&
-                                              rs_grid_retain,&
                                               rs_grid_zero,&
                                               rs_pw_transfer
 #include "./base/base_uses.f90"
@@ -86,7 +84,8 @@ MODULE qs_cdft_utils
 
 ! *** Public subroutines ***
    PUBLIC :: becke_constraint_init, read_becke_section, read_cdft_control_section
-   PUBLIC :: hfun_scale, hirshfeld_constraint_init, cdft_constraint_print
+   PUBLIC :: hfun_scale, hirshfeld_constraint_init, cdft_constraint_print, &
+             cdft_print_hirshfeld_density, cdft_print_weight_function
 
 CONTAINS
 
@@ -200,11 +199,11 @@ CONTAINS
       END IF
       ! Zero weight functions
       DO igroup = 1, SIZE(group)
-         group(igroup)%weight%pw%cr3d = 0.0_dp
+         group(igroup)%weight%cr3d = 0.0_dp
       END DO
       IF (cdft_control%atomic_charges) THEN
          DO iatom = 1, cdft_control%natoms
-            cdft_control%charge(iatom)%pw%cr3d = 0.0_dp
+            cdft_control%charge(iatom)%cr3d = 0.0_dp
          END DO
       END IF
       ! Allocate storage for cell adjustment coefficients and needed distance vectors
@@ -339,7 +338,6 @@ CONTAINS
          ! Form cavity by summing isolated Gaussian densities over constraint atoms
          NULLIFY (rs_cavity)
          CALL pw_env_get(pw_env, auxbas_rs_grid=rs_cavity, auxbas_pw_pool=auxbas_pw_pool)
-         CALL rs_grid_retain(rs_cavity)
          CALL rs_grid_zero(rs_cavity)
          ALLOCATE (pab(1, 1))
          nthread = 1
@@ -384,7 +382,7 @@ CONTAINS
 
                      CALL collocate_pgf_product(0, alpha, 0, 0, 0.0_dp, 0, ra, &
                                                 (/0.0_dp, 0.0_dp, 0.0_dp/), 1.0_dp, &
-                                                pab, 0, 0, rs_cavity, cell, pw_env%cube_info(1), &
+                                                pab, 0, 0, rs_cavity, &
                                                 radius=radius, ga_gb_function=GRID_FUNC_AB, &
                                                 use_subpatch=.TRUE., subpatch_pattern=0)
                   END IF
@@ -393,19 +391,18 @@ CONTAINS
             DEALLOCATE (cores)
          END DO
          DEALLOCATE (pab)
-         CALL pw_pool_create_pw(auxbas_pw_pool, becke_control%cavity%pw, &
+         CALL pw_pool_create_pw(auxbas_pw_pool, becke_control%cavity, &
                                 use_data=REALDATA3D, in_space=REALSPACE)
-         CALL rs_pw_transfer(rs_cavity, becke_control%cavity%pw, rs2pw)
-         CALL rs_grid_release(rs_cavity)
+         CALL rs_pw_transfer(rs_cavity, becke_control%cavity, rs2pw)
          ! Grid points where the Gaussian density falls below eps_cavity are ignored
          ! We can calculate the smallest/largest values along z-direction outside
          ! which the cavity is zero at every point (x, y)
          ! If gradients are needed storage needs to be allocated only for grid points within
          ! these bounds
          IF (in_memory .OR. cdft_control%save_pot) THEN
-            CALL hfun_zero(becke_control%cavity%pw%cr3d, eps_cavity, just_bounds=.TRUE., bounds=bounds)
+            CALL hfun_zero(becke_control%cavity%cr3d, eps_cavity, just_bounds=.TRUE., bounds=bounds)
             ! Save bounds (first nonzero grid point indices)
-            bo = group(1)%weight%pw%pw_grid%bounds_local
+            bo = group(1)%weight%pw_grid%bounds_local
             IF (bounds(2) .LT. bo(2, 3)) THEN
                bounds(2) = bounds(2) - 1
             ELSE
@@ -423,7 +420,7 @@ CONTAINS
          END IF
          ! Optional printing of cavity (meant for testing, so options currently hardcoded...)
          IF (becke_control%print_cavity) THEN
-            CALL hfun_zero(becke_control%cavity%pw%cr3d, eps_cavity, just_bounds=.FALSE.)
+            CALL hfun_zero(becke_control%cavity%cr3d, eps_cavity, just_bounds=.FALSE.)
             ALLOCATE (stride(3))
             stride = (/2, 2, 2/)
             mpi_io = .TRUE.
@@ -437,7 +434,7 @@ CONTAINS
                              "Please turn on PROGRAM_RUN_INFO to print cavity")
             CALL get_qs_env(qs_env, subsys=subsys)
             CALL qs_subsys_get(subsys, particles=particles)
-            CALL cp_pw_to_cube(becke_control%cavity%pw, unit_nr, "CAVITY", particles=particles, stride=stride, mpi_io=mpi_io)
+            CALL cp_pw_to_cube(becke_control%cavity, unit_nr, "CAVITY", particles=particles, stride=stride, mpi_io=mpi_io)
             CALL cp_print_key_finished_output(unit_nr, logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io)
             DEALLOCATE (stride)
          END IF
@@ -563,8 +560,7 @@ CONTAINS
          END DO
          ALLOCATE (cdft_control%group(k)%atoms(natoms))
          ALLOCATE (cdft_control%group(k)%coeff(natoms))
-         NULLIFY (cdft_control%group(k)%weight%pw)
-         NULLIFY (cdft_control%group(k)%gradients)
+         NULLIFY (cdft_control%group(k)%weight)
          NULLIFY (cdft_control%group(k)%integrated)
          tot_natoms = tot_natoms + natoms
          ! Now parse
@@ -726,16 +722,19 @@ CONTAINS
       TYPE(qs_control_type), INTENT(INOUT)               :: qs_control
       TYPE(section_vals_type), POINTER                   :: cdft_control_section
 
+      INTEGER                                            :: k, nvar
       LOGICAL                                            :: exists
       TYPE(cdft_control_type), POINTER                   :: cdft_control
-      TYPE(section_vals_type), POINTER                   :: becke_constraint_section, &
+      TYPE(section_vals_type), POINTER                   :: becke_constraint_section, group_section, &
                                                             hirshfeld_constraint_section, &
                                                             outer_scf_section, print_section
 
       NULLIFY (outer_scf_section, hirshfeld_constraint_section, becke_constraint_section, &
-               print_section)
+               print_section, group_section)
       cdft_control => qs_control%cdft_control
       CPASSERT(ASSOCIATED(cdft_control))
+      group_section => section_vals_get_subs_vals(cdft_control_section, "ATOM_GROUP")
+      CALL section_vals_get(group_section, n_repetition=nvar, explicit=exists)
 
       CALL section_vals_val_get(cdft_control_section, "TYPE_OF_CONSTRAINT", &
                                 i_val=qs_control%cdft_control%type)
@@ -771,11 +770,19 @@ CONTAINS
                becke_constraint_section => section_vals_get_subs_vals(cdft_control_section, "BECKE_CONSTRAINT")
                CALL section_vals_get(becke_constraint_section, explicit=exists)
                IF (.NOT. exists) CPABORT("BECKE_CONSTRAINT section is missing.")
+               DO k = 1, nvar
+                  NULLIFY (cdft_control%group(k)%gradients)
+               END DO
                CALL read_becke_section(cdft_control, becke_constraint_section)
             CASE (outer_scf_hirshfeld_constraint)
                hirshfeld_constraint_section => section_vals_get_subs_vals(cdft_control_section, "HIRSHFELD_CONSTRAINT")
                CALL section_vals_get(hirshfeld_constraint_section, explicit=exists)
                IF (.NOT. exists) CPABORT("HIRSHFELD_CONSTRAINT section is missing.")
+               DO k = 1, nvar
+                  NULLIFY (cdft_control%group(k)%gradients_x)
+                  NULLIFY (cdft_control%group(k)%gradients_y)
+                  NULLIFY (cdft_control%group(k)%gradients_z)
+               END DO
                CALL read_hirshfeld_constraint_section(cdft_control, hirshfeld_constraint_section)
             CASE DEFAULT
                CPABORT("Unknown constraint type.")
@@ -796,7 +803,6 @@ CONTAINS
 !> \brief reads the input parameters needed for Hirshfeld constraint
 !> \param cdft_control the cdft_control which holds the Hirshfeld constraint
 !> \param hirshfeld_section the input section for a Hirshfeld constraint
-!> \author Nico Holmberg [09.2018]
 ! **************************************************************************************************
    SUBROUTINE read_hirshfeld_constraint_section(cdft_control, hirshfeld_section)
       TYPE(cdft_control_type), INTENT(INOUT)             :: cdft_control
@@ -814,6 +820,11 @@ CONTAINS
       CALL section_vals_val_get(hirshfeld_section, "GAUSSIAN_SHAPE", i_val=hirshfeld_control%gaussian_shape)
       CALL section_vals_val_get(hirshfeld_section, "GAUSSIAN_RADIUS", r_val=hirshfeld_control%radius)
       CALL section_vals_val_get(hirshfeld_section, "USE_BOHR", l_val=hirshfeld_control%use_bohr)
+      CALL section_vals_val_get(hirshfeld_section, "USE_ATOMIC_CUTOFF", l_val=hirshfeld_control%use_atomic_cutoff)
+      CALL section_vals_val_get(hirshfeld_section, "PRINT_DENSITY", l_val=hirshfeld_control%print_density)
+      CALL section_vals_val_get(hirshfeld_section, "EPS_CUTOFF", r_val=hirshfeld_control%eps_cutoff)
+      CALL section_vals_val_get(hirshfeld_section, "ATOMIC_CUTOFF", r_val=hirshfeld_control%atomic_cutoff)
+
       IF (.NOT. hirshfeld_control%use_bohr) THEN
          hirshfeld_control%radius = cp_unit_from_cp2k(hirshfeld_control%radius, "angstrom")
       END IF
@@ -843,13 +854,13 @@ CONTAINS
 !> \param fun1 the first input 3D potential
 !> \param fun2 the second input 3D potential
 !> \param divide logical that decides whether to divide or multiply the input potentials
+!> \param small customisable parameter to determine lower bound of division
 ! **************************************************************************************************
-   SUBROUTINE hfun_scale(fout, fun1, fun2, divide)
+   SUBROUTINE hfun_scale(fout, fun1, fun2, divide, small)
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(OUT)     :: fout
       REAL(KIND=dp), DIMENSION(:, :, :), INTENT(IN)      :: fun1, fun2
       LOGICAL, INTENT(IN)                                :: divide
-
-      REAL(KIND=dp), PARAMETER                           :: small = 1.0e-12_dp
+      REAL(KIND=dp), INTENT(IN)                          :: small
 
       INTEGER                                            :: i1, i2, i3, n1, n2, n3
 
@@ -1250,9 +1261,7 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Prints CDFT weight functions to cube files
-!> \param qs_env the qs_env where to build the constraint
-!> \par   History
-!>        Created 9.2018 [Nico Holmberg]
+!> \param qs_env ...
 ! **************************************************************************************************
    SUBROUTINE cdft_print_weight_function(qs_env)
       TYPE(qs_environment_type), POINTER                 :: qs_env
@@ -1289,7 +1298,7 @@ CONTAINS
             CALL cp_abort(__LOCATION__, &
                           "Please turn on PROGRAM_RUN_INFO to print CDFT weight function.")
 
-         CALL cp_pw_to_cube(cdft_control%group(igroup)%weight%pw, &
+         CALL cp_pw_to_cube(cdft_control%group(igroup)%weight, &
                             unit_nr, &
                             "CDFT Weight Function", &
                             particles=particles, &
@@ -1299,5 +1308,80 @@ CONTAINS
       END DO
 
    END SUBROUTINE cdft_print_weight_function
+
+! **************************************************************************************************
+!> \brief Prints Hirshfeld weight function and promolecule density
+!> \param qs_env ...
+! **************************************************************************************************
+   SUBROUTINE cdft_print_hirshfeld_density(qs_env)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+
+      CHARACTER(LEN=default_path_length)                 :: middle_name
+      INTEGER                                            :: iatom, igroup, unit_nr
+      LOGICAL                                            :: mpi_io
+      TYPE(cdft_control_type), POINTER                   :: cdft_control
+      TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(particle_list_type), POINTER                  :: particles
+      TYPE(pw_env_type), POINTER                         :: pw_env
+      TYPE(qs_subsys_type), POINTER                      :: subsys
+      TYPE(section_vals_type), POINTER                   :: cdft_constraint_section
+
+      NULLIFY (cdft_constraint_section, logger, particles, dft_control, &
+               para_env, subsys, cdft_control, pw_env)
+      logger => cp_get_default_logger()
+
+      CALL get_qs_env(qs_env, subsys=subsys, para_env=para_env, dft_control=dft_control, pw_env=pw_env)
+      CALL qs_subsys_get(subsys, particles=particles)
+      cdft_control => dft_control%qs_control%cdft_control
+      cdft_constraint_section => section_vals_get_subs_vals(qs_env%input, "DFT%QS%CDFT")
+
+      mpi_io = .TRUE.
+
+      DO igroup = 1, SIZE(cdft_control%group)
+
+         middle_name = "hw_rho_total"//TRIM(ADJUSTL(cp_to_string(igroup)))
+         unit_nr = cp_print_key_unit_nr(logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io, &
+                                        file_position="REWIND", middle_name=middle_name, extension=".cube")
+
+         CALL cp_pw_to_cube(cdft_control%group(igroup)%hw_rho_total, unit_nr, "CDFT Weight Function", mpi_io=mpi_io, &
+                  particles=particles, stride=section_get_ivals(cdft_constraint_section, "PROGRAM_RUN_INFO%WEIGHT_FUNCTION%STRIDE"))
+
+         CALL cp_print_key_finished_output(unit_nr, logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io)
+
+      END DO
+
+      DO igroup = 1, SIZE(cdft_control%group)
+
+         middle_name = "hw_rho_total_constraint_"//TRIM(ADJUSTL(cp_to_string(igroup)))
+         unit_nr = cp_print_key_unit_nr(logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io, &
+                                        file_position="REWIND", middle_name=middle_name, extension=".cube")
+
+         CALL cp_pw_to_cube(cdft_control%group(igroup)%hw_rho_total_constraint, unit_nr, &
+                            "CDFT Weight Function", mpi_io=mpi_io, particles=particles, &
+                            stride=section_get_ivals(cdft_constraint_section, "PROGRAM_RUN_INFO%WEIGHT_FUNCTION%STRIDE"))
+
+         CALL cp_print_key_finished_output(unit_nr, logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io)
+
+      END DO
+
+      DO igroup = 1, SIZE(cdft_control%group)
+         DO iatom = 1, (cdft_control%natoms)
+
+            middle_name = "hw_rho_atomic_"//TRIM(ADJUSTL(cp_to_string(iatom)))
+            unit_nr = cp_print_key_unit_nr(logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io, &
+                                           file_position="REWIND", middle_name=middle_name, extension=".cube")
+
+            CALL cp_pw_to_cube(cdft_control%group(igroup)%hw_rho_atomic(iatom), unit_nr, &
+                               "CDFT Weight Function", mpi_io=mpi_io, particles=particles, &
+                               stride=section_get_ivals(cdft_constraint_section, "PROGRAM_RUN_INFO%WEIGHT_FUNCTION%STRIDE"))
+
+            CALL cp_print_key_finished_output(unit_nr, logger, cdft_constraint_section, "PROGRAM_RUN_INFO", mpi_io=mpi_io)
+
+         END DO
+      END DO
+
+   END SUBROUTINE cdft_print_hirshfeld_density
 
 END MODULE qs_cdft_utils

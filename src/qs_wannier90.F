@@ -32,7 +32,6 @@ MODULE qs_wannier90
                                               cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit,&
                                               cp_logger_type
    USE cp_para_env,                     ONLY: cp_para_env_retain
@@ -63,6 +62,7 @@ MODULE qs_wannier90
    USE machine,                         ONLY: m_datum
    USE mathconstants,                   ONLY: twopi
    USE message_passing,                 ONLY: mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: angstrom,&
                                               evolt
@@ -71,7 +71,7 @@ MODULE qs_wannier90
                                               qs_environment_type
    USE qs_gamma2kp,                     ONLY: create_kp_from_gamma
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_moments,                      ONLY: build_berry_kpoint_matrix
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type
    USE qs_scf_diagonalization,          ONLY: do_general_diag_kp
@@ -182,15 +182,15 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: fmk1, fmk2
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct_mmn, matrix_struct_work
-      TYPE(cp_fm_type), POINTER                          :: fm_tmp, fmdummy, fmi, fmr, mmn_imag, &
-                                                            mmn_real
+      TYPE(cp_fm_type)                                   :: fm_tmp, mmn_imag, mmn_real
+      TYPE(cp_fm_type), POINTER                          :: fmdummy, fmi, fmr
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks, matrix_s
       TYPE(dbcsr_type), POINTER                          :: cmatrix, rmatrix
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(kpoint_env_type), POINTER                     :: kp
       TYPE(kpoint_type), POINTER                         :: kpoint
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -263,7 +263,7 @@ CONTAINS
       END DO
       ! number of bands in calculation
       CALL get_qs_env(qs_env, mos=mos)
-      CALL get_mo_set(mo_set=mos(1)%mo_set, nao=nao, nmo=num_bands_tot)
+      CALL get_mo_set(mo_set=mos(1), nao=nao, nmo=num_bands_tot)
       num_bands_tot = MIN(nao, num_bands_tot + nadd)
       num_bands = num_wann
       num_atoms = SIZE(particle_set)
@@ -340,6 +340,7 @@ CONTAINS
          qs_env_kp => qs_env
       ELSE
          ! we start from gamma point only
+         ALLOCATE (qs_env_kp)
          CALL create_kp_from_gamma(qs_env, qs_env_kp)
       END IF
       IF (iw > 0) THEN
@@ -418,7 +419,7 @@ CONTAINS
       END DO
       ! work matrices for MOs (all group)
       kp => kpoint%kp_env(1)%kpoint_env
-      CALL get_mo_set(kp%mos(1, 1)%mo_set, nmo=nmo)
+      CALL get_mo_set(kp%mos(1, 1), nmo=nmo)
       NULLIFY (matrix_struct_work)
       CALL cp_fm_struct_create(matrix_struct_work, nrow_global=nao, &
                                ncol_global=nmo, &
@@ -427,7 +428,7 @@ CONTAINS
       ALLOCATE (fmk1(2), fmk2(2))
       CALL cp_fm_create(fm_tmp, matrix_struct_work)
       DO i = 1, 2
-         NULLIFY (fmk1(i)%matrix, fmk2(i)%matrix)
+         ALLOCATE (fmk1(i)%matrix, fmk2(i)%matrix)
          CALL cp_fm_create(fmk1(i)%matrix, matrix_struct_work)
          CALL cp_fm_create(fmk2(i)%matrix, matrix_struct_work)
       END DO
@@ -449,6 +450,7 @@ CONTAINS
       CALL cp_dbcsr_alloc_block_from_nbl(cmatrix, sab_nl)
       !
       CALL get_kpoint_info(kpoint=kpoint, cell_to_index=cell_to_index)
+      NULLIFY (fmdummy)
       nspins = dft_control%nspins
       DO ispin = 1, nspins
          ! loop over all k-points
@@ -459,12 +461,12 @@ CONTAINS
                ikk = ik - kpoint%kp_range(1) + 1
                kp => kpoint%kp_env(ikk)%kpoint_env
                CPASSERT(SIZE(kp%mos, 1) == 2)
-               fmr => kp%mos(1, ispin)%mo_set%mo_coeff
-               fmi => kp%mos(2, ispin)%mo_set%mo_coeff
+               fmr => kp%mos(1, ispin)%mo_coeff
+               fmi => kp%mos(2, ispin)%mo_coeff
                CALL cp_fm_copy_general(fmr, fmk1(1)%matrix, para_env)
                CALL cp_fm_copy_general(fmi, fmk1(2)%matrix, para_env)
             ELSE
-               NULLIFY (fmr, fmi, kp, fmdummy)
+               NULLIFY (fmr, fmi, kp)
                CALL cp_fm_copy_general(fmdummy, fmk1(1)%matrix, para_env)
                CALL cp_fm_copy_general(fmdummy, fmk1(2)%matrix, para_env)
             END IF
@@ -477,12 +479,12 @@ CONTAINS
                   ikk = ik2 - kpoint%kp_range(1) + 1
                   kp => kpoint%kp_env(ikk)%kpoint_env
                   CPASSERT(SIZE(kp%mos, 1) == 2)
-                  fmr => kp%mos(1, ispin)%mo_set%mo_coeff
-                  fmi => kp%mos(2, ispin)%mo_set%mo_coeff
+                  fmr => kp%mos(1, ispin)%mo_coeff
+                  fmi => kp%mos(2, ispin)%mo_coeff
                   CALL cp_fm_copy_general(fmr, fmk2(1)%matrix, para_env)
                   CALL cp_fm_copy_general(fmi, fmk2(2)%matrix, para_env)
                ELSE
-                  NULLIFY (fmr, fmi, kp, fmdummy)
+                  NULLIFY (fmr, fmi, kp)
                   CALL cp_fm_copy_general(fmdummy, fmk2(1)%matrix, para_env)
                   CALL cp_fm_copy_general(fmdummy, fmk2(2)%matrix, para_env)
                END IF
@@ -502,17 +504,17 @@ CONTAINS
                !
                ! calculate M_(mn)^(k,b)
                CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(1)%matrix, fm_tmp, nmo)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 0.0_dp, mmn_real)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, 0.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 0.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, 0.0_dp, mmn_imag)
                CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(2)%matrix, fm_tmp, nmo)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
                CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(1)%matrix, fm_tmp, nmo)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
                CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(2)%matrix, fm_tmp, nmo)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, -1.0_dp, mmn_real)
-               CALL cp_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, -1.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_imag)
                !
                ! write to output file
                IF (para_env%ionode) THEN
@@ -540,6 +542,7 @@ CONTAINS
       DO i = 1, 2
          CALL cp_fm_release(fmk1(i)%matrix)
          CALL cp_fm_release(fmk2(i)%matrix)
+         DEALLOCATE (fmk1(i)%matrix, fmk2(i)%matrix)
       END DO
       CALL cp_fm_release(fm_tmp)
       CALL cp_fm_struct_release(matrix_struct_mmn)
@@ -558,7 +561,7 @@ CONTAINS
       ! Print eigenvalues
       nspins = dft_control%nspins
       kp => kpoint%kp_env(1)%kpoint_env
-      CALL get_mo_set(kp%mos(1, 1)%mo_set, nmo=nmo)
+      CALL get_mo_set(kp%mos(1, 1), nmo=nmo)
       ALLOCATE (eigval(nmo))
       CALL get_kpoint_info(kpoint, nkp=nkp, kp_range=kp_range, xkp=xkp)
       IF (para_env%ionode) THEN
@@ -574,7 +577,7 @@ CONTAINS
             IF (my_kpgrp) THEN
                ikpgr = ik - kp_range(1) + 1
                kp => kpoint%kp_env(ikpgr)%kpoint_env
-               CALL get_mo_set(kp%mos(1, ispin)%mo_set, eigenvalues=eigenvalues)
+               CALL get_mo_set(kp%mos(1, ispin), eigenvalues=eigenvalues)
                eigval(1:nmo) = eigenvalues(1:nmo)
             ELSE
                eigval(1:nmo) = 0.0_dp
@@ -604,6 +607,8 @@ CONTAINS
          NULLIFY (qs_env_kp)
       ELSE
          CALL qs_env_release(qs_env_kp)
+         DEALLOCATE (qs_env_kp)
+         NULLIFY (qs_env_kp)
       END IF
 
       CALL kpoint_release(kpoint)

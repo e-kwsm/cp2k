@@ -5,7 +5,8 @@
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
 
-#if defined(__GRID_CUDA) || defined(__GRID_HIP)
+#include "../../offload/offload_runtime.h"
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 
 #include <algorithm>
 #include <assert.h>
@@ -20,6 +21,10 @@
 #include "../common/grid_process_vab.h"
 #include "grid_gpu_collint.h"
 #include "grid_gpu_integrate.h"
+
+#if defined(_OMP_H)
+#error "OpenMP should not be used in .cu files to accommodate HIP."
+#endif
 
 // Teen registers are sufficient to integrate lp <= 2 with a single grid sweep.
 #define GRID_N_CXYZ_REGISTERS 10
@@ -259,8 +264,7 @@ __device__ static void grid_to_cxyz(const kernel_params *params,
  * \author Ole Schuett
  ******************************************************************************/
 template <bool COMPUTE_TAU>
-__device__ static void store_hab(const kernel_params *params,
-                                 const smem_task *task, const double *cab) {
+__device__ static void store_hab(const smem_task *task, const double *cab) {
 
   // The spherical index runs over angular momentum and then over contractions.
   // The carthesian index runs over exponents and then over angular momentum.
@@ -385,10 +389,10 @@ __device__ static void integrate_kernel(const kernel_params *params) {
   grid_to_cxyz(params, &task, params->grid, smem_cxyz);
 
   zero_cab(&task, smem_cab);
-  compute_alpha(params, &task, smem_alpha);
-  cab_to_cxyz(params, &task, smem_alpha, smem_cab, smem_cxyz);
+  compute_alpha(&task, smem_alpha);
+  cab_to_cxyz(&task, smem_alpha, smem_cab, smem_cxyz);
 
-  store_hab<COMPUTE_TAU>(params, &task, smem_cab);
+  store_hab<COMPUTE_TAU>(&task, smem_cab);
 
   if (CALCULATE_FORCES) {
     store_forces_and_virial<COMPUTE_TAU>(params, &task, smem_cab);
@@ -516,5 +520,5 @@ void grid_gpu_integrate_one_grid_level(
   }
 }
 
-#endif // defined(__GRID_CUDA) || defined(__GRID_HIP)
+#endif // defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 // EOF

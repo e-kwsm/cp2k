@@ -89,7 +89,7 @@ MODULE xtb_matrices
                                               qs_ks_env_type,&
                                               set_ks_env
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_neighbor_list_types,          ONLY: get_iterator_info,&
                                               neighbor_list_iterate,&
                                               neighbor_list_iterator_create,&
@@ -163,6 +163,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: oint, sint
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: kijab
       REAL(KIND=dp), DIMENSION(0:3)                      :: kl
+      REAL(KIND=dp), DIMENSION(2)                        :: condnum
       REAL(KIND=dp), DIMENSION(3)                        :: fdik, fdika, fdikb, force_ab, force_rr, &
                                                             rij, rik
       REAL(KIND=dp), DIMENSION(5)                        :: dpia, dpib, hena, henb, kappaa, kappab, &
@@ -946,7 +947,7 @@ CONTAINS
             CALL section_vals_val_get(qs_env%input, "DFT%PRINT%OVERLAP_CONDITION%DIAGONALIZATION", l_val=norml2)
             CALL section_vals_val_get(qs_env%input, "DFT%PRINT%OVERLAP_CONDITION%ARNOLDI", l_val=use_arnoldi)
             CALL get_qs_env(qs_env=qs_env, blacs_env=blacs_env)
-            CALL overlap_condnum(matrix_s, iw, norml1, norml2, use_arnoldi, blacs_env)
+            CALL overlap_condnum(matrix_s, condnum, iw, norml1, norml2, use_arnoldi, blacs_env)
          END IF
       END IF
 
@@ -992,7 +993,7 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dbcsr_type), POINTER                          :: p_matrix
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'xtb_hab_force', routineP = moduleN//':'//routineN
+      CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xtb_hab_force'
 
       INTEGER :: atom_a, atom_b, atom_c, handle, i, iatom, ic, icol, ikind, img, ir, irow, iset, &
          j, jatom, jkind, jset, katom, kkind, la, lb, ldsab, lmaxa, lmaxb, maxder, maxs, n1, n2, &
@@ -1005,7 +1006,7 @@ CONTAINS
                                                             npgfb, nsgfa, nsgfb
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       LOGICAL                                            :: defined, diagblock, floating_a, found, &
-                                                            ghost_a, use_virial, xb_inter
+                                                            ghost_a, use_virial
       LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: floating, ghost
       REAL(KIND=dp) :: alphaa, alphab, dfp, dhij, dr, drk, drx, ena, enb, etaa, etab, f0, fen, &
          fhua, fhub, fhud, foab, hij, k2sh, kab, kcnd, kcnp, kcns, kd, ken, kf, kg, kia, kjb, kp, &
@@ -1030,8 +1031,6 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
       TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
-      TYPE(neighbor_atoms_type), ALLOCATABLE, &
-         DIMENSION(:)                                    :: neighbor_atoms
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: nl_iterator
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
@@ -1225,26 +1224,6 @@ CONTAINS
          IF (.NOT. defined .OR. natorb_b < 1) CYCLE
 
          dr = SQRT(SUM(rij(:)**2))
-
-         ! neighbor atom for XB term
-         IF (xb_inter .AND. (dr > 1.e-3_dp)) THEN
-            IF (ASSOCIATED(neighbor_atoms(ikind)%rab)) THEN
-               atom_a = atom_of_kind(iatom)
-               IF (dr < neighbor_atoms(ikind)%rab(atom_a)) THEN
-                  neighbor_atoms(ikind)%rab(atom_a) = dr
-                  neighbor_atoms(ikind)%coord(1:3, atom_a) = rij(1:3)
-                  neighbor_atoms(ikind)%katom(atom_a) = jatom
-               END IF
-            END IF
-            IF (ASSOCIATED(neighbor_atoms(jkind)%rab)) THEN
-               atom_b = atom_of_kind(jatom)
-               IF (dr < neighbor_atoms(jkind)%rab(atom_b)) THEN
-                  neighbor_atoms(jkind)%rab(atom_b) = dr
-                  neighbor_atoms(jkind)%coord(1:3, atom_b) = -rij(1:3)
-                  neighbor_atoms(jkind)%katom(atom_b) = iatom
-               END IF
-            END IF
-         END IF
 
          ! atomic parameters
          CALL get_xtb_atom_param(xtb_atom_a, z=za, nao=naoa, lao=laoa, rcov=rcova, eta=etaa, &
@@ -1570,7 +1549,6 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: ks_matrix, matrix_h, matrix_p, matrix_s
       TYPE(dbcsr_type), POINTER                          :: mo_coeff, s_matrix
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mo_array
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -1768,15 +1746,18 @@ CONTAINS
       ! here we compute dE/dC if needed. Assumes dE/dC is H_{ks}C
       IF (qs_env%requires_mo_derivs .AND. .NOT. just_energy) THEN
          CPASSERT(SIZE(ks_matrix, 2) == 1)
-         CALL get_qs_env(qs_env, mo_derivs=mo_derivs, mos=mo_array)
-         DO ispin = 1, SIZE(mo_derivs)
-            CALL get_mo_set(mo_set=mo_array(ispin)%mo_set, mo_coeff_b=mo_coeff)
-            IF (.NOT. mo_array(ispin)%mo_set%use_mo_coeff_b) THEN
-               CPABORT("")
-            END IF
-            CALL dbcsr_multiply('n', 'n', 1.0_dp, ks_matrix(ispin, 1)%matrix, mo_coeff, &
-                                0.0_dp, mo_derivs(ispin)%matrix)
-         END DO
+         BLOCK
+            TYPE(mo_set_type), DIMENSION(:), POINTER         :: mo_array
+            CALL get_qs_env(qs_env, mo_derivs=mo_derivs, mos=mo_array)
+            DO ispin = 1, SIZE(mo_derivs)
+               CALL get_mo_set(mo_set=mo_array(ispin), mo_coeff_b=mo_coeff)
+               IF (.NOT. mo_array(ispin)%use_mo_coeff_b) THEN
+                  CPABORT("")
+               END IF
+               CALL dbcsr_multiply('n', 'n', 1.0_dp, ks_matrix(ispin, 1)%matrix, mo_coeff, &
+                                   0.0_dp, mo_derivs(ispin)%matrix)
+            END DO
+         END BLOCK
       END IF
 
       CALL timestop(handle)

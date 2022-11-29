@@ -5,10 +5,10 @@
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
 
-#if defined(__GRID_CUDA) || defined(__GRID_HIP)
+#include "../../offload/offload_runtime.h"
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 
 #include <assert.h>
-#include <omp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +21,10 @@
 #include "grid_gpu_collocate.h"
 #include "grid_gpu_integrate.h"
 #include "grid_gpu_task_list.h"
+
+#if defined(_OMP_H)
+#error "OpenMP should not be used in .cu files to accommodate HIP."
+#endif
 
 /*******************************************************************************
  * \brief Create a single task and precompute as much as possible.
@@ -550,5 +554,5 @@ void grid_gpu_integrate_task_list(const grid_gpu_task_list *task_list,
   }
 }
 
-#endif // defined(__GRID_CUDA) || defined(__GRID_HIP)
+#endif // defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 // EOF

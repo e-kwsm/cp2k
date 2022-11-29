@@ -59,7 +59,6 @@ MODULE realspace_grid_types
              rs_grid_set_box, &
              rs_grid_create, &
              rs_grid_create_descriptor, &
-             rs_grid_retain, &
              rs_grid_retain_descriptor, &
              rs_grid_release, &
              rs_grid_release_descriptor, &
@@ -67,7 +66,8 @@ MODULE realspace_grid_types
              rs_grid_print, &
              rs_grid_locate_rank, &
              rs_grid_max_ngpts, &
-             rs_grid_mult_and_add
+             rs_grid_mult_and_add, &
+             map_gaussian_here
 
    INTEGER, PARAMETER, PUBLIC               :: rsgrid_distributed = 0, &
                                                rsgrid_replicated = 1, &
@@ -75,8 +75,6 @@ MODULE realspace_grid_types
 
    LOGICAL, PRIVATE, PARAMETER :: debug_this_module = .FALSE.
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'realspace_grid_types'
-   INTEGER, SAVE, PRIVATE :: last_rs_id = 0
-   INTEGER, SAVE, PRIVATE :: allocated_rs_grid_count = 0
    INTEGER, PARAMETER, PUBLIC :: rs2pw = 11, pw2rs = 12
 
 ! **************************************************************************************************
@@ -91,8 +89,6 @@ MODULE realspace_grid_types
 
 ! **************************************************************************************************
    TYPE realspace_grid_desc_type
-      INTEGER :: grid_id ! tag of the pw_grid
-
       TYPE(pw_grid_type), POINTER   :: pw ! the pw grid
 
       INTEGER :: ref_count ! reference count
@@ -141,21 +137,18 @@ MODULE realspace_grid_types
 
    TYPE realspace_grid_type
 
-      TYPE(realspace_grid_desc_type), POINTER :: desc
+      TYPE(realspace_grid_desc_type), POINTER :: desc => NULL()
 
-      INTEGER :: id_nr ! unique identifier of rs
-      INTEGER :: ref_count ! reference count
+      INTEGER :: ngpts_local = -1 ! local dimensions
+      INTEGER, DIMENSION(3) :: npts_local = -1
+      INTEGER, DIMENSION(3) :: lb_local = -1
+      INTEGER, DIMENSION(3) :: ub_local = -1
+      INTEGER, DIMENSION(3) :: lb_real = -1 ! lower bounds of the real local data
+      INTEGER, DIMENSION(3) :: ub_real = -1 ! upper bounds of the real local data
 
-      INTEGER :: ngpts_local ! local dimensions
-      INTEGER, DIMENSION(3) :: npts_local
-      INTEGER, DIMENSION(3) :: lb_local
-      INTEGER, DIMENSION(3) :: ub_local
-      INTEGER, DIMENSION(3) :: lb_real ! lower bounds of the real local data
-      INTEGER, DIMENSION(3) :: ub_real ! upper bounds of the real local data
-
-      INTEGER, DIMENSION(:), POINTER             :: px, py, pz ! index translators
+      INTEGER, DIMENSION(:), POINTER             :: px => NULL(), py => NULL(), pz => NULL() ! index translators
       TYPE(offload_buffer_type)                  :: buffer ! owner of the grid's memory
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: r ! the grid (pointer to buffer%host_buffer)
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER :: r => NULL() ! the grid (pointer to buffer%host_buffer)
 
    END TYPE realspace_grid_type
 
@@ -179,7 +172,7 @@ CONTAINS
 !> \return ...
 ! **************************************************************************************************
    FUNCTION rs_grid_locate_rank(rs_desc, rank_in, shift) RESULT(rank_out)
-      TYPE(realspace_grid_desc_type), POINTER            :: rs_desc
+      TYPE(realspace_grid_desc_type), INTENT(IN)         :: rs_desc
       INTEGER, INTENT(IN)                                :: rank_in
       INTEGER, DIMENSION(3), INTENT(IN)                  :: shift
       INTEGER                                            :: rank_out
@@ -243,7 +236,6 @@ CONTAINS
       desc%dh = pw_grid%dh
       desc%dh_inv = pw_grid%dh_inv
       desc%orthorhombic = pw_grid%orthorhombic
-      desc%grid_id = pw_grid%id_nr
       desc%ref_count = 1
 
       IF (pw_grid%para%mode == PW_MODE_LOCAL) THEN
@@ -491,7 +483,7 @@ CONTAINS
 !> \param desc ...
 ! **************************************************************************************************
    SUBROUTINE rs_grid_create(rs, desc)
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(OUT)             :: rs
       TYPE(realspace_grid_desc_type), POINTER            :: desc
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'rs_grid_create'
@@ -500,11 +492,6 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      ALLOCATE (rs)
-
-      last_rs_id = last_rs_id + 1
-      rs%id_nr = last_rs_id
-      rs%ref_count = 1
       rs%desc => desc
       CALL rs_grid_retain_descriptor(rs%desc)
 
@@ -539,8 +526,6 @@ CONTAINS
          rs%ngpts_local = PRODUCT(rs%npts_local)
       END IF
 
-      allocated_rs_grid_count = allocated_rs_grid_count + 1
-
       CALL offload_create_buffer(rs%ngpts_local, rs%buffer)
       rs%r(rs%lb_local(1):rs%ub_local(1), &
            rs%lb_local(2):rs%ub_local(2), &
@@ -570,16 +555,12 @@ CONTAINS
 !>        04-2009 created [Iain Bethune]
 !>          (c) The Numerical Algorithms Group (NAG) Ltd, 2009 on behalf of the HECToR project
 ! **************************************************************************************************
-   SUBROUTINE rs_grid_reorder_ranks(desc, real2virtual)
+   PURE SUBROUTINE rs_grid_reorder_ranks(desc, real2virtual)
 
-      TYPE(realspace_grid_desc_type), POINTER            :: desc
+      TYPE(realspace_grid_desc_type), INTENT(INOUT)      :: desc
       INTEGER, DIMENSION(:), INTENT(IN)                  :: real2virtual
 
-      CHARACTER(LEN=*), PARAMETER :: routineN = 'rs_grid_reorder_ranks'
-
-      INTEGER                                            :: handle, i
-
-      CALL timeset(routineN, handle)
+      INTEGER                                            :: i
 
       desc%real2virtual(:) = real2virtual
 
@@ -593,8 +574,6 @@ CONTAINS
          desc%virtual_group_coor(:) = desc%rank2coord(:, desc%my_virtual_pos)
       END IF
 
-      CALL timestop(handle)
-
    END SUBROUTINE
 
 ! **************************************************************************************************
@@ -604,7 +583,7 @@ CONTAINS
 !> \author JGH (17-May-2007)
 ! **************************************************************************************************
    SUBROUTINE rs_grid_print(rs, iounit)
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
       INTEGER, INTENT(in)                                :: iounit
 
       INTEGER                                            :: dir, i, nn
@@ -613,7 +592,7 @@ CONTAINS
       IF (rs%desc%parallel) THEN
          IF (iounit > 0) THEN
             WRITE (iounit, '(/,A,T71,I10)') &
-               " RS_GRID| Information for grid number ", rs%desc%grid_id
+               " RS_GRID| Information for grid number ", rs%desc%pw%id_nr
             DO i = 1, 3
                WRITE (iounit, '(A,I3,T30,2I8,T62,A,T71,I10)') " RS_GRID|   Bounds ", &
                   i, rs%desc%lb(i), rs%desc%ub(i), "Points:", rs%desc%npts(i)
@@ -660,7 +639,7 @@ CONTAINS
       ELSE
          IF (iounit > 0) THEN
             WRITE (iounit, '(/,A,T71,I10)') &
-               " RS_GRID| Information for grid number ", rs%desc%grid_id
+               " RS_GRID| Information for grid number ", rs%desc%pw%id_nr
             DO i = 1, 3
                WRITE (iounit, '(A,I3,T30,2I8,T62,A,T71,I10)') " RS_GRID|   Bounds ", &
                   i, rs%desc%lb(i), rs%desc%ub(i), "Points:", rs%desc%npts(i)
@@ -685,8 +664,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer(rs, pw, dir)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_pw_transfer'
@@ -700,7 +679,7 @@ CONTAINS
       CALL timeset(routineN//"_"//TRIM(dirname)//"_"//TRIM(ADJUSTL( &
                                                            cp_to_string(CEILING(pw%pw_grid%cutoff/10)*10))), handle)
 
-      IF (rs%desc%grid_id /= pw%pw_grid%id_nr) &
+      IF (.NOT. ASSOCIATED(rs%desc%pw, pw%pw_grid)) &
          CPABORT("Different rs and pw indentifiers")
       IF ((pw%in_use .NE. REALDATA3D) .AND. (pw%in_use .NE. COMPLEXDATA3D)) &
          CPABORT("Need REALDATA3D or COMPLEXDATA3D")
@@ -837,8 +816,8 @@ CONTAINS
 !>      pw2rs will scatter all pw data to the rs grids
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer_replicated(rs, pw, dir)
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
 
       INTEGER                                            :: dest, group, i, ii, im, ip, ix, iy, iz, &
@@ -1018,8 +997,8 @@ CONTAINS
 !>       with the central domain of several CPUs (i.e. next nearest neighbors)
 ! **************************************************************************************************
    SUBROUTINE rs_pw_transfer_distributed(rs, pw, dir)
-      TYPE(realspace_grid_type), POINTER                 :: rs
-      TYPE(pw_type), POINTER                             :: pw
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
+      TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
 
       CHARACTER(LEN=200)                                 :: error_string
@@ -1934,7 +1913,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_zero(rs)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_grid_zero'
 
@@ -1970,7 +1949,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_mult_and_add(rs1, rs2, rs3, scalar)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs1, rs2, rs3
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs1, rs2, rs3
       REAL(dp), INTENT(IN)                               :: scalar
 
       CHARACTER(len=*), PARAMETER :: routineN = 'rs_grid_mult_and_add'
@@ -2009,31 +1988,14 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE rs_grid_set_box(pw_grid, rs)
 
-      TYPE(pw_grid_type), POINTER                        :: pw_grid
-      TYPE(realspace_grid_type), POINTER                 :: rs
+      TYPE(pw_grid_type), INTENT(IN), TARGET             :: pw_grid
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs
 
-      CPASSERT(ASSOCIATED(pw_grid))
-      CPASSERT(ASSOCIATED(rs))
-      CPASSERT(rs%desc%grid_id == pw_grid%id_nr)
+      CPASSERT(ASSOCIATED(rs%desc%pw, pw_grid))
       rs%desc%dh = pw_grid%dh
       rs%desc%dh_inv = pw_grid%dh_inv
 
    END SUBROUTINE rs_grid_set_box
-
-! **************************************************************************************************
-!> \brief retains the given rs grid (see doc/ReferenceCounting.html)
-!> \param rs_grid the grid to retain
-!> \par History
-!>      03.2003 created [fawzi]
-!> \author fawzi
-! **************************************************************************************************
-   SUBROUTINE rs_grid_retain(rs_grid)
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
-
-      CPASSERT(ASSOCIATED(rs_grid))
-      CPASSERT(rs_grid%ref_count > 0)
-      rs_grid%ref_count = rs_grid%ref_count + 1
-   END SUBROUTINE rs_grid_retain
 
 ! **************************************************************************************************
 !> \brief retains the given rs grid descriptor (see doc/ReferenceCounting.html)
@@ -2058,26 +2020,16 @@ CONTAINS
 !> \author fawzi
 ! **************************************************************************************************
    SUBROUTINE rs_grid_release(rs_grid)
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
+      TYPE(realspace_grid_type), INTENT(INOUT)           :: rs_grid
 
-      IF (ASSOCIATED(rs_grid)) THEN
-         CPASSERT(rs_grid%ref_count > 0)
-         rs_grid%ref_count = rs_grid%ref_count - 1
-         IF (rs_grid%ref_count == 0) THEN
+      CALL rs_grid_release_descriptor(rs_grid%desc)
 
-            CALL rs_grid_release_descriptor(rs_grid%desc)
+      CALL offload_free_buffer(rs_grid%buffer)
+      NULLIFY (rs_grid%r)
 
-            allocated_rs_grid_count = allocated_rs_grid_count - 1
-
-            CALL offload_free_buffer(rs_grid%buffer)
-            NULLIFY (rs_grid%r)
-
-            DEALLOCATE (rs_grid%px)
-            DEALLOCATE (rs_grid%py)
-            DEALLOCATE (rs_grid%pz)
-            DEALLOCATE (rs_grid)
-         END IF
-      END IF
+      IF (ASSOCIATED(rs_grid%px)) DEALLOCATE (rs_grid%px)
+      IF (ASSOCIATED(rs_grid%py)) DEALLOCATE (rs_grid%py)
+      IF (ASSOCIATED(rs_grid%pz)) DEALLOCATE (rs_grid%pz)
    END SUBROUTINE rs_grid_release
 
 ! **************************************************************************************************
@@ -2132,9 +2084,9 @@ CONTAINS
 !>      04.2009 created [Iain Bethune]
 !>        (c) The Numerical Algorithms Group (NAG) Ltd, 2009 on behalf of the HECToR project
 ! **************************************************************************************************
-   SUBROUTINE cart_shift(rs_grid, dir, disp, source, dest)
+   PURE SUBROUTINE cart_shift(rs_grid, dir, disp, source, dest)
 
-      TYPE(realspace_grid_type), POINTER                 :: rs_grid
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs_grid
       INTEGER, INTENT(IN)                                :: dir, disp
       INTEGER, INTENT(OUT)                               :: source, dest
 
@@ -2158,7 +2110,7 @@ CONTAINS
 !>      10.2011 created [Iain Bethune]
 ! **************************************************************************************************
    FUNCTION rs_grid_max_ngpts(desc) RESULT(max_ngpts)
-      TYPE(realspace_grid_desc_type), POINTER            :: desc
+      TYPE(realspace_grid_desc_type), INTENT(IN)         :: desc
       INTEGER                                            :: max_ngpts
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'rs_grid_max_ngpts'
@@ -2187,5 +2139,52 @@ CONTAINS
       CALL timestop(handle)
 
    END FUNCTION rs_grid_max_ngpts
+
+! **************************************************************************************************
+!> \brief ...
+!> \param rs_grid ...
+!> \param h_inv ...
+!> \param ra ...
+!> \param offset ...
+!> \param group_size ...
+!> \param my_pos ...
+!> \return ...
+! **************************************************************************************************
+   PURE LOGICAL FUNCTION map_gaussian_here(rs_grid, h_inv, ra, offset, group_size, my_pos) RESULT(res)
+      TYPE(realspace_grid_type), INTENT(IN)              :: rs_grid
+      REAL(KIND=dp), DIMENSION(3, 3), INTENT(IN)         :: h_inv
+      REAL(KIND=dp), DIMENSION(3), INTENT(IN)            :: ra
+      INTEGER, INTENT(IN), OPTIONAL                      :: offset, group_size, my_pos
+
+      INTEGER                                            :: dir, lb(3), location(3), tp(3), ub(3)
+
+      res = .FALSE.
+
+      IF (.NOT. ALL(rs_grid%desc%perd == 1)) THEN
+         DO dir = 1, 3
+            ! bounds of local grid (i.e. removing the 'wings'), if periodic
+            tp(dir) = FLOOR(DOT_PRODUCT(h_inv(dir, :), ra)*rs_grid%desc%npts(dir))
+            tp(dir) = MODULO(tp(dir), rs_grid%desc%npts(dir))
+            IF (rs_grid%desc%perd(dir) .NE. 1) THEN
+               lb(dir) = rs_grid%lb_local(dir) + rs_grid%desc%border
+               ub(dir) = rs_grid%ub_local(dir) - rs_grid%desc%border
+            ELSE
+               lb(dir) = rs_grid%lb_local(dir)
+               ub(dir) = rs_grid%ub_local(dir)
+            END IF
+            ! distributed grid, only map if it is local to the grid
+            location(dir) = tp(dir) + rs_grid%desc%lb(dir)
+         END DO
+         IF (ALL(lb(:) <= location(:)) .AND. ALL(location(:) <= ub(:))) THEN
+            res = .TRUE.
+         END IF
+      ELSE
+         IF (PRESENT(offset) .AND. PRESENT(group_size) .AND. PRESENT(my_pos)) THEN
+            ! not distributed, just a round-robin distribution over the full set of CPUs
+            IF (MODULO(offset, group_size) == my_pos) res = .TRUE.
+         END IF
+      END IF
+
+   END FUNCTION map_gaussian_here
 
 END MODULE realspace_grid_types

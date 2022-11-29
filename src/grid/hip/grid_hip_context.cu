@@ -11,7 +11,7 @@
  - Advanced Micro Devices, Inc.
 */
 
-#ifdef __GRID_HIP
+#if defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +30,10 @@ extern "C" {
 #include "grid_hip_internal_header.h"
 
 #include "grid_hip_task_list.h"
+
+#if defined(_OMP_H)
+#error "OpenMP should not be used in .cu files to accommodate HIP."
+#endif
 
 /*******************************************************************************
  * \brief Allocates a task list for the GPU backend.
@@ -89,7 +93,6 @@ extern "C" void grid_hip_create_task_list(
   memset(ctx->number_of_tasks_per_level_.data(), 0, sizeof(int) * nlevels);
 
   std::vector<rocm_backend::task_info> tasks_host(ntasks);
-  memset(tasks_host.data(), 0, sizeof(rocm_backend::task_info) * ntasks);
 
   size_t coef_size = 0;
 
@@ -112,6 +115,7 @@ extern "C" void grid_hip_create_task_list(
     const grid_basis_set *ibasis = basis_sets[ikind];
     const grid_basis_set *jbasis = basis_sets[jkind];
 
+    tasks_host[i] = {};
     tasks_host[i].level = level;
     tasks_host[i].iatom = iatom;
     tasks_host[i].jatom = jatom;
@@ -250,7 +254,8 @@ extern "C" void grid_hip_create_task_list(
     });
   */
   // it is a exclusive scan actually
-  for (int level = 1; level < ctx->number_of_tasks_per_level_.size(); level++) {
+  for (int level = 1; level < (int)ctx->number_of_tasks_per_level_.size();
+       level++) {
     ctx->first_task_per_level_[level] =
         ctx->first_task_per_level_[level - 1] +
         ctx->number_of_tasks_per_level_[level - 1];
@@ -275,7 +280,7 @@ extern "C" void grid_hip_create_task_list(
 
   int offset = 0;
   // flatten the task_sorted_by_block and compute the offsets
-  for (int i = 0; i < task_sorted_by_block.size(); i++) {
+  for (int i = 0; i < (int)task_sorted_by_block.size(); i++) {
     auto &task_list = task_sorted_by_block[i];
 
     // take care of the case where the blocks are not associated to a given
@@ -296,9 +301,9 @@ extern "C" void grid_hip_create_task_list(
   ctx->task_sorted_by_blocks_dev.resize(sorted_blocks.size());
   ctx->task_sorted_by_blocks_dev.copy_to_gpu(sorted_blocks);
 
-  for (int i = 0; i < sorted_blocks_offset.size(); i++) {
+  for (int i = 0; i < (int)sorted_blocks_offset.size(); i++) {
     int num_tasks = 0;
-    if (i == sorted_blocks_offset.size() - 1)
+    if (i == (int)sorted_blocks_offset.size() - 1)
       num_tasks = ntasks - sorted_blocks_offset[i];
     else
       num_tasks = sorted_blocks_offset[i + 1] - sorted_blocks_offset[i];
@@ -528,4 +533,4 @@ extern "C" void grid_hip_integrate_task_list(
   ctx->synchronize(ctx->main_stream);
 }
 
-#endif // __GRID_ROCM
+#endif // defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)

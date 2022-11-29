@@ -32,7 +32,6 @@ MODULE qs_linres_methods
                                               cp_fm_to_fm,&
                                               cp_fm_type
    USE cp_fm_vect,                      ONLY: cp_fm_vect_dealloc
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -61,25 +60,25 @@ MODULE qs_linres_methods
    USE machine,                         ONLY: m_flush,&
                                               m_walltime
    USE message_passing,                 ONLY: mp_bcast
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE preconditioner,                  ONLY: apply_preconditioner,&
                                               make_preconditioner
    USE qs_2nd_kernel_ao,                ONLY: build_dm_response
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
+   USE qs_gapw_densities,               ONLY: prepare_gapw_den
    USE qs_linres_kernel,                ONLY: apply_op_2
    USE qs_linres_types,                 ONLY: linres_control_type
    USE qs_loc_methods,                  ONLY: qs_loc_driver
    USE qs_loc_types,                    ONLY: get_qs_loc_env,&
                                               localized_wfn_control_type,&
                                               qs_loc_env_create,&
-                                              qs_loc_env_new_type,&
-                                              qs_loc_env_release,&
-                                              qs_loc_env_retain
+                                              qs_loc_env_type
    USE qs_loc_utils,                    ONLY: loc_write_restart,&
                                               qs_loc_control_init,&
                                               qs_loc_init
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_p_env_methods,                ONLY: p_env_check_i_alloc,&
                                               p_env_update_rho
    USE qs_p_env_types,                  ONLY: qs_p_env_type
@@ -96,7 +95,6 @@ MODULE qs_linres_methods
    PUBLIC :: linres_localize, linres_solver
    PUBLIC :: linres_write_restart, linres_read_restart
    PUBLIC :: build_dm_response
-   PUBLIC :: p_env_check_i_alloc
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_linres_methods'
 
@@ -128,8 +126,8 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(localized_wfn_control_type), POINTER          :: localized_wfn_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
-      TYPE(qs_loc_env_new_type), POINTER                 :: qs_loc_env
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(qs_loc_env_type), POINTER                     :: qs_loc_env
       TYPE(section_vals_type), POINTER                   :: loc_print_section, loc_section, &
                                                             lr_section
 
@@ -145,17 +143,16 @@ CONTAINS
 
       NULLIFY (mos, mo_coeff, qs_loc_env, mos_localized)
       CALL get_qs_env(qs_env=qs_env, mos=mos)
+      ALLOCATE (qs_loc_env)
       CALL qs_loc_env_create(qs_loc_env)
-      CALL qs_loc_env_retain(qs_loc_env)
       linres_control%qs_loc_env => qs_loc_env
-      CALL qs_loc_env_release(qs_loc_env)
-      qs_loc_env => linres_control%qs_loc_env
       CALL qs_loc_control_init(qs_loc_env, loc_section, do_homo=.TRUE.)
       CALL get_qs_loc_env(qs_loc_env, localized_wfn_control=localized_wfn_control)
 
       ALLOCATE (mos_localized(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
+         ALLOCATE (mos_localized(ispin)%matrix)
          CALL cp_fm_create(mos_localized(ispin)%matrix, mo_coeff%matrix_struct)
          CALL cp_fm_to_fm(mo_coeff, mos_localized(ispin)%matrix)
       END DO
@@ -174,7 +171,7 @@ CONTAINS
       DO ispin = 1, nspins
          CALL qs_loc_driver(qs_env, qs_loc_env, loc_print_section, myspin=ispin, &
                             ext_mo_coeff=mos_localized(ispin)%matrix)
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          CALL cp_fm_to_fm(mos_localized(ispin)%matrix, mo_coeff)
       END DO
 
@@ -230,20 +227,22 @@ CONTAINS
       LOGICAL                                            :: restart
       REAL(dp)                                           :: alpha, beta, norm_res, t1, t2
       REAL(dp), DIMENSION(:), POINTER                    :: tr_pAp, tr_rz0, tr_rz00, tr_rz1
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: Ap, chc, mo_coeff_array, p, r, Sc, z
+      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: Ap, chc, mo_coeff_array, p, r, z
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: buf, mo_coeff
+      TYPE(cp_fm_type)                                   :: buf
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: Sc
+      TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, matrix_t
       TYPE(dbcsr_type), POINTER                          :: matrix_x
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       CALL timeset(routineN, handle)
 
       NULLIFY (dft_control, linres_control, matrix_s, matrix_t, matrix_ks, para_env)
-      NULLIFY (buf, mos, tmp_fm_struct, mo_coeff)
+      NULLIFY (mos, tmp_fm_struct, mo_coeff)
 
       t1 = m_walltime()
 
@@ -257,11 +256,11 @@ CONTAINS
                       mos=mos)
 
       nspins = dft_control%nspins
-      CALL get_mo_set(mos(1)%mo_set, nao=nao)
+      CALL get_mo_set(mos(1), nao=nao)
       maxnmo = 0
       maxnmo_o = 0
       DO ispin = 1, nspins
-         CALL get_mo_set(mos(ispin)%mo_set, nmo=ncol)
+         CALL get_mo_set(mos(ispin), nmo=ncol)
          maxnmo = MAX(maxnmo, ncol)
          CALL cp_fm_get_info(psi0_order(ispin)%matrix, ncol_global=ncol)
          maxnmo_o = MAX(maxnmo_o, ncol)
@@ -273,12 +272,12 @@ CONTAINS
       ALLOCATE (tr_pAp(nspins), tr_rz0(nspins), tr_rz00(nspins), tr_rz1(nspins), &
                 r(nspins), p(nspins), z(nspins), Ap(nspins), mo_coeff_array(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
          mo_coeff_array(ispin)%matrix => mo_coeff
       END DO
       !
       DO ispin = 1, nspins
-         NULLIFY (r(ispin)%matrix, p(ispin)%matrix, z(ispin)%matrix, Ap(ispin)%matrix)
+         ALLOCATE (r(ispin)%matrix, p(ispin)%matrix, z(ispin)%matrix, Ap(ispin)%matrix)
          CALL cp_fm_create(r(ispin)%matrix, psi1(ispin)%matrix%matrix_struct)
          CALL cp_fm_create(p(ispin)%matrix, psi1(ispin)%matrix%matrix_struct)
          CALL cp_fm_create(z(ispin)%matrix, psi1(ispin)%matrix%matrix_struct)
@@ -288,12 +287,13 @@ CONTAINS
       ! compute S*C0, C0_order'*H*C0_order (this should be done once for all)
       ALLOCATE (chc(nspins), Sc(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff, nmo=nmo)
-         CALL cp_fm_create(Sc(ispin)%matrix, mo_coeff%matrix_struct)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff, nmo=nmo)
+         CALL cp_fm_create(Sc(ispin), mo_coeff%matrix_struct)
          NULLIFY (tmp_fm_struct)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, &
                                   ncol_global=nmo, para_env=para_env, &
                                   context=mo_coeff%matrix_struct%context)
+         ALLOCATE (chc(ispin)%matrix)
          CALL cp_fm_create(chc(ispin)%matrix, tmp_fm_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
       END DO
@@ -305,13 +305,13 @@ CONTAINS
          CALL cp_fm_create(buf, mo_coeff%matrix_struct)
          CALL cp_fm_get_info(mo_coeff, ncol_global=ncol)
          CALL cp_dbcsr_sm_fm_multiply(matrix_ks(ispin)%matrix, mo_coeff, buf, ncol)
-         CALL cp_gemm('T', 'N', ncol, ncol, nao, -1.0_dp, mo_coeff, buf, 0.0_dp, chc(ispin)%matrix)
+         CALL parallel_gemm('T', 'N', ncol, ncol, nao, -1.0_dp, mo_coeff, buf, 0.0_dp, chc(ispin)%matrix)
          CALL cp_fm_release(buf)
          !
          ! S * C0
-         CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, ncol_global=ncol)
-         CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, mo_coeff, Sc(ispin)%matrix, ncol)
+         CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, mo_coeff, Sc(ispin), ncol)
       END DO
       !
       ! header
@@ -332,13 +332,13 @@ CONTAINS
                   CALL make_preconditioner(p_env%preconditioner(ispin), &
                                            linres_control%preconditioner_type, ot_precond_solver_default, &
                                            matrix_ks(ispin)%matrix, matrix_s(1)%matrix, matrix_t(1)%matrix, &
-                                           mos(ispin)%mo_set, linres_control%energy_gap)
+                                           mos(ispin), linres_control%energy_gap)
                ELSE
                   NULLIFY (matrix_x)
                   CALL make_preconditioner(p_env%preconditioner(ispin), &
                                            linres_control%preconditioner_type, ot_precond_solver_default, &
                                            matrix_ks(ispin)%matrix, matrix_s(1)%matrix, matrix_x, &
-                                           mos(ispin)%mo_set, linres_control%energy_gap)
+                                           mos(ispin), linres_control%energy_gap)
                END IF
             END DO
             p_env%new_preconditioner = .FALSE.
@@ -467,7 +467,7 @@ CONTAINS
             CALL apply_op(qs_env, p_env, psi0_order, psi1, Ap, chc)
             !
             DO ispin = 1, nspins
-               CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+               CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
                CALL cp_fm_to_fm(h1_psi0(ispin)%matrix, r(ispin)%matrix)
                CALL cp_fm_scale_and_add(-1.0_dp, r(ispin)%matrix, -1.0_dp, Ap(ispin)%matrix)
             END DO
@@ -543,8 +543,11 @@ CONTAINS
          CALL cp_fm_release(z(ispin)%matrix)
          CALL cp_fm_release(Ap(ispin)%matrix)
          !
-         CALL cp_fm_release(Sc(ispin)%matrix)
+         CALL cp_fm_release(Sc(ispin))
          CALL cp_fm_release(chc(ispin)%matrix)
+         DEALLOCATE (r(ispin)%matrix, p(ispin)%matrix, &
+                     z(ispin)%matrix, Ap(ispin)%matrix, &
+                     chc(ispin)%matrix)
       END DO
       DEALLOCATE (tr_pAp, tr_rz0, tr_rz00, tr_rz1, r, p, z, Ap, Sc, chc, mo_coeff_array)
       !
@@ -615,6 +618,11 @@ CONTAINS
 
             CALL get_qs_env(qs_env, rho=rho) ! that could be called before
             CALL qs_rho_update_rho(rho, qs_env=qs_env) ! that could be called before
+            IF (dft_control%qs_control%gapw) THEN
+               CALL prepare_gapw_den(qs_env)
+            ELSEIF (dft_control%qs_control%gapw_xc) THEN
+               CALL prepare_gapw_den(qs_env, do_rho0=.FALSE.)
+            END IF
 
             DO ispin = 1, nspins
                CALL dbcsr_set(p_env%kpp1(ispin)%matrix, 0.0_dp)
@@ -641,18 +649,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE apply_op_1(v, Av, matrix_ks, matrix_s, chc)
       !
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: v, Av
+      TYPE(cp_fm_type), INTENT(IN)                       :: v, Av
       TYPE(dbcsr_type), INTENT(IN)                       :: matrix_ks, matrix_s
-      TYPE(cp_fm_type), INTENT(IN), POINTER              :: chc
+      TYPE(cp_fm_type), INTENT(IN)                       :: chc
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'apply_op_1'
 
       INTEGER                                            :: handle, ncol, nrow
-      TYPE(cp_fm_type), POINTER                          :: buf
+      TYPE(cp_fm_type)                                   :: buf
 
       CALL timeset(routineN, handle)
-      !
-      NULLIFY (buf)
       !
       CALL cp_fm_create(buf, v%matrix_struct)
       !
@@ -660,7 +666,7 @@ CONTAINS
       ! H * v
       CALL cp_dbcsr_sm_fm_multiply(matrix_ks, v, Av, ncol)
       ! v * e  (chc already multiplied by -1)
-      CALL cp_gemm('N', 'N', nrow, ncol, ncol, 1.0_dp, v, chc, 0.0_dp, buf)
+      CALL parallel_gemm('N', 'N', nrow, ncol, ncol, 1.0_dp, v, chc, 0.0_dp, buf)
       ! S * ve
       CALL cp_dbcsr_sm_fm_multiply(matrix_s, buf, Av, ncol, alpha=1.0_dp, beta=1.0_dp)
       !Results is H*C1 - S*<iHj>*C1
@@ -681,18 +687,19 @@ CONTAINS
    SUBROUTINE preortho(v, psi0, S_psi0)
       !v = (I-PS)v
       !
-      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(INOUT)    :: v, psi0, S_psi0
+      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(INOUT)    :: v, psi0
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: S_psi0
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'preortho'
 
       INTEGER                                            :: handle, ispin, mp, mt, mv, np, nspins, &
                                                             nt, nv
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: buf
+      TYPE(cp_fm_type)                                   :: buf
 
       CALL timeset(routineN, handle)
       !
-      NULLIFY (buf, tmp_fm_struct)
+      NULLIFY (tmp_fm_struct)
       !
       nspins = SIZE(v, 1)
       !
@@ -713,9 +720,9 @@ CONTAINS
          CPASSERT(nt == nv)
          !
          ! buf = v' * S_psi0
-         CALL cp_gemm('T', 'N', mv, mp, nv, 1.0_dp, v(ispin)%matrix, S_psi0(ispin)%matrix, 0.0_dp, buf)
+         CALL parallel_gemm('T', 'N', mv, mp, nv, 1.0_dp, v(ispin)%matrix, S_psi0(ispin), 0.0_dp, buf)
          ! v = v - psi0 * buf'
-         CALL cp_gemm('N', 'T', nv, mv, mp, -1.0_dp, psi0(ispin)%matrix, buf, 1.0_dp, v(ispin)%matrix)
+         CALL parallel_gemm('N', 'T', nv, mv, mp, -1.0_dp, psi0(ispin)%matrix, buf, 1.0_dp, v(ispin)%matrix)
          !
          CALL cp_fm_release(buf)
       END DO
@@ -733,18 +740,19 @@ CONTAINS
    SUBROUTINE postortho(v, psi0, S_psi0)
       !v = (I-SP)v
       !
-      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(INOUT)    :: v, psi0, S_psi0
+      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(INOUT)    :: v, psi0
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: S_psi0
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'postortho'
 
       INTEGER                                            :: handle, ispin, mp, mt, mv, np, nspins, &
                                                             nt, nv
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
-      TYPE(cp_fm_type), POINTER                          :: buf
+      TYPE(cp_fm_type)                                   :: buf
 
       CALL timeset(routineN, handle)
       !
-      NULLIFY (buf, tmp_fm_struct)
+      NULLIFY (tmp_fm_struct)
       !
       nspins = SIZE(v, 1)
       !
@@ -765,9 +773,9 @@ CONTAINS
          CPASSERT(nt == nv)
          !
          ! buf = v' * psi0
-         CALL cp_gemm('T', 'N', mv, mp, nv, 1.0_dp, v(ispin)%matrix, psi0(ispin)%matrix, 0.0_dp, buf)
+         CALL parallel_gemm('T', 'N', mv, mp, nv, 1.0_dp, v(ispin)%matrix, psi0(ispin)%matrix, 0.0_dp, buf)
          ! v = v - S_psi0 * buf'
-         CALL cp_gemm('N', 'T', nv, mv, mp, -1.0_dp, S_psi0(ispin)%matrix, buf, 1.0_dp, v(ispin)%matrix)
+         CALL parallel_gemm('N', 'T', nv, mv, mp, -1.0_dp, S_psi0(ispin), buf, 1.0_dp, v(ispin)%matrix)
          !
          CALL cp_fm_release(buf)
       END DO
@@ -804,7 +812,7 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: print_key
 
       NULLIFY (logger, mo_coeff, mos, para_env, print_key, vecbuffer)
@@ -853,7 +861,7 @@ CONTAINS
          !
          ! write data to file
          ! use the scalapack block size as a default for buffering columns
-         CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(1), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, nrow_global=nao, ncol_block=max_block)
          ALLOCATE (vecbuffer(nao, max_block))
 
@@ -918,7 +926,7 @@ CONTAINS
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(section_vals_type), POINTER                   :: print_key
 
       file_exists = .FALSE.
@@ -984,7 +992,7 @@ CONTAINS
 
       IF (file_exists) THEN
 
-         CALL get_mo_set(mos(1)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mos(1), mo_coeff=mo_coeff)
          CALL cp_fm_get_info(mo_coeff, nrow_global=nao, ncol_block=max_block)
 
          ALLOCATE (vecbuffer(nao, max_block))
@@ -1017,7 +1025,7 @@ CONTAINS
             IF (nao_tmp .NE. nao) CPABORT("nao not consistent")
             !
             DO ispin = 1, nspins
-               CALL get_mo_set(mos(ispin)%mo_set, mo_coeff=mo_coeff)
+               CALL get_mo_set(mos(ispin), mo_coeff=mo_coeff)
                CALL cp_fm_get_info(mo_coeff, ncol_global=nmo)
                !
                IF (rst_unit > 0) READ (rst_unit) nmo_tmp
@@ -1073,7 +1081,7 @@ CONTAINS
       IF (linres_control%preconditioner_type /= ot_precond_none) THEN
          CPASSERT(ASSOCIATED(p_env%preconditioner))
          DO ispin = 1, nspins
-            CALL cp_fm_get_info(p_env%PS_psi0(ispin)%matrix, nrow_global=nrow, ncol_global=ncol)
+            CALL cp_fm_get_info(p_env%PS_psi0(ispin), nrow_global=nrow, ncol_global=ncol)
             CPASSERT(nrow == p_env%n_ao(ispin))
             CPASSERT(ncol == p_env%n_mo(ispin))
          END DO

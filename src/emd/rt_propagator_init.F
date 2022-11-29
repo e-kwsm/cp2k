@@ -28,7 +28,6 @@ MODULE rt_propagator_init
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_type
@@ -45,9 +44,10 @@ MODULE rt_propagator_init
    USE iterate_matrix,                  ONLY: matrix_sqrt_Newton_Schulz
    USE kinds,                           ONLY: dp
    USE matrix_exp,                      ONLY: get_nsquare_norder
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
-   USE qs_mo_types,                     ONLY: mo_set_p_type
+   USE qs_mo_types,                     ONLY: mo_set_type
    USE rt_make_propagators,             ONLY: compute_exponential,&
                                               compute_exponential_sparse,&
                                               propagate_arnoldi
@@ -194,7 +194,7 @@ CONTAINS
       LOGICAL                                            :: emd
       REAL(dp)                                           :: max_eval, min_eval, norm2, scale, t
       REAL(dp), ALLOCATABLE, DIMENSION(:)                :: eigval_H
-      TYPE(cp_fm_type), POINTER                          :: eigvec_H, H_fm, S_half, S_inv_fm, &
+      TYPE(cp_fm_type)                                   :: eigvec_H, H_fm, S_half, S_inv_fm, &
                                                             S_minus_half, tmp, tmp_mat_H
       TYPE(dbcsr_type), POINTER                          :: S_inv
 
@@ -263,10 +263,10 @@ CONTAINS
          CALL cp_fm_upper_to_full(H_fm, tmp_mat_H)
          CALL cp_fm_scale(t, H_fm)
 
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, one, H_fm, S_minus_half, zero, &
-                      tmp_mat_H)
-         CALL cp_gemm("N", "N", ndim, ndim, ndim, one, S_minus_half, tmp_mat_H, zero, &
-                      H_fm)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, H_fm, S_minus_half, zero, &
+                            tmp_mat_H)
+         CALL parallel_gemm("N", "N", ndim, ndim, ndim, one, S_minus_half, tmp_mat_H, zero, &
+                            H_fm)
 
          CALL cp_fm_syevd(H_fm, tmp_mat_H, eigval_H)
          min_eval = MINVAL(eigval_H)
@@ -371,7 +371,7 @@ CONTAINS
    SUBROUTINE backtransform_matrix(Eval, eigenvec, matrix)
 
       REAL(dp), DIMENSION(:), INTENT(in)                 :: Eval
-      TYPE(cp_fm_type), POINTER                          :: eigenvec, matrix
+      TYPE(cp_fm_type), INTENT(IN)                       :: eigenvec, matrix
 
       CHARACTER(len=*), PARAMETER :: routineN = 'backtransform_matrix'
       REAL(KIND=dp), PARAMETER                           :: one = 1.0_dp, zero = 0.0_dp
@@ -379,7 +379,7 @@ CONTAINS
       INTEGER                                            :: handle, i, j, l, ncol_local, ndim, &
                                                             nrow_local
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      TYPE(cp_fm_type), POINTER                          :: tmp
+      TYPE(cp_fm_type)                                   :: tmp
 
       CALL timeset(routineN, handle)
       CALL cp_fm_create(tmp, &
@@ -397,8 +397,8 @@ CONTAINS
             tmp%local_data(j, i) = eigenvec%local_data(j, i)*Eval(l)
          END DO
       END DO
-      CALL cp_gemm("N", "T", ndim, ndim, ndim, one, tmp, eigenvec, zero, &
-                   matrix)
+      CALL parallel_gemm("N", "T", ndim, ndim, ndim, one, tmp, eigenvec, zero, &
+                         matrix)
 
       CALL cp_fm_release(tmp)
       CALL timestop(handle)
@@ -415,7 +415,7 @@ CONTAINS
    SUBROUTINE rt_initialize_rho_from_mos(rtp, mos)
 
       TYPE(rt_prop_type), POINTER                        :: rtp
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
       INTEGER                                            :: ispin, ncol, re
       REAL(KIND=dp)                                      :: alpha
@@ -427,10 +427,10 @@ CONTAINS
          re = 2*ispin - 1
          alpha = 3.0_dp - REAL(SIZE(mos), dp)
          CALL dbcsr_set(rho_old(re)%matrix, 0.0_dp)
-         CALL cp_fm_get_info(mos(ispin)%mo_set%mo_coeff, ncol_global=ncol)
-         CALL cp_fm_column_scale(mos(ispin)%mo_set%mo_coeff, mos(ispin)%mo_set%occupation_numbers/alpha)
+         CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=ncol)
+         CALL cp_fm_column_scale(mos(ispin)%mo_coeff, mos(ispin)%occupation_numbers/alpha)
          CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
-                                    matrix_v=mos(ispin)%mo_set%mo_coeff, ncol=ncol, alpha=alpha, keep_sparsity=.FALSE.)
+                                    matrix_v=mos(ispin)%mo_coeff, ncol=ncol, alpha=alpha, keep_sparsity=.FALSE.)
          CALL dbcsr_filter(rho_old(re)%matrix, eps=rtp%filter_eps)
          CALL dbcsr_copy(rho_new(re)%matrix, rho_old(re)%matrix)
       END DO

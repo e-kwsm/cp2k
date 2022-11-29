@@ -15,8 +15,6 @@
 ! **************************************************************************************************
 MODULE cp2k_info
 
-   USE input_constants,                 ONLY: id_development_version,&
-                                              id_release_version
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length
    USE machine,                         ONLY: m_datum,&
@@ -29,17 +27,9 @@ MODULE cp2k_info
    IMPLICIT NONE
    PRIVATE
 
-   PUBLIC :: cp2k_year, cp2k_version, cp2k_home, id_cp2k_version, cp2k_flags
+   PUBLIC :: cp2k_version, cp2k_year, cp2k_home, cp2k_flags
    PUBLIC :: compile_arch, compile_date, compile_host, compile_revision
    PUBLIC :: print_cp2k_license, get_runtime_info, write_restart_header
-
-   ! the version string of CP2K intended to be adjust after releases and branches
-#if defined(__RELEASE_VERSION)
-   INTEGER, PARAMETER          :: id_cp2k_version = id_release_version ! (Uncomment for release     version)
-#else
-   INTEGER, PARAMETER          :: id_cp2k_version = id_development_version ! (Uncomment for development version)
-!  INTEGER, PARAMETER          :: id_cp2k_version = 2                      ! (Uncomment for branch      version)
-#endif
 
 #if defined(__COMPILE_REVISION)
    CHARACTER(LEN=*), PARAMETER :: compile_revision = __COMPILE_REVISION
@@ -47,9 +37,8 @@ MODULE cp2k_info
    CHARACTER(LEN=*), PARAMETER :: compile_revision = "unknown"
 #endif
 
-   CHARACTER(LEN=*), PARAMETER :: version_nr = "10.0"
+   CHARACTER(LEN=*), PARAMETER :: cp2k_version = "CP2K version 2022.1 (Development Version)"
    CHARACTER(LEN=*), PARAMETER :: cp2k_year = "2022"
-   CHARACTER(LEN=*), PARAMETER :: cp2k_version = "CP2K version "//TRIM(version_nr)
    CHARACTER(LEN=*), PARAMETER :: cp2k_home = "https://www.cp2k.org/"
 
    ! compile time information
@@ -143,16 +132,6 @@ CONTAINS
       flags = TRIM(flags)//" quip"
 #endif
 
-#if defined(__PW_GPU)
-      flags = TRIM(flags)//" pw_gpu"
-#if defined(__PW_HIP)
-      flags = TRIM(flags)//" pw_hip"
-#endif
-#if defined(__PW_CUDA)
-      flags = TRIM(flags)//" pw_cuda"
-#endif
-#endif
-
 #if defined(__HAS_PATCHED_CUFFT_70)
       flags = TRIM(flags)//" patched_cufft_70"
 #endif
@@ -163,61 +142,6 @@ CONTAINS
 #if defined(__PW_FPGA_SP)
       flags = TRIM(flags)//" pw_fpga_sp"
 #endif
-
-#if defined(__HAS_smm_vec)
-      flags = TRIM(flags)//" smm_vec"
-#endif
-#if defined(__HAS_smm_snn)
-      flags = TRIM(flags)//" smm_snn"
-#endif
-#if defined(__HAS_smm_snt)
-      flags = TRIM(flags)//" smm_snt"
-#endif
-#if defined(__HAS_smm_stn)
-      flags = TRIM(flags)//" smm_stn"
-#endif
-#if defined(__HAS_smm_stt)
-      flags = TRIM(flags)//" smm_stt"
-#endif
-#if defined(__HAS_smm_znn)
-      flags = TRIM(flags)//" smm_znn"
-#endif
-#if defined(__HAS_smm_znt)
-      flags = TRIM(flags)//" smm_znt"
-#endif
-#if defined(__HAS_smm_ztn)
-      flags = TRIM(flags)//" smm_ztn"
-#endif
-#if defined(__HAS_smm_ztt)
-      flags = TRIM(flags)//" smm_ztt"
-#endif
-#if defined(__HAS_smm_cnn)
-      flags = TRIM(flags)//" smm_cnn"
-#endif
-#if defined(__HAS_smm_cnt)
-      flags = TRIM(flags)//" smm_cnt"
-#endif
-#if defined(__HAS_smm_ctn)
-      flags = TRIM(flags)//" smm_ctn"
-#endif
-#if defined(__HAS_smm_ctt)
-      flags = TRIM(flags)//" smm_ctt"
-#endif
-#if defined(__HAS_smm_dnn)
-      flags = TRIM(flags)//" smm_dnn"
-#endif
-#if defined(__HAS_smm_dnt)
-      flags = TRIM(flags)//" smm_dnt"
-#endif
-#if defined(__HAS_smm_dtn)
-      flags = TRIM(flags)//" smm_dtn"
-#endif
-#if defined(__HAS_smm_dtt)
-      flags = TRIM(flags)//" smm_dtt"
-#endif
-      IF (INDEX(flags, " smm_") > 0) THEN
-         flags = TRIM(flags)//" smm"
-      END IF
 
 #if defined(__LIBXSMM)
       flags = TRIM(flags)//" xsmm"
@@ -291,17 +215,20 @@ CONTAINS
 #if defined(__LIBMAXWELL)
       flags = TRIM(flags)//" libmaxwell"
 #endif
-#if defined(__GRID_CUDA)
-      flags = TRIM(flags)//" grid_cuda"
+#if defined(__OFFLOAD_CUDA)
+      flags = TRIM(flags)//" offload_cuda"
 #endif
-#if defined(__GRID_HIP)
-      flags = TRIM(flags)//" grid_hip"
+#if defined(__OFFLOAD_HIP)
+      flags = TRIM(flags)//" offload_hip"
 #endif
-#if defined(__DBM_CUDA)
-      flags = TRIM(flags)//" dbm_cuda"
+#if defined(__NO_OFFLOAD_GRID)
+      flags = TRIM(flags)//" no_offload_grid"
 #endif
-#if defined(__DBM_HIP)
-      flags = TRIM(flags)//" dbm_hip"
+#if defined(__NO_OFFLOAD_DBM)
+      flags = TRIM(flags)//" no_offload_dbm"
+#endif
+#if defined(__NO_OFFLOAD_PW)
+      flags = TRIM(flags)//" no_offload_pw"
 #endif
 #if defined(__OFFLOAD_PROFILING)
       flags = TRIM(flags)//" offload_profiling"
@@ -309,6 +236,10 @@ CONTAINS
 
 #if defined(__SPLA) && defined(__OFFLOAD_GEMM)
       flags = TRIM(flags)//" spla_gemm_offloading"
+#endif
+
+#if defined(__LIBVDWXC)
+      flags = TRIM(flags)//" libvdwxc"
 #endif
 
    END FUNCTION cp2k_flags

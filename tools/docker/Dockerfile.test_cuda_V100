@@ -3,11 +3,15 @@
 # Usage: docker build -f ./Dockerfile.test_cuda_V100 ../../
 #
 
-FROM nvidia/cuda:11.3.1-devel-ubuntu20.04
+FROM nvidia/cuda:11.8.0-devel-ubuntu22.04
 
 # Setup CUDA environment.
 ENV CUDA_PATH /usr/local/cuda
 ENV LD_LIBRARY_PATH /usr/local/cuda/lib64
+
+# Disable JIT cache as there seems to be an issue with file locking on overlayfs.
+# See also https://github.com/cp2k/cp2k/pull/2337
+ENV CUDA_CACHE_DISABLE 1
 
 # Install Ubuntu packages.
 RUN apt-get update -qq && apt-get install -qq --no-install-recommends \
@@ -82,20 +86,22 @@ RUN /bin/bash -c " \
     ln -vs /opt/cp2k-toolchain/install/arch/local_cuda.psmp ./arch/ && \
     echo 'Compiling cp2k...' && \
     source /opt/cp2k-toolchain/install/setup && \
-    ( make -j ARCH=local_cuda VERSION=psmp &> /dev/null || true )"
+    ( make -j ARCH=local_cuda VERSION=psmp &> /dev/null || true ) && \
+    ( [ ! -f ./exe/local_cuda/cp2k.psmp ] || ldd ./exe/local_cuda/cp2k.psmp | grep -q libmpi )"
 COPY ./data ./data
 COPY ./tests ./tests
 COPY ./tools/regtesting ./tools/regtesting
 
 # Run regression tests.
-ARG TESTOPTS
+ARG TESTOPTS=""
 COPY ./tools/docker/scripts/test_regtest.sh ./
-RUN /bin/bash -c " \
+RUN /bin/bash -o pipefail -c " \
     TESTOPTS="${TESTOPTS}" \
     ./test_regtest.sh 'local_cuda' 'psmp' |& tee report.log && \
     rm -rf regtesting"
 
 # Output the report if the image is old and was therefore pulled from the build cache.
 CMD cat $(find ./report.log -mmin +10) | sed '/^Summary:/ s/$/ (cached)/'
+ENTRYPOINT []
 
 #EOF

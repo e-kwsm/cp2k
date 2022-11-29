@@ -25,16 +25,16 @@ MODULE s_square_methods
                                               cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
-   USE cp_gemm_interface,               ONLY: cp_gemm
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE input_constants,                 ONLY: do_s2_constraint,&
                                               do_s2_restraint
    USE kinds,                           ONLY: dp
    USE message_passing,                 ONLY: mp_sum
+   USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               has_uniform_occupation,&
-                                              mo_set_p_type
+                                              mo_set_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -66,7 +66,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE compute_s_square(mos, matrix_s, s_square, s_square_ideal, mo_derivs, strength)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       REAL(KIND=dp), INTENT(OUT)                         :: s_square, s_square_ideal
       TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
@@ -81,23 +81,20 @@ CONTAINS
       LOGICAL                                            :: has_uniform_occupation_alpha, &
                                                             has_uniform_occupation_beta
       REAL(KIND=dp)                                      :: s2
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: local_data
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: local_data
       TYPE(cp_blacs_env_type), POINTER                   :: context
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
-      TYPE(cp_fm_type), POINTER                          :: c_alpha, c_beta, catscb, sca, scb
+      TYPE(cp_fm_type)                                   :: catscb, sca, scb
+      TYPE(cp_fm_type), POINTER                          :: c_alpha, c_beta
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (catscb)
-      NULLIFY (c_alpha)
-      NULLIFY (c_beta)
       NULLIFY (context)
       NULLIFY (fm_struct_tmp)
       NULLIFY (local_data)
       NULLIFY (para_env)
-      NULLIFY (sca)
-      NULLIFY (scb)
 
       SELECT CASE (SIZE(mos))
       CASE (1)
@@ -107,11 +104,11 @@ CONTAINS
          ! Restraining or constraining (\cal S) does not make sense
          CPASSERT(PRESENT(mo_derivs) .OR. PRESENT(strength))
       CASE (2)
-         CALL get_mo_set(mo_set=mos(1)%mo_set, mo_coeff=c_alpha, homo=nalpha, nmo=nmo_alpha, nao=nao)
-         CALL get_mo_set(mo_set=mos(2)%mo_set, mo_coeff=c_beta, homo=nbeta, nmo=nmo_beta, nao=nao_beta)
+         CALL get_mo_set(mo_set=mos(1), mo_coeff=c_alpha, homo=nalpha, nmo=nmo_alpha, nao=nao)
+         CALL get_mo_set(mo_set=mos(2), mo_coeff=c_beta, homo=nbeta, nmo=nmo_beta, nao=nao_beta)
          CPASSERT(nao == nao_beta)
-         has_uniform_occupation_alpha = has_uniform_occupation(mo_set=mos(1)%mo_set, last_mo=nalpha)
-         has_uniform_occupation_beta = has_uniform_occupation(mo_set=mos(2)%mo_set, last_mo=nbeta)
+         has_uniform_occupation_alpha = has_uniform_occupation(mo_set=mos(1), last_mo=nalpha)
+         has_uniform_occupation_beta = has_uniform_occupation(mo_set=mos(2), last_mo=nbeta)
          ! This makes only sense if we have uniform occupations for the alpha and beta spin MOs while
          ! ignoring potentially added MOs with zero occupation
          IF (has_uniform_occupation_alpha .AND. has_uniform_occupation_beta) THEN
@@ -130,7 +127,7 @@ CONTAINS
             ! Compute S*C(beta)
             CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, c_beta, scb, nbeta)
             ! Compute C(alpha)^T*S*C(beta)
-            CALL cp_gemm('T', 'N', nalpha, nbeta, nao, 1.0_dp, c_alpha, scb, 0.0_dp, catscb)
+            CALL parallel_gemm('T', 'N', nalpha, nbeta, nao, 1.0_dp, c_alpha, scb, 0.0_dp, catscb)
             ! Eq. 2.271 in Modern Quantum Chemistry by A. Szabo and N. S. Ostlund
             CALL cp_fm_get_info(catscb, local_data=local_data, nrow_local=nrow_local, ncol_local=ncol_local)
             s2 = 0.0_dp
@@ -145,19 +142,19 @@ CONTAINS
             IF (PRESENT(mo_derivs)) THEN
                CPASSERT(SIZE(mo_derivs, 1) == 2)
                ! This gets really wrong for fractional occupations
-               CALL get_mo_set(mo_set=mos(1)%mo_set, uniform_occupation=has_uniform_occupation_alpha)
+               CALL get_mo_set(mo_set=mos(1), uniform_occupation=has_uniform_occupation_alpha)
                CPASSERT(has_uniform_occupation_alpha)
-               CALL get_mo_set(mo_set=mos(2)%mo_set, uniform_occupation=has_uniform_occupation_beta)
+               CALL get_mo_set(mo_set=mos(2), uniform_occupation=has_uniform_occupation_beta)
                CPASSERT(has_uniform_occupation_beta)
                ! Add -strength*S*C(beta)*(C(alpha)^T*S*C(beta))^T to the alpha MO derivatives
-               CALL cp_gemm('N', 'T', nao, nalpha, nbeta, -strength, scb, catscb, 1.0_dp, mo_derivs(1)%matrix)
+               CALL parallel_gemm('N', 'T', nao, nalpha, nbeta, -strength, scb, catscb, 1.0_dp, mo_derivs(1)%matrix)
                ! Create S*C(alpha)
                CALL cp_fm_get_info(c_alpha, matrix_struct=fm_struct_tmp)
                CALL cp_fm_create(sca, fm_struct_tmp, name="S*C(alpha)")
                ! Compute S*C(alpha)
                CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, c_alpha, sca, nalpha)
                ! Add -strength*S*C(alpha)*C(alpha)^T*S*C(beta) to the beta MO derivatives
-               CALL cp_gemm('N', 'N', nao, nbeta, nalpha, -strength, sca, catscb, 1.0_dp, mo_derivs(2)%matrix)
+               CALL parallel_gemm('N', 'N', nao, nbeta, nalpha, -strength, sca, catscb, 1.0_dp, mo_derivs(2)%matrix)
                CALL cp_fm_release(sca)
             END IF
             CALL cp_fm_release(scb)
@@ -194,7 +191,7 @@ CONTAINS
    SUBROUTINE s2_restraint(mos, matrix_s, mo_derivs, energy, &
                            s2_restraint_control, just_energy)
 
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_derivs
       REAL(kind=dp)                                      :: energy

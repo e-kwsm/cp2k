@@ -34,7 +34,7 @@ if [[ -d ".git" ]]; then
   while IFS= read -r -d $'\0'; do
     submodule_basedir="${REPLY%/*}"
     submodule_hash=$(< "${submodule_basedir}/HEAD")
-    submodule_dir="${submodule_basedir#${modules_git_dir}}"
+    submodule_dir="${submodule_basedir#"${modules_git_dir}"}"
     submodule_sha+=("${submodule_dir}:${submodule_hash}")
   done < <(find "${modules_git_dir}" -name index -print0)
 fi
@@ -55,7 +55,14 @@ if [[ "${git_sha}" != "<N/A>" ]] && command -v git > /dev/null 2>&1; then
 fi
 
 echo "--------------------------- Resource limits ------------------------------"
-prlimit
+case "$(uname -s)" in
+  Linux)
+    prlimit
+    ;;
+  Darwin)
+    launchctl limit
+    ;;
+esac
 
 echo "--------------------------- SELinux --------------------------------------"
 if [[ -f /usr/sbin/getenforce ]]; then
@@ -66,10 +73,25 @@ fi
 
 echo "--------------------------- ARCH-file ------------------------------------"
 cat "./arch/${ARCH}.${VERSION}"
+
+if [ -x "$(command -v nvidia-smi)" ]; then
+  echo "--------------------------- NVIDIA-SMI -----------------------------------"
+  nvidia-smi
+  echo ""
+fi
+
+if [ -x "$(command -v rocm-smi)" ]; then
+  echo "--------------------------- ROCm-SMI -------------------------------------"
+  rocm-smi
+  echo ""
+fi
+
 echo "-------------------------- Build-Tools -----------------------------------"
 make toolversions ARCH="${ARCH}" VERSION="${VERSION}"
+
 echo "----------------------- External Modules ---------------------------------"
 make extversions ARCH="${ARCH}" VERSION="${VERSION}"
+
 echo "---------------------------- Modules -------------------------------------"
 if [ "$(type -t module)" = 'function' ]; then
   module list 2>&1

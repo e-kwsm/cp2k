@@ -65,7 +65,7 @@ MODULE qs_linres_polar_utils
                                               set_polar_env
    USE qs_matrix_pools,                 ONLY: qs_matrix_pools_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
-                                              mo_set_p_type
+                                              mo_set_type
    USE qs_p_env_types,                  ONLY: qs_p_env_type
 #include "./base/base_uses.f90"
 
@@ -99,7 +99,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(polar_env_type), POINTER                      :: polar_env
       TYPE(section_vals_type), POINTER                   :: lr_section, polar_section
 
@@ -157,6 +157,8 @@ CONTAINS
          DO ispin = 1, nspins
             DO idir = 1, 3
                CALL cp_fm_release(polar_env%dBerry_psi0(idir, ispin)%matrix)
+               DEALLOCATE (polar_env%dBerry_psi0(idir, ispin)%matrix)
+               NULLIFY (polar_env%dBerry_psi0(idir, ispin)%matrix)
             END DO
          END DO
       END IF
@@ -167,17 +169,21 @@ CONTAINS
          DO ispin = 1, nspins
             DO idir = 1, 3
                CALL cp_fm_release(polar_env%psi1_dBerry(idir, ispin)%matrix)
+               DEALLOCATE (polar_env%psi1_dBerry(idir, ispin)%matrix)
+               NULLIFY (polar_env%psi1_dBerry(idir, ispin)%matrix)
             END DO
          END DO
       END IF
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff, nao=nao, nmo=nmo)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
          CALL cp_fm_get_info(mo_coeff, ncol_global=m, nrow_global=nao)
          NULLIFY (tmp_fm_struct)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
                                   ncol_global=m, &
                                   context=mo_coeff%matrix_struct%context)
          DO idir = 1, 3
+            ALLOCATE (polar_env%dBerry_psi0(idir, ispin)%matrix, &
+                      polar_env%psi1_dBerry(idir, ispin)%matrix)
             CALL cp_fm_create(polar_env%dBerry_psi0(idir, ispin)%matrix, tmp_fm_struct)
             CALL cp_fm_create(polar_env%psi1_dBerry(idir, ispin)%matrix, tmp_fm_struct)
          END DO
@@ -211,7 +217,7 @@ CONTAINS
       TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: dBerry_psi0, psi1_dBerry
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(polar_env_type), POINTER                      :: polar_env
 
       CALL timeset(routineN, handle)
@@ -394,7 +400,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(linres_control_type), POINTER                 :: linres_control
-      TYPE(mo_set_p_type), DIMENSION(:), POINTER         :: mos
+      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(polar_env_type), POINTER                      :: polar_env
       TYPE(qs_matrix_pools_type), POINTER                :: mpools
       TYPE(section_vals_type), POINTER                   :: lr_section, polar_section
@@ -433,13 +439,14 @@ CONTAINS
       ALLOCATE (psi0_order(nspins))
       ALLOCATE (psi1(nspins), h1_psi0(nspins))
       DO ispin = 1, nspins
-         CALL get_mo_set(mo_set=mos(ispin)%mo_set, mo_coeff=mo_coeff)
+         CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
          psi0_order(ispin)%matrix => mo_coeff
          CALL cp_fm_get_info(mo_coeff, ncol_global=nmo, nrow_global=nao)
          NULLIFY (tmp_fm_struct, psi1(ispin)%matrix, h1_psi0(ispin)%matrix)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nao, &
                                   ncol_global=nmo, &
                                   context=mo_coeff%matrix_struct%context)
+         ALLOCATE (psi1(ispin)%matrix, h1_psi0(ispin)%matrix)
          CALL cp_fm_create(psi1(ispin)%matrix, tmp_fm_struct)
          CALL cp_fm_create(h1_psi0(ispin)%matrix, tmp_fm_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
@@ -502,6 +509,7 @@ CONTAINS
       DO ispin = 1, nspins
          CALL cp_fm_release(psi1(ispin)%matrix)
          CALL cp_fm_release(h1_psi0(ispin)%matrix)
+         DEALLOCATE (psi1(ispin)%matrix, h1_psi0(ispin)%matrix)
       END DO
       DEALLOCATE (psi1, h1_psi0, psi0_order)
 

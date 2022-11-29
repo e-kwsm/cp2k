@@ -10,6 +10,7 @@
 #include <stdbool.h>
 
 #include "../offload/offload_buffer.h"
+#include "../offload/offload_runtime.h"
 #include "common/grid_basis_set.h"
 #include "common/grid_constants.h"
 #include "cpu/grid_cpu_task_list.h"
@@ -27,10 +28,10 @@ typedef struct {
   int (*npts_local)[3];
   grid_ref_task_list *ref;
   grid_cpu_task_list *cpu;
-#if defined(__GRID_CUDA) || defined(__GRID_HIP)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
   grid_gpu_task_list *gpu;
 #endif
-#if defined(__GRID_HIP)
+#if defined(__OFFLOAD_HIP) && !defined(__NO_OFFLOAD_GRID)
   grid_hip_task_list *hip;
 #endif
   // more backends to be added here

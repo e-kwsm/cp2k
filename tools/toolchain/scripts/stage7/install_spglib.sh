@@ -1,10 +1,7 @@
 #!/bin/bash -e
 
 # TODO: Review and if possible fix shellcheck errors.
-# shellcheck disable=SC1003,SC1035,SC1083,SC1090
-# shellcheck disable=SC2001,SC2002,SC2005,SC2016,SC2091,SC2034,SC2046,SC2086,SC2089,SC2090
-# shellcheck disable=SC2124,SC2129,SC2144,SC2153,SC2154,SC2155,SC2163,SC2164,SC2166
-# shellcheck disable=SC2235,SC2237
+# shellcheck disable=all
 
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
@@ -33,9 +30,7 @@ case "$with_spglib" in
       if [ -f spglib-${spglib_ver}.tar.gz ]; then
         echo "spglib-${spglib_ver}.tar.gz is found"
       else
-        download_pkg ${DOWNLOADER_FLAGS} ${spglib_sha256} \
-          https://github.com/atztogo/spglib/archive/v${spglib_ver}.tar.gz \
-          -o spglib-${spglib_ver}.tar.gz
+        download_pkg_from_cp2k_org "${spglib_sha256}" "spglib-${spglib_ver}.tar.gz"
       fi
 
       echo "Installing from scratch into ${pkg_install_dir}"
@@ -54,12 +49,12 @@ case "$with_spglib" in
       make -j $(get_nprocs) symspg > make.log 2>&1 || tail -n ${LOG_LINES} make.log
       make install >> install.log 2>&1 || tail -n ${LOG_LINES} install.log
       # Despite -DBUILD_SHARED_LIBS=NO the shared library gets build and installed.
-      rm "${pkg_install_dir}"/lib*/*.so*
+      rm -f "${pkg_install_dir}"/lib*/*.so*
       write_checksums "${install_lock_file}" "${SCRIPT_DIR}/stage7/$(basename ${SCRIPT_NAME})"
     fi
 
     SPGLIB_CFLAGS="-I${pkg_install_dir}/include"
-    SPGLIB_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    SPGLIB_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     if [ -d "${pkg_install_dir}/lib64" ]; then
       ln -sf lib64 ${pkg_install_dir}/lib
       cd ${pkg_install_dir}
@@ -79,7 +74,7 @@ case "$with_spglib" in
     check_dir "$pkg_install_dir/lib"
     check_dir "$pkg_install_dir/include"
     SPGLIB_CFLAGS="-I'${pkg_install_dir}/include'"
-    SPGLIB_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath='${pkg_install_dir}/lib'"
+    SPGLIB_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
 esac
 if [ "$with_spglib" != "__DONTUSE__" ]; then

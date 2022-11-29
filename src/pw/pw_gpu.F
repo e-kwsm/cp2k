@@ -69,10 +69,10 @@ CONTAINS
       END INTERFACE
 
       MARK_USED(dummy) ! TODO: fix fpretty
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_init_c()
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      ! Nothing to do.
 #endif
    END SUBROUTINE pw_gpu_init
 
@@ -88,10 +88,10 @@ CONTAINS
       END INTERFACE
 
       MARK_USED(dummy) ! TODO: fix fpretty
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_finalize_c()
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      ! Nothing to do.
 #endif
    END SUBROUTINE pw_gpu_finalize
 
@@ -103,9 +103,9 @@ CONTAINS
 !> \author Benjamin G Levine
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_r3dc1d_3d(pw1, pw2, scale)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
-      REAL(KIND=dp)                                      :: scale
+      TYPE(pw_type), INTENT(IN)                          :: pw1
+      TYPE(pw_type), INTENT(INOUT)                       :: pw2
+      REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_r3dc1d_3d'
 
@@ -143,11 +143,11 @@ CONTAINS
       ptr_ghatmap => pw2%pw_grid%g_hatmap(1, 1)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_cfffg_c(c_loc(ptr_pwin), c_loc(ptr_pwout), c_loc(ptr_ghatmap), npts, ngpts, scale)
 #else
       MARK_USED(scale)
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading.")
 #endif
 
       pw2%in_space = RECIPROCALSPACE
@@ -163,9 +163,9 @@ CONTAINS
 !> \author Benjamin G Levine
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_c1dr3d_3d(pw1, pw2, scale)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
-      REAL(KIND=dp)                                      :: scale
+      TYPE(pw_type), INTENT(IN)                          :: pw1
+      TYPE(pw_type), INTENT(INOUT)                       :: pw2
+      REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_c1dr3d_3d'
 
@@ -203,11 +203,11 @@ CONTAINS
       ptr_ghatmap => pw1%pw_grid%g_hatmap(1, 1)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_sfffc_c(c_loc(ptr_pwin), c_loc(ptr_pwout), c_loc(ptr_ghatmap), npts, ngpts, nmaps, scale)
 #else
       MARK_USED(scale)
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading")
 #endif
 
       pw2%in_space = REALSPACE
@@ -223,9 +223,9 @@ CONTAINS
 !> \author Andreas Gloess
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_r3dc1d_3d_ps(pw1, pw2, scale)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
-      REAL(KIND=dp)                                      :: scale
+      TYPE(pw_type), INTENT(IN)                          :: pw1
+      TYPE(pw_type), INTENT(INOUT)                       :: pw2
+      REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER :: routineN = 'pw_gpu_r3dc1d_3d_ps'
 
@@ -403,9 +403,9 @@ CONTAINS
 !> \author Andreas Gloess
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_c1dr3d_3d_ps(pw1, pw2, scale)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
-      REAL(KIND=dp)                                      :: scale
+      TYPE(pw_type), INTENT(IN)                          :: pw1
+      TYPE(pw_type), INTENT(INOUT)                       :: pw2
+      REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER :: routineN = 'pw_gpu_c1dr3d_3d_ps'
 
@@ -586,9 +586,9 @@ CONTAINS
 !> \author Andreas Gloess
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_cff(pw1, pwbuf)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
+      TYPE(pw_type), INTENT(IN)                          :: pw1
       COMPLEX(KIND=dp), DIMENSION(:, :, :), &
-         INTENT(INOUT), POINTER                          :: pwbuf
+         INTENT(INOUT), TARGET                           :: pwbuf
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_cff'
 
@@ -618,10 +618,10 @@ CONTAINS
       ptr_pwout => pwbuf(1, 1, 1)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_cff_c(c_loc(ptr_pwin), c_loc(ptr_pwout), npts)
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading")
 #endif
 
       CALL timestop(handle)
@@ -635,8 +635,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_ffc(pwbuf, pw2)
       COMPLEX(KIND=dp), DIMENSION(:, :, :), INTENT(IN), &
-         POINTER                                         :: pwbuf
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
+         TARGET                                          :: pwbuf
+      TYPE(pw_type), INTENT(IN)                          :: pw2
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_ffc'
 
@@ -666,10 +666,10 @@ CONTAINS
       ptr_pwout => pw2%cr3d(l1, l2, l3)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_ffc_c(c_loc(ptr_pwin), c_loc(ptr_pwout), npts)
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading")
 #endif
 
       CALL timestop(handle)
@@ -682,9 +682,9 @@ CONTAINS
 !> \author Andreas Gloess
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_cf(pw1, pwbuf)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
+      TYPE(pw_type), INTENT(IN)                          :: pw1
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
-         POINTER                                         :: pwbuf
+         TARGET                                          :: pwbuf
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_cf'
 
@@ -714,10 +714,10 @@ CONTAINS
       ptr_pwout => pwbuf(1, 1)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_cf_c(c_loc(ptr_pwin), c_loc(ptr_pwout), npts)
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading")
 #endif
       CALL timestop(handle)
    END SUBROUTINE pw_gpu_cf
@@ -730,8 +730,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_fc(pwbuf, pw2)
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(IN), &
-         POINTER                                         :: pwbuf
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
+         TARGET                                          :: pwbuf
+      TYPE(pw_type), INTENT(IN)                          :: pw2
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_fc'
 
@@ -760,10 +760,10 @@ CONTAINS
       ptr_pwout => pw2%cr3d(l1, l2, l3)
 
       ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
       CALL pw_gpu_fc_c(c_loc(ptr_pwin), c_loc(ptr_pwout), npts)
 #else
-      CPABORT("Compiled without -D__PW_GPU")
+      CPABORT("Compiled without pw offloading")
 #endif
 
       CALL timestop(handle)
@@ -780,9 +780,9 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_f(pwbuf1, pwbuf2, dir, n, m)
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(IN), &
-         POINTER                                         :: pwbuf1
+         TARGET                                          :: pwbuf1
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
-         POINTER                                         :: pwbuf2
+         TARGET                                          :: pwbuf2
       INTEGER, INTENT(IN)                                :: dir, n, m
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_f'
@@ -806,11 +806,11 @@ CONTAINS
          ptr_pwout => pwbuf2(1, 1)
 
          ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          CALL pw_gpu_f_c(c_loc(ptr_pwin), c_loc(ptr_pwout), dir, n, m)
 #else
          MARK_USED(dir)
-         CPABORT("Compiled without -D__PW_GPU")
+         CPABORT("Compiled without pw offloading")
 #endif
       END IF
 
@@ -825,8 +825,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_fg(pwbuf, pw2, scale)
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(IN), &
-         POINTER                                         :: pwbuf
-      TYPE(pw_type), INTENT(INOUT), TARGET               :: pw2
+         TARGET                                          :: pwbuf
+      TYPE(pw_type), INTENT(IN)                          :: pw2
       REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_fg'
@@ -865,11 +865,11 @@ CONTAINS
          ptr_ghatmap => pw2%pw_grid%g_hatmap(1, 1)
 
          ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          CALL pw_gpu_fg_c(c_loc(ptr_pwin), c_loc(ptr_pwout), c_loc(ptr_ghatmap), npts, mmax, ngpts, scale)
 #else
          MARK_USED(scale)
-         CPABORT("Compiled without -D__PW_GPU")
+         CPABORT("Compiled without pw offloading")
 #endif
       END IF
 
@@ -884,9 +884,9 @@ CONTAINS
 !> \author Andreas Gloess
 ! **************************************************************************************************
    SUBROUTINE pw_gpu_sf(pw1, pwbuf, scale)
-      TYPE(pw_type), INTENT(IN), TARGET                  :: pw1
+      TYPE(pw_type), INTENT(IN)                          :: pw1
       COMPLEX(KIND=dp), DIMENSION(:, :), INTENT(INOUT), &
-         POINTER                                         :: pwbuf
+         TARGET                                          :: pwbuf
       REAL(KIND=dp), INTENT(IN)                          :: scale
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'pw_gpu_sf'
@@ -926,11 +926,11 @@ CONTAINS
          ptr_ghatmap => pw1%pw_grid%g_hatmap(1, 1)
 
          ! invoke the combined transformation
-#if defined(__PW_GPU)
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_PW)
          CALL pw_gpu_sf_c(c_loc(ptr_pwin), c_loc(ptr_pwout), c_loc(ptr_ghatmap), npts, mmax, ngpts, nmaps, scale)
 #else
          MARK_USED(scale)
-         CPABORT("Compiled without -D__PW_GPU")
+         CPABORT("Compiled without pw offloading")
 #endif
       END IF
 

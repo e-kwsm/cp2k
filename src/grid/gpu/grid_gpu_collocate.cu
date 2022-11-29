@@ -5,7 +5,8 @@
 /*  SPDX-License-Identifier: BSD-3-Clause                                     */
 /*----------------------------------------------------------------------------*/
 
-#if defined(__GRID_CUDA) || defined(__GRID_HIP)
+#include "../../offload/offload_runtime.h"
+#if defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 
 #include <algorithm>
 #include <assert.h>
@@ -20,6 +21,10 @@
 #include "../common/grid_prepare_pab.h"
 #include "grid_gpu_collint.h"
 #include "grid_gpu_collocate.h"
+
+#if defined(_OMP_H)
+#error "OpenMP should not be used in .cu files to accommodate HIP."
+#endif
 
 /*******************************************************************************
  * \brief Collocate a single grid point with distance d{xyz} from center.
@@ -277,8 +282,8 @@ __device__ static void collocate_kernel(const kernel_params *params) {
   zero_cab(&task, smem_cab);
   block_to_cab<IS_FUNC_AB>(params, &task, smem_cab);
 
-  compute_alpha(params, &task, smem_alpha);
-  cab_to_cxyz(params, &task, smem_alpha, smem_cab, smem_cxyz);
+  compute_alpha(&task, smem_alpha);
+  cab_to_cxyz(&task, smem_alpha, smem_cab, smem_cxyz);
 
   cxyz_to_grid(params, &task, smem_cxyz, params->grid);
 }
@@ -374,5 +379,5 @@ void grid_gpu_collocate_one_grid_level(
   }
 }
 
-#endif // defined(__GRID_CUDA) || defined(__GRID_HIP)
+#endif // defined(__OFFLOAD) && !defined(__NO_OFFLOAD_GRID)
 // EOF

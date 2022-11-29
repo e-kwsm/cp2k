@@ -13,7 +13,7 @@
 ! **************************************************************************************************
 MODULE qs_p_env_types
    USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
-   USE cp_fm_types,                     ONLY: cp_fm_p_type
+   USE cp_fm_types,                     ONLY: cp_fm_type
    USE cp_fm_vect,                      ONLY: cp_fm_vect_dealloc
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE hartree_local_types,             ONLY: hartree_local_release,&
@@ -41,8 +41,6 @@ MODULE qs_p_env_types
 !>      Can calculate the linear operator and the rhs of the system
 !>      of equations that needs to be solved for the perturbation.
 !> \param orthogonal_orbitals if the orbitals are orthogonal
-!> \param id_nr identification number (unique between p_env_types)
-!> \param ref_count reference count (see doc/ReferenceCounting.html)
 !> \param kpp 1: the kpp1 matrix (make it temporary?)
 !> \param kpp1_admm: collects the parts in auxiliary basis, they have to be added to kpp1 later
 !> \param m_epsilon minus epsilon: -<psi0d|H_rho|psi0d>
@@ -58,28 +56,33 @@ MODULE qs_p_env_types
 !>      for the moment no smearing of the orbitals.
 ! **************************************************************************************************
    TYPE qs_p_env_type
-
-      LOGICAL :: orthogonal_orbitals
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: kpp1 => NULL(), kpp1_admm => NULL(), p1 => NULL(), w1 => NULL()
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: p1_admm => NULL()
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER :: m_epsilon => NULL(), &
-                                                   psi0d => NULL(), S_psi0 => NULL(), Smo_inv => NULL()
-      TYPE(qs_kpp1_env_type), POINTER :: kpp1_env => NULL()
+      LOGICAL                                                      :: orthogonal_orbitals
+      TYPE(qs_kpp1_env_type), POINTER                              :: kpp1_env => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER                    :: kpp1 => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER                    :: kpp1_admm => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER                    :: p1 => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER                    :: p1_admm => NULL()
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER                    :: w1 => NULL()
+      TYPE(cp_fm_type), DIMENSION(:), POINTER                    :: m_epsilon => NULL()
+      TYPE(cp_fm_type), DIMENSION(:), POINTER                    :: psi0d => NULL()
+      TYPE(cp_fm_type), DIMENSION(:), POINTER                    :: S_psi0 => NULL()
+      TYPE(cp_fm_type), DIMENSION(:), POINTER                    :: Smo_inv => NULL()
       TYPE(qs_rho_type), POINTER :: rho1 => NULL()
       TYPE(qs_rho_type), POINTER :: rho1_xc => NULL()
       TYPE(qs_rho_type), POINTER :: rho1_admm => NULL()
-      INTEGER, DIMENSION(2) :: n_mo, & ! no of molecular orbitals
-                               n_ao ! no of basis functions
+      INTEGER, DIMENSION(2)                                        :: n_mo, & ! no of molecular orbitals
+                                                                      n_ao ! no of basis functions
       ! GAPW stuff
-      TYPE(hartree_local_type), POINTER                 :: hartree_local => NULL()
-      TYPE(local_rho_type), POINTER                      :: local_rho_set => NULL()
+      TYPE(hartree_local_type), POINTER                            :: hartree_local => NULL()
+      TYPE(local_rho_type), POINTER                                :: local_rho_set => NULL()
+      TYPE(local_rho_type), POINTER                                :: local_rho_set_admm => NULL()
 
       ! Linear Response Modules
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER  :: PS_psi0 => NULL()
+      TYPE(cp_fm_type), DIMENSION(:), POINTER                    :: PS_psi0 => NULL()
 
       ! preconditioner matrix should be symmetric and positive definite
-      TYPE(preconditioner_type), DIMENSION(:), POINTER :: preconditioner => NULL()
-      LOGICAL :: new_preconditioner
+      LOGICAL                                                      :: new_preconditioner
+      TYPE(preconditioner_type), DIMENSION(:), POINTER             :: preconditioner => NULL()
 
    END TYPE qs_p_env_type
 
@@ -109,9 +112,16 @@ CONTAINS
       CALL cp_fm_vect_dealloc(p_env%Smo_inv)
       IF (ASSOCIATED(p_env%rho1_xc)) THEN
          CALL qs_rho_release(p_env%rho1_xc)
+         DEALLOCATE (p_env%rho1_xc)
       END IF
-      CALL qs_rho_release(p_env%rho1)
-      IF (ASSOCIATED(p_env%rho1_admm)) CALL qs_rho_release(p_env%rho1_admm)
+      IF (ASSOCIATED(p_env%rho1)) THEN
+         CALL qs_rho_release(p_env%rho1)
+         DEALLOCATE (p_env%rho1)
+      END IF
+      IF (ASSOCIATED(p_env%rho1_admm)) THEN
+         CALL qs_rho_release(p_env%rho1_admm)
+         DEALLOCATE (p_env%rho1_admm)
+      END IF
       IF (ASSOCIATED(p_env%kpp1)) CALL dbcsr_deallocate_matrix_set(p_env%kpp1)
       IF (ASSOCIATED(p_env%kpp1_admm)) CALL dbcsr_deallocate_matrix_set(p_env%kpp1_admm)
       IF (ASSOCIATED(p_env%p1)) CALL dbcsr_deallocate_matrix_set(p_env%p1)
@@ -122,6 +132,9 @@ CONTAINS
       END IF
       IF (ASSOCIATED(p_env%hartree_local)) THEN
          CALL hartree_local_release(p_env%hartree_local)
+      END IF
+      IF (ASSOCIATED(p_env%local_rho_set_admm)) THEN
+         CALL local_rho_set_release(p_env%local_rho_set_admm)
       END IF
       IF (ASSOCIATED(p_env%PS_psi0)) THEN
          CALL cp_fm_vect_dealloc(p_env%PS_psi0)

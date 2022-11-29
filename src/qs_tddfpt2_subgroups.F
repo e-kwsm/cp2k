@@ -6,7 +6,8 @@
 !--------------------------------------------------------------------------------------------------!
 
 MODULE qs_tddfpt2_subgroups
-   USE admm_types,                      ONLY: admm_type
+   USE admm_types,                      ONLY: admm_type,&
+                                              get_admm_env
    USE atomic_kind_types,               ONLY: atomic_kind_type
    USE basis_set_types,                 ONLY: get_gto_basis_set,&
                                               gto_basis_set_type
@@ -28,7 +29,6 @@ MODULE qs_tddfpt2_subgroups
                                               cp_fm_get_info,&
                                               cp_fm_p_type,&
                                               cp_fm_release,&
-                                              cp_fm_retain,&
                                               cp_fm_type
    USE cp_para_env,                     ONLY: cp_para_env_create,&
                                               cp_para_env_release,&
@@ -44,6 +44,10 @@ MODULE qs_tddfpt2_subgroups
    USE distribution_2d_types,           ONLY: distribution_2d_release,&
                                               distribution_2d_type
    USE distribution_methods,            ONLY: distribute_molecules_2d
+   USE hartree_local_methods,           ONLY: init_coulomb_local
+   USE hartree_local_types,             ONLY: hartree_local_create,&
+                                              hartree_local_release,&
+                                              hartree_local_type
    USE input_constants,                 ONLY: tddfpt_kernel_full,&
                                               tddfpt_kernel_none,&
                                               tddfpt_kernel_stda
@@ -65,6 +69,9 @@ MODULE qs_tddfpt2_subgroups
    USE qs_kind_types,                   ONLY: get_qs_kind,&
                                               qs_kind_type
    USE qs_ks_types,                     ONLY: qs_ks_env_type
+   USE qs_local_rho_types,              ONLY: local_rho_set_create,&
+                                              local_rho_set_release,&
+                                              local_rho_type
    USE qs_neighbor_list_types,          ONLY: neighbor_list_set_p_type,&
                                               release_neighbor_list_sets
    USE qs_neighbor_lists,               ONLY: atom2d_build,&
@@ -72,6 +79,9 @@ MODULE qs_tddfpt2_subgroups
                                               build_neighbor_lists,&
                                               local_atoms_type,&
                                               pair_radius_setup
+   USE qs_rho0_ggrid,                   ONLY: rho0_s_grid_create
+   USE qs_rho0_methods,                 ONLY: init_rho0
+   USE qs_rho_atom_methods,             ONLY: allocate_rho_atom_internals
    USE task_list_methods,               ONLY: generate_qs_task_list
    USE task_list_types,                 ONLY: allocate_task_list,&
                                               deallocate_task_list,&
@@ -130,6 +140,12 @@ MODULE qs_tddfpt2_subgroups
          DIMENSION(:), POINTER                           :: sab_aux_fit, sab_orb
       !> task lists in auxiliary and primary basis sets
       TYPE(task_list_type), POINTER                      :: task_list_aux_fit, task_list_orb
+      !> soft task lists in auxiliary and primary basis sets
+      TYPE(task_list_type), POINTER                      :: task_list_aux_fit_soft, task_list_orb_soft
+      !> GAPW local atomic grids
+      TYPE(hartree_local_type), POINTER                  :: hartree_local => NULL()
+      TYPE(local_rho_type), POINTER                      :: local_rho_set => NULL()
+      TYPE(local_rho_type), POINTER                      :: local_rho_set_admm => NULL()
    END TYPE tddfpt_subgroup_env_type
 
 ! **************************************************************************************************
@@ -175,9 +191,10 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_sub_env_init'
 
-      INTEGER                                            :: handle, ispin, nao, nao_aux, nmo_occ, &
-                                                            nspins
+      INTEGER                                            :: handle, ispin, nao, nao_aux, natom, &
+                                                            nmo_occ, nspins
       TYPE(admm_type), POINTER                           :: admm_env
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env_global
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       TYPE(cp_para_env_type), POINTER                    :: para_env_global
@@ -185,6 +202,7 @@ CONTAINS
       TYPE(mgrid_saved_parameters)                       :: mgrid_saved
       TYPE(pw_env_type), POINTER                         :: pw_env_global
       TYPE(qs_control_type), POINTER                     :: qs_control
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(tddfpt2_control_type), POINTER                :: tddfpt_control
 
       CALL timeset(routineN, handle)
@@ -226,7 +244,7 @@ CONTAINS
          NULLIFY (fm_struct)
 
          DO ispin = 1, nspins
-            NULLIFY (sub_env%mos_occ(ispin)%matrix)
+            ALLOCATE (sub_env%mos_occ(ispin)%matrix)
             CALL cp_fm_get_info(mos_occ(ispin)%matrix, nrow_global=nao, ncol_global=nmo_occ)
             CALL cp_fm_struct_create(fm_struct, nrow_global=nao, ncol_global=nmo_occ, context=sub_env%blacs_env)
             CALL cp_fm_create(sub_env%mos_occ(ispin)%matrix, fm_struct)
@@ -239,6 +257,7 @@ CONTAINS
             CALL get_qs_env(qs_env, admm_env=admm_env)
             CALL cp_fm_get_info(admm_env%A, nrow_global=nao_aux, ncol_global=nao)
             CALL cp_fm_struct_create(fm_struct, nrow_global=nao_aux, ncol_global=nao, context=sub_env%blacs_env)
+            ALLOCATE (sub_env%admm_A)
             CALL cp_fm_create(sub_env%admm_A, fm_struct)
             CALL cp_fm_struct_release(fm_struct)
             CALL tddfpt_fm_replicate_across_subgroups(fm_src=admm_env%A, fm_dest_sub=sub_env%admm_A, sub_env=sub_env)
@@ -251,13 +270,11 @@ CONTAINS
          sub_env%blacs_env => blacs_env_global
 
          DO ispin = 1, nspins
-            CALL cp_fm_retain(mos_occ(ispin)%matrix)
             sub_env%mos_occ(ispin)%matrix => mos_occ(ispin)%matrix
          END DO
 
          IF (dft_control%do_admm) THEN
             CALL get_qs_env(qs_env, admm_env=admm_env)
-            CALL cp_fm_retain(admm_env%A)
             sub_env%admm_A => admm_env%A
          END IF
       END IF
@@ -269,6 +286,7 @@ CONTAINS
          NULLIFY (sub_env%dbcsr_dist, sub_env%dist_2d)
          NULLIFY (sub_env%sab_orb, sub_env%sab_aux_fit)
          NULLIFY (sub_env%task_list_orb, sub_env%task_list_aux_fit)
+         NULLIFY (sub_env%task_list_orb_soft, sub_env%task_list_aux_fit_soft)
 
          IF (sub_env%is_mgrid) THEN
             IF (tddfpt_control%mgrid_is_explicit) &
@@ -283,15 +301,29 @@ CONTAINS
                                               blacs_env=sub_env%blacs_env, qs_env=qs_env)
             CALL tddfpt_build_tasklist(task_list=sub_env%task_list_orb, sab=sub_env%sab_orb, basis_type="ORB", &
                                        distribution_2d=sub_env%dist_2d, pw_env=sub_env%pw_env, qs_env=qs_env, &
-                                       skip_load_balance=qs_control%skip_load_balance_distributed, &
+                                       soft_valid=.FALSE., skip_load_balance=qs_control%skip_load_balance_distributed, &
                                        reorder_grid_ranks=.TRUE.)
+            IF (qs_control%gapw .OR. qs_control%gapw_xc) THEN
+               CALL tddfpt_build_tasklist(task_list=sub_env%task_list_orb_soft, sab=sub_env%sab_orb, basis_type="ORB", &
+                                          distribution_2d=sub_env%dist_2d, pw_env=sub_env%pw_env, qs_env=qs_env, &
+                                          soft_valid=.TRUE., skip_load_balance=qs_control%skip_load_balance_distributed, &
+                                          reorder_grid_ranks=.TRUE.)
+            END IF
 
-            IF (dft_control%do_admm) &
+            IF (dft_control%do_admm) THEN
                CALL tddfpt_build_tasklist(task_list=sub_env%task_list_aux_fit, sab=sub_env%sab_aux_fit, &
                                           basis_type="AUX_FIT", distribution_2d=sub_env%dist_2d, &
-                                          pw_env=sub_env%pw_env, qs_env=qs_env, &
+                                          pw_env=sub_env%pw_env, qs_env=qs_env, soft_valid=.FALSE., &
                                           skip_load_balance=qs_control%skip_load_balance_distributed, &
                                           reorder_grid_ranks=.FALSE.)
+               IF (qs_control%gapw .OR. qs_control%gapw_xc) THEN
+                  CALL tddfpt_build_tasklist(task_list=sub_env%task_list_aux_fit_soft, sab=sub_env%sab_aux_fit, &
+                                             basis_type="AUX_FIT", distribution_2d=sub_env%dist_2d, &
+                                             pw_env=sub_env%pw_env, qs_env=qs_env, soft_valid=.TRUE., &
+                                             skip_load_balance=qs_control%skip_load_balance_distributed, &
+                                             reorder_grid_ranks=.FALSE.)
+               END IF
+            END IF
 
             IF (tddfpt_control%mgrid_is_explicit) &
                CALL restore_qs_mgrid(qs_control, mgrid_saved)
@@ -301,26 +333,61 @@ CONTAINS
 
             CALL get_qs_env(qs_env, dbcsr_dist=sub_env%dbcsr_dist, &
                             sab_orb=sub_env%sab_orb, task_list=sub_env%task_list_orb)
+            IF (dft_control%do_admm) THEN
+               CALL get_admm_env(admm_env, sab_aux_fit=sub_env%sab_aux_fit, &
+                                 task_list_aux_fit=sub_env%task_list_aux_fit)
+               IF (qs_control%gapw .OR. qs_control%gapw_xc) THEN
+                  sub_env%task_list_aux_fit_soft => admm_env%admm_gapw_env%task_list
+               END IF
+            END IF
+            IF (qs_control%gapw .OR. qs_control%gapw_xc) THEN
+               CALL get_qs_env(qs_env, task_list_soft=sub_env%task_list_orb_soft)
+            END IF
+         END IF
 
-            IF (dft_control%do_admm) &
-               CALL get_qs_env(qs_env, sab_aux_fit=sub_env%sab_aux_fit, task_list_aux_fit=sub_env%task_list_aux_fit)
+         ! GAPW initializations
+         IF (dft_control%qs_control%gapw) THEN
+            CALL get_qs_env(qs_env, &
+                            atomic_kind_set=atomic_kind_set, &
+                            natom=natom, &
+                            qs_kind_set=qs_kind_set)
+
+            CALL local_rho_set_create(sub_env%local_rho_set)
+            CALL allocate_rho_atom_internals(sub_env%local_rho_set%rho_atom_set, atomic_kind_set, &
+                                             qs_kind_set, dft_control, sub_env%para_env)
+
+            CALL init_rho0(sub_env%local_rho_set, qs_env, dft_control%qs_control%gapw_control, .TRUE.)
+            CALL rho0_s_grid_create(sub_env%pw_env, sub_env%local_rho_set%rho0_mpole)
+            CALL hartree_local_create(sub_env%hartree_local)
+            CALL init_coulomb_local(sub_env%hartree_local, natom)
+         ELSEIF (dft_control%qs_control%gapw_xc) THEN
+            CALL get_qs_env(qs_env, &
+                            atomic_kind_set=atomic_kind_set, &
+                            qs_kind_set=qs_kind_set)
+            CALL local_rho_set_create(sub_env%local_rho_set)
+            CALL allocate_rho_atom_internals(sub_env%local_rho_set%rho_atom_set, atomic_kind_set, &
+                                             qs_kind_set, dft_control, sub_env%para_env)
+         END IF
+
+         ! ADMM/GAPW
+         IF (dft_control%do_admm) THEN
+            IF (dft_control%qs_control%gapw .OR. dft_control%qs_control%gapw_xc) THEN
+               CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set)
+               CALL local_rho_set_create(sub_env%local_rho_set_admm)
+               CALL allocate_rho_atom_internals(sub_env%local_rho_set_admm%rho_atom_set, atomic_kind_set, &
+                                                admm_env%admm_gapw_env%admm_kind_set, &
+                                                dft_control, sub_env%para_env)
+            END IF
          END IF
 
       ELSE IF (kernel == tddfpt_kernel_stda) THEN
          sub_env%is_mgrid = .FALSE.
          NULLIFY (sub_env%dbcsr_dist, sub_env%dist_2d)
          NULLIFY (sub_env%sab_orb, sub_env%sab_aux_fit)
-         NULLIFY (sub_env%task_list_orb, sub_env%task_list_aux_fit)
+         NULLIFY (sub_env%task_list_orb, sub_env%task_list_orb_soft, sub_env%task_list_aux_fit)
          NULLIFY (sub_env%pw_env)
          IF (sub_env%is_split) THEN
-            CALL tddfpt_build_distribution_2d(distribution_2d=sub_env%dist_2d, dbcsr_dist=sub_env%dbcsr_dist, &
-                                              blacs_env=sub_env%blacs_env, qs_env=qs_env)
-            ! maybe we don't need task_list, just sab_orb
-            CALL tddfpt_build_tasklist(task_list=sub_env%task_list_orb, sab=sub_env%sab_orb, basis_type="ORB", &
-                                       distribution_2d=sub_env%dist_2d, pw_env=sub_env%pw_env, qs_env=qs_env, &
-                                       skip_load_balance=qs_control%skip_load_balance_distributed, &
-                                       reorder_grid_ranks=.TRUE.)
-            CPABORT('subsys missing')
+            CPABORT('Subsys option not available')
          ELSE
             CALL get_qs_env(qs_env, dbcsr_dist=sub_env%dbcsr_dist, sab_orb=sub_env%sab_orb)
          END IF
@@ -328,17 +395,10 @@ CONTAINS
          sub_env%is_mgrid = .FALSE.
          NULLIFY (sub_env%dbcsr_dist, sub_env%dist_2d)
          NULLIFY (sub_env%sab_orb, sub_env%sab_aux_fit)
-         NULLIFY (sub_env%task_list_orb, sub_env%task_list_aux_fit)
+         NULLIFY (sub_env%task_list_orb, sub_env%task_list_orb_soft, sub_env%task_list_aux_fit)
          NULLIFY (sub_env%pw_env)
          IF (sub_env%is_split) THEN
-            CALL tddfpt_build_distribution_2d(distribution_2d=sub_env%dist_2d, dbcsr_dist=sub_env%dbcsr_dist, &
-                                              blacs_env=sub_env%blacs_env, qs_env=qs_env)
-            ! maybe we don't need task_list, just sab_orb
-            CALL tddfpt_build_tasklist(task_list=sub_env%task_list_orb, sab=sub_env%sab_orb, basis_type="ORB", &
-                                       distribution_2d=sub_env%dist_2d, pw_env=sub_env%pw_env, qs_env=qs_env, &
-                                       skip_load_balance=qs_control%skip_load_balance_distributed, &
-                                       reorder_grid_ranks=.TRUE.)
-            CPABORT('subsys missing')
+            CPABORT('Subsys option not available')
          ELSE
             CALL get_qs_env(qs_env, dbcsr_dist=sub_env%dbcsr_dist, sab_orb=sub_env%sab_orb)
          END IF
@@ -372,6 +432,9 @@ CONTAINS
          IF (ASSOCIATED(sub_env%task_list_orb)) &
             CALL deallocate_task_list(sub_env%task_list_orb)
 
+         IF (ASSOCIATED(sub_env%task_list_orb_soft)) &
+            CALL deallocate_task_list(sub_env%task_list_orb_soft)
+
          CALL release_neighbor_list_sets(sub_env%sab_aux_fit)
          CALL release_neighbor_list_sets(sub_env%sab_orb)
 
@@ -384,6 +447,17 @@ CONTAINS
             CALL distribution_2d_release(sub_env%dist_2d)
       END IF
 
+      ! GAPW
+      IF (ASSOCIATED(sub_env%local_rho_set)) THEN
+         CALL local_rho_set_release(sub_env%local_rho_set)
+      END IF
+      IF (ASSOCIATED(sub_env%hartree_local)) THEN
+         CALL hartree_local_release(sub_env%hartree_local)
+      END IF
+      IF (ASSOCIATED(sub_env%local_rho_set_admm)) THEN
+         CALL local_rho_set_release(sub_env%local_rho_set_admm)
+      END IF
+
       ! if TDDFPT-specific plane-wave environment has not been requested,
       ! the pointers sub_env%dbcsr_dist, sub_env%sab_*, and sub_env%task_list_*
       ! point to the corresponding ground-state variables from qs_env
@@ -393,12 +467,18 @@ CONTAINS
 
       sub_env%is_mgrid = .FALSE.
 
-      IF (ASSOCIATED(sub_env%admm_A)) &
+      IF (sub_env%is_split .AND. ASSOCIATED(sub_env%admm_A)) THEN
          CALL cp_fm_release(sub_env%admm_A)
+         DEALLOCATE (sub_env%admm_A)
+         NULLIFY (sub_env%admm_A)
+      END IF
 
-      DO i = SIZE(sub_env%mos_occ), 1, -1
-         CALL cp_fm_release(sub_env%mos_occ(i)%matrix)
-      END DO
+      IF (sub_env%is_split) THEN
+         DO i = SIZE(sub_env%mos_occ), 1, -1
+            CALL cp_fm_release(sub_env%mos_occ(i)%matrix)
+            DEALLOCATE (sub_env%mos_occ(i)%matrix)
+         END DO
+      END IF
       DEALLOCATE (sub_env%mos_occ)
 
       CALL cp_blacs_env_release(sub_env%blacs_env)
@@ -574,6 +654,7 @@ CONTAINS
 !> \param distribution_2d     two-dimensional distribution of pairs of particles
 !> \param pw_env              plane wave environment
 !> \param qs_env              Quickstep environment
+!> \param soft_valid          generate a task list for soft basis functions (GAPW, GAPW_XC)
 !> \param skip_load_balance   do not perform load balancing
 !> \param reorder_grid_ranks  re-optimise grid ranks and re-create the real-space grid descriptor
 !>                            as well as grids
@@ -582,7 +663,7 @@ CONTAINS
 !>   * 01.2017 moved from qs_tddfpt2_methods [Sergey Chulkov]
 ! **************************************************************************************************
    SUBROUTINE tddfpt_build_tasklist(task_list, sab, basis_type, distribution_2d, pw_env, qs_env, &
-                                    skip_load_balance, reorder_grid_ranks)
+                                    soft_valid, skip_load_balance, reorder_grid_ranks)
       TYPE(task_list_type), POINTER                      :: task_list
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab
@@ -590,7 +671,8 @@ CONTAINS
       TYPE(distribution_2d_type), POINTER                :: distribution_2d
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      LOGICAL, INTENT(in)                                :: skip_load_balance, reorder_grid_ranks
+      LOGICAL, INTENT(in)                                :: soft_valid, skip_load_balance, &
+                                                            reorder_grid_ranks
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_build_tasklist'
 
@@ -649,7 +731,7 @@ CONTAINS
 
       CALL allocate_task_list(task_list)
       CALL generate_qs_task_list(ks_env, task_list, &
-                                 reorder_rs_grid_ranks=reorder_grid_ranks, soft_valid=.FALSE., &
+                                 reorder_rs_grid_ranks=reorder_grid_ranks, soft_valid=soft_valid, &
                                  basis_type=basis_type, skip_load_balance_distributed=skip_load_balance, &
                                  pw_env_external=pw_env, sab_orb_external=sab)
 
@@ -721,7 +803,7 @@ CONTAINS
 !>   * 01.2017 moved from qs_tddfpt2_methods [Sergey Chulkov]
 ! **************************************************************************************************
    SUBROUTINE tddfpt_fm_replicate_across_subgroups(fm_src, fm_dest_sub, sub_env)
-      TYPE(cp_fm_type), POINTER                          :: fm_src, fm_dest_sub
+      TYPE(cp_fm_type), INTENT(IN)                       :: fm_src, fm_dest_sub
       TYPE(tddfpt_subgroup_env_type), INTENT(in)         :: sub_env
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_fm_replicate_across_subgroups'
@@ -729,7 +811,7 @@ CONTAINS
       INTEGER :: handle, igroup, igroup_local, ncols_global_dest, ncols_global_src, ngroups, &
          nrows_global_dest, nrows_global_src
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env_global
-      TYPE(cp_fm_type), POINTER                          :: fm_null
+      TYPE(cp_fm_type)                                   :: fm_null
       TYPE(cp_para_env_type), POINTER                    :: para_env_global
 
       IF (sub_env%is_split) THEN
@@ -744,7 +826,6 @@ CONTAINS
             CPASSERT(ncols_global_src == ncols_global_dest)
          END IF
 
-         NULLIFY (fm_null)
          igroup_local = sub_env%group_distribution(para_env_global%mepos)
          ngroups = sub_env%ngroups
 
