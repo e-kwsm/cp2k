@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -52,7 +52,6 @@ MODULE cp_log_handling
    USE machine,                         ONLY: default_output_unit,&
                                               m_getpid,&
                                               m_hostnm
-   USE message_passing,                 ONLY: mp_comm_free
    USE string_utilities,                ONLY: compress
    USE timings,                         ONLY: print_stack
 #include "../base/base_uses.f90"
@@ -621,7 +620,7 @@ CONTAINS
                CALL m_hostnm(host_name)
                PRINT *, " *** Error trying to WRITE to the local logger ***"
                PRINT *, " *** MPI_id           = ", lggr%para_env%mepos
-               PRINT *, " *** MPI_Communicator = ", lggr%para_env%group
+               PRINT *, " *** MPI_Communicator = ", lggr%para_env%group%get_handle()
                PRINT *, " *** PID              = ", pid
                PRINT *, " *** Hostname         = "//TRIM(host_name)
                CALL print_stack(default_output_unit)
@@ -640,7 +639,7 @@ CONTAINS
                            unit_number=lggr%default_local_unit_nr)
             WRITE (UNIT=lggr%default_local_unit_nr, FMT='(/,T2,A,I0,A,I0,A)', IOSTAT=iostat) &
                '*** Local logger file of MPI task ', lggr%para_env%mepos, &
-               ' in communicator ', lggr%para_env%group, ' ***'
+               ' in communicator ', lggr%para_env%group%get_handle(), ' ***'
             IF (iostat == 0) THEN
                CALL m_getpid(pid)
                CALL m_hostnm(host_name)
@@ -654,7 +653,7 @@ CONTAINS
                CALL m_hostnm(host_name)
                PRINT *, " *** Error trying to WRITE to the local logger ***"
                PRINT *, " *** MPI_id           = ", lggr%para_env%mepos
-               PRINT *, " *** MPI_Communicator = ", lggr%para_env%group
+               PRINT *, " *** MPI_Communicator = ", lggr%para_env%group%get_handle()
                PRINT *, " *** PID              = ", pid
                PRINT *, " *** Hostname         = "//TRIM(host_name)
                CALL print_stack(default_output_unit)
@@ -689,7 +688,7 @@ CONTAINS
          para_env%ref_count = para_env%ref_count - 1
          IF (para_env%ref_count < 1) THEN
             IF (para_env%owns_group) THEN
-               CALL mp_comm_free(para_env%group)
+               CALL para_env%group%free()
             END IF
             DEALLOCATE (para_env)
          END IF

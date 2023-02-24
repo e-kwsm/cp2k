@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -12,7 +12,7 @@
 MODULE ps_wavelet_kernel
 
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_alltoall
+   USE message_passing,                 ONLY: mp_comm_type
    USE ps_wavelet_base,                 ONLY: scramble_unpack
    USE ps_wavelet_fft3d,                ONLY: ctrig,&
                                               ctrig_length,&
@@ -83,7 +83,8 @@ CONTAINS
       REAL(KIND=dp), INTENT(in)                          :: hx, hy, hz
       INTEGER, INTENT(in)                                :: itype_scf, iproc, nproc
       REAL(KIND=dp), POINTER                             :: kernel(:)
-      INTEGER, INTENT(in)                                :: mpi_group
+
+      CLASS(mp_comm_type), INTENT(in)                     :: mpi_group
 
       INTEGER                                            :: m1, m2, m3, md1, md2, md3, n1, n2, n3, &
                                                             nd1, nd2, nd3, nlimd, nlimk
@@ -225,7 +226,7 @@ CONTAINS
       REAL(KIND=dp), &
          DIMENSION(nker1, nker2, nker3/nproc), &
          INTENT(out)                                     :: karray
-      INTEGER, INTENT(in)                                :: mpi_group
+      TYPE(mp_comm_type), INTENT(in)                     :: mpi_group
 
       INTEGER, PARAMETER                                 :: n_points = 2**6, ncache_optimal = 8*1024
 
@@ -500,9 +501,8 @@ CONTAINS
 
       !give to each processor a slice of the third dimension
       IF (nproc > 1) THEN
-         CALL mp_alltoall(kernel, &!nker1*(nact2/nproc)*(nker3/nproc), &
-                          kernel_mpi, nker1*(nact2/nproc)*(nker3/nproc), &
-                          mpi_group)
+         CALL mpi_group%alltoall(kernel, &!nker1*(nact2/nproc)*(nker3/nproc), &
+                                 kernel_mpi, nker1*(nact2/nproc)*(nker3/nproc))
 
          DO jp2 = 1, nproc
             DO i3 = 1, nker3/nproc
@@ -843,7 +843,7 @@ CONTAINS
       INTEGER, INTENT(in)                                :: itype_scf, iproc, nproc
       REAL(KIND=dp), DIMENSION(n1k, n2k, n3k/nproc), &
          INTENT(out)                                     :: karray
-      INTEGER, INTENT(in)                                :: mpi_group
+      TYPE(mp_comm_type), INTENT(in)                     :: mpi_group
 
       INTEGER, PARAMETER                                 :: n_gauss = 89, n_points = 2**6
       REAL(KIND=dp), PARAMETER                           :: p0_ref = 1._dp
@@ -1103,7 +1103,7 @@ CONTAINS
          INTENT(in)                                      :: zf
       REAL(KIND=dp), DIMENSION(nk1, nk2, nk3/nproc), &
          INTENT(inout)                                   :: zr
-      INTEGER, INTENT(in)                                :: mpi_group
+      TYPE(mp_comm_type), INTENT(in)                     :: mpi_group
 
       INTEGER, PARAMETER                                 :: ncache_optimal = 8*1024
 
@@ -1216,9 +1216,8 @@ CONTAINS
       !input: I1,J2,j3,jp3,(Jp2)
       IF (nproc .GT. 1) THEN
          !communication scheduling
-         CALL mp_alltoall(zmpi2, &!2*n1*(nd2/nproc)*(nd3/nproc), &
-                          zmpi1, 2*n1*(nd2/nproc)*(nd3/nproc), &
-                          mpi_group)
+         CALL mpi_group%alltoall(zmpi2, &!2*n1*(nd2/nproc)*(nd3/nproc), &
+                                 zmpi1, 2*n1*(nd2/nproc)*(nd3/nproc))
          ! output: I1,J2,j3,Jp2,(jp3)
       END IF
 

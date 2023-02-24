@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -25,7 +25,7 @@ if(NOT CP2K_LIBSPG_FOUND)
 endif()
 
 if(NOT DEFINED CP2K_LIBSPG_INCLUDE_DIRS)
-  cp2k_include_dirs(LIBXSMM "spglib.h")
+  cp2k_include_dirs(LIBSPG "spglib.h")
 endif()
 
 if(CP2K_LIBSPG_INCLUDE_DIRS)
@@ -36,15 +36,15 @@ else()
                                     CP2K_LIBSPG_LINK_LIBRARIES)
 endif()
 
-if(CP2K_LIBSPG_FOUND AND NOT TARGET CP2K_LIBSPG::libspg)
-  add_library(CP2K_LIBSPG::libspg INTERFACE IMPORTED)
+if(CP2K_LIBSPG_FOUND AND NOT TARGET CP2K::LIBSPG::libspg)
+  add_library(CP2K::LIBSPG::libspg INTERFACE IMPORTED)
   set_target_properties(
-    CP2K_LIBSPG::libspg PROPERTIES INTERFACE_LINK_LIBRARIES
-                                   "${CP2K_LIBSPG_LINK_LIBRARIES}")
+    CP2K::LIBSPG::libspg PROPERTIES INTERFACE_LINK_LIBRARIES
+                                    "${CP2K_LIBSPG_LINK_LIBRARIES}")
   if(CP2K_LIBSPG_INCLUDE_DIRS)
     set_target_properties(
-      CP2K_LIBSPG::libspg PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
-                                     "${CP2K_LIBSPG_INCLUDE_DIRS}")
+      CP2K::LIBSPG::libspg PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
+                                      "${CP2K_LIBSPG_INCLUDE_DIRS}")
   endif()
 endif()
 

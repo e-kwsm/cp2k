@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -31,15 +31,15 @@ find_package_handle_standard_args(Elpa "DEFAULT_MSG" CP2K_ELPA_LINK_LIBRARIES
                                   CP2K_ELPA_INCLUDE_DIRS)
 
 if(CP2K_ELPA_FOUND)
-  if(NOT TARGET CP2K_elpa::elpa)
-    add_library(CP2K_ELPA::elpa INTERFACE IMPORTED)
+  if(NOT TARGET CP2K::ELPA::elpa)
+    add_library(CP2K::ELPA::elpa INTERFACE IMPORTED)
   endif()
   set_target_properties(
-    CP2K_ELPA::elpa PROPERTIES INTERFACE_LINK_LIBRARIES
-                               "${CP2K_ELPA_LINK_LIBRARIES}")
+    CP2K::ELPA::elpa PROPERTIES INTERFACE_LINK_LIBRARIES
+                                "${CP2K_ELPA_LINK_LIBRARIES}")
   if(CP2K_ELPA_INCLUDE_DIRS)
     set_target_properties(
-      CP2K_ELPA::elpa
+      CP2K::ELPA::elpa
       PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
                  "${CP2K_ELPA_INCLUDE_DIRS};${CP2K_ELPA_INCLUDE_DIRS}/modules")
   endif()

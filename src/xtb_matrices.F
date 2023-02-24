@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -55,8 +55,6 @@ MODULE xtb_matrices
                                               dp
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_type
-   USE message_passing,                 ONLY: mp_minloc,&
-                                              mp_sum
    USE mulliken,                        ONLY: ao_charges
    USE orbital_pointers,                ONLY: ncoset
    USE pair_potential,                  ONLY: init_genpot
@@ -251,7 +249,6 @@ CONTAINS
       NULLIFY (particle_set)
       CALL get_qs_env(qs_env=qs_env, particle_set=particle_set)
       natom = SIZE(particle_set)
-      ALLOCATE (atom_of_kind(natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, atom_of_kind=atom_of_kind)
       CALL get_qs_kind_set(qs_kind_set=qs_kind_set, maxsgf=maxs, basis_type="ORB")
 
@@ -330,7 +327,7 @@ CONTAINS
       CALL d3_cnumber(qs_env, dispersion_env, cnumbers, dcnum, ghost, floating, atomnumber, &
                       calculate_forces, .FALSE.)
       DEALLOCATE (ghost, floating, atomnumber)
-      CALL mp_sum(cnumbers, para_env%group)
+      CALL para_env%group%sum(cnumbers)
       IF (calculate_forces) THEN
          CALL dcnum_distribute(dcnum, para_env)
       END IF
@@ -355,7 +352,7 @@ CONTAINS
             kcnlk(3, ikind) = 0.0_dp
          END IF
       END DO
-      ALLOCATE (huckel(5, natom), kind_of(natom))
+      ALLOCATE (huckel(5, natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, kind_of=kind_of)
       DO iatom = 1, natom
          ikind = kind_of(iatom)
@@ -879,14 +876,14 @@ CONTAINS
       ! set repulsive energy
       erep = erep + exb + enonbonded
       IF (xb_inter) THEN
-         CALL mp_sum(exb, para_env%group)
+         CALL para_env%group%sum(exb)
          energy%xtb_xb_inter = exb
       END IF
       IF (do_nonbonded) THEN
-         CALL mp_sum(enonbonded, para_env%group)
+         CALL para_env%group%sum(enonbonded)
          energy%xtb_nonbonded = enonbonded
       END IF
-      CALL mp_sum(erep, para_env%group)
+      CALL para_env%group%sum(erep)
       energy%repulsive = erep
 
       ! deallocate coordination numbers
@@ -952,8 +949,6 @@ CONTAINS
       END IF
 
       DEALLOCATE (basis_set_list)
-      DEALLOCATE (kind_of)
-      DEALLOCATE (atom_of_kind)
       IF (calculate_forces) THEN
          IF (SIZE(matrix_p, 1) == 2) THEN
             DO img = 1, nimg
@@ -1081,7 +1076,6 @@ CONTAINS
       NULLIFY (particle_set)
       CALL get_qs_env(qs_env=qs_env, particle_set=particle_set)
       natom = SIZE(particle_set)
-      ALLOCATE (atom_of_kind(natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, atom_of_kind=atom_of_kind)
       CALL get_qs_kind_set(qs_kind_set=qs_kind_set, maxsgf=maxs, basis_type="ORB")
 
@@ -1131,7 +1125,7 @@ CONTAINS
       CALL d3_cnumber(qs_env, dispersion_env, cnumbers, dcnum, ghost, floating, atomnumber, &
                       .TRUE., .FALSE.)
       DEALLOCATE (ghost, floating, atomnumber)
-      CALL mp_sum(cnumbers, para_env%group)
+      CALL para_env%group%sum(cnumbers)
       CALL dcnum_distribute(dcnum, para_env)
 
       ! Calculate Huckel parameters
@@ -1154,7 +1148,7 @@ CONTAINS
             kcnlk(3, ikind) = 0.0_dp
          END IF
       END DO
-      ALLOCATE (huckel(5, natom), kind_of(natom))
+      ALLOCATE (huckel(5, natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, kind_of=kind_of)
       DO iatom = 1, natom
          ikind = kind_of(iatom)
@@ -1511,8 +1505,6 @@ CONTAINS
       DEALLOCATE (kijab)
 
       DEALLOCATE (basis_set_list)
-      DEALLOCATE (kind_of)
-      DEALLOCATE (atom_of_kind)
 
       CALL timestop(handle)
 
@@ -1793,7 +1785,7 @@ CONTAINS
                dmloc(2*iatom - 1) = neighbor_atoms(ikind)%rab(iatom)
                dmloc(2*iatom) = REAL(para_env%mepos, KIND=dp)
             END DO
-            CALL mp_minloc(dmloc, para_env%group)
+            CALL para_env%group%minloc(dmloc)
             coord = 0.0_dp
             matom = 0
             DO iatom = 1, natom
@@ -1803,9 +1795,9 @@ CONTAINS
                   matom(iatom) = neighbor_atoms(ikind)%katom(iatom)
                END IF
             END DO
-            CALL mp_sum(coord, para_env%group)
+            CALL para_env%group%sum(coord)
             neighbor_atoms(ikind)%coord(1:3, :) = coord(1:3, :)
-            CALL mp_sum(matom, para_env%group)
+            CALL para_env%group%sum(matom)
             neighbor_atoms(ikind)%katom(:) = matom(:)
             DEALLOCATE (dmloc, matom, coord)
          END IF

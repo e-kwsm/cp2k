@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -59,10 +59,8 @@ MODULE rpa_gw_sigma_x
    USE mathconstants,                   ONLY: gaussi,&
                                               z_one,&
                                               z_zero
-   USE message_passing,                 ONLY: mp_sum,&
-                                              mp_sync
    USE mp2_integrals,                   ONLY: compute_kpoints
-   USE mp2_ri_2c,                       ONLY: setup_abs_cutoffs_chi_and_trunc_coulomb_potential
+   USE mp2_ri_2c,                       ONLY: setup_trunc_coulomb_potential_for_exchange_self_energy
    USE mp2_types,                       ONLY: mp2_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE physcon,                         ONLY: evolt
@@ -580,7 +578,7 @@ CONTAINS
 
          END DO
 
-         CALL mp_sum(vec_Sigma_x_minus_vxc_gw, para_env%group)
+         CALL para_env%group%sum(vec_Sigma_x_minus_vxc_gw)
 
       END IF
 
@@ -612,7 +610,7 @@ CONTAINS
             CALL get_qs_env(qs_env=qs_env, &
                             kpoints=kpoints)
 
-            CALL setup_abs_cutoffs_chi_and_trunc_coulomb_potential(qs_env)
+            CALL setup_trunc_coulomb_potential_for_exchange_self_energy(qs_env)
 
             CALL compute_kpoints(qs_env, kpoints, unit_nr)
 
@@ -710,7 +708,7 @@ CONTAINS
             CPABORT('Stop after printing exchange energies.')
 
          ELSE
-            CALL mp_sync(para_env%group)
+            CALL para_env%group%sync()
          END IF
 
       END IF
@@ -888,8 +886,8 @@ CONTAINS
 
       END DO
 
-      CALL mp_sum(vec_Sigma_x_minus_vxc_gw, para_env%group)
-      CALL mp_sum(vec_Sigma_x_minus_vxc_gw_im, para_env%group)
+      CALL para_env%group%sum(vec_Sigma_x_minus_vxc_gw)
+      CALL para_env%group%sum(vec_Sigma_x_minus_vxc_gw_im)
 
       ! also adjust in the case of kpoints too big gw_corr_lev_occ and gw_corr_lev_virt
       DO ispin = 1, nspins

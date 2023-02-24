@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -63,8 +63,7 @@ MODULE xas_tdp_integrals
                                               cp_libint_set_contrdepth,&
                                               cp_libint_t
    USE mathlib,                         ONLY: invmat_symm
-   USE message_passing,                 ONLY: mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_types,                  ONLY: molecule_type
    USE orbital_pointers,                ONLY: ncoset
    USE particle_methods,                ONLY: get_particle_set
@@ -136,9 +135,9 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'create_pqX_tensor'
 
-      INTEGER                                            :: A, b, group, handle, i, iatom, ikind, &
-                                                            jatom, katom, kkind, nblk, nblk_3, &
-                                                            nblk_per_thread, nkind
+      INTEGER                                            :: A, b, group_handle, handle, i, iatom, &
+                                                            ikind, jatom, katom, kkind, nblk, &
+                                                            nblk_3, nblk_per_thread, nkind
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: idx1, idx2, idx3
       INTEGER, DIMENSION(3)                              :: pdims
       INTEGER, DIMENSION(:), POINTER                     :: col_dist, row_dist
@@ -147,6 +146,7 @@ CONTAINS
       REAL(dp), DIMENSION(3)                             :: rab, rac, rbc
       TYPE(dbt_distribution_type)                        :: t_dist
       TYPE(dbt_pgrid_type)                               :: t_pgrid
+      TYPE(mp_comm_type)                                 :: group
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: ab_iter, ac_iter
 
@@ -161,8 +161,9 @@ CONTAINS
       CPASSERT(symmetric)
 
       !get 2D distribution info from matrix_dist
-      CALL dbcsr_distribution_get(matrix_dist, pgrid=mat_pgrid, group=group, &
+      CALL dbcsr_distribution_get(matrix_dist, pgrid=mat_pgrid, group=group_handle, &
                                   row_dist=row_dist, col_dist=col_dist)
+      CALL group%set_handle(group_handle)
 
       !create the corresponding tensor proc grid and dist
       pdims(1) = SIZE(mat_pgrid, 1); pdims(2) = SIZE(mat_pgrid, 2); pdims(3) = 1
@@ -979,8 +980,8 @@ CONTAINS
       CALL neighbor_list_iterator_release(ab_iter)
       CALL neighbor_list_iterator_release(ac_iter)
 
-      CALL mp_sum(row_cost, para_env%group)
-      CALL mp_sum(col_cost, para_env%group)
+      CALL para_env%group%sum(row_cost)
+      CALL para_env%group%sum(col_cost)
 
       !Distribute the cost as evenly as possible
       ALLOCATE (col_proc_cost(npcol), row_proc_cost(nprow))
@@ -1127,7 +1128,7 @@ CONTAINS
 
       !not strictly necessary but avoid having any load unbalance here being reported in the
       !timings for other routines
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
 
       CALL timestop(handle)
 
@@ -1217,7 +1218,7 @@ CONTAINS
 
       !not strictly necessary but avoid having any load unbalance here being reported in the
       !timings for other routines
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
 
       CALL timestop(handle)
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -225,6 +225,12 @@ MODULE input_constants
    INTEGER, PARAMETER, PUBLIC               :: do_gapw_gcs = 1, &
                                                do_gapw_gct = 2, &
                                                do_gapw_log = 3
+
+   INTEGER, PARAMETER, PUBLIC               :: gapw_1c_orb = 1000, &
+                                               gapw_1c_small = 1002, &
+                                               gapw_1c_medium = 1003, &
+                                               gapw_1c_large = 1004, &
+                                               gapw_1c_very_large = 1005
 
    INTEGER, PARAMETER, PUBLIC               :: do_pwgrid_spherical = 1, &
                                                do_pwgrid_ns_fullspace = 2, &
@@ -1139,8 +1145,11 @@ MODULE input_constants
                                                do_cosma = 2
 
    ! Dispersion DFTB
-   INTEGER, PARAMETER, PUBLIC               :: dispersion_uff = 100, &
-                                               dispersion_d3 = 200
+   INTEGER, PARAMETER, PUBLIC               :: dispersion_none = 0, &
+                                               dispersion_uff = 100, &
+                                               dispersion_d3 = 200, &
+                                               dispersion_d3bj = 210, &
+                                               dispersion_d2 = 300
 
    ! Transport section
    INTEGER, PARAMETER, PUBLIC               :: transport_localscf = 1, &

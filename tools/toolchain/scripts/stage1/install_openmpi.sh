@@ -42,16 +42,18 @@ case "${with_openmpi}" in
       [ -d openmpi-${openmpi_ver} ] && rm -rf openmpi-${openmpi_ver}
       tar -xzf ${openmpi_pkg}
       cd openmpi-${openmpi_ver}
-      # can have issue with older glibc libraries, in which case
-      # we need to add the -fgnu89-inline to CFLAGS. We can check
-      # the version of glibc using ldd --version, as ldd is part of
-      # glibc package
-      glibc_version=$(ldd --version | awk '/ldd/{print $NF}')
-      glibc_major_ver=${glibc_version%%.*}
-      glibc_minor_ver=${glibc_version##*.}
-      if [ $glibc_major_ver -lt 2 ] ||
-        [ $glibc_major_ver -eq 2 -a $glibc_minor_ver -lt 12 ]; then
-        CFLAGS="${CFLAGS} -fgnu89-inline"
+      if [ "${OPENBLAS_ARCH}" = "x86_64" ]; then
+        # can have issue with older glibc libraries, in which case
+        # we need to add the -fgnu89-inline to CFLAGS. We can check
+        # the version of glibc using ldd --version, as ldd is part of
+        # glibc package
+        glibc_version=$(ldd --version | awk '/ldd/{print $NF}')
+        glibc_major_ver=${glibc_version%%.*}
+        glibc_minor_ver=${glibc_version##*.}
+        if [ $glibc_major_ver -lt 2 ] ||
+          [ $glibc_major_ver -eq 2 -a $glibc_minor_ver -lt 12 ]; then
+          CFLAGS="${CFLAGS} -fgnu89-inline"
+        fi
       fi
       if [ $(command -v srun) ]; then
         echo "Slurm installation found. OpenMPI will be configured with --with-pmi."
@@ -59,6 +61,7 @@ case "${with_openmpi}" in
       else
         EXTRA_CONFIGURE_FLAGS=""
       fi
+      # We still require MPI-1.0-compatability for PTSCOTCH
       ./configure CFLAGS="${CFLAGS}" \
         --prefix=${pkg_install_dir} \
         --libdir="${pkg_install_dir}/lib" \
@@ -73,22 +76,22 @@ case "${with_openmpi}" in
     check_dir "${pkg_install_dir}/bin"
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
-    check_install ${pkg_install_dir}/bin/mpirun "openmpi" && MPIRUN="${pkg_install_dir}/bin/mpirun" || exit 1
+    check_install ${pkg_install_dir}/bin/mpiexec "openmpi" && MPIRUN="${pkg_install_dir}/bin/mpiexec" || exit 1
     check_install ${pkg_install_dir}/bin/mpicc "openmpi" && MPICC="${pkg_install_dir}/bin/mpicc" || exit 1
     check_install ${pkg_install_dir}/bin/mpicxx "openmpi" && MPICXX="${pkg_install_dir}/bin/mpicxx" || exit 1
-    check_install ${pkg_install_dir}/bin/mpif90 "openmpi" && MPIFC="${pkg_install_dir}/bin/mpif90" || exit 1
-    MPIF90="${MPIFC}"
+    check_install ${pkg_install_dir}/bin/mpifort "openmpi" && MPIFC="${pkg_install_dir}/bin/mpifort" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     OPENMPI_CFLAGS="-I'${pkg_install_dir}/include'"
     OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding OpenMPI from system paths ===================="
-    check_command mpirun "openmpi" && MPIRUN="$(command -v mpirun)" || exit 1
+    check_command mpiexec "openmpi" && MPIRUN="$(command -v mpiexec)" || exit 1
     check_command mpicc "openmpi" && MPICC="$(command -v mpicc)" || exit 1
     check_command mpic++ "openmpi" && MPICXX="$(command -v mpic++)" || exit 1
-    check_command mpif90 "openmpi" && MPIFC="$(command -v mpif90)" || exit 1
-    MPIF90="${MPIFC}"
+    check_command mpifort "openmpi" && MPIFC="$(command -v mpifort)" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     # Fortran code in CP2K is built via the mpifort wrapper, but we may need additional
     # libraries and linker flags for C/C++-based MPI codepaths, pull them in at this point.
@@ -104,11 +107,11 @@ case "${with_openmpi}" in
     check_dir "${pkg_install_dir}/bin"
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
-    check_command ${pkg_install_dir}/bin/mpirun "openmpi" && MPIRUN="${pkg_install_dir}/bin/mpirun" || exit 1
+    check_command ${pkg_install_dir}/bin/mpiexec "openmpi" && MPIRUN="${pkg_install_dir}/bin/mpiexec" || exit 1
     check_command ${pkg_install_dir}/bin/mpicc "openmpi" && MPICC="${pkg_install_dir}/bin/mpicc" || exit 1
     check_command ${pkg_install_dir}/bin/mpic++ "openmpi" && MPICXX="${pkg_install_dir}/bin/mpic++" || exit 1
-    check_command ${pkg_install_dir}/bin/mpif90 "openmpi" && MPIFC="${pkg_install_dir}/bin/mpif90" || exit 1
-    MPIF90="${MPIFC}"
+    check_command ${pkg_install_dir}/bin/mpifort "openmpi" && MPIFC="${pkg_install_dir}/bin/mpifort" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     OPENMPI_CFLAGS="-I'${pkg_install_dir}/include'"
     OPENMPI_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
@@ -116,13 +119,13 @@ case "${with_openmpi}" in
 esac
 if [ "${with_openmpi}" != "__DONTUSE__" ]; then
   if [ "${with_openmpi}" != "__SYSTEM__" ]; then
-    mpi_bin="${pkg_install_dir}/bin/mpirun"
+    mpi_bin="${pkg_install_dir}/bin/mpiexec"
     mpicxx_bin="${pkg_install_dir}/bin/mpicxx"
   else
-    mpi_bin="mpirun"
+    mpi_bin="mpiexec"
     mpicxx_bin="mpicxx"
   fi
-  # check openmpi version as reported by mpirun
+  # check openmpi version as reported by mpiexec
   raw_version=$(${mpi_bin} --version 2>&1 |
     grep "(Open MPI)" | awk '{print $4}')
   major_version=$(echo ${raw_version} | cut -d '.' -f 1)
@@ -134,20 +137,13 @@ if [ "${with_openmpi}" != "__DONTUSE__" ]; then
     OPENMPI_LIBS+=" -l${lib}"
     OPENMPI_LDFLAGS="${OPENMPI_LDFLAGS//-l${lib}/}"
   done
-  # old versions didn't support MPI 3, so adjust __MPI_VERSION accordingly (needed e.g. for pexsi)
-  if [[ "$major_version" =~ ^[0-9]+$ ]] && ([ $major_version -lt 1 ] ||
-    [ $major_version -eq 1 -a ${minor_version} -lt 7 ]); then
-    mpi2_dflags="-D__MPI_VERSION=2"
-  else
-    mpi2_dflags=""
-  fi
   cat << EOF > "${BUILDDIR}/setup_openmpi"
 export MPI_MODE="${MPI_MODE}"
 export MPIRUN="${MPIRUN}"
 export MPICC="${MPICC}"
 export MPICXX="${MPICXX}"
 export MPIFC="${MPIFC}"
-export MPIF90="${MPIF90}"
+export MPIFORT="${MPIFORT}"
 export MPIF77="${MPIF77}"
 export OPENMPI_CFLAGS="${OPENMPI_CFLAGS}"
 export OPENMPI_LDFLAGS="${OPENMPI_LDFLAGS}"
@@ -155,7 +151,12 @@ export OPENMPI_LIBS="${OPENMPI_LIBS}"
 export MPI_CFLAGS="${OPENMPI_CFLAGS}"
 export MPI_LDFLAGS="${OPENMPI_LDFLAGS}"
 export MPI_LIBS="${OPENMPI_LIBS}"
-export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__parallel ${mpi2_dflags}|)"
+export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__parallel|)"
+# For proper mpi_f08 support, we need at least GCC version 9 (asynchronous keyword)
+# Other compilers should work
+  if ! [ "$(gfortran -dumpversion | cut -d. -f1)" -lt 9 ]; then
+    export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__MPI_F08|)"
+  fi
 export CP_CFLAGS="\${CP_CFLAGS} IF_MPI(${OPENMPI_CFLAGS}|)"
 export CP_LDFLAGS="\${CP_LDFLAGS} IF_MPI(${OPENMPI_LDFLAGS}|)"
 export CP_LIBS="\${CP_LIBS} IF_MPI(${OPENMPI_LIBS}|)"

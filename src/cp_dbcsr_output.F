@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -35,9 +35,7 @@ MODULE cp_dbcsr_output
                                               int_8
    USE machine,                         ONLY: m_flush
    USE mathlib,                         ONLY: symmetrize_matrix
-   USE message_passing,                 ONLY: mp_max,&
-                                              mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_type
    USE orbital_pointers,                ONLY: nso
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
@@ -88,10 +86,11 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: omit_headers
 
       CHARACTER(LEN=60)                                  :: matrix_name
-      INTEGER                                            :: col1, col2, group, ncol_global, &
-                                                            nrow_global, nsgf, row1, row2
+      INTEGER                                            :: col1, col2, ncol_global, nrow_global, &
+                                                            nsgf, row1, row2
       LOGICAL                                            :: my_omit_headers
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: matrix
+      TYPE(mp_comm_type)                                 :: group
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
       group = para_env%group
@@ -175,10 +174,10 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: omit_headers
 
       CHARACTER(LEN=default_string_length)               :: matrix_name
-      INTEGER                                            :: col1, col2, dim_col, dim_row, group, &
-                                                            row1, row2
+      INTEGER                                            :: col1, col2, dim_col, dim_row, row1, row2
       LOGICAL                                            :: my_omit_headers, print_sym
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: matrix
+      TYPE(mp_comm_type)                                 :: group
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
       group = para_env%group
@@ -187,7 +186,7 @@ CONTAINS
 
       CALL copy_repl_dbcsr_to_repl_fm(sparse_matrix, matrix)
 
-      CALL mp_sum(matrix, group)
+      CALL group%sum(matrix)
 
       SELECT CASE (dbcsr_get_matrix_type(sparse_matrix))
       CASE (dbcsr_type_symmetric)
@@ -353,15 +352,16 @@ CONTAINS
       CHARACTER(LEN=25)                                  :: fmtstr1
       CHARACTER(LEN=35)                                  :: fmtstr2
       CHARACTER(LEN=6), DIMENSION(:), POINTER            :: sgf_symbol
-      INTEGER                                            :: from, group, iatom, icol, ikind, irow, &
-                                                            iset, isgf, ishell, iso, jcol, l, &
-                                                            left, natom, ncol, ndigits, nset, &
-                                                            nsgf, right, to, width
+      INTEGER                                            :: from, iatom, icol, ikind, irow, iset, &
+                                                            isgf, ishell, iso, jcol, l, left, &
+                                                            natom, ncol, ndigits, nset, nsgf, &
+                                                            right, to, width
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: first_sgf, last_sgf
       INTEGER, DIMENSION(:), POINTER                     :: nshell
       INTEGER, DIMENSION(:, :), POINTER                  :: lshell
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
@@ -484,7 +484,7 @@ CONTAINS
          DEALLOCATE (last_sgf)
       END IF
 
-      CALL mp_sync(group)
+      CALL group%sync()
       IF (output_unit > 0) CALL m_flush(output_unit)
 
    END SUBROUTINE write_matrix_sym
@@ -517,8 +517,9 @@ CONTAINS
 
       CHARACTER(LEN=25)                                  :: fmtstr1
       CHARACTER(LEN=35)                                  :: fmtstr2
-      INTEGER                                            :: from, group, icol, irow, jcol, left, &
-                                                            ncol, ndigits, right, to, width
+      INTEGER                                            :: from, icol, irow, jcol, left, ncol, &
+                                                            ndigits, right, to, width
+      TYPE(mp_comm_type)                                 :: group
 
       group = para_env%group
 
@@ -581,7 +582,7 @@ CONTAINS
          WRITE (UNIT=output_unit, FMT="(/)")
       END IF
 
-      CALL mp_sync(group)
+      CALL group%sync()
       IF (output_unit > 0) CALL m_flush(output_unit)
 
    END SUBROUTINE write_matrix_gen
@@ -604,14 +605,14 @@ CONTAINS
 
       CHARACTER                                          :: matrix_type
       CHARACTER(LEN=default_string_length)               :: matrix_name
-      INTEGER                                            :: group, handle, ipe, mype, natom, &
-                                                            nblock_max, nelement_max, npe, nrow, &
-                                                            tmp(2)
+      INTEGER                                            :: handle, ipe, mype, natom, nblock_max, &
+                                                            nelement_max, npe, nrow, tmp(2)
       INTEGER(KIND=int_8)                                :: nblock_sum, nblock_tot, nelement_sum
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: nblock, nelement
       LOGICAL                                            :: ionode
       REAL(KIND=dp)                                      :: occupation
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mp_comm_type)                                 :: group
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -641,8 +642,8 @@ CONTAINS
 
       IF (full_output) THEN
          ! XXXXXXXX should gather/scatter this on ionode
-         CALL mp_sum(nblock, group)
-         CALL mp_sum(nelement, group)
+         CALL group%sum(nblock)
+         CALL group%sum(nelement)
 
          nblock_sum = SUM(INT(nblock, KIND=int_8))
          nelement_sum = SUM(INT(nelement, KIND=int_8))
@@ -651,10 +652,10 @@ CONTAINS
          nblock_max = nblock(mype)
          nelement_sum = nelement(mype)
          nelement_max = nelement(mype)
-         CALL mp_sum(nblock_sum, group)
-         CALL mp_sum(nelement_sum, group)
+         CALL group%sum(nblock_sum)
+         CALL group%sum(nelement_sum)
          tmp = (/nblock_max, nelement_max/)
-         CALL mp_max(tmp, group)
+         CALL group%max(tmp)
          nblock_max = tmp(1); nelement_max = tmp(2)
       END IF
 

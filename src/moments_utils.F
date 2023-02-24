@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -26,7 +26,6 @@ MODULE moments_utils
                                               use_mom_ref_user,&
                                               use_mom_ref_zero
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -132,8 +131,8 @@ CONTAINS
                   mtot = mtot + mass
                END DO
             END DO
-            CALL mp_sum(rpoint, para_env%group)
-            CALL mp_sum(mtot, para_env%group)
+            CALL para_env%group%sum(rpoint)
+            CALL para_env%group%sum(mtot)
          END IF
          IF (ABS(mtot) > 0._dp) THEN
             rpoint(:) = rpoint(:)/mtot
@@ -178,8 +177,8 @@ CONTAINS
                   ztot = ztot + charge
                END DO
             END DO
-            CALL mp_sum(rpoint, para_env%group)
-            CALL mp_sum(ztot, para_env%group)
+            CALL para_env%group%sum(rpoint)
+            CALL para_env%group%sum(ztot)
          END IF
          IF (ABS(ztot) > 0._dp) THEN
             rpoint(:) = rpoint(:)/ztot

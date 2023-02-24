@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -16,7 +16,6 @@ MODULE qs_fb_com_tasks_types
                                               int_4,&
                                               int_8
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_alltoall
    USE qs_fb_matrix_data_types,         ONLY: fb_matrix_data_add,&
                                               fb_matrix_data_get,&
                                               fb_matrix_data_has_data,&
@@ -525,7 +524,7 @@ CONTAINS
          send_buf(rank) = send_buf(rank) + 1
       END DO
 
-      CALL mp_alltoall(send_buf, recv_buf, 1, para_env%group)
+      CALL para_env%group%alltoall(send_buf, recv_buf, 1)
 
       ! now that we know how many recv/send tasks to send, pack the
       ! tasks, and send them around, so that the recv/send tasks are
@@ -569,9 +568,8 @@ CONTAINS
          send_sizes(rank) = send_sizes(rank) + task_dim
       END DO
       ! do communication
-      CALL mp_alltoall(send_buf, send_sizes, send_disps, &
-                       recv_buf, recv_sizes, recv_disps, &
-                       para_env%group)
+      CALL para_env%group%alltoall(send_buf, send_sizes, send_disps, &
+                                   recv_buf, recv_sizes, recv_disps)
 
       ! deallocate send buffers
       DEALLOCATE (send_buf)
@@ -844,8 +842,6 @@ CONTAINS
 !>                               location in atom_pairs array for
 !>                               all the pairs to be sent to or recv
 !>                               from process ipe
-!> \param row_map : optional blk row map for the DBCSR blocks
-!> \param col_map : optional blk col map for the DBCSR blocks
 !> \author Lianheng Tong (LT) lianheng.tong@kcl.ac.uk
 ! **************************************************************************************************
    SUBROUTINE fb_com_atom_pairs_calc_buffer_sizes(atom_pairs, &
@@ -855,16 +851,13 @@ CONTAINS
                                                   sendrecv_sizes, &
                                                   sendrecv_disps, &
                                                   sendrecv_pair_counts, &
-                                                  sendrecv_pair_disps, &
-                                                  row_map, &
-                                                  col_map)
+                                                  sendrecv_pair_disps)
       TYPE(fb_com_atom_pairs_obj), INTENT(IN)            :: atom_pairs
       INTEGER, INTENT(IN)                                :: nprocs
       INTEGER, DIMENSION(:), INTENT(IN)                  :: row_blk_sizes, col_blk_sizes
       INTEGER, DIMENSION(:), INTENT(OUT)                 :: sendrecv_sizes, sendrecv_disps, &
                                                             sendrecv_pair_counts, &
                                                             sendrecv_pair_disps
-      INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL        :: row_map, col_map
 
       INTEGER                                            :: iatom, ipair, ipe, jatom, natoms_encode, &
                                                             ncols_blk, npairs, nrows_blk, pe
@@ -894,8 +887,6 @@ CONTAINS
          CALL fb_com_atom_pairs_decode(pairs(ipair), &
                                        pe, iatom, jatom, natoms_encode)
          pe = pe + 1 ! we need proc to count from 1
-         IF (PRESENT(row_map)) iatom = row_map(iatom)
-         IF (PRESENT(col_map)) jatom = row_map(jatom)
          nrows_blk = row_blk_sizes(iatom)
          ncols_blk = col_blk_sizes(jatom)
          sendrecv_sizes(pe) = sendrecv_sizes(pe) + nrows_blk*ncols_blk
@@ -1043,9 +1034,8 @@ CONTAINS
       END DO ! ipe
 
       ! do communication
-      CALL mp_alltoall(send_buf, send_sizes, send_disps, &
-                       recv_buf, recv_sizes, recv_disps, &
-                       para_env%group)
+      CALL para_env%group%alltoall(send_buf, send_sizes, send_disps, &
+                                   recv_buf, recv_sizes, recv_disps)
 
       ! cleanup temporary arrays no longer needed
       DEALLOCATE (send_buf)
@@ -1228,9 +1218,8 @@ CONTAINS
       END DO ! ipe
 
       ! do communication
-      CALL mp_alltoall(send_buf, send_sizes, send_disps, &
-                       recv_buf, recv_sizes, recv_disps, &
-                       para_env%group)
+      CALL para_env%group%alltoall(send_buf, send_sizes, send_disps, &
+                                   recv_buf, recv_sizes, recv_disps)
 
       ! cleanup temporary arrays no longer needed
       DEALLOCATE (send_buf)

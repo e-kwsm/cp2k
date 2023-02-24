@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -50,8 +50,8 @@ MODULE rpa_im_time_force_types
       !The occupied and virtual density matrices (standard block size, one for each spin)
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: P_occ, P_virt
 
-      !The weighted sum of the O(tau) matrices for thre response and associated kernel densities
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: sum_O_tau, sum_ker_tau
+      !The weighted sum of the O(tau) matrices for thre response
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: sum_O_tau
 
       !The weigthed sum of the YP matrices for the trace with the Fockian derivative
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER :: sum_YP_tau
@@ -88,7 +88,6 @@ CONTAINS
       CALL dbcsr_deallocate_matrix_set(force_data%P_virt)
       CALL dbcsr_deallocate_matrix_set(force_data%P_occ)
       CALL dbcsr_deallocate_matrix_set(force_data%sum_O_tau)
-      CALL dbcsr_deallocate_matrix_set(force_data%sum_ker_tau)
       CALL dbcsr_deallocate_matrix_set(force_data%sum_YP_tau)
 
       DO i_xyz = 1, 3

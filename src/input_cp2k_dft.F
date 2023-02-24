@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -66,7 +66,8 @@ MODULE input_cp2k_dft
         embed_fa, embed_grid_angstrom, embed_grid_bohr, embed_level_shift, embed_none, &
         embed_quasi_newton, embed_resp, embed_steep_desc, eri_method_full_gpw, eri_method_gpw_ht, &
         eri_operator_coulomb, eri_operator_erf, eri_operator_erfc, eri_operator_gaussian, &
-        eri_operator_yukawa, gaussian, general_roks, gto_cartesian, gto_spherical, hf_model, &
+        eri_operator_yukawa, gapw_1c_large, gapw_1c_medium, gapw_1c_orb, gapw_1c_small, &
+        gapw_1c_very_large, gaussian, general_roks, gto_cartesian, gto_spherical, hf_model, &
         high_spin_roks, history_guess, jacobian_fd1, jacobian_fd1_backward, jacobian_fd1_central, &
         jacobian_fd2, jacobian_fd2_backward, kg_color_dsatur, kg_color_greedy, kg_tnadd_atomic, &
         kg_tnadd_embed, kg_tnadd_embed_ri, kg_tnadd_none, ls_2pnt, ls_3pnt, ls_gold, ls_none, &
@@ -2861,6 +2862,30 @@ CONTAINS
                           description="GAPW : maximum radius of gaussian functions"// &
                           " included in the generation of projectors", &
                           usage="MAX_RAD_LOCAL real", default_r_val=25.0_dp)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="GAPW_1C_BASIS", &
+                          description="Specifies how to construct the GAPW one center basis set."// &
+                          "Default is to use the primitives from the orbital basis.", &
+                          usage="GAPW_1C_BASIS MEDIUM", &
+                          enum_c_vals=s2a("ORB", "EXT_SMALL", "EXT_MEDIUM", "EXT_LARGE", "EXT_VERY_LARGE"), &
+                          enum_desc=s2a("Use orbital basis set.", &
+                                        "Extension using Small number of primitive Gaussians.", &
+                                        "Extension using Medium number of primitive Gaussians.", &
+                                        "Extension using Large number of primitive Gaussians.", &
+                                        "Extension using Very Large number of primitive Gaussians."), &
+                          enum_i_vals=(/gapw_1c_orb, gapw_1c_small, gapw_1c_medium, &
+                                        gapw_1c_large, gapw_1c_very_large/), &
+                          default_i_val=gapw_1c_orb)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="MIN_PAIR_LIST_RADIUS", &
+                          description="Set the minimum value [Bohr] for the overlap pair list radius."// &
+                          " Default is 0.0 Bohr, negative values are changed to the cell size."// &
+                          " This allows to control the sparsity of the KS matrix for HFX calculations.", &
+                          usage="MIN_PAIR_LIST_RADIUS real", default_r_val=0.0_dp)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
@@ -8260,7 +8285,10 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="INITIAL_WFN", &
-                          description="Controls the initial WFN used for propagation.", &
+                          description="Controls the initial WFN used for propagation. "// &
+                          "Note that some energy contributions may not be "// &
+                          "initialized in the restart cases, for instance "// &
+                          "electronic entropy energy in the case of smearing.", &
                           usage="INITIAL_WFN SCF_WFN", default_i_val=use_scf_wfn, &
                           enum_c_vals=s2a("SCF_WFN", "RESTART_WFN", "RT_RESTART"), &
                           enum_i_vals=(/use_scf_wfn, use_restart_wfn, use_rt_restart/), &
@@ -8274,7 +8302,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="APPLY_DELTA_PULSE", &
                           description="Applies a delta kick to the initial wfn (only RTP for now - the EMD "// &
-                          " case is not yet implemented).", &
+                          " case is not yet implemented). Only work for INITIAL_WFN=SCF_WFN", &
                           usage="APPLY_DELTA_PULSE", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -8282,16 +8310,16 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="APPLY_DELTA_PULSE_MAG", &
                           description="Applies a magnetic delta kick to the initial wfn (only RTP for now - the EMD "// &
-                          " case is not yet implemented).", &
+                          " case is not yet implemented). Only work for INITIAL_WFN=SCF_WFN", &
                           usage="APPLY_DELTA_PULSE_MAG", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="VELOCITY_GAUGE", &
-                          description="Perform propagation in the velocity gauge; only impulse at the moment (delta-pulse) "// &
-                          "only works for all-electron up to now."// &
-                          "uses DELTA_PULSE_SCALE and DELTA_PULSE_DIRECTION", &
+                          description="Perform propagation in the velocity gauge using the explicit vector potential"// &
+                          " only a constant vector potential as of now (corresonding to a delta-pulse)."// &
+                          " uses DELTA_PULSE_SCALE and DELTA_PULSE_DIRECTION to define the vector potential", &
                           usage="VELOCITY_GAUGE T", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -8315,7 +8343,7 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="GAUGE_ORIG_MANUAL", &
                           description="Manually defined gauge origin for magnetic perturbation [in Bohr!]", &
-                          usage="SPATIAL_REF_POINT x y z", &
+                          usage="GAUGE_ORIG_MANUAL x y z", &
                           repeats=.FALSE., &
                           n_var=3, default_r_vals=(/0._dp, 0._dp, 0._dp/), &
                           type_of_var=real_t, &
@@ -8324,14 +8352,16 @@ CONTAINS
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="VG_COM_NL", &
-                          description="apply gauge transformed non-local potential term", &
+                          description="apply gauge transformed non-local potential term"// &
+                          " only affects VELOCITY_GAUGE=.TRUE.", &
                           usage="VG_COM_NL T", &
                           default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 
       CALL keyword_create(keyword, __LOCATION__, name="COM_NL", &
-                          description="Include non-local commutator for periodic delta pulse.", &
+                          description="Include non-local commutator for periodic delta pulse."// &
+                          " only affects PERIODIC=.TRUE.", &
                           usage="COM_NL", &
                           default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
@@ -8339,7 +8369,8 @@ CONTAINS
 
       CALL keyword_create(keyword, __LOCATION__, name="LEN_REP", &
                           description="Use length representation delta pulse (in conjunction with PERIODIC T). "// &
-                          "Note that this is NOT compatible with PBC!!!"// &
+                          " This corresponds to a 1st order perturbation in the length gauge."// &
+                          " Note that this is NOT compatible with a periodic calculation!"// &
                           " Uses the reference point defined in DFT%PRINT%MOMENTS ", &
                           usage="LEN_REP T", &
                           default_l_val=.FALSE., lone_keyword_l_val=.TRUE.)
@@ -8349,7 +8380,9 @@ CONTAINS
       CALL keyword_create(keyword, __LOCATION__, name="PERIODIC", &
                           description="Apply a delta-kick that is compatible with periodic boundary conditions"// &
                           " for any value of DELTA_PULSE_SCALE. Uses perturbation theory for the preparation of"// &
-                          " the initial wfn. Note that the pulse is only applied when INITIAL_WFN is set to SCF_WFN,"// &
+                          " the initial wfn with the velocity operator as perturbation. "// &
+                          " If LEN_REP is .FALSE. this corresponds to a first order velocity gauge."// &
+                          " Note that the pulse is only applied when INITIAL_WFN is set to SCF_WFN,"// &
                           " and not for restarts (RT_RESTART).", &
                           usage="PERIODIC", &
                           default_l_val=.TRUE., lone_keyword_l_val=.TRUE.)

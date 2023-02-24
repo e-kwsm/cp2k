@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -34,7 +34,6 @@ MODULE xtb_ehess_force
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: oorootpi,&
                                               pi
-   USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
    USE pw_poisson_types,                ONLY: do_ewald_ewald,&
                                               do_ewald_none,&
@@ -99,9 +98,9 @@ CONTAINS
       INTEGER :: atom_i, atom_j, blk, ewald_type, handle, i, ia, iatom, icol, ikind, iounit, irow, &
          j, jatom, jkind, la, lb, lmaxa, lmaxb, natom, natorb_a, natorb_b, ni, nimg, nj, nkind, &
          nmat, za, zb
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
       INTEGER, DIMENSION(25)                             :: laoa, laob
       INTEGER, DIMENSION(3)                              :: cellind, periodic
-      INTEGER, DIMENSION(:), POINTER                     :: atom_of_kind, kind_of
       LOGICAL                                            :: calculate_forces, defined, do_ewald, &
                                                             found, just_energy, use_virial
       REAL(KIND=dp)                                      :: alpha, deth, dr, etaa, etab, fi, gmij0, &
@@ -293,10 +292,10 @@ CONTAINS
       CALL get_qs_env(qs_env=qs_env, &
                       atomic_kind_set=atomic_kind_set, &
                       force=force, para_env=para_env)
-      CALL mp_sum(gmcharge0(:, 1), para_env%group)
-      CALL mp_sum(gchrg0(:, :, 1), para_env%group)
-      CALL mp_sum(gmcharge1(:, 1), para_env%group)
-      CALL mp_sum(gchrg1(:, :, 1), para_env%group)
+      CALL para_env%group%sum(gmcharge0(:, 1))
+      CALL para_env%group%sum(gchrg0(:, :, 1))
+      CALL para_env%group%sum(gmcharge1(:, 1))
+      CALL para_env%group%sum(gchrg1(:, :, 1))
 
       IF (xtb_control%coulomb_lr) THEN
          IF (do_ewald) THEN
@@ -312,7 +311,6 @@ CONTAINS
          END IF
       END IF
 
-      ALLOCATE (atom_of_kind(natom), kind_of(natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
                                kind_of=kind_of, &
                                atom_of_kind=atom_of_kind)
@@ -345,7 +343,7 @@ CONTAINS
       END DO
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: P*dH[Pz]    ", fodeb
       END IF
 
@@ -415,7 +413,7 @@ CONTAINS
       CALL dbcsr_iterator_stop(iter)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*H[P]*dS  ", fodeb
       END IF
 
@@ -432,7 +430,7 @@ CONTAINS
                                            matrix_p0(1)%matrix, matrix_p1(1)%matrix, xgamma)
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*H3[P]    ", fodeb
          END IF
          DEALLOCATE (xgamma)
@@ -451,7 +449,6 @@ CONTAINS
       END IF
 
       DEALLOCATE (gmcharge0, gchrg0, gmcharge1, gchrg1)
-      DEALLOCATE (atom_of_kind, kind_of)
 
       CALL timestop(handle)
 
@@ -477,8 +474,8 @@ CONTAINS
       CHARACTER(len=*), PARAMETER :: routineN = 'dftb3_diagonal_hessian_force'
 
       INTEGER                                            :: atom_i, atom_j, blk, handle, i, icol, &
-                                                            ikind, irow, jkind, natom
-      INTEGER, DIMENSION(:), POINTER                     :: atom_of_kind, kind_of
+                                                            ikind, irow, jkind
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: fi, gmijp, gmijq, ui, uj
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: dsblock, p0block, p1block, sblock
@@ -488,8 +485,7 @@ CONTAINS
       TYPE(qs_force_type), DIMENSION(:), POINTER         :: force
 
       CALL timeset(routineN, handle)
-      CALL get_qs_env(qs_env=qs_env, matrix_s=matrix_s, natom=natom)
-      ALLOCATE (atom_of_kind(natom), kind_of(natom))
+      CALL get_qs_env(qs_env=qs_env, matrix_s=matrix_s)
       CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set)
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
                                kind_of=kind_of, atom_of_kind=atom_of_kind)
@@ -527,7 +523,6 @@ CONTAINS
          END DO
       END DO
       CALL dbcsr_iterator_stop(iter)
-      DEALLOCATE (atom_of_kind, kind_of)
 
       CALL timestop(handle)
 

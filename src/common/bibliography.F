@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -72,7 +72,7 @@ MODULE bibliography
                             Kantorovich2008a, Wellendorff2012, Niklasson2014, Borstnik2014, &
                             Rayson2009, Grimme2011, Fattebert2002, Andreussi2012, &
                             Khaliullin2007, Khaliullin2008, Merlot2014, Lin2009, Lin2013, &
-                            QUIP_ref, DelBen2015, Souza2002, Umari2002, Stengel2009, &
+                            QUIP_ref, Batzner2022, DelBen2015, Souza2002, Umari2002, Stengel2009, &
                             Luber2014, Berghold2011, DelBen2015b, Campana2009, &
                             Schiffmann2015, Bruck2014, Rappe1992, Ceriotti2012, &
                             Ceriotti2010, Walewski2014, Monkhorst1976, MacDonald1978, &
@@ -89,7 +89,7 @@ MODULE bibliography
                             Wilhelm2016a, Wilhelm2016b, Wilhelm2017, Wilhelm2018, Lass2018, cp2kqs2020, &
                             Behler2007, Behler2011, Schran2020a, Schran2020b, &
                             Rycroft2009, Thomas2015, Brehm2018, Brehm2020, Shigeta2001, Heinecke2016, &
-                            Brehm2021, Bussy2021a, Bussy2021b, Ditler2021, Mattiat2019, Mattiat2022
+                            Brehm2021, Bussy2021a, Bussy2021b, Ditler2021, Ditler2022, Mattiat2019, Mattiat2022
 
 CONTAINS
 
@@ -206,6 +206,26 @@ CONTAINS
                          "PY 2014", &
                          "ER"), &
                          DOI="")
+
+      CALL add_reference(key=Batzner2022, ISI_record=s2a( &
+                         "PT J", &
+                         "AU Batzner, S", &
+                         "   Musaelian, A", &
+                         "   Sun, L", &
+                         "   Geiger, M", &
+                         "   Mailoa, JP", &
+                         "   Kornbluth, M", &
+                         "   Molinari, N", &
+                         "   Smidt, TE", &
+                         "   Kozinsky, B", &
+                         "TI E(3)-equivariant graph neural networks for data-efficient", &
+                         "    and accurate interatomic potentials", &
+                         "SO Nature Communications", &
+                         "PY 2022", &
+                         "VL 13", &
+                         "IS 1", &
+                         "ER"), &
+                         DOI="10.1038/s41467-022-29939-5")
 
       CALL add_reference(key=VandenCic2006, ISI_record=s2a( &
                          "AU Vanden-Eijnden, E", &
@@ -4718,6 +4738,24 @@ CONTAINS
                          "DI 10.1063/5.0041056", &
                          "ER"), &
                          DOI="10.1063/5.0041056")
+
+      CALL add_reference(key=Ditler2022, ISI_record=s2a( &
+                         "TY JOUR", &
+                         "PT J", &
+                         "AU Ditler, Edward", &
+                         "   Zimmermann, Tomas", &
+                         "   Kumar, Chandan", &
+                         "   Luber, Sandra", &
+                         "TI Implementation of Nuclear Velocity Perturbation and Magnetic Field Perturbation", &
+                         "     Theory in CP2K and Their Application to Vibrational Circular Dichroism", &
+                         "SO The Journal of Chemical Theory and Computation", &
+                         "PY 2022", &
+                         "VL 18", &
+                         "BP 2448", &
+                         "EP 2461", &
+                         "DI 10.1021/acs.jctc.2c00006", &
+                         "ER"), &
+                         DOI="10.1021/acs.jctc.2c00006")
 
       CALL add_reference(key=Mattiat2019, ISI_record=s2a( &
                          "TY JOUR", &

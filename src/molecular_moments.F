@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -21,7 +21,6 @@ MODULE molecular_moments
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
@@ -39,9 +38,6 @@ MODULE molecular_moments
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_maxloc,&
-                                              mp_sum
    USE molecule_kind_types,             ONLY: get_molecule_kind,&
                                               molecule_kind_type
    USE molecule_types,                  ONLY: molecule_type
@@ -81,7 +77,7 @@ CONTAINS
    SUBROUTINE calculate_molecular_moments(qs_env, qs_loc_env, mo_local, loc_print_key, molecule_set)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_loc_env_type), INTENT(IN)                  :: qs_loc_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_local
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: mo_local
       TYPE(section_vals_type), POINTER                   :: loc_print_key
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
 
@@ -155,7 +151,7 @@ CONTAINS
                   nstates(1) = 0
                END IF
                nstates(2) = para_env%mepos
-               CALL mp_maxloc(nstates, para_env%group)
+               CALL para_env%group%maxloc(nstates)
                IF (nstates(1) == 0) CYCLE
                ns = nstates(1)
                iproc = nstates(2)
@@ -165,9 +161,9 @@ CONTAINS
                ELSE
                   states(:) = 0
                END IF
-               CALL mp_bcast(states, iproc, para_env%group)
+               CALL para_env%group%bcast(states, iproc)
                ! assemble local states for this molecule
-               ASSOCIATE (mo_localized => mo_local(ispin)%matrix)
+               ASSOCIATE (mo_localized => mo_local(ispin))
                   CALL cp_fm_get_info(mo_localized, ncol_global=ncol_global, nrow_global=nrow_global)
                   CALL cp_fm_struct_create(fm_struct, nrow_global=nrow_global, ncol_global=ns, &
                                            para_env=mo_localized%matrix_struct%para_env, &
@@ -254,8 +250,8 @@ CONTAINS
             END IF
          END DO
       END DO
-      CALL mp_sum(moment_set, para_env%group)
-      CALL mp_sum(charge_set, para_env%group)
+      CALL para_env%group%sum(moment_set)
+      CALL para_env%group%sum(charge_set)
 
       iounit = cp_print_key_unit_nr(logger, loc_print_key, "MOLECULAR_MOMENTS", &
                                     extension=".MolMom", middle_name="MOLECULAR_MOMENTS")

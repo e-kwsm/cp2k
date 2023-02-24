@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -43,10 +43,9 @@ MODULE dbt_tas_reshape_ops
    USE dbt_tas_util,                    ONLY: swap
    USE kinds,                           ONLY: dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_alltoall,&
-                                              mp_environ,&
-                                              mp_irecv,&
-                                              mp_isend,&
+   USE message_passing,                 ONLY: mp_cart_type,&
+                                              mp_comm_type,&
+                                              mp_request_type,&
                                               mp_waitall
 #include "../../base/base_uses.f90"
 
@@ -85,8 +84,8 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'dbt_tas_reshape'
 
       INTEGER                                            :: a, b, bcount, handle, handle2, iproc, &
-                                                            mp_comm, mynode, nblk, &
-                                                            nblk_per_thread, ndata, numnodes
+                                                            mynode, nblk, nblk_per_thread, ndata, &
+                                                            numnodes
       INTEGER(KIND=int_8), ALLOCATABLE, DIMENSION(:, :)  :: blks_to_allocate, index_recv
       INTEGER(KIND=int_8), DIMENSION(2)                  :: blk_index
       INTEGER(kind=omp_lock_kind), ALLOCATABLE, &
@@ -94,13 +93,15 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: num_blocks_recv, num_blocks_send, &
                                                             num_entries_recv, num_entries_send, &
                                                             num_rec, num_send
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: req_array
       INTEGER, DIMENSION(2)                              :: blk_size
       LOGICAL                                            :: move_prv, tr_in
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: block
       TYPE(dbt_buffer_type), ALLOCATABLE, DIMENSION(:)   :: buffer_recv, buffer_send
       TYPE(dbt_tas_iterator)                             :: iter
       TYPE(dbt_tas_split_info)                           :: info
+      TYPE(mp_comm_type)                                 :: mp_comm
+      TYPE(mp_request_type), ALLOCATABLE, &
+         DIMENSION(:, :)                                 :: req_array
 
       CALL timeset(routineN, handle)
 
@@ -128,7 +129,7 @@ CONTAINS
 
       info = dbt_tas_info(matrix_in)
       mp_comm = info%mp_comm
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
       ALLOCATE (buffer_send(0:numnodes - 1))
       ALLOCATE (buffer_recv(0:numnodes - 1))
       ALLOCATE (num_blocks_recv(0:numnodes - 1))
@@ -166,7 +167,7 @@ CONTAINS
       CALL timestop(handle2)
 
       CALL timeset(routineN//"_alltoall", handle2)
-      CALL mp_alltoall(num_send, num_rec, 2, mp_comm)
+      CALL mp_comm%alltoall(num_send, num_rec, 2)
       CALL timestop(handle2)
 
       CALL timeset(routineN//"_buffer_fill", handle2)
@@ -284,13 +285,14 @@ CONTAINS
       TYPE(dbt_tas_blk_size_repl), TARGET :: repl_blksize
       TYPE(dbt_tas_blk_size_arb), TARGET :: dir_blksize
       TYPE(dbt_tas_distribution_type) :: dist
-      INTEGER :: mp_comm, numnodes, mynode, ngroup
+      INTEGER :: numnodes, mynode, ngroup
       INTEGER(kind=omp_lock_kind), ALLOCATABLE, DIMENSION(:) :: locks
       TYPE(dbt_buffer_type), ALLOCATABLE, DIMENSION(:) :: buffer_recv, buffer_send
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: num_blocks_recv, num_blocks_send, &
                                                             num_entries_recv, num_entries_send, &
                                                             num_rec, num_send
-      INTEGER, ALLOCATABLE, DIMENSION(:, :) :: req_array, blks_to_allocate
+      TYPE(mp_request_type), ALLOCATABLE, DIMENSION(:, :) :: req_array
+      INTEGER, ALLOCATABLE, DIMENSION(:, :) :: blks_to_allocate
       INTEGER, DIMENSION(2) :: blk_size
       INTEGER, DIMENSION(2) :: blk_index
       INTEGER(KIND=int_8), DIMENSION(2) :: blk_index_i8
@@ -300,6 +302,7 @@ CONTAINS
       LOGICAL :: nodata_prv, move_prv
       INTEGER(KIND=int_8), ALLOCATABLE, DIMENSION(:, :) :: index_recv
       INTEGER :: ndata
+      TYPE(mp_cart_type) :: mp_comm
 
       REAL(KIND=dp), DIMENSION(:, :), POINTER :: block
 
@@ -334,8 +337,8 @@ CONTAINS
       mp_comm = info%mp_comm
       ngroup = info%ngroup
 
-      CALL mp_environ(numnodes, mynode, mp_comm)
-      CALL mp_environ(numnodes, pdims, pcoord, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
+      CALL mp_comm%environ_cart(numnodes, pdims, pcoord)
 
       SELECT CASE (info%split_rowcol)
       CASE (rowsplit)
@@ -403,7 +406,7 @@ CONTAINS
 !$OMP END PARALLEL
 
       CALL timeset(routineN//"_alltoall", handle2)
-      CALL mp_alltoall(num_send, num_rec, 2, mp_comm)
+      CALL mp_comm%alltoall(num_send, num_rec, 2)
       CALL timestop(handle2)
 
       DO iproc = 0, numnodes - 1
@@ -504,8 +507,8 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'dbt_tas_merge'
 
       INTEGER                                            :: a, b, bcount, handle, handle2, iproc, &
-                                                            mp_comm, mynode, nblk, &
-                                                            nblk_per_thread, ndata, numnodes
+                                                            mynode, nblk, nblk_per_thread, ndata, &
+                                                            numnodes
       INTEGER(KIND=int_8), ALLOCATABLE, DIMENSION(:, :)  :: index_recv
       INTEGER(KIND=int_8), DIMENSION(2)                  :: blk_index_i8
       INTEGER(kind=omp_lock_kind), ALLOCATABLE, &
@@ -513,7 +516,7 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: num_blocks_recv, num_blocks_send, &
                                                             num_entries_recv, num_entries_send, &
                                                             num_rec, num_send
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: blks_to_allocate, req_array
+      INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: blks_to_allocate
       INTEGER, DIMENSION(2)                              :: blk_index, blk_size
       INTEGER, DIMENSION(:), POINTER                     :: col_block_sizes, row_block_sizes
       LOGICAL                                            :: move_prv
@@ -521,6 +524,9 @@ CONTAINS
       TYPE(dbm_iterator)                                 :: iter
       TYPE(dbt_buffer_type), ALLOCATABLE, DIMENSION(:)   :: buffer_recv, buffer_send
       TYPE(dbt_tas_split_info)                           :: info
+      TYPE(mp_cart_type)                                 :: mp_comm
+      TYPE(mp_request_type), ALLOCATABLE, &
+         DIMENSION(:, :)                                 :: req_array
 
 !!
 
@@ -540,7 +546,7 @@ CONTAINS
 
       info = dbt_tas_info(matrix_in)
       CALL dbt_tas_get_split_info(info, mp_comm=mp_comm)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
 
       ALLOCATE (buffer_send(0:numnodes - 1))
       ALLOCATE (buffer_recv(0:numnodes - 1))
@@ -573,7 +579,7 @@ CONTAINS
 !$OMP END PARALLEL
 
       CALL timeset(routineN//"_alltoall", handle2)
-      CALL mp_alltoall(num_send, num_rec, 2, mp_comm)
+      CALL mp_comm%alltoall(num_send, num_rec, 2)
       CALL timestop(handle2)
 
       DO iproc = 0, numnodes - 1
@@ -831,10 +837,11 @@ CONTAINS
 !> \author Patrick Seewald
 ! **************************************************************************************************
    SUBROUTINE dbt_tas_communicate_buffer(mp_comm, buffer_recv, buffer_send, req_array)
-      INTEGER, INTENT(IN)                                :: mp_comm
+      CLASS(mp_comm_type), INTENT(IN)                     :: mp_comm
       TYPE(dbt_buffer_type), DIMENSION(0:), &
          INTENT(INOUT)                                   :: buffer_recv, buffer_send
-      INTEGER, DIMENSION(:, :), INTENT(OUT)              :: req_array
+      TYPE(mp_request_type), DIMENSION(:, :), &
+         INTENT(OUT)                                     :: req_array
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dbt_tas_communicate_buffer'
 
@@ -842,7 +849,7 @@ CONTAINS
                                                             rec_counter, send_counter
 
       CALL timeset(routineN, handle)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
 
       IF (numnodes > 1) THEN
 
@@ -852,16 +859,16 @@ CONTAINS
          DO iproc = 0, numnodes - 1
             IF (buffer_recv(iproc)%nblock > 0) THEN
                rec_counter = rec_counter + 1
-               CALL mp_irecv(buffer_recv(iproc)%indx, iproc, mp_comm, req_array(rec_counter, 3), tag=4)
-               CALL mp_irecv(buffer_recv(iproc)%msg, iproc, mp_comm, req_array(rec_counter, 4), tag=7)
+               CALL mp_comm%irecv(buffer_recv(iproc)%indx, iproc, req_array(rec_counter, 3), tag=4)
+               CALL mp_comm%irecv(buffer_recv(iproc)%msg, iproc, req_array(rec_counter, 4), tag=7)
             END IF
          END DO
 
          DO iproc = 0, numnodes - 1
             IF (buffer_send(iproc)%nblock > 0) THEN
                send_counter = send_counter + 1
-               CALL mp_isend(buffer_send(iproc)%indx, iproc, mp_comm, req_array(send_counter, 1), tag=4)
-               CALL mp_isend(buffer_send(iproc)%msg, iproc, mp_comm, req_array(send_counter, 2), tag=7)
+               CALL mp_comm%isend(buffer_send(iproc)%indx, iproc, req_array(send_counter, 1), tag=4)
+               CALL mp_comm%isend(buffer_send(iproc)%msg, iproc, req_array(send_counter, 2), tag=7)
             END IF
          END DO
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -25,9 +25,9 @@ MODULE qs_efield_berry
    USE cp_cfm_basic_linalg,             ONLY: cp_cfm_scale_and_add_fm,&
                                               cp_cfm_solve
    USE cp_cfm_types,                    ONLY: cp_cfm_create,&
-                                              cp_cfm_p_type,&
                                               cp_cfm_release,&
-                                              cp_cfm_set_all
+                                              cp_cfm_set_all,&
+                                              cp_cfm_type
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_operations,             ONLY: copy_dbcsr_to_fm,&
                                               copy_fm_to_dbcsr,&
@@ -39,7 +39,6 @@ MODULE qs_efield_berry
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_type
@@ -55,7 +54,6 @@ MODULE qs_efield_berry
                                               twopi,&
                                               z_one,&
                                               z_zero
-   USE message_passing,                 ONLY: mp_sum
    USE orbital_pointers,                ONLY: ncoset
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
@@ -210,10 +208,10 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(block_p_type), DIMENSION(3, 2)                :: dcost, dsint
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: eigrmat, inv_mat
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_coeff_tmp, mo_derivs_tmp
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: inv_work, op_fm_set, opvec
+      TYPE(cp_cfm_type), ALLOCATABLE, DIMENSION(:)       :: eigrmat, inv_mat
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: mo_coeff_tmp, mo_derivs_tmp
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: inv_work, op_fm_set, opvec
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, mo_derivs
@@ -264,7 +262,6 @@ CONTAINS
       natom = SIZE(particle_set)
       IF (calculate_forces) THEN
          CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, force=force)
-         ALLOCATE (atom_of_kind(natom))
          CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind)
       END IF
       zi(:) = CMPLX(1._dp, 0._dp, dp)
@@ -320,19 +317,16 @@ CONTAINS
          CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, &
                                   ncol_global=nmo, para_env=para_env, context=mo_coeff%matrix_struct%context)
-         ALLOCATE (mo_derivs_tmp(ispin)%matrix, mo_coeff_tmp(ispin)%matrix)
-         CALL cp_fm_create(mo_derivs_tmp(ispin)%matrix, mo_coeff%matrix_struct)
-         CALL cp_fm_create(mo_coeff_tmp(ispin)%matrix, mo_coeff%matrix_struct)
-         CALL copy_dbcsr_to_fm(mo_derivs(ispin)%matrix, mo_derivs_tmp(ispin)%matrix)
+         CALL cp_fm_create(mo_derivs_tmp(ispin), mo_coeff%matrix_struct)
+         CALL cp_fm_create(mo_coeff_tmp(ispin), mo_coeff%matrix_struct)
+         CALL copy_dbcsr_to_fm(mo_derivs(ispin)%matrix, mo_derivs_tmp(ispin))
          DO i = 1, SIZE(op_fm_set, 1)
-            ALLOCATE (opvec(i, ispin)%matrix, op_fm_set(i, ispin)%matrix, inv_work(i, ispin)%matrix)
-            CALL cp_fm_create(opvec(i, ispin)%matrix, mo_coeff%matrix_struct)
-            CALL cp_fm_create(op_fm_set(i, ispin)%matrix, tmp_fm_struct)
-            CALL cp_fm_create(inv_work(i, ispin)%matrix, op_fm_set(i, ispin)%matrix%matrix_struct)
+            CALL cp_fm_create(opvec(i, ispin), mo_coeff%matrix_struct)
+            CALL cp_fm_create(op_fm_set(i, ispin), tmp_fm_struct)
+            CALL cp_fm_create(inv_work(i, ispin), op_fm_set(i, ispin)%matrix_struct)
          END DO
-         ALLOCATE (eigrmat(ispin)%matrix, inv_mat(ispin)%matrix)
-         CALL cp_cfm_create(eigrmat(ispin)%matrix, op_fm_set(1, ispin)%matrix%matrix_struct)
-         CALL cp_cfm_create(inv_mat(ispin)%matrix, op_fm_set(1, ispin)%matrix%matrix_struct)
+         CALL cp_cfm_create(eigrmat(ispin), op_fm_set(1, ispin)%matrix_struct)
+         CALL cp_cfm_create(inv_mat(ispin), op_fm_set(1, ispin)%matrix_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
       END DO
       ! temp matrices for force calculation
@@ -371,24 +365,25 @@ CONTAINS
             DO ispin = 1, dft_control%nspins ! spin
                IF (mos(ispin)%use_mo_coeff_b) THEN
                   CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff_b=mo_coeff_b, nmo=nmo)
-                  CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff_tmp(ispin)%matrix)
+                  CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff_tmp(ispin))
                ELSE
-                  CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff=mo_coeff_tmp(ispin)%matrix, nmo=nmo)
+                  CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff=mo_coeff, nmo=nmo)
+                  mo_coeff_tmp(ispin) = mo_coeff
                END IF
-               CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff_tmp(ispin)%matrix, opvec(1, ispin)%matrix, ncol=nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin)%matrix, opvec(1, ispin)%matrix, 0.0_dp, &
-                                  op_fm_set(1, ispin)%matrix)
-               CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff_tmp(ispin)%matrix, opvec(2, ispin)%matrix, ncol=nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin)%matrix, opvec(2, ispin)%matrix, 0.0_dp, &
-                                  op_fm_set(2, ispin)%matrix)
+               CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff_tmp(ispin), opvec(1, ispin), ncol=nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin), opvec(1, ispin), 0.0_dp, &
+                                  op_fm_set(1, ispin))
+               CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff_tmp(ispin), opvec(2, ispin), ncol=nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin), opvec(2, ispin), 0.0_dp, &
+                                  op_fm_set(2, ispin))
             END DO
             !second step invert C^T S_berry C
             zdet = z_one
             DO ispin = 1, dft_control%nspins
-               CALL cp_cfm_scale_and_add_fm(z_zero, eigrmat(ispin)%matrix, z_one, op_fm_set(1, ispin)%matrix)
-               CALL cp_cfm_scale_and_add_fm(z_one, eigrmat(ispin)%matrix, -gaussi, op_fm_set(2, ispin)%matrix)
-               CALL cp_cfm_set_all(inv_mat(ispin)%matrix, z_zero, z_one)
-               CALL cp_cfm_solve(eigrmat(ispin)%matrix, inv_mat(ispin)%matrix, zdeta)
+               CALL cp_cfm_scale_and_add_fm(z_zero, eigrmat(ispin), z_one, op_fm_set(1, ispin))
+               CALL cp_cfm_scale_and_add_fm(z_one, eigrmat(ispin), -gaussi, op_fm_set(2, ispin))
+               CALL cp_cfm_set_all(inv_mat(ispin), z_zero, z_one)
+               CALL cp_cfm_solve(eigrmat(ispin), inv_mat(ispin), zdeta)
                zdet = zdet*zdeta
             END DO
             zi(idir) = zdet**occ
@@ -398,13 +393,13 @@ CONTAINS
                !compute the orbital derivative
                focc = fpolvec(idir)
                DO ispin = 1, dft_control%nspins
-                  inv_work(1, ispin)%matrix%local_data(:, :) = REAL(inv_mat(ispin)%matrix%local_data(:, :), dp)
-                  inv_work(2, ispin)%matrix%local_data(:, :) = AIMAG(inv_mat(ispin)%matrix%local_data(:, :))
+                  inv_work(1, ispin)%local_data(:, :) = REAL(inv_mat(ispin)%local_data(:, :), dp)
+                  inv_work(2, ispin)%local_data(:, :) = AIMAG(inv_mat(ispin)%local_data(:, :))
                   CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo)
-                  CALL parallel_gemm("N", "N", nao, nmo, nmo, focc, opvec(1, ispin)%matrix, inv_work(2, ispin)%matrix, &
-                                     1.0_dp, mo_derivs_tmp(ispin)%matrix)
-                  CALL parallel_gemm("N", "N", nao, nmo, nmo, -focc, opvec(2, ispin)%matrix, inv_work(1, ispin)%matrix, &
-                                     1.0_dp, mo_derivs_tmp(ispin)%matrix)
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, focc, opvec(1, ispin), inv_work(2, ispin), &
+                                     1.0_dp, mo_derivs_tmp(ispin))
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, -focc, opvec(2, ispin), inv_work(1, ispin), &
+                                     1.0_dp, mo_derivs_tmp(ispin))
                END DO
             END IF
 
@@ -420,14 +415,14 @@ CONTAINS
                   CALL dbcsr_set(tempmat(1, ispin)%matrix, 0.0_dp)
                   CALL dbcsr_set(tempmat(2, ispin)%matrix, 0.0_dp)
                   CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo)
-                CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin)%matrix, inv_work(1, ispin)%matrix, 0.0_dp, &
-                                     opvec(1, ispin)%matrix)
-                CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin)%matrix, inv_work(2, ispin)%matrix, 0.0_dp, &
-                                     opvec(2, ispin)%matrix)
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin), inv_work(1, ispin), 0.0_dp, &
+                                     opvec(1, ispin))
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin), inv_work(2, ispin), 0.0_dp, &
+                                     opvec(2, ispin))
                   CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=tempmat(1, ispin)%matrix, &
-                                             matrix_v=opvec(1, ispin)%matrix, matrix_g=mo_coeff_tmp(ispin)%matrix, ncol=nmo)
+                                             matrix_v=opvec(1, ispin), matrix_g=mo_coeff_tmp(ispin), ncol=nmo)
                   CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=tempmat(2, ispin)%matrix, &
-                                             matrix_v=opvec(2, ispin)%matrix, matrix_g=mo_coeff_tmp(ispin)%matrix, ncol=nmo)
+                                             matrix_v=opvec(2, ispin), matrix_g=mo_coeff_tmp(ispin), ncol=nmo)
                END DO
 
                ! Calculation of derivative integrals (da|eikr|b) and (a|eikr|db)
@@ -615,7 +610,7 @@ CONTAINS
       IF (.NOT. just_energy) THEN
          ! Add the result to mo_derivativs
          DO ispin = 1, dft_control%nspins
-            CALL copy_fm_to_dbcsr(mo_derivs_tmp(ispin)%matrix, mo_derivs(ispin)%matrix)
+            CALL copy_fm_to_dbcsr(mo_derivs_tmp(ispin), mo_derivs(ispin)%matrix)
          END DO
          IF (use_virial) THEN
             ti = 0.0_dp
@@ -633,17 +628,14 @@ CONTAINS
       END IF
 
       DO ispin = 1, dft_control%nspins
-         CALL cp_cfm_release(eigrmat(ispin)%matrix)
-         CALL cp_cfm_release(inv_mat(ispin)%matrix)
-         DEALLOCATE (eigrmat(ispin)%matrix, inv_mat(ispin)%matrix)
-         CALL cp_fm_release(mo_derivs_tmp(ispin)%matrix)
-         CALL cp_fm_release(mo_coeff_tmp(ispin)%matrix)
-         DEALLOCATE (mo_derivs_tmp(ispin)%matrix, mo_coeff_tmp(ispin)%matrix)
+         CALL cp_cfm_release(eigrmat(ispin))
+         CALL cp_cfm_release(inv_mat(ispin))
+         CALL cp_fm_release(mo_derivs_tmp(ispin))
+         IF (mos(ispin)%use_mo_coeff_b) CALL cp_fm_release(mo_coeff_tmp(ispin))
          DO i = 1, SIZE(op_fm_set, 1)
-            CALL cp_fm_release(opvec(i, ispin)%matrix)
-            CALL cp_fm_release(op_fm_set(i, ispin)%matrix)
-            CALL cp_fm_release(inv_work(i, ispin)%matrix)
-            DEALLOCATE (opvec(i, ispin)%matrix, op_fm_set(i, ispin)%matrix, inv_work(i, ispin)%matrix)
+            CALL cp_fm_release(opvec(i, ispin))
+            CALL cp_fm_release(op_fm_set(i, ispin))
+            CALL cp_fm_release(inv_work(i, ispin))
          END DO
       END DO
       DEALLOCATE (inv_mat, inv_work, op_fm_set, opvec, eigrmat)
@@ -651,9 +643,8 @@ CONTAINS
 
       IF (calculate_forces) THEN
          DO ikind = 1, SIZE(atomic_kind_set)
-            CALL mp_sum(force(ikind)%efield, para_env%group)
+            CALL para_env%group%sum(force(ikind)%efield)
          END DO
-         DEALLOCATE (atom_of_kind)
          DEALLOCATE (cosab, sinab, work, dcosab, dsinab)
          DO i = 1, 3
             DEALLOCATE (dcost(i, 1)%block, dsint(i, 1)%block)
@@ -699,10 +690,10 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(block_p_type), DIMENSION(3, 2)                :: dcost, dsint
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: eigrmat, inv_mat
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_coeff_tmp
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: inv_work, mo_derivs_tmp, op_fm_set, opvec
+      TYPE(cp_cfm_type), ALLOCATABLE, DIMENSION(:)       :: eigrmat, inv_mat
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: mo_coeff_tmp
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: inv_work, mo_derivs_tmp, op_fm_set, opvec
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s, mo_derivs
@@ -754,7 +745,6 @@ CONTAINS
       natom = SIZE(particle_set)
       IF (calculate_forces) THEN
          CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, force=force)
-         ALLOCATE (atom_of_kind(natom))
          CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind)
          ALLOCATE (force_tmp(natom, 3, 3))
          force_tmp = 0.0_dp
@@ -808,22 +798,18 @@ CONTAINS
          CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, &
                                   ncol_global=nmo, para_env=para_env, context=mo_coeff%matrix_struct%context)
-         ALLOCATE (mo_coeff_tmp(ispin)%matrix)
-         CALL cp_fm_create(mo_coeff_tmp(ispin)%matrix, mo_coeff%matrix_struct)
+         CALL cp_fm_create(mo_coeff_tmp(ispin), mo_coeff%matrix_struct)
          DO i = 1, 3
-            ALLOCATE (mo_derivs_tmp(i, ispin)%matrix)
-            CALL cp_fm_create(mo_derivs_tmp(i, ispin)%matrix, mo_coeff%matrix_struct)
-            CALL cp_fm_set_all(matrix=mo_derivs_tmp(i, ispin)%matrix, alpha=0.0_dp)
+            CALL cp_fm_create(mo_derivs_tmp(i, ispin), mo_coeff%matrix_struct)
+            CALL cp_fm_set_all(matrix=mo_derivs_tmp(i, ispin), alpha=0.0_dp)
          END DO
          DO i = 1, SIZE(op_fm_set, 1)
-            ALLOCATE (opvec(i, ispin)%matrix, op_fm_set(i, ispin)%matrix, inv_work(i, ispin)%matrix)
-            CALL cp_fm_create(opvec(i, ispin)%matrix, mo_coeff%matrix_struct)
-            CALL cp_fm_create(op_fm_set(i, ispin)%matrix, tmp_fm_struct)
-            CALL cp_fm_create(inv_work(i, ispin)%matrix, op_fm_set(i, ispin)%matrix%matrix_struct)
+            CALL cp_fm_create(opvec(i, ispin), mo_coeff%matrix_struct)
+            CALL cp_fm_create(op_fm_set(i, ispin), tmp_fm_struct)
+            CALL cp_fm_create(inv_work(i, ispin), op_fm_set(i, ispin)%matrix_struct)
          END DO
-         ALLOCATE (eigrmat(ispin)%matrix, inv_mat(ispin)%matrix)
-         CALL cp_cfm_create(eigrmat(ispin)%matrix, op_fm_set(1, ispin)%matrix%matrix_struct)
-         CALL cp_cfm_create(inv_mat(ispin)%matrix, op_fm_set(1, ispin)%matrix%matrix_struct)
+         CALL cp_cfm_create(eigrmat(ispin), op_fm_set(1, ispin)%matrix_struct)
+         CALL cp_cfm_create(inv_mat(ispin), op_fm_set(1, ispin)%matrix_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
       END DO
       ! temp matrices for force calculation
@@ -860,24 +846,25 @@ CONTAINS
          DO ispin = 1, dft_control%nspins ! spin
             IF (mos(ispin)%use_mo_coeff_b) THEN
                CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff_b=mo_coeff_b, nmo=nmo)
-               CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff_tmp(ispin)%matrix)
+               CALL copy_dbcsr_to_fm(mo_coeff_b, mo_coeff_tmp(ispin))
             ELSE
-               CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff=mo_coeff_tmp(ispin)%matrix, nmo=nmo)
+               CALL get_mo_set(mo_set=mos(ispin), nao=nao, mo_coeff=mo_coeff, nmo=nmo)
+               mo_coeff_tmp(ispin) = mo_coeff
             END IF
-            CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff_tmp(ispin)%matrix, opvec(1, ispin)%matrix, ncol=nmo)
-            CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin)%matrix, opvec(1, ispin)%matrix, 0.0_dp, &
-                               op_fm_set(1, ispin)%matrix)
-            CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff_tmp(ispin)%matrix, opvec(2, ispin)%matrix, ncol=nmo)
-            CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin)%matrix, opvec(2, ispin)%matrix, 0.0_dp, &
-                               op_fm_set(2, ispin)%matrix)
+            CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff_tmp(ispin), opvec(1, ispin), ncol=nmo)
+            CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin), opvec(1, ispin), 0.0_dp, &
+                               op_fm_set(1, ispin))
+            CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff_tmp(ispin), opvec(2, ispin), ncol=nmo)
+            CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff_tmp(ispin), opvec(2, ispin), 0.0_dp, &
+                               op_fm_set(2, ispin))
          END DO
          !second step invert C^T S_berry C
          zdet = z_one
          DO ispin = 1, dft_control%nspins
-            CALL cp_cfm_scale_and_add_fm(z_zero, eigrmat(ispin)%matrix, z_one, op_fm_set(1, ispin)%matrix)
-            CALL cp_cfm_scale_and_add_fm(z_one, eigrmat(ispin)%matrix, -gaussi, op_fm_set(2, ispin)%matrix)
-            CALL cp_cfm_set_all(inv_mat(ispin)%matrix, z_zero, z_one)
-            CALL cp_cfm_solve(eigrmat(ispin)%matrix, inv_mat(ispin)%matrix, zdeta)
+            CALL cp_cfm_scale_and_add_fm(z_zero, eigrmat(ispin), z_one, op_fm_set(1, ispin))
+            CALL cp_cfm_scale_and_add_fm(z_one, eigrmat(ispin), -gaussi, op_fm_set(2, ispin))
+            CALL cp_cfm_set_all(inv_mat(ispin), z_zero, z_one)
+            CALL cp_cfm_solve(eigrmat(ispin), inv_mat(ispin), zdeta)
             zdet = zdet*zdeta
          END DO
          zi(idir) = zdet**occ
@@ -886,15 +873,15 @@ CONTAINS
          IF (.NOT. just_energy) THEN
             !compute the orbital derivative
             DO ispin = 1, dft_control%nspins
-               inv_work(1, ispin)%matrix%local_data(:, :) = REAL(inv_mat(ispin)%matrix%local_data(:, :), dp)
-               inv_work(2, ispin)%matrix%local_data(:, :) = AIMAG(inv_mat(ispin)%matrix%local_data(:, :))
+               inv_work(1, ispin)%local_data(:, :) = REAL(inv_mat(ispin)%local_data(:, :), dp)
+               inv_work(2, ispin)%local_data(:, :) = AIMAG(inv_mat(ispin)%local_data(:, :))
                CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo)
                DO i = 1, 3
                   focc = hmat(idir, i)
-                  CALL parallel_gemm("N", "N", nao, nmo, nmo, focc, opvec(1, ispin)%matrix, inv_work(2, ispin)%matrix, &
-                                     1.0_dp, mo_derivs_tmp(idir, ispin)%matrix)
-                  CALL parallel_gemm("N", "N", nao, nmo, nmo, -focc, opvec(2, ispin)%matrix, inv_work(1, ispin)%matrix, &
-                                     1.0_dp, mo_derivs_tmp(idir, ispin)%matrix)
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, focc, opvec(1, ispin), inv_work(2, ispin), &
+                                     1.0_dp, mo_derivs_tmp(idir, ispin))
+                  CALL parallel_gemm("N", "N", nao, nmo, nmo, -focc, opvec(2, ispin), inv_work(1, ispin), &
+                                     1.0_dp, mo_derivs_tmp(idir, ispin))
                END DO
             END DO
          END IF
@@ -911,14 +898,14 @@ CONTAINS
                CALL dbcsr_set(tempmat(1, ispin)%matrix, 0.0_dp)
                CALL dbcsr_set(tempmat(2, ispin)%matrix, 0.0_dp)
                CALL get_mo_set(mo_set=mos(ispin), nao=nao, nmo=nmo)
-               CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin)%matrix, inv_work(1, ispin)%matrix, 0.0_dp, &
-                                  opvec(1, ispin)%matrix)
-               CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin)%matrix, inv_work(2, ispin)%matrix, 0.0_dp, &
-                                  opvec(2, ispin)%matrix)
+               CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin), inv_work(1, ispin), 0.0_dp, &
+                                  opvec(1, ispin))
+               CALL parallel_gemm("N", "N", nao, nmo, nmo, 1.0_dp, mo_coeff_tmp(ispin), inv_work(2, ispin), 0.0_dp, &
+                                  opvec(2, ispin))
                CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=tempmat(1, ispin)%matrix, &
-                                          matrix_v=opvec(1, ispin)%matrix, matrix_g=mo_coeff_tmp(ispin)%matrix, ncol=nmo)
+                                          matrix_v=opvec(1, ispin), matrix_g=mo_coeff_tmp(ispin), ncol=nmo)
                CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=tempmat(2, ispin)%matrix, &
-                                          matrix_v=opvec(2, ispin)%matrix, matrix_g=mo_coeff_tmp(ispin)%matrix, ncol=nmo)
+                                          matrix_v=opvec(2, ispin), matrix_g=mo_coeff_tmp(ispin), ncol=nmo)
             END DO
 
             ! Calculation of derivative integrals (da|eikr|b) and (a|eikr|db)
@@ -1112,14 +1099,14 @@ CONTAINS
          END DO
          ! Add the result to mo_derivativs
          DO ispin = 1, dft_control%nspins
-            CALL copy_dbcsr_to_fm(mo_derivs(ispin)%matrix, mo_coeff_tmp(ispin)%matrix)
+            CALL copy_dbcsr_to_fm(mo_derivs(ispin)%matrix, mo_coeff_tmp(ispin))
             DO idir = 1, 3
-               CALL cp_fm_scale_and_add(1.0_dp, mo_coeff_tmp(ispin)%matrix, di(idir), &
-                                        mo_derivs_tmp(idir, ispin)%matrix)
+               CALL cp_fm_scale_and_add(1.0_dp, mo_coeff_tmp(ispin), di(idir), &
+                                        mo_derivs_tmp(idir, ispin))
             END DO
          END DO
          DO ispin = 1, dft_control%nspins
-            CALL copy_fm_to_dbcsr(mo_coeff_tmp(ispin)%matrix, mo_derivs(ispin)%matrix)
+            CALL copy_fm_to_dbcsr(mo_coeff_tmp(ispin), mo_derivs(ispin)%matrix)
          END DO
       END IF
 
@@ -1134,20 +1121,16 @@ CONTAINS
       END IF
 
       DO ispin = 1, dft_control%nspins
-         CALL cp_cfm_release(eigrmat(ispin)%matrix)
-         CALL cp_cfm_release(inv_mat(ispin)%matrix)
-         DEALLOCATE (eigrmat(ispin)%matrix, inv_mat(ispin)%matrix)
-         CALL cp_fm_release(mo_coeff_tmp(ispin)%matrix)
-         DEALLOCATE (mo_coeff_tmp(ispin)%matrix)
+         CALL cp_cfm_release(eigrmat(ispin))
+         CALL cp_cfm_release(inv_mat(ispin))
+         IF (mos(ispin)%use_mo_coeff_b) CALL cp_fm_release(mo_coeff_tmp(ispin))
          DO i = 1, 3
-            CALL cp_fm_release(mo_derivs_tmp(i, ispin)%matrix)
-            DEALLOCATE (mo_derivs_tmp(i, ispin)%matrix)
+            CALL cp_fm_release(mo_derivs_tmp(i, ispin))
          END DO
          DO i = 1, SIZE(op_fm_set, 1)
-            CALL cp_fm_release(opvec(i, ispin)%matrix)
-            CALL cp_fm_release(op_fm_set(i, ispin)%matrix)
-            CALL cp_fm_release(inv_work(i, ispin)%matrix)
-            DEALLOCATE (opvec(i, ispin)%matrix, op_fm_set(i, ispin)%matrix, inv_work(i, ispin)%matrix)
+            CALL cp_fm_release(opvec(i, ispin))
+            CALL cp_fm_release(op_fm_set(i, ispin))
+            CALL cp_fm_release(inv_work(i, ispin))
          END DO
       END DO
       DEALLOCATE (inv_mat, inv_work, op_fm_set, opvec, eigrmat)
@@ -1155,9 +1138,8 @@ CONTAINS
 
       IF (calculate_forces) THEN
          DO ikind = 1, SIZE(atomic_kind_set)
-            CALL mp_sum(force(ikind)%efield, para_env%group)
+            CALL para_env%group%sum(force(ikind)%efield)
          END DO
-         DEALLOCATE (atom_of_kind)
          DEALLOCATE (force_tmp)
          DEALLOCATE (cosab, sinab, work, dcosab, dsinab)
          DO i = 1, 3

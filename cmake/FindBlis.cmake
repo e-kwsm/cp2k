@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -16,7 +16,7 @@ include(FindPackageHandleStandardArgs)
 cp2k_set_default_paths(BLIS "BLIS")
 
 if(DEFINED AOCL_ROOT)
-  list(CP2K_BLIS_PREFIX "${AOCL_ROOT}" "$ENV{AOCL_ROOT}")
+  list(CP2K_BLIS_ROOT "${AOCL_ROOT}" "$ENV{AOCL_ROOT}")
 endif()
 
 # one day blis will have a pkg-config file
@@ -38,21 +38,25 @@ if(CP2K_BLIS_INCLUDE_DIRS)
     BLIS REQUIRED_VARS CP2K_BLIS_FOUND CP2K_BLIS_INCLUDE_DIRS
                        CP2K_BLIS_LINK_LIBRARIES)
 else()
-  find_package_handle_standard_args(BLIS REQUIRED_VARS CP2K_BLIS_FOUND
+  find_package_handle_standard_args(Blis REQUIRED_VARS CP2K_BLIS_FOUND
                                                        CP2K_BLIS_LINK_LIBRARIES)
 endif()
 
 # add target to link against
-if(CP2K_BLIS_FOUND AND NOT TARGET CP2K_BLIS::blis)
-  add_library(CP2K_BLIS::blis INTERFACE IMPORTED)
-endif()
+if(CP2K_BLIS_FOUND)
+  if(NOT TARGET CP2K::BLAS::Blis::blis)
+    add_library(CP2K::BLAS::Blis::blis INTERFACE IMPORTED)
+    add_library(CP2K::BLAS::Blis::blas alias CP2K::BLAS::Blis::blis)
+  endif()
 
-set_property(TARGET CP2K_BLIS::blis PROPERTY INTERFACE_LINK_LIBRARIES
-                                             ${CP2K_BLIS_LINK_LIBRARIES})
+  set_property(TARGET CP2K::BLAS::Blis::blis
+               PROPERTY INTERFACE_LINK_LIBRARIES ${CP2K_BLIS_LINK_LIBRARIES})
 
-if(BLIS_INCLUDE_DIRS)
-  set_property(TARGET CP2K_BLIS::blis PROPERTY INTERFACE_INCLUDE_DIRECTORIES
-                                               ${CP2K_BLIS_INCLUDE_DIRS})
+  if(BLIS_INCLUDE_DIRS)
+    set_property(
+      TARGET CP2K::BLAS::Blis::blis PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+                                             ${CP2K_BLIS_INCLUDE_DIRS})
+  endif()
 endif()
 
 # prevent clutter in cache

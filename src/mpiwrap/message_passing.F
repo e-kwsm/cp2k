@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -25,17 +25,41 @@ MODULE message_passing
                             C_PTR
    USE kinds, ONLY: &
       dp, int_4, int_4_size, int_8, int_8_size, real_4, real_4_size, real_8, &
-      real_8_size
+      real_8_size, default_string_length
    USE machine, ONLY: m_abort
 
 #include "../base/base_uses.f90"
 
-#if defined(__parallel) && !defined(__MPI_VERSION)
-#define __MPI_VERSION 3
+! To simplify the transition between the old MPI module and the F08-style module, we introduce these constants to switch between the required handle types
+! Unfortunately, Fortran does not offer something like typedef in C++
+#if defined(__parallel) && defined(__MPI_F08)
+#define MPI_DATA_TYPE TYPE(MPI_Datatype)
+#define MPI_COMM_TYPE TYPE(MPI_Comm)
+#define MPI_REQUEST_TYPE TYPE(MPI_Request)
+#define MPI_WIN_TYPE TYPE(MPI_Win)
+#define MPI_FILE_TYPE TYPE(MPI_File)
+#define MPI_INFO_TYPE TYPE(MPI_Info)
+#define MPI_STATUS_TYPE TYPE(MPI_Status)
+#define MPI_GROUP_TYPE TYPE(MPI_Group)
+#define MPI_STATUS_EXTRACT(X) %X
+#else
+#define MPI_DATA_TYPE INTEGER
+#define MPI_COMM_TYPE INTEGER
+#define MPI_REQUEST_TYPE INTEGER
+#define MPI_WIN_TYPE INTEGER
+#define MPI_FILE_TYPE INTEGER
+#define MPI_INFO_TYPE INTEGER
+#define MPI_STATUS_TYPE INTEGER, DIMENSION(MPI_STATUS_SIZE)
+#define MPI_GROUP_TYPE INTEGER
+#define MPI_STATUS_EXTRACT(X) (X)
 #endif
 
 #if defined(__parallel)
+#if defined(__MPI_F08)
+   USE mpi_f08
+#else
    USE mpi
+#endif
 ! subroutines: unfortunately, mpi implementations do not provide interfaces for all subroutines (problems with types and ranks explosion),
 !              we do not quite know what is in the module, so we can not include any....
 !              to nevertheless get checking for what is included, we use the mpi module without use clause, getting all there is
@@ -63,29 +87,22 @@ MODULE message_passing
 
    ! parameters that might be needed
 #if defined(__parallel)
-   INTEGER, PARAMETER     :: MP_STD_REAL = MPI_DOUBLE_PRECISION
-   INTEGER, PARAMETER     :: MP_STD_COMPLEX = MPI_DOUBLE_COMPLEX
-   INTEGER, PARAMETER     :: MP_STD_HALF_REAL = MPI_REAL
-   INTEGER, PARAMETER     :: MP_STD_HALF_COMPLEX = MPI_COMPLEX
-
    LOGICAL, PARAMETER :: cp2k_is_parallel = .TRUE.
    INTEGER, PARAMETER, PUBLIC :: mp_any_tag = MPI_ANY_TAG
    INTEGER, PARAMETER, PUBLIC :: mp_any_source = MPI_ANY_SOURCE
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_null = MPI_COMM_NULL
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_self = MPI_COMM_SELF
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_world = MPI_COMM_WORLD
-   INTEGER, PARAMETER, PUBLIC :: mp_request_null = MPI_REQUEST_NULL
-   INTEGER, PARAMETER, PUBLIC :: mp_win_null = MPI_WIN_NULL
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_null_handle = MPI_COMM_NULL
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_self_handle = MPI_COMM_SELF
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_world_handle = MPI_COMM_WORLD
+   MPI_REQUEST_TYPE, PARAMETER :: mp_request_null_handle = MPI_REQUEST_NULL
+   MPI_WIN_TYPE, PARAMETER :: mp_win_null_handle = MPI_WIN_NULL
+   MPI_FILE_TYPE, PARAMETER :: mp_file_null_handle = MPI_FILE_NULL
+   MPI_INFO_TYPE, PARAMETER :: mp_info_null_handle = MPI_INFO_NULL
    INTEGER, PARAMETER, PUBLIC :: mp_status_size = MPI_STATUS_SIZE
    INTEGER, PARAMETER, PUBLIC :: mp_proc_null = MPI_PROC_NULL
    ! Set max allocatable memory by MPI to 2 GiByte
    INTEGER(KIND=MPI_ADDRESS_KIND), PARAMETER, PRIVATE :: mp_max_memory_size = HUGE(INT(1, KIND=int_4))
 
-#if __MPI_VERSION > 2
    INTEGER, PARAMETER, PUBLIC :: mp_max_library_version_string = MPI_MAX_LIBRARY_VERSION_STRING
-#else
-   INTEGER, PARAMETER, PUBLIC :: mp_max_library_version_string = 1
-#endif
 
    INTEGER, PARAMETER, PUBLIC :: file_offset = MPI_OFFSET_KIND
    INTEGER, PARAMETER, PUBLIC :: address_kind = MPI_ADDRESS_KIND
@@ -99,13 +116,15 @@ MODULE message_passing
    LOGICAL, PARAMETER :: cp2k_is_parallel = .FALSE.
    INTEGER, PARAMETER, PUBLIC :: mp_any_tag = -1
    INTEGER, PARAMETER, PUBLIC :: mp_any_source = -2
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_null = -3
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_self = -11
-   INTEGER, PARAMETER, PUBLIC :: mp_comm_world = -12
-   INTEGER, PARAMETER, PUBLIC :: mp_request_null = -4
-   INTEGER, PARAMETER, PUBLIC :: mp_win_null = -5
-   INTEGER, PARAMETER, PUBLIC :: mp_status_size = -6
-   INTEGER, PARAMETER, PUBLIC :: mp_proc_null = -7
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_null_handle = -3
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_self_handle = -11
+   MPI_COMM_TYPE, PARAMETER :: mp_comm_world_handle = -12
+   MPI_REQUEST_TYPE, PARAMETER :: mp_request_null_handle = -4
+   MPI_WIN_TYPE, PARAMETER :: mp_win_null_handle = -5
+   MPI_FILE_TYPE, PARAMETER :: mp_file_null_handle = -6
+   MPI_INFO_TYPE, PARAMETER :: mp_info_null_handle = -7
+   INTEGER, PARAMETER, PUBLIC :: mp_status_size = -8
+   INTEGER, PARAMETER, PUBLIC :: mp_proc_null = -9
    INTEGER, PARAMETER, PUBLIC :: mp_max_library_version_string = 1
 
    INTEGER, PARAMETER, PUBLIC :: file_offset = int_8
@@ -116,7 +135,6 @@ MODULE message_passing
    INTEGER, PARAMETER, PUBLIC :: file_amode_rdwr = 8
    INTEGER, PARAMETER, PUBLIC :: file_amode_excl = 64
    INTEGER, PARAMETER, PUBLIC :: file_amode_append = 128
-
 #endif
 
    ! we need to fix this to a given number (crossing fingers)
@@ -126,336 +144,259 @@ MODULE message_passing
 
    CHARACTER(LEN=*), PARAMETER, PRIVATE :: moduleN = 'message_passing'
 
-#if defined(__parallel)
    ! internal reference counter used to debug communicator leaks
    INTEGER, PRIVATE, SAVE :: debug_comm_count
-#endif
 
-   ! init and error
-   PUBLIC :: mp_world_init, mp_world_finalize
-   PUBLIC :: mp_abort
+   PUBLIC :: mp_comm_type
+   PUBLIC :: mp_request_type
+   PUBLIC :: mp_win_type
+   PUBLIC :: mp_file_type
+   PUBLIC :: mp_info_type
+   PUBLIC :: mp_cart_type
 
-   ! performance gathering
-   PUBLIC :: mp_perf_env_type
-   PUBLIC :: mp_perf_env_retain, mp_perf_env_release
-   PUBLIC :: add_mp_perf_env, rm_mp_perf_env, get_mp_perf_env, describe_mp_perf_env
+   TYPE mp_comm_type
+      PRIVATE
+      MPI_COMM_TYPE :: handle = mp_comm_null_handle
+   CONTAINS
+      ! Setters/Getters
+      PROCEDURE, PASS, NON_OVERRIDABLE :: set_handle => mp_comm_type_set_handle
+      PROCEDURE, PASS, NON_OVERRIDABLE :: get_handle => mp_comm_type_get_handle
+      ! Comparisons
+      PROCEDURE, PRIVATE, PASS, NON_OVERRIDABLE :: mp_comm_op_eq
+      PROCEDURE, PRIVATE, PASS, NON_OVERRIDABLE :: mp_comm_op_neq
+      GENERIC, PUBLIC :: operator(.EQ.) => mp_comm_op_eq
+      GENERIC, PUBLIC :: operator(.NE.) => mp_comm_op_neq
+      ! Communication routines
 
-   ! informational / generation of sub comms
-   PUBLIC :: mp_environ, mp_comm_compare, mp_cart_coords, mp_rank_compare
-   PUBLIC :: mp_cart_create, mp_dims_create, mp_cart_rank, mp_cart_sub, mp_comm_free
-   PUBLIC :: mp_comm_dup, mp_comm_split, mp_comm_split_direct
-   PUBLIC :: cp2k_is_parallel
-   PUBLIC :: mp_probe
-   PUBLIC :: mp_get_node_global_rank
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: &
+         mp_sendrecv_iv, mp_sendrecv_im2, mp_sendrecv_im3, mp_sendrecv_im4, &
+         mp_sendrecv_lv, mp_sendrecv_lm2, mp_sendrecv_lm3, mp_sendrecv_lm4, &
+         mp_sendrecv_rv, mp_sendrecv_rm2, mp_sendrecv_rm3, mp_sendrecv_rm4, &
+         mp_sendrecv_dv, mp_sendrecv_dm2, mp_sendrecv_dm3, mp_sendrecv_dm4, &
+         mp_sendrecv_cv, mp_sendrecv_cm2, mp_sendrecv_cm3, mp_sendrecv_cm4, &
+         mp_sendrecv_zv, mp_sendrecv_zm2, mp_sendrecv_zm3, mp_sendrecv_zm4
+      GENERIC, PUBLIC :: sendrecv => mp_sendrecv_iv, mp_sendrecv_im2, mp_sendrecv_im3, mp_sendrecv_im4, &
+         mp_sendrecv_lv, mp_sendrecv_lm2, mp_sendrecv_lm3, mp_sendrecv_lm4, &
+         mp_sendrecv_rv, mp_sendrecv_rm2, mp_sendrecv_rm3, mp_sendrecv_rm4, &
+         mp_sendrecv_dv, mp_sendrecv_dm2, mp_sendrecv_dm3, mp_sendrecv_dm4, &
+         mp_sendrecv_cv, mp_sendrecv_cm2, mp_sendrecv_cm3, mp_sendrecv_cm4, &
+         mp_sendrecv_zv, mp_sendrecv_zm2, mp_sendrecv_zm3, mp_sendrecv_zm4
 
-   ! message passing
-   PUBLIC :: mp_bcast, mp_sum, mp_sum_partial, mp_max, mp_maxloc, mp_minloc, mp_min, mp_prod, mp_sync
-   PUBLIC :: mp_isync, mp_isum
-   PUBLIC :: mp_gather, mp_alltoall, mp_sendrecv, mp_allgather, mp_iallgather
-   PUBLIC :: mp_isend, mp_irecv, mp_ibcast
-   PUBLIC :: mp_shift, mp_isendrecv, mp_wait, mp_waitall, mp_waitany, mp_testany
-   PUBLIC :: mp_testall, mp_iscatter, mp_test
-   PUBLIC :: mp_gatherv
-   PUBLIC :: mp_send, mp_recv
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_minloc_iv, &
+         mp_minloc_lv, mp_minloc_rv, mp_minloc_dv
+      GENERIC, PUBLIC :: minloc => mp_minloc_iv, &
+         mp_minloc_lv, mp_minloc_rv, mp_minloc_dv
 
-   ! Memory management
-   PUBLIC :: mp_allocate, mp_deallocate
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_maxloc_iv, &
+         mp_maxloc_lv, mp_maxloc_rv, mp_maxloc_dv
+      GENERIC, PUBLIC :: maxloc => mp_maxloc_iv, &
+         mp_maxloc_lv, mp_maxloc_rv, mp_maxloc_dv
 
-   ! MPI re-ordering
-   PUBLIC :: mp_reordering
-
-   ! I/O
-   PUBLIC :: mp_file_open, mp_file_close
-   PUBLIC :: mp_file_delete
-   PUBLIC :: mp_file_write_at
-   PUBLIC :: mp_file_write_at_all, mp_file_read_at_all
-   PUBLIC :: mp_file_get_size
-   PUBLIC :: mp_file_get_position
-   PUBLIC :: mp_file_get_amode
-
-   ! some 'advanced types' currently only used for dbcsr
-   PUBLIC :: mp_type_descriptor_type
-   PUBLIC :: mp_type_make
-   PUBLIC :: mp_type_size
-
-   ! some benchmarking code
-   PUBLIC :: mpi_perf_test
-
-   ! one-sided communication
-   PUBLIC :: mp_win_create, mp_win_free, mp_win_lock_all, &
-             mp_win_unlock_all, mp_rget, mp_win_flush_all
-
-   ! vector types
-   PUBLIC :: mp_type_indexed_make_r, mp_type_indexed_make_d, &
-             mp_type_indexed_make_c, mp_type_indexed_make_z
-
-   ! More I/O types and routines: variable spaced data using bytes for spacings
-   PUBLIC :: mp_file_descriptor_type
-   PUBLIC :: mp_file_type_free
-   PUBLIC :: mp_file_type_hindexed_make_chv
-   PUBLIC :: mp_file_type_set_view_chv
-   PUBLIC :: mp_file_read_all_chv
-   PUBLIC :: mp_file_write_all_chv
-
-   PUBLIC :: mp_get_library_version
-
-   ! assumed to be private
-
-! Interface declarations for non-data-oriented subroutines.
-
-   INTERFACE mp_environ
-      MODULE PROCEDURE mp_environ_l, mp_environ_c, mp_environ_c2
-   END INTERFACE
-
-   INTERFACE mp_waitall
-      MODULE PROCEDURE mp_waitall_1, mp_waitall_2
-   END INTERFACE
-
-   INTERFACE mp_testall
-      MODULE PROCEDURE mp_testall_tv
-   END INTERFACE
-
-   INTERFACE mp_test
-      MODULE PROCEDURE mp_test_1
-   END INTERFACE
-
-   INTERFACE mp_testany
-      MODULE PROCEDURE mp_testany_1, mp_testany_2
-   END INTERFACE
-
-   INTERFACE mp_type_free
-      MODULE PROCEDURE mp_type_free_m, mp_type_free_v
-   END INTERFACE
-
-   !
-   ! interfaces to deal easily with scalars / vectors / matrices / ...
-   ! of the different types (integers, doubles, logicals, characters)
-   !
-   INTERFACE mp_minloc
-      MODULE PROCEDURE mp_minloc_iv, &
-         mp_minloc_lv, &
-         mp_minloc_rv, &
-         mp_minloc_dv
-   END INTERFACE
-
-   INTERFACE mp_maxloc
-      MODULE PROCEDURE mp_maxloc_iv, &
-         mp_maxloc_lv, &
-         mp_maxloc_rv, &
-         mp_maxloc_dv
-   END INTERFACE
-
-   INTERFACE mp_shift
-      MODULE PROCEDURE mp_shift_im, mp_shift_i, &
-         mp_shift_lm, mp_shift_l, &
-         mp_shift_rm, mp_shift_r, &
-         mp_shift_dm, mp_shift_d, &
-         mp_shift_cm, mp_shift_c, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_shift_im, mp_shift_i, &
+         mp_shift_lm, mp_shift_l, mp_shift_rm, mp_shift_r, &
+         mp_shift_dm, mp_shift_d, mp_shift_cm, mp_shift_c, &
          mp_shift_zm, mp_shift_z
-   END INTERFACE
+      GENERIC, PUBLIC :: shift => mp_shift_im, mp_shift_i, &
+         mp_shift_lm, mp_shift_l, mp_shift_rm, mp_shift_r, &
+         mp_shift_dm, mp_shift_d, mp_shift_cm, mp_shift_c, &
+         mp_shift_zm, mp_shift_z
 
-   INTERFACE mp_bcast
-      MODULE PROCEDURE mp_bcast_i, mp_bcast_iv, mp_bcast_im, mp_bcast_i3, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_bcast_i, mp_bcast_iv, mp_bcast_im, mp_bcast_i3, &
          mp_bcast_l, mp_bcast_lv, mp_bcast_lm, mp_bcast_l3, &
          mp_bcast_r, mp_bcast_rv, mp_bcast_rm, mp_bcast_r3, &
          mp_bcast_d, mp_bcast_dv, mp_bcast_dm, mp_bcast_d3, &
          mp_bcast_c, mp_bcast_cv, mp_bcast_cm, mp_bcast_c3, &
-         mp_bcast_z, mp_bcast_zv, mp_bcast_zm, mp_bcast_z3
-      MODULE PROCEDURE mp_bcast_b, mp_bcast_bv
-      MODULE PROCEDURE mp_bcast_av, mp_bcast_am
-   END INTERFACE
+         mp_bcast_z, mp_bcast_zv, mp_bcast_zm, mp_bcast_z3, &
+         mp_bcast_b, mp_bcast_bv, mp_bcast_av, mp_bcast_am
+      GENERIC, PUBLIC :: bcast => mp_bcast_i, mp_bcast_iv, mp_bcast_im, mp_bcast_i3, &
+         mp_bcast_l, mp_bcast_lv, mp_bcast_lm, mp_bcast_l3, &
+         mp_bcast_r, mp_bcast_rv, mp_bcast_rm, mp_bcast_r3, &
+         mp_bcast_d, mp_bcast_dv, mp_bcast_dm, mp_bcast_d3, &
+         mp_bcast_c, mp_bcast_cv, mp_bcast_cm, mp_bcast_c3, &
+         mp_bcast_z, mp_bcast_zv, mp_bcast_zm, mp_bcast_z3, &
+         mp_bcast_b, mp_bcast_bv, mp_bcast_av, mp_bcast_am
 
-   INTERFACE mp_ibcast
-      MODULE PROCEDURE mp_ibcast_i, mp_ibcast_iv, &
-         mp_ibcast_l, mp_ibcast_lv, &
-         mp_ibcast_r, mp_ibcast_rv, &
-         mp_ibcast_d, mp_ibcast_dv, &
-         mp_ibcast_c, mp_ibcast_cv, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_ibcast_i, mp_ibcast_iv, &
+         mp_ibcast_l, mp_ibcast_lv, mp_ibcast_r, mp_ibcast_rv, &
+         mp_ibcast_d, mp_ibcast_dv, mp_ibcast_c, mp_ibcast_cv, &
          mp_ibcast_z, mp_ibcast_zv
-   END INTERFACE
+      GENERIC, PUBLIC :: ibcast => mp_ibcast_i, mp_ibcast_iv, &
+         mp_ibcast_l, mp_ibcast_lv, mp_ibcast_r, mp_ibcast_rv, &
+         mp_ibcast_d, mp_ibcast_dv, mp_ibcast_c, mp_ibcast_cv, &
+         mp_ibcast_z, mp_ibcast_zv
 
-   INTERFACE mp_sum
-      MODULE PROCEDURE mp_sum_i, mp_sum_iv, mp_sum_im, mp_sum_im3, mp_sum_im4, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: &
+         mp_sum_i, mp_sum_iv, mp_sum_im, mp_sum_im3, mp_sum_im4, &
          mp_sum_l, mp_sum_lv, mp_sum_lm, mp_sum_lm3, mp_sum_lm4, &
          mp_sum_r, mp_sum_rv, mp_sum_rm, mp_sum_rm3, mp_sum_rm4, &
          mp_sum_d, mp_sum_dv, mp_sum_dm, mp_sum_dm3, mp_sum_dm4, &
          mp_sum_c, mp_sum_cv, mp_sum_cm, mp_sum_cm3, mp_sum_cm4, &
          mp_sum_z, mp_sum_zv, mp_sum_zm, mp_sum_zm3, mp_sum_zm4, &
-         mp_sum_root_iv, mp_sum_root_im, &
-         mp_sum_root_lv, mp_sum_root_lm, &
-         mp_sum_root_rv, mp_sum_root_rm, &
-         mp_sum_root_dv, mp_sum_root_dm, &
-         mp_sum_root_cv, mp_sum_root_cm, &
-         mp_sum_root_zv, mp_sum_root_zm
-      MODULE PROCEDURE mp_sum_b, mp_sum_bv
-   END INTERFACE
+         mp_sum_root_iv, mp_sum_root_im, mp_sum_root_lv, mp_sum_root_lm, &
+         mp_sum_root_rv, mp_sum_root_rm, mp_sum_root_dv, mp_sum_root_dm, &
+         mp_sum_root_cv, mp_sum_root_cm, mp_sum_root_zv, mp_sum_root_zm, &
+         mp_sum_b, mp_sum_bv
+      GENERIC, PUBLIC :: sum => mp_sum_i, mp_sum_iv, mp_sum_im, mp_sum_im3, mp_sum_im4, &
+         mp_sum_l, mp_sum_lv, mp_sum_lm, mp_sum_lm3, mp_sum_lm4, &
+         mp_sum_r, mp_sum_rv, mp_sum_rm, mp_sum_rm3, mp_sum_rm4, &
+         mp_sum_d, mp_sum_dv, mp_sum_dm, mp_sum_dm3, mp_sum_dm4, &
+         mp_sum_c, mp_sum_cv, mp_sum_cm, mp_sum_cm3, mp_sum_cm4, &
+         mp_sum_z, mp_sum_zv, mp_sum_zm, mp_sum_zm3, mp_sum_zm4, &
+         mp_sum_root_iv, mp_sum_root_im, mp_sum_root_lv, mp_sum_root_lm, &
+         mp_sum_root_rv, mp_sum_root_rm, mp_sum_root_dv, mp_sum_root_dm, &
+         mp_sum_root_cv, mp_sum_root_cm, mp_sum_root_zv, mp_sum_root_zm, &
+         mp_sum_b, mp_sum_bv
 
-   INTERFACE mp_isum
-      MODULE PROCEDURE mp_isum_iv, &
-         mp_isum_lv, &
-         mp_isum_rv, &
-         mp_isum_dv, &
-         mp_isum_cv, &
-         mp_isum_zv
-      MODULE PROCEDURE mp_isum_bv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_isum_iv, &
+         mp_isum_lv, mp_isum_rv, mp_isum_dv, mp_isum_cv, &
+         mp_isum_zv, mp_isum_bv
+      GENERIC, PUBLIC :: isum => mp_isum_iv, &
+         mp_isum_lv, mp_isum_rv, mp_isum_dv, mp_isum_cv, &
+         mp_isum_zv, mp_isum_bv
 
-   INTERFACE mp_sum_partial
-      MODULE PROCEDURE mp_sum_partial_im, &
-         mp_sum_partial_lm, &
-         mp_sum_partial_rm, &
-         mp_sum_partial_dm, &
-         mp_sum_partial_cm, &
-         mp_sum_partial_zm
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_sum_partial_im, &
+         mp_sum_partial_lm, mp_sum_partial_rm, mp_sum_partial_dm, &
+         mp_sum_partial_cm, mp_sum_partial_zm
+      GENERIC, PUBLIC :: sum_partial => mp_sum_partial_im, &
+         mp_sum_partial_lm, mp_sum_partial_rm, mp_sum_partial_dm, &
+         mp_sum_partial_cm, mp_sum_partial_zm
 
-   INTERFACE mp_max
-      MODULE PROCEDURE mp_max_i, mp_max_iv, &
-         mp_max_l, mp_max_lv, &
-         mp_max_r, mp_max_rv, &
-         mp_max_d, mp_max_dv, &
-         mp_max_c, mp_max_cv, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_max_i, mp_max_iv, &
+         mp_max_l, mp_max_lv, mp_max_r, mp_max_rv, &
+         mp_max_d, mp_max_dv, mp_max_c, mp_max_cv, &
          mp_max_z, mp_max_zv
-   END INTERFACE
+      GENERIC, PUBLIC :: max => mp_max_i, mp_max_iv, &
+         mp_max_l, mp_max_lv, mp_max_r, mp_max_rv, &
+         mp_max_d, mp_max_dv, mp_max_c, mp_max_cv, &
+         mp_max_z, mp_max_zv
 
-   INTERFACE mp_min
-      MODULE PROCEDURE mp_min_i, mp_min_iv, &
-         mp_min_l, mp_min_lv, &
-         mp_min_r, mp_min_rv, &
-         mp_min_d, mp_min_dv, &
-         mp_min_c, mp_min_cv, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_min_i, mp_min_iv, &
+         mp_min_l, mp_min_lv, mp_min_r, mp_min_rv, &
+         mp_min_d, mp_min_dv, mp_min_c, mp_min_cv, &
          mp_min_z, mp_min_zv
-   END INTERFACE
+      GENERIC, PUBLIC :: min => mp_min_i, mp_min_iv, &
+         mp_min_l, mp_min_lv, mp_min_r, mp_min_rv, &
+         mp_min_d, mp_min_dv, mp_min_c, mp_min_cv, &
+         mp_min_z, mp_min_zv
 
-   INTERFACE mp_prod
-      MODULE PROCEDURE mp_prod_r, mp_prod_d, mp_prod_c, mp_prod_z
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_prod_r, mp_prod_d, mp_prod_c, mp_prod_z
+      GENERIC, PUBLIC :: prod => mp_prod_r, mp_prod_d, mp_prod_c, mp_prod_z
 
-   INTERFACE mp_gather
-      MODULE PROCEDURE mp_gather_i, mp_gather_iv, mp_gather_im, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_gather_i, mp_gather_iv, mp_gather_im, &
          mp_gather_l, mp_gather_lv, mp_gather_lm, &
          mp_gather_r, mp_gather_rv, mp_gather_rm, &
          mp_gather_d, mp_gather_dv, mp_gather_dm, &
          mp_gather_c, mp_gather_cv, mp_gather_cm, &
          mp_gather_z, mp_gather_zv, mp_gather_zm
-   END INTERFACE
+      GENERIC, PUBLIC :: gather => mp_gather_i, mp_gather_iv, mp_gather_im, &
+         mp_gather_l, mp_gather_lv, mp_gather_lm, &
+         mp_gather_r, mp_gather_rv, mp_gather_rm, &
+         mp_gather_d, mp_gather_dv, mp_gather_dm, &
+         mp_gather_c, mp_gather_cv, mp_gather_cm, &
+         mp_gather_z, mp_gather_zv, mp_gather_zm
 
-   INTERFACE mp_gatherv
-      MODULE PROCEDURE mp_gatherv_iv, &
-         mp_gatherv_lv, &
-         mp_gatherv_rv, &
-         mp_gatherv_dv, &
-         mp_gatherv_cv, &
-         mp_gatherv_zv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_gatherv_iv, &
+         mp_gatherv_lv, mp_gatherv_rv, mp_gatherv_dv, &
+         mp_gatherv_cv, mp_gatherv_zv, mp_gatherv_lm2, mp_gatherv_rm2, &
+         mp_gatherv_dm2, mp_gatherv_cm2, mp_gatherv_zm2
+      GENERIC, PUBLIC :: gatherv => mp_gatherv_iv, &
+         mp_gatherv_lv, mp_gatherv_rv, mp_gatherv_dv, &
+         mp_gatherv_cv, mp_gatherv_zv, mp_gatherv_lm2, mp_gatherv_rm2, &
+         mp_gatherv_dm2, mp_gatherv_cm2, mp_gatherv_zm2
 
-   INTERFACE mp_igatherv
-      MODULE PROCEDURE mp_igatherv_iv, &
-         mp_igatherv_lv, &
-         mp_igatherv_rv, &
-         mp_igatherv_dv, &
-         mp_igatherv_cv, &
-         mp_igatherv_zv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_igatherv_iv, &
+         mp_igatherv_lv, mp_igatherv_rv, mp_igatherv_dv, &
+         mp_igatherv_cv, mp_igatherv_zv
+      GENERIC, PUBLIC :: igatherv => mp_igatherv_iv, &
+         mp_igatherv_lv, mp_igatherv_rv, mp_igatherv_dv, &
+         mp_igatherv_cv, mp_igatherv_zv
 
-!> todo: move allgatherv to a separate declaration
-   INTERFACE mp_allgather
-      MODULE PROCEDURE &
-         mp_allgather_i, mp_allgather_i2, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_allgather_i, mp_allgather_i2, &
          mp_allgather_i12, mp_allgather_i23, mp_allgather_i34, &
-         mp_allgather_i22, &
-         mp_allgather_l, mp_allgather_l2, &
+         mp_allgather_i22, mp_allgather_l, mp_allgather_l2, &
          mp_allgather_l12, mp_allgather_l23, mp_allgather_l34, &
-         mp_allgather_l22, &
-         mp_allgather_r, mp_allgather_r2, &
+         mp_allgather_l22, mp_allgather_r, mp_allgather_r2, &
          mp_allgather_r12, mp_allgather_r23, mp_allgather_r34, &
-         mp_allgather_r22, &
-         mp_allgather_d, mp_allgather_d2, &
+         mp_allgather_r22, mp_allgather_d, mp_allgather_d2, &
          mp_allgather_d12, mp_allgather_d23, mp_allgather_d34, &
-         mp_allgather_d22, &
-         mp_allgather_c, mp_allgather_c2, &
+         mp_allgather_d22, mp_allgather_c, mp_allgather_c2, &
          mp_allgather_c12, mp_allgather_c23, mp_allgather_c34, &
-         mp_allgather_c22, &
-         mp_allgather_z, mp_allgather_z2, &
+         mp_allgather_c22, mp_allgather_z, mp_allgather_z2, &
          mp_allgather_z12, mp_allgather_z23, mp_allgather_z34, &
-         mp_allgather_z22, &
-         mp_allgatherv_iv, &
-         mp_allgatherv_lv, &
-         mp_allgatherv_rv, &
-         mp_allgatherv_dv, &
-         mp_allgatherv_cv, &
-         mp_allgatherv_zv
-   END INTERFACE
+         mp_allgather_z22
+      GENERIC, PUBLIC :: allgather => mp_allgather_i, mp_allgather_i2, &
+         mp_allgather_i12, mp_allgather_i23, mp_allgather_i34, &
+         mp_allgather_i22, mp_allgather_l, mp_allgather_l2, &
+         mp_allgather_l12, mp_allgather_l23, mp_allgather_l34, &
+         mp_allgather_l22, mp_allgather_r, mp_allgather_r2, &
+         mp_allgather_r12, mp_allgather_r23, mp_allgather_r34, &
+         mp_allgather_r22, mp_allgather_d, mp_allgather_d2, &
+         mp_allgather_d12, mp_allgather_d23, mp_allgather_d34, &
+         mp_allgather_d22, mp_allgather_c, mp_allgather_c2, &
+         mp_allgather_c12, mp_allgather_c23, mp_allgather_c34, &
+         mp_allgather_c22, mp_allgather_z, mp_allgather_z2, &
+         mp_allgather_z12, mp_allgather_z23, mp_allgather_z34, &
+         mp_allgather_z22
 
-   INTERFACE mp_iallgather
-      MODULE PROCEDURE &
-         mp_iallgather_i, mp_iallgather_l, &
-         mp_iallgather_r, mp_iallgather_d, &
-         mp_iallgather_c, mp_iallgather_z, &
-         mp_iallgather_i11, mp_iallgather_l11, &
-         mp_iallgather_r11, mp_iallgather_d11, &
-         mp_iallgather_c11, mp_iallgather_z11, &
-         mp_iallgather_i13, mp_iallgather_l13, &
-         mp_iallgather_r13, mp_iallgather_d13, &
-         mp_iallgather_c13, mp_iallgather_z13, &
-         mp_iallgather_i22, mp_iallgather_l22, &
-         mp_iallgather_r22, mp_iallgather_d22, &
-         mp_iallgather_c22, mp_iallgather_z22, &
-         mp_iallgather_i24, mp_iallgather_l24, &
-         mp_iallgather_r24, mp_iallgather_d24, &
-         mp_iallgather_c24, mp_iallgather_z24, &
-         mp_iallgather_i33, mp_iallgather_l33, &
-         mp_iallgather_r33, mp_iallgather_d33, &
-         mp_iallgather_c33, mp_iallgather_z33, &
-         mp_iallgatherv_iv, mp_iallgatherv_iv2, &
-         mp_iallgatherv_lv, mp_iallgatherv_lv2, &
-         mp_iallgatherv_rv, mp_iallgatherv_rv2, &
-         mp_iallgatherv_dv, mp_iallgatherv_dv2, &
-         mp_iallgatherv_cv, mp_iallgatherv_cv2, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE ::  mp_allgatherv_iv, mp_allgatherv_lv, &
+         mp_allgatherv_rv, mp_allgatherv_dv, mp_allgatherv_cv, mp_allgatherv_zv, &
+         mp_allgatherv_im2, mp_allgatherv_lm2, mp_allgatherv_rm2, &
+         mp_allgatherv_dm2, mp_allgatherv_cm2, mp_allgatherv_zm2
+      GENERIC, PUBLIC :: allgatherv => mp_allgatherv_iv, mp_allgatherv_lv, &
+         mp_allgatherv_rv, mp_allgatherv_dv, mp_allgatherv_cv, mp_allgatherv_zv, &
+         mp_allgatherv_im2, mp_allgatherv_lm2, mp_allgatherv_rm2, &
+         mp_allgatherv_dm2, mp_allgatherv_cm2, mp_allgatherv_zm2
+
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_iallgather_i, mp_iallgather_l, &
+         mp_iallgather_r, mp_iallgather_d, mp_iallgather_c, mp_iallgather_z, &
+         mp_iallgather_i11, mp_iallgather_l11, mp_iallgather_r11, mp_iallgather_d11, &
+         mp_iallgather_c11, mp_iallgather_z11, mp_iallgather_i13, mp_iallgather_l13, &
+         mp_iallgather_r13, mp_iallgather_d13, mp_iallgather_c13, mp_iallgather_z13, &
+         mp_iallgather_i22, mp_iallgather_l22, mp_iallgather_r22, mp_iallgather_d22, &
+         mp_iallgather_c22, mp_iallgather_z22, mp_iallgather_i24, mp_iallgather_l24, &
+         mp_iallgather_r24, mp_iallgather_d24, mp_iallgather_c24, mp_iallgather_z24, &
+         mp_iallgather_i33, mp_iallgather_l33, mp_iallgather_r33, mp_iallgather_d33, &
+         mp_iallgather_c33, mp_iallgather_z33
+      GENERIC, PUBLIC :: iallgather => mp_iallgather_i, mp_iallgather_l, &
+         mp_iallgather_r, mp_iallgather_d, mp_iallgather_c, mp_iallgather_z, &
+         mp_iallgather_i11, mp_iallgather_l11, mp_iallgather_r11, mp_iallgather_d11, &
+         mp_iallgather_c11, mp_iallgather_z11, mp_iallgather_i13, mp_iallgather_l13, &
+         mp_iallgather_r13, mp_iallgather_d13, mp_iallgather_c13, mp_iallgather_z13, &
+         mp_iallgather_i22, mp_iallgather_l22, mp_iallgather_r22, mp_iallgather_d22, &
+         mp_iallgather_c22, mp_iallgather_z22, mp_iallgather_i24, mp_iallgather_l24, &
+         mp_iallgather_r24, mp_iallgather_d24, mp_iallgather_c24, mp_iallgather_z24, &
+         mp_iallgather_i33, mp_iallgather_l33, mp_iallgather_r33, mp_iallgather_d33, &
+         mp_iallgather_c33, mp_iallgather_z33
+
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_iallgatherv_iv, mp_iallgatherv_iv2, &
+         mp_iallgatherv_lv, mp_iallgatherv_lv2, mp_iallgatherv_rv, mp_iallgatherv_rv2, &
+         mp_iallgatherv_dv, mp_iallgatherv_dv2, mp_iallgatherv_cv, mp_iallgatherv_cv2, &
          mp_iallgatherv_zv, mp_iallgatherv_zv2
-   END INTERFACE
+      GENERIC, PUBLIC :: iallgatherv => mp_iallgatherv_iv, mp_iallgatherv_iv2, &
+         mp_iallgatherv_lv, mp_iallgatherv_lv2, mp_iallgatherv_rv, mp_iallgatherv_rv2, &
+         mp_iallgatherv_dv, mp_iallgatherv_dv2, mp_iallgatherv_cv, mp_iallgatherv_cv2, &
+         mp_iallgatherv_zv, mp_iallgatherv_zv2
 
-   INTERFACE mp_scatter
-      MODULE PROCEDURE mp_scatter_iv, &
-         mp_scatter_lv, &
-         mp_scatter_rv, &
-         mp_scatter_dv, &
-         mp_scatter_cv, &
-         mp_scatter_zv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_scatter_iv, mp_scatter_lv, &
+         mp_scatter_rv, mp_scatter_dv, mp_scatter_cv, mp_scatter_zv
+      GENERIC, PUBLIC :: scatter => mp_scatter_iv, mp_scatter_lv, &
+         mp_scatter_rv, mp_scatter_dv, mp_scatter_cv, mp_scatter_zv
 
-   INTERFACE mp_iscatter
-      MODULE PROCEDURE mp_iscatter_i, &
-         mp_iscatter_l, &
-         mp_iscatter_r, &
-         mp_iscatter_d, &
-         mp_iscatter_c, &
-         mp_iscatter_z, &
-         mp_iscatter_iv2, &
-         mp_iscatter_lv2, &
-         mp_iscatter_rv2, &
-         mp_iscatter_dv2, &
-         mp_iscatter_cv2, &
-         mp_iscatter_zv2, &
-         mp_iscatterv_iv, &
-         mp_iscatterv_lv, &
-         mp_iscatterv_rv, &
-         mp_iscatterv_dv, &
-         mp_iscatterv_cv, &
-         mp_iscatterv_zv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_iscatter_i, mp_iscatter_l, &
+         mp_iscatter_r, mp_iscatter_d, mp_iscatter_c, mp_iscatter_z, &
+         mp_iscatter_iv2, mp_iscatter_lv2, mp_iscatter_rv2, mp_iscatter_dv2, &
+         mp_iscatter_cv2, mp_iscatter_zv2
+      GENERIC, PUBLIC :: iscatter => mp_iscatter_i, mp_iscatter_l, &
+         mp_iscatter_r, mp_iscatter_d, mp_iscatter_c, mp_iscatter_z, &
+         mp_iscatter_iv2, mp_iscatter_lv2, mp_iscatter_rv2, mp_iscatter_dv2, &
+         mp_iscatter_cv2, mp_iscatter_zv2
 
-   INTERFACE mp_sum_scatter
-      MODULE PROCEDURE mp_sum_scatter_iv, &
-         mp_sum_scatter_lv, &
-         mp_sum_scatter_rv, &
-         mp_sum_scatter_dv, &
-         mp_sum_scatter_cv, &
-         mp_sum_scatter_zv
-   END INTERFACE
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_iscatterv_iv, mp_iscatterv_lv, &
+         mp_iscatterv_rv, mp_iscatterv_dv, mp_iscatterv_cv, mp_iscatterv_zv
+      GENERIC, PUBLIC :: iscatterv => mp_iscatterv_iv, mp_iscatterv_lv, &
+         mp_iscatterv_rv, mp_iscatterv_dv, mp_iscatterv_cv, mp_iscatterv_zv
 
-   INTERFACE mp_alltoall
-      MODULE PROCEDURE mp_alltoall_i, mp_alltoall_i22, mp_alltoall_i33, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_alltoall_i, mp_alltoall_i22, mp_alltoall_i33, &
          mp_alltoall_i44, mp_alltoall_i55, mp_alltoall_i45, mp_alltoall_i34, &
          mp_alltoall_i11v, mp_alltoall_i22v, mp_alltoall_i54, &
          mp_alltoall_l, mp_alltoall_l22, mp_alltoall_l33, &
@@ -473,84 +414,328 @@ MODULE message_passing
          mp_alltoall_z, mp_alltoall_z22, mp_alltoall_z33, &
          mp_alltoall_z44, mp_alltoall_z55, mp_alltoall_z45, mp_alltoall_z34, &
          mp_alltoall_z11v, mp_alltoall_z22v, mp_alltoall_z54
-   END INTERFACE
+      GENERIC, PUBLIC :: alltoall => mp_alltoall_i, mp_alltoall_i22, mp_alltoall_i33, &
+         mp_alltoall_i44, mp_alltoall_i55, mp_alltoall_i45, mp_alltoall_i34, &
+         mp_alltoall_i11v, mp_alltoall_i22v, mp_alltoall_i54, &
+         mp_alltoall_l, mp_alltoall_l22, mp_alltoall_l33, &
+         mp_alltoall_l44, mp_alltoall_l55, mp_alltoall_l45, mp_alltoall_l34, &
+         mp_alltoall_l11v, mp_alltoall_l22v, mp_alltoall_l54, &
+         mp_alltoall_r, mp_alltoall_r22, mp_alltoall_r33, &
+         mp_alltoall_r44, mp_alltoall_r55, mp_alltoall_r45, mp_alltoall_r34, &
+         mp_alltoall_r11v, mp_alltoall_r22v, mp_alltoall_r54, &
+         mp_alltoall_d, mp_alltoall_d22, mp_alltoall_d33, &
+         mp_alltoall_d44, mp_alltoall_d55, mp_alltoall_d45, mp_alltoall_d34, &
+         mp_alltoall_d11v, mp_alltoall_d22v, mp_alltoall_d54, &
+         mp_alltoall_c, mp_alltoall_c22, mp_alltoall_c33, &
+         mp_alltoall_c44, mp_alltoall_c55, mp_alltoall_c45, mp_alltoall_c34, &
+         mp_alltoall_c11v, mp_alltoall_c22v, mp_alltoall_c54, &
+         mp_alltoall_z, mp_alltoall_z22, mp_alltoall_z33, &
+         mp_alltoall_z44, mp_alltoall_z55, mp_alltoall_z45, mp_alltoall_z34, &
+         mp_alltoall_z11v, mp_alltoall_z22v, mp_alltoall_z54
 
-   INTERFACE mp_send
-      MODULE PROCEDURE mp_send_i, mp_send_iv, mp_send_im2, mp_send_im3, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_send_i, mp_send_iv, mp_send_im2, mp_send_im3, &
          mp_send_l, mp_send_lv, mp_send_lm2, mp_send_lm3, &
          mp_send_r, mp_send_rv, mp_send_rm2, mp_send_rm3, &
          mp_send_d, mp_send_dv, mp_send_dm2, mp_send_dm3, &
          mp_send_c, mp_send_cv, mp_send_cm2, mp_send_cm3, &
          mp_send_z, mp_send_zv, mp_send_zm2, mp_send_zm3
-   END INTERFACE
+      GENERIC, PUBLIC :: send => mp_send_i, mp_send_iv, mp_send_im2, mp_send_im3, &
+         mp_send_l, mp_send_lv, mp_send_lm2, mp_send_lm3, &
+         mp_send_r, mp_send_rv, mp_send_rm2, mp_send_rm3, &
+         mp_send_d, mp_send_dv, mp_send_dm2, mp_send_dm3, &
+         mp_send_c, mp_send_cv, mp_send_cm2, mp_send_cm3, &
+         mp_send_z, mp_send_zv, mp_send_zm2, mp_send_zm3
 
-   INTERFACE mp_recv
-      MODULE PROCEDURE mp_recv_i, mp_recv_iv, mp_recv_im2, mp_recv_im3, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_recv_i, mp_recv_iv, mp_recv_im2, mp_recv_im3, &
          mp_recv_l, mp_recv_lv, mp_recv_lm2, mp_recv_lm3, &
          mp_recv_r, mp_recv_rv, mp_recv_rm2, mp_recv_rm3, &
          mp_recv_d, mp_recv_dv, mp_recv_dm2, mp_recv_dm3, &
          mp_recv_c, mp_recv_cv, mp_recv_cm2, mp_recv_cm3, &
          mp_recv_z, mp_recv_zv, mp_recv_zm2, mp_recv_zm3
-   END INTERFACE
+      GENERIC, PUBLIC :: recv => mp_recv_i, mp_recv_iv, mp_recv_im2, mp_recv_im3, &
+         mp_recv_l, mp_recv_lv, mp_recv_lm2, mp_recv_lm3, &
+         mp_recv_r, mp_recv_rv, mp_recv_rm2, mp_recv_rm3, &
+         mp_recv_d, mp_recv_dv, mp_recv_dm2, mp_recv_dm3, &
+         mp_recv_c, mp_recv_cv, mp_recv_cm2, mp_recv_cm3, &
+         mp_recv_z, mp_recv_zv, mp_recv_zm2, mp_recv_zm3
 
-   INTERFACE mp_sendrecv
-      MODULE PROCEDURE mp_sendrecv_iv, mp_sendrecv_im2, mp_sendrecv_im3, mp_sendrecv_im4, &
-         mp_sendrecv_lv, mp_sendrecv_lm2, mp_sendrecv_lm3, mp_sendrecv_lm4, &
-         mp_sendrecv_rv, mp_sendrecv_rm2, mp_sendrecv_rm3, mp_sendrecv_rm4, &
-         mp_sendrecv_dv, mp_sendrecv_dm2, mp_sendrecv_dm3, mp_sendrecv_dm4, &
-         mp_sendrecv_cv, mp_sendrecv_cm2, mp_sendrecv_cm3, mp_sendrecv_cm4, &
-         mp_sendrecv_zv, mp_sendrecv_zm2, mp_sendrecv_zm3, mp_sendrecv_zm4
-   END INTERFACE
-
-   INTERFACE mp_isendrecv
-      MODULE PROCEDURE mp_isendrecv_i, mp_isendrecv_iv, &
-         mp_isendrecv_l, mp_isendrecv_lv, &
-         mp_isendrecv_r, mp_isendrecv_rv, &
-         mp_isendrecv_d, mp_isendrecv_dv, &
-         mp_isendrecv_c, mp_isendrecv_cv, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_isendrecv_i, mp_isendrecv_iv, &
+         mp_isendrecv_l, mp_isendrecv_lv, mp_isendrecv_r, mp_isendrecv_rv, &
+         mp_isendrecv_d, mp_isendrecv_dv, mp_isendrecv_c, mp_isendrecv_cv, &
          mp_isendrecv_z, mp_isendrecv_zv
-   END INTERFACE
+      GENERIC, PUBLIC :: isendrecv => mp_isendrecv_i, mp_isendrecv_iv, &
+         mp_isendrecv_l, mp_isendrecv_lv, mp_isendrecv_r, mp_isendrecv_rv, &
+         mp_isendrecv_d, mp_isendrecv_dv, mp_isendrecv_c, mp_isendrecv_cv, &
+         mp_isendrecv_z, mp_isendrecv_zv
 
-   INTERFACE mp_isend
-      MODULE PROCEDURE mp_isend_iv, mp_isend_im2, mp_isend_im3, mp_isend_im4, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_isend_iv, mp_isend_im2, mp_isend_im3, mp_isend_im4, &
          mp_isend_lv, mp_isend_lm2, mp_isend_lm3, mp_isend_lm4, &
          mp_isend_rv, mp_isend_rm2, mp_isend_rm3, mp_isend_rm4, &
          mp_isend_dv, mp_isend_dm2, mp_isend_dm3, mp_isend_dm4, &
          mp_isend_cv, mp_isend_cm2, mp_isend_cm3, mp_isend_cm4, &
-         mp_isend_zv, mp_isend_zm2, mp_isend_zm3, mp_isend_zm4
-      MODULE PROCEDURE mp_isend_bv, mp_isend_bm3
-      MODULE PROCEDURE mp_isend_custom
-   END INTERFACE
+         mp_isend_zv, mp_isend_zm2, mp_isend_zm3, mp_isend_zm4, &
+         mp_isend_bv, mp_isend_bm3, mp_isend_custom
+      GENERIC, PUBLIC :: isend => mp_isend_iv, mp_isend_im2, mp_isend_im3, mp_isend_im4, &
+         mp_isend_lv, mp_isend_lm2, mp_isend_lm3, mp_isend_lm4, &
+         mp_isend_rv, mp_isend_rm2, mp_isend_rm3, mp_isend_rm4, &
+         mp_isend_dv, mp_isend_dm2, mp_isend_dm3, mp_isend_dm4, &
+         mp_isend_cv, mp_isend_cm2, mp_isend_cm3, mp_isend_cm4, &
+         mp_isend_zv, mp_isend_zm2, mp_isend_zm3, mp_isend_zm4, &
+         mp_isend_bv, mp_isend_bm3, mp_isend_custom
 
-   INTERFACE mp_irecv
-      MODULE PROCEDURE mp_irecv_iv, mp_irecv_im2, mp_irecv_im3, mp_irecv_im4, &
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_irecv_iv, mp_irecv_im2, mp_irecv_im3, mp_irecv_im4, &
          mp_irecv_lv, mp_irecv_lm2, mp_irecv_lm3, mp_irecv_lm4, &
          mp_irecv_rv, mp_irecv_rm2, mp_irecv_rm3, mp_irecv_rm4, &
          mp_irecv_dv, mp_irecv_dm2, mp_irecv_dm3, mp_irecv_dm4, &
          mp_irecv_cv, mp_irecv_cm2, mp_irecv_cm3, mp_irecv_cm4, &
-         mp_irecv_zv, mp_irecv_zm2, mp_irecv_zm3, mp_irecv_zm4
-      MODULE PROCEDURE mp_irecv_bv, mp_irecv_bm3
-      MODULE PROCEDURE mp_irecv_custom
+         mp_irecv_zv, mp_irecv_zm2, mp_irecv_zm3, mp_irecv_zm4, &
+         mp_irecv_bv, mp_irecv_bm3, mp_irecv_custom
+      GENERIC, PUBLIC :: irecv => mp_irecv_iv, mp_irecv_im2, mp_irecv_im3, mp_irecv_im4, &
+         mp_irecv_lv, mp_irecv_lm2, mp_irecv_lm3, mp_irecv_lm4, &
+         mp_irecv_rv, mp_irecv_rm2, mp_irecv_rm3, mp_irecv_rm4, &
+         mp_irecv_dv, mp_irecv_dm2, mp_irecv_dm3, mp_irecv_dm4, &
+         mp_irecv_cv, mp_irecv_cm2, mp_irecv_cm3, mp_irecv_cm4, &
+         mp_irecv_zv, mp_irecv_zm2, mp_irecv_zm3, mp_irecv_zm4, &
+         mp_irecv_bv, mp_irecv_bm3, mp_irecv_custom
+
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: probe => mp_probe
+
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: sync => mp_sync
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: isync => mp_isync
+
+      PROCEDURE, PUBLIC, PASS(comm1), NON_OVERRIDABLE :: compare => mp_comm_compare
+      PROCEDURE, PUBLIC, PASS(comm1), NON_OVERRIDABLE :: rank_compare => mp_rank_compare
+
+      PROCEDURE, PUBLIC, PASS(comm2), NON_OVERRIDABLE :: from_dup => mp_comm_dup
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: free => mp_comm_free
+
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: environ => mp_environ_l
+
+      PROCEDURE, PRIVATE, PASS(sub_comm), NON_OVERRIDABLE :: mp_comm_split, mp_comm_split_direct
+      GENERIC, PUBLIC :: from_split => mp_comm_split, mp_comm_split_direct
+      PROCEDURE, PUBLIC, PASS(mp_new_comm), NON_OVERRIDABLE :: from_reordering => mp_reordering
+      PROCEDURE, PRIVATE, PASS(comm_new), NON_OVERRIDABLE :: mp_comm_copy
+      GENERIC, PUBLIC :: ASSIGNMENT(=) => mp_comm_copy
+   END TYPE
+
+   TYPE mp_request_type
+      PRIVATE
+      MPI_REQUEST_TYPE :: handle = mp_request_null_handle
+   CONTAINS
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: set_handle => mp_request_type_set_handle
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: get_handle => mp_request_type_get_handle
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_request_op_eq
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_request_op_neq
+      GENERIC, PUBLIC :: OPERATOR(.EQ.) => mp_request_op_eq
+      GENERIC, PUBLIC :: OPERATOR(.NE.) => mp_request_op_neq
+
+      PROCEDURE, PUBLIC, PASS(request), NON_OVERRIDABLE :: test => mp_test_1
+
+      PROCEDURE, PUBLIC, PASS(request), NON_OVERRIDABLE :: wait => mp_wait
+   END TYPE
+
+   TYPE mp_win_type
+      PRIVATE
+      MPI_WIN_TYPE :: handle = mp_win_null_handle
+   CONTAINS
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: set_handle => mp_win_type_set_handle
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: get_handle => mp_win_type_get_handle
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_win_op_eq
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_win_op_neq
+      GENERIC, PUBLIC :: OPERATOR(.EQ.) => mp_win_op_eq
+      GENERIC, PUBLIC :: OPERATOR(.NE.) => mp_win_op_neq
+
+      PROCEDURE, PRIVATE, PASS(win), NON_OVERRIDABLE :: mp_win_create_iv, mp_win_create_lv, &
+         mp_win_create_rv, mp_win_create_dv, mp_win_create_cv, mp_win_create_zv
+      GENERIC, PUBLIC :: create => mp_win_create_iv, mp_win_create_lv, &
+         mp_win_create_rv, mp_win_create_dv, mp_win_create_cv, mp_win_create_zv
+
+      PROCEDURE, PRIVATE, PASS(win), NON_OVERRIDABLE :: mp_rget_iv, mp_rget_lv, &
+         mp_rget_rv, mp_rget_dv, mp_rget_cv, mp_rget_zv
+      GENERIC, PUBLIC :: rget => mp_rget_iv, mp_rget_lv, &
+         mp_rget_rv, mp_rget_dv, mp_rget_cv, mp_rget_zv
+
+      PROCEDURE, PUBLIC, PASS(win), NON_OVERRIDABLE :: free => mp_win_free
+      PROCEDURE, PUBLIC, PASS(win_new), NON_OVERRIDABLE :: mp_win_assign
+      GENERIC, PUBLIC :: ASSIGNMENT(=) => mp_win_assign
+
+      PROCEDURE, PUBLIC, PASS(win), NON_OVERRIDABLE :: lock_all => mp_win_lock_all
+      PROCEDURE, PUBLIC, PASS(win), NON_OVERRIDABLE :: unlock_all => mp_win_unlock_all
+      PROCEDURE, PUBLIC, PASS(win), NON_OVERRIDABLE :: flush_all => mp_win_flush_all
+   END TYPE
+
+   TYPE mp_file_type
+      PRIVATE
+      MPI_FILE_TYPE :: handle = mp_file_null_handle
+   CONTAINS
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: set_handle => mp_file_type_set_handle
+      PROCEDURE, PUBLIC, NON_OVERRIDABLE :: get_handle => mp_file_type_get_handle
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_file_op_eq
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_file_op_neq
+      GENERIC, PUBLIC :: OPERATOR(.EQ.) => mp_file_op_eq
+      GENERIC, PUBLIC :: OPERATOR(.NE.) => mp_file_op_neq
+
+      PROCEDURE, PRIVATE, PASS(fh), NON_OVERRIDABLE :: mp_file_write_at_ch, mp_file_write_at_chv, &
+         mp_file_write_at_i, mp_file_write_at_iv, mp_file_write_at_r, mp_file_write_at_rv, &
+         mp_file_write_at_d, mp_file_write_at_dv, mp_file_write_at_c, mp_file_write_at_cv, &
+         mp_file_write_at_z, mp_file_write_at_zv, mp_file_write_at_l, mp_file_write_at_lv
+      GENERIC, PUBLIC :: write_at => mp_file_write_at_ch, mp_file_write_at_chv, &
+         mp_file_write_at_i, mp_file_write_at_iv, mp_file_write_at_r, mp_file_write_at_rv, &
+         mp_file_write_at_d, mp_file_write_at_dv, mp_file_write_at_c, mp_file_write_at_cv, &
+         mp_file_write_at_z, mp_file_write_at_zv, mp_file_write_at_l, mp_file_write_at_lv
+
+      PROCEDURE, PRIVATE, PASS(fh), NON_OVERRIDABLE :: mp_file_write_at_all_ch, mp_file_write_at_all_chv, &
+         mp_file_write_at_all_i, mp_file_write_at_all_iv, mp_file_write_at_all_l, mp_file_write_at_all_lv, &
+         mp_file_write_at_all_r, mp_file_write_at_all_rv, mp_file_write_at_all_d, mp_file_write_at_all_dv, &
+         mp_file_write_at_all_c, mp_file_write_at_all_cv, mp_file_write_at_all_z, mp_file_write_at_all_zv
+      GENERIC, PUBLIC :: write_at_all => mp_file_write_at_all_ch, mp_file_write_at_all_chv, &
+         mp_file_write_at_all_i, mp_file_write_at_all_iv, mp_file_write_at_all_l, mp_file_write_at_all_lv, &
+         mp_file_write_at_all_r, mp_file_write_at_all_rv, mp_file_write_at_all_d, mp_file_write_at_all_dv, &
+         mp_file_write_at_all_c, mp_file_write_at_all_cv, mp_file_write_at_all_z, mp_file_write_at_all_zv
+
+      PROCEDURE, PRIVATE, PASS(fh), NON_OVERRIDABLE :: mp_file_read_at_ch, mp_file_read_at_chv, &
+         mp_file_read_at_i, mp_file_read_at_iv, mp_file_read_at_r, mp_file_read_at_rv, &
+         mp_file_read_at_d, mp_file_read_at_dv, mp_file_read_at_c, mp_file_read_at_cv, &
+         mp_file_read_at_z, mp_file_read_at_zv, mp_file_read_at_l, mp_file_read_at_lv
+      GENERIC, PUBLIC :: read_at => mp_file_read_at_ch, mp_file_read_at_chv, &
+         mp_file_read_at_i, mp_file_read_at_iv, mp_file_read_at_r, mp_file_read_at_rv, &
+         mp_file_read_at_d, mp_file_read_at_dv, mp_file_read_at_c, mp_file_read_at_cv, &
+         mp_file_read_at_z, mp_file_read_at_zv, mp_file_read_at_l, mp_file_read_at_lv
+
+      PROCEDURE, PRIVATE, PASS(fh), NON_OVERRIDABLE :: mp_file_read_at_all_ch, mp_file_read_at_all_chv, &
+         mp_file_read_at_all_i, mp_file_read_at_all_iv, mp_file_read_at_all_l, mp_file_read_at_all_lv, &
+         mp_file_read_at_all_r, mp_file_read_at_all_rv, mp_file_read_at_all_d, mp_file_read_at_all_dv, &
+         mp_file_read_at_all_c, mp_file_read_at_all_cv, mp_file_read_at_all_z, mp_file_read_at_all_zv
+      GENERIC, PUBLIC :: read_at_all => mp_file_read_at_all_ch, mp_file_read_at_all_chv, &
+         mp_file_read_at_all_i, mp_file_read_at_all_iv, mp_file_read_at_all_l, mp_file_read_at_all_lv, &
+         mp_file_read_at_all_r, mp_file_read_at_all_rv, mp_file_read_at_all_d, mp_file_read_at_all_dv, &
+         mp_file_read_at_all_c, mp_file_read_at_all_cv, mp_file_read_at_all_z, mp_file_read_at_all_zv
+
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: open => mp_file_open
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: close => mp_file_close
+      PROCEDURE, PRIVATE, PASS(fh_new), NON_OVERRIDABLE :: mp_file_assign
+      GENERIC, PUBLIC :: ASSIGNMENT(=) => mp_file_assign
+
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: get_size => mp_file_get_size
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: get_position => mp_file_get_position
+
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: read_all => mp_file_read_all_chv
+      PROCEDURE, PUBLIC, PASS(fh), NON_OVERRIDABLE :: write_all => mp_file_write_all_chv
+   END TYPE
+
+   TYPE mp_info_type
+      PRIVATE
+      MPI_INFO_TYPE :: handle = mp_info_null_handle
+   CONTAINS
+      PROCEDURE, NON_OVERRIDABLE :: set_handle => mp_info_type_set_handle
+      PROCEDURE, NON_OVERRIDABLE :: get_handle => mp_info_type_get_handle
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_info_op_eq
+      PROCEDURE, PRIVATE, NON_OVERRIDABLE :: mp_info_op_neq
+      GENERIC, PUBLIC :: OPERATOR(.EQ.) => mp_info_op_eq
+      GENERIC, PUBLIC :: OPERATOR(.NE.) => mp_info_op_neq
+   END TYPE
+
+   TYPE, EXTENDS(mp_comm_type) :: mp_cart_type
+   CONTAINS
+      PROCEDURE, PUBLIC, PASS(comm_cart), NON_OVERRIDABLE :: create => mp_cart_create
+      PROCEDURE, PUBLIC, PASS(sub_comm), NON_OVERRIDABLE :: from_sub => mp_cart_sub
+
+      PROCEDURE, PRIVATE, PASS(comm), NON_OVERRIDABLE :: mp_environ_c, mp_environ_c2
+      GENERIC, PUBLIC :: environ_cart => mp_environ_c, mp_environ_c2
+
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: coords => mp_cart_coords
+      PROCEDURE, PUBLIC, PASS(comm), NON_OVERRIDABLE :: rank_cart => mp_cart_rank
+   END TYPE
+
+   ! Create the constants from the corresponding handles
+   TYPE(mp_comm_type), PARAMETER, PUBLIC :: mp_comm_null = mp_comm_type(mp_comm_null_handle)
+   TYPE(mp_comm_type), PARAMETER, PUBLIC :: mp_comm_self = mp_comm_type(mp_comm_self_handle)
+   TYPE(mp_comm_type), PARAMETER, PUBLIC :: mp_comm_world = mp_comm_type(mp_comm_world_handle)
+   TYPE(mp_request_type), PARAMETER, PUBLIC :: mp_request_null = mp_request_type(mp_request_null_handle)
+   TYPE(mp_win_type), PARAMETER, PUBLIC :: mp_win_null = mp_win_type(mp_win_null_handle)
+   TYPE(mp_file_type), PARAMETER, PUBLIC :: mp_file_null = mp_file_type(mp_file_null_handle)
+   TYPE(mp_info_type), PARAMETER, PUBLIC :: mp_info_null = mp_info_type(mp_info_null_handle)
+
+#if !defined(__parallel)
+   ! This communicator is to be used in serial mode to emulate a valid communicator which is not a compiler constant
+   INTEGER, PARAMETER, PRIVATE :: mp_comm_default_handle = 1
+   TYPE(mp_comm_type), PARAMETER, PRIVATE :: mp_comm_default = mp_comm_type(mp_comm_default_handle)
+#endif
+
+   ! Constants to compare communicators
+   INTEGER, PARAMETER, PUBLIC :: mp_comm_ident = 0
+   INTEGER, PARAMETER, PUBLIC :: mp_comm_congruent = 1
+   INTEGER, PARAMETER, PUBLIC :: mp_comm_similar = 2
+   INTEGER, PARAMETER, PUBLIC :: mp_comm_unequal = 3
+   INTEGER, PARAMETER, PUBLIC :: mp_comm_compare_default = -1
+
+   ! init and error
+   PUBLIC :: mp_world_init, mp_world_finalize
+   PUBLIC :: mp_abort
+
+   ! performance gathering
+   PUBLIC :: mp_perf_env_type
+   PUBLIC :: mp_perf_env_retain, mp_perf_env_release
+   PUBLIC :: add_mp_perf_env, rm_mp_perf_env, get_mp_perf_env, describe_mp_perf_env
+
+   ! informational / generation of sub comms
+   PUBLIC :: mp_dims_create
+   PUBLIC :: cp2k_is_parallel
+   PUBLIC :: mp_get_node_global_rank
+
+   ! message passing
+   PUBLIC :: mp_waitall, mp_waitany
+   PUBLIC :: mp_testall, mp_testany
+
+   ! Memory management
+   PUBLIC :: mp_allocate, mp_deallocate
+
+   ! I/O
+   PUBLIC :: mp_file_delete
+   PUBLIC :: mp_file_get_amode
+
+   ! some 'advanced types' currently only used for dbcsr
+   PUBLIC :: mp_type_descriptor_type
+   PUBLIC :: mp_type_make
+   PUBLIC :: mp_type_size
+
+   ! some benchmarking code
+   PUBLIC :: mpi_perf_test
+
+   ! vector types
+   PUBLIC :: mp_type_indexed_make_r, mp_type_indexed_make_d, &
+             mp_type_indexed_make_c, mp_type_indexed_make_z
+
+   ! More I/O types and routines: variable spaced data using bytes for spacings
+   PUBLIC :: mp_file_descriptor_type
+   PUBLIC :: mp_file_type_free
+   PUBLIC :: mp_file_type_hindexed_make_chv
+   PUBLIC :: mp_file_type_set_view_chv
+
+   PUBLIC :: mp_get_library_version
+
+   ! assumed to be private
+
+   INTERFACE mp_waitall
+      MODULE PROCEDURE mp_waitall_1, mp_waitall_2
    END INTERFACE
 
-   INTERFACE mp_win_create
-      MODULE PROCEDURE mp_win_create_iv, &
-         mp_win_create_lv, &
-         mp_win_create_rv, &
-         mp_win_create_dv, &
-         mp_win_create_cv, &
-         mp_win_create_zv
+   INTERFACE mp_testall
+      MODULE PROCEDURE mp_testall_tv
    END INTERFACE
 
-   INTERFACE mp_rget
-      MODULE PROCEDURE mp_rget_iv, &
-         mp_rget_lv, &
-         mp_rget_rv, &
-         mp_rget_dv, &
-         mp_rget_cv, &
-         mp_rget_zv
+   INTERFACE mp_testany
+      MODULE PROCEDURE mp_testany_1, mp_testany_2
    END INTERFACE
 
+   INTERFACE mp_type_free
+      MODULE PROCEDURE mp_type_free_m, mp_type_free_v
+   END INTERFACE
+
+   !
+   ! interfaces to deal easily with scalars / vectors / matrices / ...
+   ! of the different types (integers, doubles, logicals, characters)
+   !
    INTERFACE mp_allocate
       MODULE PROCEDURE mp_allocate_i, &
          mp_allocate_l, &
@@ -576,46 +761,6 @@ MODULE message_passing
          mp_type_make_c, mp_type_make_z
    END INTERFACE
 
-   INTERFACE mp_file_write_at
-      MODULE PROCEDURE mp_file_write_at_ch, mp_file_write_at_chv, &
-         mp_file_write_at_i, mp_file_write_at_iv, &
-         mp_file_write_at_r, mp_file_write_at_rv, &
-         mp_file_write_at_d, mp_file_write_at_dv, &
-         mp_file_write_at_c, mp_file_write_at_cv, &
-         mp_file_write_at_z, mp_file_write_at_zv, &
-         mp_file_write_at_l, mp_file_write_at_lv
-   END INTERFACE
-
-   INTERFACE mp_file_write_at_all
-      MODULE PROCEDURE mp_file_write_at_all_ch, mp_file_write_at_all_chv, &
-         mp_file_write_at_all_i, mp_file_write_at_all_iv, &
-         mp_file_write_at_all_l, mp_file_write_at_all_lv, &
-         mp_file_write_at_all_r, mp_file_write_at_all_rv, &
-         mp_file_write_at_all_d, mp_file_write_at_all_dv, &
-         mp_file_write_at_all_c, mp_file_write_at_all_cv, &
-         mp_file_write_at_all_z, mp_file_write_at_all_zv
-   END INTERFACE
-
-   INTERFACE mp_file_read_at
-      MODULE PROCEDURE mp_file_read_at_ch, mp_file_read_at_chv, &
-         mp_file_read_at_i, mp_file_read_at_iv, &
-         mp_file_read_at_r, mp_file_read_at_rv, &
-         mp_file_read_at_d, mp_file_read_at_dv, &
-         mp_file_read_at_c, mp_file_read_at_cv, &
-         mp_file_read_at_z, mp_file_read_at_zv, &
-         mp_file_read_at_l, mp_file_read_at_lv
-   END INTERFACE
-
-   INTERFACE mp_file_read_at_all
-      MODULE PROCEDURE mp_file_read_at_all_ch, mp_file_read_at_all_chv, &
-         mp_file_read_at_all_i, mp_file_read_at_all_iv, &
-         mp_file_read_at_all_l, mp_file_read_at_all_lv, &
-         mp_file_read_at_all_r, mp_file_read_at_all_rv, &
-         mp_file_read_at_all_d, mp_file_read_at_all_dv, &
-         mp_file_read_at_all_c, mp_file_read_at_all_cv, &
-         mp_file_read_at_all_z, mp_file_read_at_all_zv
-   END INTERFACE
-
    INTERFACE mp_alloc_mem
       MODULE PROCEDURE mp_alloc_mem_i, mp_alloc_mem_l, &
          mp_alloc_mem_d, mp_alloc_mem_z, &
@@ -634,7 +779,7 @@ MODULE message_passing
    END TYPE mp_indexing_meta_type
 
    TYPE mp_type_descriptor_type
-      INTEGER :: type_handle
+      MPI_DATA_TYPE :: type_handle
       INTEGER :: length
 #if defined(__parallel)
       INTEGER(kind=mpi_address_kind) :: base
@@ -658,7 +803,7 @@ MODULE message_passing
    END TYPE mp_file_indexing_meta_type
 
    TYPE mp_file_descriptor_type
-      INTEGER                          :: type_handle
+      MPI_DATA_TYPE :: type_handle
       INTEGER                          :: length
       LOGICAL                          :: has_indexing = .FALSE.
       TYPE(mp_file_indexing_meta_type) :: index_descriptor
@@ -714,6 +859,43 @@ MODULE message_passing
 
 CONTAINS
 
+   #:mute
+      #:set types = ["comm", "request", "win", "file", "info"]
+   #:endmute
+   #:for type in types
+      LOGICAL FUNCTION mp_${type}$_op_eq(${type}$1, ${type}$2)
+         CLASS(mp_${type}$_type), INTENT(IN) :: ${type}$1, ${type}$2
+         mp_${type}$_op_eq = (${type}$1%handle .EQ. ${type}$2%handle)
+      END FUNCTION mp_${type}$_op_eq
+
+      LOGICAL FUNCTION mp_${type}$_op_neq(${type}$1, ${type}$2)
+         CLASS(mp_${type}$_type), INTENT(IN) :: ${type}$1, ${type}$2
+         mp_${type}$_op_neq = (${type}$1%handle .NE. ${type}$2%handle)
+      END FUNCTION mp_${type}$_op_neq
+
+      ELEMENTAL SUBROUTINE mp_${type}$_type_set_handle(this, handle)
+         CLASS(mp_${type}$_type), INTENT(INOUT) :: this
+         INTEGER, INTENT(IN) :: handle
+
+#if defined(__parallel) && defined(__MPI_F08)
+         this%handle%mpi_val = handle
+#else
+         this%handle = handle
+#endif
+      END SUBROUTINE mp_${type}$_type_set_handle
+
+      ELEMENTAL FUNCTION mp_${type}$_type_get_handle(this) RESULT(handle)
+         CLASS(mp_${type}$_type), INTENT(IN) :: this
+         INTEGER :: handle
+
+#if defined(__parallel) && defined(__MPI_F08)
+         handle = this%handle%mpi_val
+#else
+         handle = this%handle
+#endif
+      END FUNCTION mp_${type}$_type_get_handle
+   #:endfor
+
 ! **************************************************************************************************
 !> \brief initializes the system default communicator
 !> \param mp_comm [output] : handle of the default communicator
@@ -723,7 +905,7 @@ CONTAINS
 !>      should only be called once
 ! **************************************************************************************************
    SUBROUTINE mp_world_init(mp_comm)
-      INTEGER, INTENT(OUT)                     :: mp_comm
+      TYPE(mp_comm_type), INTENT(OUT)                     :: mp_comm
 #if defined(__parallel)
       INTEGER                                  :: ierr
 !$    INTEGER                                  :: provided_tsl
@@ -757,17 +939,11 @@ CONTAINS
 !$       END IF
 !$OMP END MASTER
 !$    END IF
-#if __MPI_VERSION > 2
       CALL mpi_comm_set_errhandler(MPI_COMM_WORLD, MPI_ERRORS_RETURN, ierr)
-#else
-      CALL mpi_errhandler_set(MPI_COMM_WORLD, MPI_ERRORS_RETURN, ierr)
-#endif
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_set_errhandler @ mp_world_init")
-      mp_comm = MPI_COMM_WORLD
-      debug_comm_count = 1
-#else
-      mp_comm = 0
 #endif
+      debug_comm_count = 1
+      mp_comm = mp_comm_world
       CALL add_mp_perf_env()
    END SUBROUTINE mp_world_init
 
@@ -783,27 +959,27 @@ CONTAINS
 !>      should only be called once, at very beginning of CP2K run
 ! **************************************************************************************************
    SUBROUTINE mp_reordering(mp_comm, mp_new_comm, ranks_order)
-      INTEGER, INTENT(IN)                      :: mp_comm
-      INTEGER, INTENT(out)                     :: mp_new_comm
-      INTEGER, DIMENSION(:)                    :: ranks_order
+      CLASS(mp_comm_type), INTENT(IN)                      :: mp_comm
+      CLASS(mp_comm_type), INTENT(out)                     :: mp_new_comm
+      INTEGER, DIMENSION(:), CONTIGUOUS, INTENT(IN)                    :: ranks_order
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_reordering'
 
       INTEGER                                  :: handle, ierr
 #if defined(__parallel)
-      INTEGER                                  :: newcomm, newgroup, oldgroup
+      MPI_GROUP_TYPE                                  :: newgroup, oldgroup
 #endif
 
       CALL mp_timeset(routineN, handle)
       ierr = 0
 #if defined(__parallel)
 
-      CALL mpi_comm_group(mp_comm, oldgroup, ierr)
+      CALL mpi_comm_group(mp_comm%handle, oldgroup, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_group @ mp_reordering")
       CALL mpi_group_incl(oldgroup, SIZE(ranks_order), ranks_order, newgroup, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_group_incl @ mp_reordering")
 
-      CALL mpi_comm_create(mp_comm, newgroup, newcomm, ierr)
+      CALL mpi_comm_create(mp_comm%handle, newgroup, mp_new_comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_create @ mp_reordering")
 
       CALL mpi_group_free(oldgroup, ierr)
@@ -811,15 +987,13 @@ CONTAINS
       CALL mpi_group_free(newgroup, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_group_free @ mp_reordering")
 
-      ! update the system default communicator
-      mp_new_comm = newcomm
-      debug_comm_count = debug_comm_count + 1
-
       CALL add_perf(perf_id=1, count=1)
 #else
+      MARK_USED(mp_comm)
       MARK_USED(ranks_order)
-      mp_new_comm = mp_comm
+      mp_new_comm%handle = mp_comm_default_handle
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
    END SUBROUTINE mp_reordering
 
@@ -830,21 +1004,27 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_world_finalize()
 
+      CHARACTER(LEN=default_string_length) :: debug_comm_count_char
 #if defined(__parallel)
       INTEGER                                  :: ierr
       CALL mpi_barrier(MPI_COMM_WORLD, ierr) ! call mpi directly to avoid 0 stack pointer
+#endif
       CALL rm_mp_perf_env()
-      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_barrier @ mp_world_finalize")
+
       debug_comm_count = debug_comm_count - 1
+#if defined(__parallel)
+      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_barrier @ mp_world_finalize")
+#endif
       IF (debug_comm_count .NE. 0) THEN
          ! A bug, we're leaking or double-freeing communicators. Needs to be fixed where the leak happens.
          ! Memory leak checking might be helpful to locate the culprit
-         CPABORT("mp_world_finalize: assert failed:  leaking communicators")
+         WRITE (unit=debug_comm_count_char, FMT='(I0)')
+         CALL cp_abort(__LOCATION__, "mp_world_finalize: assert failed:"// &
+                       "  leaking communicators "//TRIM(debug_comm_count_char))
       END IF
+#if defined(__parallel)
       CALL mpi_finalize(ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_finalize @ mp_world_finalize")
-#else
-      CALL rm_mp_perf_env()
 #endif
 
    END SUBROUTINE mp_world_finalize
@@ -1087,7 +1267,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_stop(ierr, prg_code)
       INTEGER, INTENT(IN)                      :: ierr
-      CHARACTER(LEN=*)                         :: prg_code
+      CHARACTER(LEN=*), INTENT(IN)                         :: prg_code
 
 #if defined(__parallel)
       INTEGER                                  :: istat, len
@@ -1112,8 +1292,8 @@ CONTAINS
 !> \brief synchronizes with a barrier a given group of mpi tasks
 !> \param group mpi communicator
 ! **************************************************************************************************
-   SUBROUTINE mp_sync(group)
-      INTEGER, INTENT(IN)                                :: group
+   SUBROUTINE mp_sync(comm)
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_sync'
 
@@ -1123,11 +1303,11 @@ CONTAINS
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-      CALL mpi_barrier(group, ierr)
+      CALL mpi_barrier(comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_barrier @ mp_sync")
       CALL add_perf(perf_id=5, count=1)
 #else
-      MARK_USED(group)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
 
@@ -1135,12 +1315,12 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief synchronizes with a barrier a given group of mpi tasks
-!> \param group mpi communicator
+!> \param comm mpi communicator
 !> \param request ...
 ! **************************************************************************************************
-   SUBROUTINE mp_isync(group, request)
-      INTEGER, INTENT(IN)                                :: group
-      INTEGER, INTENT(OUT)                               :: request
+   SUBROUTINE mp_isync(comm, request)
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
+      TYPE(mp_request_type), INTENT(OUT)                               :: request
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_isync'
 
@@ -1150,17 +1330,11 @@ CONTAINS
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-#if __MPI_VERSION > 2
-      CALL mpi_ibarrier(group, request, ierr)
+      CALL mpi_ibarrier(comm%handle, request%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_ibarrier @ mp_isync")
       CALL add_perf(perf_id=26, count=1)
 #else
-      MARK_USED(group)
-      MARK_USED(request)
-      CPABORT("mp_isum requires MPI-3 standard")
-#endif
-#else
-      MARK_USED(group)
+      MARK_USED(comm)
       request = mp_request_null
 #endif
       CALL mp_timestop(handle)
@@ -1172,14 +1346,14 @@ CONTAINS
 !>       simple and cartesian version.. recursive needed in case of failing mpi_comm_rank.
 !> \param numtask ...
 !> \param taskid ...
-!> \param groupid mpi communicator
+!> \param comm mpi communicator
 !> \note
 !>         ..mp_world_setup is gone, use mp_environ instead (i.e. give a groupid explicitly)
 ! **************************************************************************************************
-   RECURSIVE SUBROUTINE mp_environ_l(numtask, taskid, groupid)
+   SUBROUTINE mp_environ_l(numtask, taskid, comm)
 
       INTEGER, INTENT(OUT)                               :: numtask, taskid
-      INTEGER, INTENT(IN)                                :: groupid
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_l'
 
@@ -1191,13 +1365,13 @@ CONTAINS
       numtask = 1
       taskid = 0
 #if defined(__parallel)
-      CALL mpi_comm_rank(groupid, taskid, ierr)
+      CALL mpi_comm_rank(comm%handle, taskid, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_rank @ mp_environ_l")
 
-      CALL mpi_comm_size(groupid, numtask, ierr)
+      CALL mpi_comm_size(comm%handle, numtask, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_size @ mp_environ_l")
 #else
-      MARK_USED(groupid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
 
@@ -1208,13 +1382,12 @@ CONTAINS
 !> \param numtask ...
 !> \param dims ...
 !> \param task_coor ...
-!> \param groupid ...
+!> \param comm ...
 ! **************************************************************************************************
-   SUBROUTINE mp_environ_c(numtask, dims, task_coor, groupid)
+   SUBROUTINE mp_environ_c(numtask, dims, task_coor, comm)
 
-      INTEGER, INTENT(OUT)                     :: numtask, dims(2), &
-                                                  task_coor(2)
-      INTEGER, INTENT(IN)                      :: groupid
+      INTEGER, INTENT(OUT)                     :: numtask, dims(2), task_coor(2)
+      CLASS(mp_cart_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_environ_c'
 
@@ -1229,13 +1402,13 @@ CONTAINS
       task_coor = 0
       dims = 1
 #if defined(__parallel)
-      CALL mpi_comm_size(groupid, numtask, ierr)
+      CALL mpi_comm_size(comm%handle, numtask, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_size @ mp_environ_c")
 
-      CALL mpi_cart_get(groupid, 2, dims, periods, task_coor, ierr)
+      CALL mpi_cart_get(comm%handle, 2, dims, periods, task_coor, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_get @ mp_environ_c")
 #else
-      MARK_USED(groupid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
 
@@ -1251,7 +1424,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_environ_c2(comm, ndims, dims, task_coor, periods)
 
-      INTEGER, INTENT(IN)                                :: comm, ndims
+      CLASS(mp_cart_type), INTENT(IN) :: comm
+      INTEGER, INTENT(IN)                                :: ndims
       INTEGER, INTENT(OUT)                               :: dims(ndims), task_coor(ndims)
       LOGICAL, INTENT(out)                               :: periods(ndims)
 
@@ -1266,7 +1440,7 @@ CONTAINS
       dims = 1
       periods = .FALSE.
 #if defined(__parallel)
-      CALL mpi_cart_get(comm, ndims, dims, periods, task_coor, ierr)
+      CALL mpi_cart_get(comm%handle, ndims, dims, periods, task_coor, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_get @ mp_environ_c")
 #else
       MARK_USED(comm)
@@ -1275,7 +1449,6 @@ CONTAINS
 
    END SUBROUTINE mp_environ_c2
 
-!..mp_cart_create
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm_old ...
@@ -1286,9 +1459,11 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_cart_create(comm_old, ndims, dims, pos, comm_cart)
 
-      INTEGER, INTENT(IN)                      :: comm_old, ndims
-      INTEGER, INTENT(INOUT)                   :: dims(:)
-      INTEGER, INTENT(OUT)                     :: pos(:), comm_cart
+      CLASS(mp_comm_type), INTENT(IN) :: comm_old
+      INTEGER, INTENT(IN)                      :: ndims
+      INTEGER, INTENT(INOUT), CONTIGUOUS                   :: dims(:)
+      INTEGER, INTENT(OUT), CONTIGUOUS                     :: pos(:)
+      CLASS(mp_cart_type), INTENT(OUT) :: comm_cart
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_create'
 
@@ -1303,10 +1478,10 @@ CONTAINS
 
       nodes = 0
       pos(1:ndims) = -1
-      comm_cart = comm_old
+      comm_cart%handle = comm_old%handle
 #if defined(__parallel)
 
-      CALL mpi_comm_size(comm_old, nodes, ierr)
+      CALL mpi_comm_size(comm_old%handle, nodes, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_size @ mp_cart_create")
 
       IF (ANY(dims == 0)) CALL mpi_dims_create(nodes, ndims, dims, ierr)
@@ -1317,26 +1492,25 @@ CONTAINS
       ! communicator
       reorder = .FALSE.
       period = .TRUE.
-      CALL mpi_cart_create(comm_old, ndims, dims, period, reorder, comm_cart, &
+      CALL mpi_cart_create(comm_old%handle, ndims, dims, period, reorder, comm_cart%handle, &
                            ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_create @ mp_cart_create")
 
-      IF (comm_cart /= MPI_COMM_NULL) THEN
-         debug_comm_count = debug_comm_count + 1
-         CALL mpi_cart_get(comm_cart, ndims, dims, period, pos, ierr)
+      IF (comm_cart%handle /= MPI_COMM_NULL) THEN
+         CALL mpi_cart_get(comm_cart%handle, ndims, dims, period, pos, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_get @ mp_cart_create")
       END IF
       CALL add_perf(perf_id=1, count=1)
 #else
       pos(1:ndims) = 0
       dims = 1
-      comm_cart = 0
+      comm_cart%handle = mp_comm_default_handle
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_cart_create
 
-!..mp_cart_coords
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm ...
@@ -1345,7 +1519,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_cart_coords(comm, rank, coords)
 
-      INTEGER, INTENT(IN)                                :: comm, rank
+      CLASS(mp_cart_type), INTENT(IN) :: comm
+      INTEGER, INTENT(IN)                                :: rank
       INTEGER, DIMENSION(:), INTENT(OUT)                 :: coords
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_coords'
@@ -1357,7 +1532,7 @@ CONTAINS
 
       m = SIZE(coords)
 #if defined(__parallel)
-      CALL mpi_cart_coords(comm, rank, m, coords, ierr)
+      CALL mpi_cart_coords(comm%handle, rank, m, coords, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_coords @ mp_cart_coords")
 #else
       coords = 0
@@ -1368,41 +1543,41 @@ CONTAINS
 
    END SUBROUTINE mp_cart_coords
 
-!..mp_comm_compare
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm1 ...
 !> \param comm2 ...
 !> \param res ...
 ! **************************************************************************************************
-   SUBROUTINE mp_comm_compare(comm1, comm2, res)
+   FUNCTION mp_comm_compare(comm1, comm2) RESULT(res)
 
-      INTEGER, INTENT(IN)                                :: comm1, comm2
-      INTEGER, INTENT(OUT)                               :: res
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm1, comm2
+      INTEGER                               :: res
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_compare'
 
-      INTEGER                                            :: handle, ierr, iout
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, iout
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
-      iout = 0
       res = 0
 #if defined(__parallel)
-      CALL mpi_comm_compare(comm1, comm2, iout, ierr)
+      CALL mpi_comm_compare(comm1%handle, comm2%handle, iout, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_compare @ mp_comm_compare")
       SELECT CASE (iout)
       CASE (MPI_IDENT)
-         res = 0
+         res = mp_comm_ident
       CASE (MPI_CONGRUENT)
-         res = 1
+         res = mp_comm_congruent
       CASE (MPI_SIMILAR)
-         res = 2
+         res = mp_comm_similar
       CASE (MPI_UNEQUAL)
-         res = 3
+         res = mp_comm_unequal
       CASE default
-         res = 4
+         CPABORT("Unknown comparison state of the communicators!")
       END SELECT
 #else
       MARK_USED(comm1)
@@ -1410,9 +1585,8 @@ CONTAINS
 #endif
       CALL mp_timestop(handle)
 
-   END SUBROUTINE mp_comm_compare
+   END FUNCTION mp_comm_compare
 
-!..mp_cart_sub
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm ...
@@ -1421,58 +1595,60 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_cart_sub(comm, rdim, sub_comm)
 
-      INTEGER, INTENT(IN)                                :: comm
-      LOGICAL, DIMENSION(:), INTENT(IN)                  :: rdim
-      INTEGER, INTENT(OUT)                               :: sub_comm
+      CLASS(mp_cart_type), INTENT(IN)                                :: comm
+      LOGICAL, DIMENSION(:), CONTIGUOUS, INTENT(IN)                  :: rdim
+      CLASS(mp_cart_type), INTENT(OUT)                               :: sub_comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_sub'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
-      sub_comm = 0
 #if defined(__parallel)
-      CALL mpi_cart_sub(comm, rdim, sub_comm, ierr)
+      CALL mpi_cart_sub(comm%handle, rdim, sub_comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_sub @ mp_cart_sub")
-      debug_comm_count = debug_comm_count + 1
 #else
       MARK_USED(comm)
       MARK_USED(rdim)
+      sub_comm%handle = mp_comm_default_handle
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_cart_sub
 
-!..mp_comm_free
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm ...
 ! **************************************************************************************************
    SUBROUTINE mp_comm_free(comm)
 
-      INTEGER, INTENT(INOUT)                             :: comm
+      CLASS(mp_comm_type), INTENT(INOUT)                             :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_free'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-      CALL mpi_comm_free(comm, ierr)
+      CALL mpi_comm_free(comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_free @ mp_comm_free")
-      debug_comm_count = debug_comm_count - 1
 #else
-      MARK_USED(comm)
+      comm%handle = mp_comm_null_handle
 #endif
+      debug_comm_count = debug_comm_count - 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_comm_free
 
-!..mp_comm_dup
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm1 ...
@@ -1480,28 +1656,37 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_comm_dup(comm1, comm2)
 
-      INTEGER, INTENT(IN)                                :: comm1
-      INTEGER, INTENT(OUT)                               :: comm2
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm1
+      CLASS(mp_comm_type), INTENT(OUT)                               :: comm2
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_dup'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-      CALL mpi_comm_dup(comm1, comm2, ierr)
+      CALL mpi_comm_dup(comm1%handle, comm2%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_dup @ mp_comm_dup")
-      debug_comm_count = debug_comm_count + 1
 #else
-      comm2 = comm1
+      MARK_USED(comm1)
+      comm2%handle = mp_comm_default_handle
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_comm_dup
 
-!..mp_rank_compare
+   SUBROUTINE mp_comm_copy(comm_new, comm_old)
+      CLASS(mp_comm_type), INTENT(IN) :: comm_old
+      CLASS(mp_comm_type), INTENT(OUT) :: comm_new
+
+      comm_new%handle = comm_old%handle
+   END SUBROUTINE
+
 ! **************************************************************************************************
 !> \brief ...
 !> \param comm1 ...
@@ -1510,30 +1695,30 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_rank_compare(comm1, comm2, rank)
 
-      INTEGER, INTENT(IN)                      :: comm1, comm2
-      INTEGER, DIMENSION(:), INTENT(OUT)       :: rank
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm1, comm2
+      INTEGER, DIMENSION(:), CONTIGUOUS, INTENT(OUT)       :: rank
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_rank_compare'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: g1, g2, i, n, n1, n2
+      INTEGER                                  :: i, ierr, n, n1, n2
       INTEGER, ALLOCATABLE, DIMENSION(:)       :: rin
+      MPI_GROUP_TYPE :: g1, g2
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
       rank = 0
 #if defined(__parallel)
-      CALL mpi_comm_size(comm1, n1, ierr)
+      CALL mpi_comm_size(comm1%handle, n1, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_size @ mp_rank_compare")
-      CALL mpi_comm_size(comm2, n2, ierr)
+      CALL mpi_comm_size(comm2%handle, n2, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_size @ mp_rank_compare")
       n = MAX(n1, n2)
-      CALL mpi_comm_group(comm1, g1, ierr)
+      CALL mpi_comm_group(comm1%handle, g1, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_group @ mp_rank_compare")
-      CALL mpi_comm_group(comm2, g2, ierr)
+      CALL mpi_comm_group(comm2%handle, g2, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_comm_group @ mp_rank_compare")
       ALLOCATE (rin(0:n - 1), STAT=ierr)
       IF (ierr /= 0) &
@@ -1559,7 +1744,6 @@ CONTAINS
 
    END SUBROUTINE mp_rank_compare
 
-!..mp_dims_create
 ! **************************************************************************************************
 !> \brief ...
 !> \param nodes ...
@@ -1572,9 +1756,11 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_dims_create'
 
-      INTEGER                                            :: handle, ierr, ndim
+      INTEGER                                            :: handle, ndim
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
       ndim = SIZE(dims)
@@ -1589,31 +1775,32 @@ CONTAINS
 
    END SUBROUTINE mp_dims_create
 
-!..mp_cart_rank
 ! **************************************************************************************************
 !> \brief ...
-!> \param group ...
+!> \param comm ...
 !> \param pos ...
 !> \param rank ...
 ! **************************************************************************************************
-   SUBROUTINE mp_cart_rank(group, pos, rank)
-      INTEGER, INTENT(IN)                                :: group
+   SUBROUTINE mp_cart_rank(comm, pos, rank)
+      CLASS(mp_cart_type), INTENT(IN)                                :: comm
       INTEGER, DIMENSION(:), INTENT(IN)                  :: pos
       INTEGER, INTENT(OUT)                               :: rank
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_cart_rank'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-      CALL mpi_cart_rank(group, pos, rank, ierr)
+      CALL mpi_cart_rank(comm%handle, pos, rank, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_cart_rank @ mp_cart_rank")
 #else
       rank = 0
-      MARK_USED(group)
+      MARK_USED(comm)
       MARK_USED(pos)
 #endif
       CALL mp_timestop(handle)
@@ -1630,23 +1817,25 @@ CONTAINS
 !>      see isendrecv
 ! **************************************************************************************************
    SUBROUTINE mp_wait(request)
-      INTEGER, INTENT(inout)                             :: request
+      CLASS(mp_request_type), INTENT(inout)                             :: request
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_wait'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
 
-      CALL mpi_wait(request, MPI_STATUS_IGNORE, ierr)
+      CALL mpi_wait(request%handle, MPI_STATUS_IGNORE, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_wait @ mp_wait")
 
       CALL add_perf(perf_id=9, count=1)
 #else
-      MARK_USED(request)
+      request%handle = mp_request_null_handle
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_wait
@@ -1661,28 +1850,35 @@ CONTAINS
 !>      see isendrecv
 ! **************************************************************************************************
    SUBROUTINE mp_waitall_1(requests)
-      INTEGER, DIMENSION(:), INTENT(inout)     :: requests
+      TYPE(mp_request_type), DIMENSION(:), INTENT(inout)     :: requests
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_1'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: count
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)    :: status
+      INTEGER                                  :: count, ierr
+#if !defined(__MPI_F08)
+      INTEGER, ALLOCATABLE, DIMENSION(:, :) :: status
+#else
+      TYPE(MPI_Status), ALLOCATABLE, DIMENSION(:)    :: status
+#endif
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
       count = SIZE(requests)
+#if !defined(__MPI_F08)
       ALLOCATE (status(MPI_STATUS_SIZE, count))
+#else
+      ALLOCATE (status(count))
+#endif
       CALL mpi_waitall_internal(count, requests, status, ierr) ! MPI_STATUSES_IGNORE openmpi workaround
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_waitall @ mp_waitall_1")
       DEALLOCATE (status)
       CALL add_perf(perf_id=9, count=1)
 #else
-      MARK_USED(requests)
+      requests = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_waitall_1
@@ -1695,22 +1891,29 @@ CONTAINS
 !> \author joost & fawzi
 ! **************************************************************************************************
    SUBROUTINE mp_waitall_2(requests)
-      INTEGER, DIMENSION(:, :), INTENT(inout)  :: requests
+      TYPE(mp_request_type), DIMENSION(:, :), INTENT(inout)  :: requests
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitall_2'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: count
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)    :: status
+      INTEGER                                  :: count, ierr
+#if !defined(__MPI_F08)
+      INTEGER, ALLOCATABLE, DIMENSION(:, :) :: status
+#else
+      TYPE(MPI_Status), ALLOCATABLE, DIMENSION(:)    :: status
+#endif
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
       count = SIZE(requests)
+#if !defined(__MPI_F08)
       ALLOCATE (status(MPI_STATUS_SIZE, count))
+#else
+      ALLOCATE (status(count))
+#endif
 
       CALL mpi_waitall_internal(count, requests, status, ierr) ! MPI_STATUSES_IGNORE openmpi workaround
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_waitall @ mp_waitall_2")
@@ -1718,7 +1921,7 @@ CONTAINS
 
       CALL add_perf(perf_id=9, count=1)
 #else
-      MARK_USED(requests)
+      requests = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_waitall_2
@@ -1735,12 +1938,29 @@ CONTAINS
 #if defined(__parallel)
    SUBROUTINE mpi_waitall_internal(count, array_of_requests, array_of_statuses, ierr)
       INTEGER, INTENT(in)                                :: count
-      INTEGER, DIMENSION(count), INTENT(inout)           :: array_of_requests
-      INTEGER, DIMENSION(MPI_STATUS_SIZE, *), &
+      TYPE(mp_request_type), DIMENSION(count), INTENT(inout)           :: array_of_requests
+#if !defined(__MPI_F08)
+      INTEGER, DIMENSION(MPI_STATUS_SIZE, count), &
          INTENT(out)                                     :: array_of_statuses
+#else
+      TYPE(MPI_Status), DIMENSION(count), &
+         INTENT(out)                                     :: array_of_statuses
+#endif
       INTEGER, INTENT(out)                               :: ierr
 
-      CALL mpi_waitall(count, array_of_requests, array_of_statuses, ierr)
+      INTEGER :: i
+      MPI_REQUEST_TYPE, ALLOCATABLE, DIMENSION(:) :: request_handles
+
+      ALLOCATE (request_handles(count))
+      DO i = 1, count
+         request_handles(i) = array_of_requests(i)%handle
+      END DO
+
+      CALL mpi_waitall(count, request_handles, array_of_statuses, ierr)
+
+      DO i = 1, count
+         array_of_requests(i)%handle = request_handles(i)
+      END DO
 
    END SUBROUTINE mpi_waitall_internal
 #endif
@@ -1754,28 +1974,36 @@ CONTAINS
 !> \author Iain Bethune (c) The Numerical Algorithms Group (NAG) Ltd, 2008 on behalf of the HECToR project
 ! **************************************************************************************************
    SUBROUTINE mp_waitany(requests, completed)
-      INTEGER, DIMENSION(:), INTENT(inout)     :: requests
+      TYPE(mp_request_type), DIMENSION(:), INTENT(inout)     :: requests
       INTEGER, INTENT(out)                     :: completed
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_waitany'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: count
+      INTEGER                                  :: count, i, ierr
+      MPI_REQUEST_TYPE, ALLOCATABLE, DIMENSION(:) :: request_handles
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
       count = SIZE(requests)
-
-      CALL mpi_waitany(count, requests, completed, MPI_STATUS_IGNORE, ierr)
+! Convert CP2K's request_handles to the plane handle for the library
+! (Maybe, the compiler optimizes it away)
+      ALLOCATE (request_handles(count))
+      DO i = 1, count
+         request_handles(i) = requests(i)%handle
+      END DO
+      CALL mpi_waitany(count, request_handles, completed, MPI_STATUS_IGNORE, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_waitany @ mp_waitany")
-
+! Convert the plane handles to CP2K handles
+      DO i = 1, count
+         requests(i)%handle = request_handles(i)
+      END DO
       CALL add_perf(perf_id=9, count=1)
 #else
-      MARK_USED(requests)
+      requests = mp_request_null
       completed = 1
 #endif
       CALL mp_timestop(handle)
@@ -1791,23 +2019,20 @@ CONTAINS
 !> \author Alfio Lazzaro
 ! **************************************************************************************************
    FUNCTION mp_testall_tv(requests) RESULT(flag)
-      INTEGER, DIMENSION(:)                 :: requests
+      TYPE(mp_request_type), DIMENSION(:), INTENT(INOUT) :: requests
       LOGICAL                               :: flag
 
-      INTEGER                               :: ierr
-
 #if defined(__parallel)
-      INTEGER                               :: i
+      INTEGER                               :: i, ierr
       LOGICAL, DIMENSION(:), POINTER        :: flags
 #endif
 
-      ierr = 0
       flag = .TRUE.
 
 #if defined(__parallel)
       ALLOCATE (flags(SIZE(requests)))
       DO i = 1, SIZE(requests)
-         CALL mpi_test(requests(i), flags(i), MPI_STATUS_IGNORE, ierr)
+         CALL mpi_test(requests(i)%handle, flags(i), MPI_STATUS_IGNORE, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_testall @ mp_testall_tv")
          flag = flag .AND. flags(i)
       END DO
@@ -1825,22 +2050,20 @@ CONTAINS
 !>      3.2016 created
 !> \author Nico Holmberg
 ! **************************************************************************************************
-   SUBROUTINE mp_test_1(request, flag)
-      INTEGER, INTENT(inout)                             :: request
-      LOGICAL, INTENT(out)                               :: flag
-
-      INTEGER                                            :: ierr
-
-      ierr = 0
+   FUNCTION mp_test_1(request) RESULT(flag)
+      CLASS(mp_request_type), INTENT(inout)                             :: request
+      LOGICAL                                            :: flag
 
 #if defined(__parallel)
-      CALL mpi_test(request, flag, MPI_STATUS_IGNORE, ierr)
+      INTEGER                                            :: ierr
+
+      CALL mpi_test(request%handle, flag, MPI_STATUS_IGNORE, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_test @ mp_test_1")
 #else
       MARK_USED(request)
       flag = .TRUE.
 #endif
-   END SUBROUTINE mp_test_1
+   END FUNCTION mp_test_1
 
 ! **************************************************************************************************
 !> \brief tests for completion of the given requests
@@ -1852,19 +2075,14 @@ CONTAINS
 !> \author Iain Bethune
 ! **************************************************************************************************
    SUBROUTINE mp_testany_1(requests, completed, flag)
-      INTEGER, DIMENSION(:), INTENT(inout)  :: requests
+      TYPE(mp_request_type), DIMENSION(:), INTENT(inout)  :: requests
       INTEGER, INTENT(out), OPTIONAL           :: completed
       LOGICAL, INTENT(out), OPTIONAL           :: flag
 
-      INTEGER                                  :: ierr
 #if defined(__parallel)
-      INTEGER                                  :: completed_l, count
+      INTEGER                                  :: completed_l, count, ierr
       LOGICAL                                  :: flag_l
-#endif
 
-      ierr = 0
-
-#if defined(__parallel)
       count = SIZE(requests)
 
       CALL mpi_testany_internal(count, requests, completed_l, flag_l, MPI_STATUS_IGNORE, ierr)
@@ -1889,19 +2107,14 @@ CONTAINS
 !> \author Iain Bethune
 ! **************************************************************************************************
    SUBROUTINE mp_testany_2(requests, completed, flag)
-      INTEGER, DIMENSION(:, :), INTENT(inout)   :: requests
+      TYPE(mp_request_type), DIMENSION(:, :), INTENT(inout)   :: requests
       INTEGER, INTENT(out), OPTIONAL           :: completed
       LOGICAL, INTENT(out), OPTIONAL           :: flag
 
-      INTEGER                                  :: ierr
 #if defined(__parallel)
-      INTEGER                                  :: completed_l, count
+      INTEGER                                  :: completed_l, count, ierr
       LOGICAL                                  :: flag_l
-#endif
 
-      ierr = 0
-
-#if defined(__parallel)
       count = SIZE(requests)
 
       CALL mpi_testany_internal(count, requests, completed_l, flag_l, MPI_STATUS_IGNORE, ierr)
@@ -1930,13 +2143,25 @@ CONTAINS
 #if defined(__parallel)
    SUBROUTINE mpi_testany_internal(count, array_of_requests, index, flag, status, ierr)
       INTEGER, INTENT(in)                                :: count
-      INTEGER, DIMENSION(count), INTENT(inout)           :: array_of_requests
+      TYPE(mp_request_type), DIMENSION(count), INTENT(inout)           :: array_of_requests
       INTEGER, INTENT(out)                               :: index
       LOGICAL, INTENT(out)                               :: flag
-      INTEGER, DIMENSION(MPI_STATUS_SIZE), INTENT(out)   :: status
+      MPI_STATUS_TYPE, INTENT(out)   :: status
       INTEGER, INTENT(out)                               :: ierr
 
-      CALL mpi_testany(count, array_of_requests, index, flag, status, ierr)
+      INTEGER :: i
+      MPI_REQUEST_TYPE, ALLOCATABLE, DIMENSION(:) :: request_handles
+
+      ALLOCATE (request_handles(count))
+      DO i = 1, count
+         request_handles(i) = array_of_requests(i)%handle
+      END DO
+
+      CALL mpi_testany(count, request_handles, index, flag, status, ierr)
+
+      DO i = 1, count
+         array_of_requests(i)%handle = request_handles(i)
+      END DO
 
    END SUBROUTINE mpi_testany_internal
 #endif
@@ -1951,30 +2176,33 @@ CONTAINS
 !> \author Joost VandeVondele
 ! **************************************************************************************************
    SUBROUTINE mp_comm_split_direct(comm, sub_comm, color, key)
-      INTEGER, INTENT(in)                                :: comm
-      INTEGER, INTENT(OUT)                               :: sub_comm
+      CLASS(mp_comm_type), INTENT(in)                                :: comm
+      CLASS(mp_comm_type), INTENT(OUT)                               :: sub_comm
       INTEGER, INTENT(in)                                :: color
       INTEGER, INTENT(in), OPTIONAL                      :: key
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_comm_split_direct'
 
-      INTEGER                                            :: handle, ierr, my_key
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, my_key
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
-      my_key = 0
 #if defined(__parallel)
+      my_key = 0
       IF (PRESENT(key)) my_key = key
-      CALL mpi_comm_split(comm, color, my_key, sub_comm, ierr)
-      debug_comm_count = debug_comm_count + 1
+      CALL mpi_comm_split(comm%handle, color, my_key, sub_comm%handle, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
       CALL add_perf(perf_id=10, count=1)
 #else
-      CALL mp_comm_dup(comm, sub_comm)
+      sub_comm%handle = mp_comm_default_handle
+      MARK_USED(comm)
       MARK_USED(color)
       MARK_USED(key)
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_comm_split_direct
@@ -2003,25 +2231,25 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_comm_split(comm, sub_comm, ngroups, group_distribution, &
                             subgroup_min_size, n_subgroups, group_partition, stride)
-      INTEGER, INTENT(in)                      :: comm
-      INTEGER, INTENT(out)                     :: sub_comm, ngroups
-      INTEGER, DIMENSION(0:)                    :: group_distribution
+      CLASS(mp_comm_type), INTENT(in)                      :: comm
+      CLASS(mp_comm_type), INTENT(out) :: sub_comm
+      INTEGER, INTENT(out)                     :: ngroups
+      INTEGER, DIMENSION(0:), INTENT(INOUT)                    :: group_distribution
       INTEGER, INTENT(in), OPTIONAL            :: subgroup_min_size, n_subgroups
-      INTEGER, DIMENSION(0:), OPTIONAL          :: group_partition
-      INTEGER, OPTIONAL                        :: stride
+      INTEGER, DIMENSION(0:), INTENT(IN), OPTIONAL          :: group_partition
+      INTEGER, OPTIONAL, INTENT(IN)                        :: stride
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'mp_comm_split', &
                                      routineP = moduleN//':'//routineN
 
-      INTEGER                                  :: handle, ierr, mepos, nnodes
+      INTEGER                                  :: handle, mepos, nnodes
 #if defined(__parallel)
-      INTEGER                                  :: color, i, j, k, &
+      INTEGER                                  :: color, i, ierr, j, k, &
                                                   my_subgroup_min_size, &
                                                   istride, local_stride, irank
       INTEGER, DIMENSION(:), ALLOCATABLE       :: rank_permutation
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
       ! actual number of groups
@@ -2033,7 +2261,7 @@ CONTAINS
          CPABORT(routineP//" too many arguments")
       END IF
 
-      CALL mp_environ(nnodes, mepos, comm)
+      CALL comm%environ(nnodes, mepos)
 
       IF (UBOUND(group_distribution, 1) .NE. nnodes - 1) THEN
          CPABORT(routineP//" group_distribution wrong bounds")
@@ -2090,18 +2318,19 @@ CONTAINS
          END IF
       END IF
       color = group_distribution(mepos)
-      CALL mpi_comm_split(comm, color, 0, sub_comm, ierr)
-      debug_comm_count = debug_comm_count + 1
+      CALL mpi_comm_split(comm%handle, color, 0, sub_comm%handle, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, "in "//routineP//" split")
 
       CALL add_perf(perf_id=10, count=1)
 #else
-      CALL mp_comm_dup(comm, sub_comm)
+      sub_comm%handle = mp_comm_default_handle
       group_distribution(0) = 0
       ngroups = 1
+      MARK_USED(comm)
       MARK_USED(stride)
       MARK_USED(group_partition)
 #endif
+      debug_comm_count = debug_comm_count + 1
       CALL mp_timestop(handle)
 
    END SUBROUTINE mp_comm_split
@@ -2117,26 +2346,23 @@ CONTAINS
       INTEGER                                            :: node_rank
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_get_node_global_rank'
-      INTEGER                                            :: handle, comm, ierr, rank
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, rank
+      TYPE(mp_comm_type) :: comm
+#endif
 
-      ierr = 0
-      rank = 0
-      comm = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-#if __MPI_VERSION > 2
       CALL mpi_comm_rank(MPI_COMM_WORLD, rank, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
-      CALL mpi_comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank, MPI_INFO_NULL, comm, ierr)
+      CALL mpi_comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank, MPI_INFO_NULL, comm%handle, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
-      CALL mpi_comm_rank(comm, node_rank, ierr)
+      CALL mpi_comm_rank(comm%handle, node_rank, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
-      CALL mpi_comm_free(comm, ierr)
+      CALL mpi_comm_free(comm%handle, ierr)
       IF (ierr /= mpi_success) CALL mp_stop(ierr, routineN)
-#else
-      CPABORT("mp_get_node_global_rank requires MPI-3 standard")
-#endif
 #else
       node_rank = 0
 #endif
@@ -2149,22 +2375,23 @@ CONTAINS
 !> \param[inout] source the source of the possible incoming message,
 !>        if MP_ANY_SOURCE it is a blocking one and return value is the source
 !>        of the next incoming message
-!>        if source is a different value it is a non-blocking probe retuning
+!>        if source is a different value it is a non-blocking probe returning
 !>        MP_ANY_SOURCE if there is no incoming message
 !> \param[in] comm the communicator
 !> \param[out] tag the tag of the incoming message
 !> \author Mandes
 ! **************************************************************************************************
    SUBROUTINE mp_probe(source, comm, tag)
-      INTEGER                                  :: source
-      INTEGER, INTENT(IN)                      :: comm
+      INTEGER, INTENT(INOUT)                      :: source
+      CLASS(mp_comm_type), INTENT(IN)           :: comm
       INTEGER, INTENT(OUT)                     :: tag
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_probe'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER, DIMENSION(mp_status_size)       :: status_single
+      INTEGER :: ierr
+      MPI_STATUS_TYPE     :: status_single
       LOGICAL                                  :: flag
 #endif
 
@@ -2172,22 +2399,21 @@ CONTAINS
 
       CALL mp_timeset(routineN, handle)
 
-      ierr = 0
 #if defined(__parallel)
       IF (source .EQ. mp_any_source) THEN
-         CALL mpi_probe(mp_any_source, mp_any_tag, comm, status_single, ierr)
+         CALL mpi_probe(mp_any_source, mp_any_tag, comm%handle, status_single, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_probe @ mp_probe")
-         source = status_single(MPI_SOURCE)
-         tag = status_single(MPI_TAG)
+         source = status_single MPI_STATUS_EXTRACT(MPI_SOURCE)
+         tag = status_single MPI_STATUS_EXTRACT(MPI_TAG)
       ELSE
          flag = .FALSE.
-         CALL mpi_iprobe(source, mp_any_tag, comm, flag, status_single, ierr)
+         CALL mpi_iprobe(source, mp_any_tag, comm%handle, flag, status_single, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_iprobe @ mp_probe")
          IF (flag .EQV. .FALSE.) THEN
             source = mp_any_source
             tag = -1 !status_single(MPI_TAG) ! in case of flag==false status is undefined
          ELSE
-            tag = status_single(MPI_TAG)
+            tag = status_single MPI_STATUS_EXTRACT(MPI_TAG)
          END IF
       END IF
 #else
@@ -2206,28 +2432,31 @@ CONTAINS
 !> \brief ...
 !> \param msg ...
 !> \param source ...
-!> \param gid ...
+!> \param comm ...
 ! **************************************************************************************************
-   SUBROUTINE mp_bcast_b(msg, source, gid)
-      LOGICAL                                            :: msg
-      INTEGER                                            :: source, gid
+   SUBROUTINE mp_bcast_b(msg, source, comm)
+      LOGICAL, INTENT(INOUT)                                            :: msg
+      INTEGER, INTENT(IN)                                            :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_b'
 
-      INTEGER                                            :: handle, ierr, msglen
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, msglen
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
-      msglen = 1
 #if defined(__parallel)
-      CALL mpi_bcast(msg, msglen, MPI_LOGICAL, source, gid, ierr)
+      msglen = 1
+      CALL mpi_bcast(msg, msglen, MPI_LOGICAL, source, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_bcast @ "//routineN)
       CALL add_perf(perf_id=2, count=1, msg_size=msglen*loglen)
 #else
       MARK_USED(msg)
       MARK_USED(source)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_bcast_b
@@ -2236,27 +2465,31 @@ CONTAINS
 !> \brief ...
 !> \param msg ...
 !> \param source ...
-!> \param gid ...
+!> \param comm ...
 ! **************************************************************************************************
-   SUBROUTINE mp_bcast_bv(msg, source, gid)
-      LOGICAL                                            :: msg(:)
-      INTEGER                                            :: source, gid
+   SUBROUTINE mp_bcast_bv(msg, source, comm)
+      LOGICAL, CONTIGUOUS, INTENT(INOUT)                 :: msg(:)
+      INTEGER, INTENT(IN)                                            :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_bv'
 
-      INTEGER                                            :: handle, ierr, msglen
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, msglen
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
-      msglen = SIZE(msg)
 #if defined(__parallel)
-      CALL mpi_bcast(msg, msglen, MPI_LOGICAL, source, gid, ierr)
+      msglen = SIZE(msg)
+      CALL mpi_bcast(msg, msglen, MPI_LOGICAL, source, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_bcast @ "//routineN)
       CALL add_perf(perf_id=2, count=1, msg_size=msglen*loglen)
 #else
+      MARK_USED(msg)
       MARK_USED(source)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_bcast_bv
@@ -2276,33 +2509,37 @@ CONTAINS
 !>      arrays can be pointers or assumed shape, but they must be contiguous!
 ! **************************************************************************************************
    SUBROUTINE mp_isend_bv(msgin, dest, comm, request, tag)
-      LOGICAL, DIMENSION(:)                    :: msgin
-      INTEGER, INTENT(IN)                      :: dest, comm
-      INTEGER, INTENT(out)                     :: request
+      LOGICAL, DIMENSION(:), INTENT(IN)        :: msgin
+      INTEGER, INTENT(IN)                      :: dest
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen, my_tag
+      INTEGER                                  :: ierr, msglen, my_tag
       LOGICAL                                  :: foo(1)
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
+#if !defined(__GNUC__) || __GNUC__ >= 9
+      CPASSERT(IS_CONTIGUOUS(msgin))
+#endif
+
       my_tag = 0
       IF (PRESENT(tag)) my_tag = tag
 
       msglen = SIZE(msgin, 1)
       IF (msglen > 0) THEN
          CALL mpi_isend(msgin(1), msglen, MPI_LOGICAL, dest, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       ELSE
          CALL mpi_isend(foo, msglen, MPI_LOGICAL, dest, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       END IF
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_isend @ "//routineN)
 
@@ -2312,9 +2549,8 @@ CONTAINS
       MARK_USED(msgin)
       MARK_USED(dest)
       MARK_USED(comm)
-      MARK_USED(request)
       MARK_USED(tag)
-      request = 0
+      request = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_isend_bv
@@ -2334,33 +2570,37 @@ CONTAINS
 !>      arrays can be pointers or assumed shape, but they must be contiguous!
 ! **************************************************************************************************
    SUBROUTINE mp_irecv_bv(msgout, source, comm, request, tag)
-      LOGICAL, DIMENSION(:)                    :: msgout
-      INTEGER, INTENT(IN)                      :: source, comm
-      INTEGER, INTENT(out)                     :: request
+      LOGICAL, DIMENSION(:), INTENT(INOUT)                    :: msgout
+      INTEGER, INTENT(IN)                      :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen, my_tag
+      INTEGER                                  :: ierr, msglen, my_tag
       LOGICAL                                  :: foo(1)
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
+#if !defined(__GNUC__) || __GNUC__ >= 9
+      CPASSERT(IS_CONTIGUOUS(msgout))
+#endif
+
       my_tag = 0
       IF (PRESENT(tag)) my_tag = tag
 
       msglen = SIZE(msgout, 1)
       IF (msglen > 0) THEN
          CALL mpi_irecv(msgout(1), msglen, MPI_LOGICAL, source, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       ELSE
          CALL mpi_irecv(foo, msglen, MPI_LOGICAL, source, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       END IF
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_ircv @ "//routineN)
 
@@ -2370,9 +2610,8 @@ CONTAINS
       MARK_USED(msgout)
       MARK_USED(source)
       MARK_USED(comm)
-      MARK_USED(request)
       MARK_USED(tag)
-      request = 0
+      request = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_irecv_bv
@@ -2392,33 +2631,37 @@ CONTAINS
 !>      arrays can be pointers or assumed shape, but they must be contiguous!
 ! **************************************************************************************************
    SUBROUTINE mp_isend_bm3(msgin, dest, comm, request, tag)
-      LOGICAL, DIMENSION(:, :, :)              :: msgin
-      INTEGER, INTENT(IN)                      :: dest, comm
-      INTEGER, INTENT(out)                     :: request
+      LOGICAL, DIMENSION(:, :, :), INTENT(INOUT)              :: msgin
+      INTEGER, INTENT(IN)                      :: dest
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_bm3'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen, my_tag
+      INTEGER                                  :: ierr, msglen, my_tag
       LOGICAL                                  :: foo(1)
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
+#if !defined(__GNUC__) || __GNUC__ >= 9
+      CPASSERT(IS_CONTIGUOUS(msgin))
+#endif
+
       my_tag = 0
       IF (PRESENT(tag)) my_tag = tag
 
       msglen = SIZE(msgin, 1)*SIZE(msgin, 2)*SIZE(msgin, 3)
       IF (msglen > 0) THEN
          CALL mpi_isend(msgin(1, 1, 1), msglen, MPI_LOGICAL, dest, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       ELSE
          CALL mpi_isend(foo, msglen, MPI_LOGICAL, dest, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       END IF
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_isend @ "//routineN)
 
@@ -2428,9 +2671,8 @@ CONTAINS
       MARK_USED(msgin)
       MARK_USED(dest)
       MARK_USED(comm)
-      MARK_USED(request)
       MARK_USED(tag)
-      request = 0
+      request = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_isend_bm3
@@ -2450,33 +2692,37 @@ CONTAINS
 !>      arrays can be pointers or assumed shape, but they must be contiguous!
 ! **************************************************************************************************
    SUBROUTINE mp_irecv_bm3(msgout, source, comm, request, tag)
-      LOGICAL, DIMENSION(:, :, :)              :: msgout
-      INTEGER, INTENT(IN)                      :: source, comm
-      INTEGER, INTENT(out)                     :: request
+      LOGICAL, DIMENSION(:, :, :), INTENT(INOUT)  :: msgout
+      INTEGER, INTENT(IN)                      :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                     :: request
       INTEGER, INTENT(in), OPTIONAL            :: tag
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_bm3'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen, my_tag
+      INTEGER                                  :: ierr, msglen, my_tag
       LOGICAL                                  :: foo(1)
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
+#if !defined(__GNUC__) || __GNUC__ >= 9
+      CPASSERT(IS_CONTIGUOUS(msgout))
+#endif
+
       my_tag = 0
       IF (PRESENT(tag)) my_tag = tag
 
       msglen = SIZE(msgout, 1)*SIZE(msgout, 2)*SIZE(msgout, 3)
       IF (msglen > 0) THEN
          CALL mpi_irecv(msgout(1, 1, 1), msglen, MPI_LOGICAL, source, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       ELSE
          CALL mpi_irecv(foo, msglen, MPI_LOGICAL, source, my_tag, &
-                        comm, request, ierr)
+                        comm%handle, request%handle, ierr)
       END IF
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_ircv @ "//routineN)
 
@@ -2488,7 +2734,7 @@ CONTAINS
       MARK_USED(comm)
       MARK_USED(request)
       MARK_USED(tag)
-      request = 0
+      request = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_irecv_bm3
@@ -2497,39 +2743,39 @@ CONTAINS
 !> \brief ...
 !> \param msg ...
 !> \param source ...
-!> \param gid ...
+!> \param comm ...
 ! **************************************************************************************************
-   SUBROUTINE mp_bcast_av(msg, source, gid)
-      CHARACTER(LEN=*)                         :: msg
-      INTEGER                                  :: source, gid
+   SUBROUTINE mp_bcast_av(msg, source, comm)
+      CHARACTER(LEN=*), INTENT(INOUT)          :: msg
+      INTEGER, INTENT(IN)                                  :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_av'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: i, msglen, numtask, taskid
+      INTEGER                                  :: i, ierr, msglen, numtask, taskid
       INTEGER, DIMENSION(:), ALLOCATABLE       :: imsg
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
 
-      CALL mp_environ(numtask, taskid, gid)
+      CALL comm%environ(numtask, taskid)
       IF (taskid == source) msglen = LEN_TRIM(msg)
 
-      CALL mp_bcast(msglen, source, gid)
+      CALL comm%bcast(msglen, source)
       ! this is a workaround to avoid problems on the T3E
       ! at the moment we have a data alignment error when trying to
       ! broadcast characters on the T3E (not always!)
       ! JH 19/3/99 on galileo
-      ! CALL mpi_bcast(msg,msglen,MPI_CHARACTER,source,gid,ierr)
+      ! CALL mpi_bcast(msg,msglen,MPI_CHARACTER,source,gid%handle,ierr)
       ALLOCATE (imsg(1:msglen))
       DO i = 1, msglen
          imsg(i) = ICHAR(msg(i:i))
       END DO
-      CALL mpi_bcast(imsg, msglen, MPI_INTEGER, source, gid, ierr)
+      CALL mpi_bcast(imsg, msglen, MPI_INTEGER, source, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_bcast @ "//routineN)
       msg = ""
       DO i = 1, msglen
@@ -2540,7 +2786,7 @@ CONTAINS
 #else
       MARK_USED(msg)
       MARK_USED(source)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_bcast_av
@@ -2549,39 +2795,38 @@ CONTAINS
 !> \brief ...
 !> \param msg ...
 !> \param source ...
-!> \param gid ...
+!> \param comm ...
 ! **************************************************************************************************
-   SUBROUTINE mp_bcast_am(msg, source, gid)
-      CHARACTER(LEN=*)                         :: msg(:)
-      INTEGER                                  :: source, gid
+   SUBROUTINE mp_bcast_am(msg, source, comm)
+      CHARACTER(LEN=*), CONTIGUOUS, INTENT(INOUT)      :: msg(:)
+      INTEGER, INTENT(IN)                             :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_bcast_am'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: i, j, k, msglen, msgsiz, &
+      INTEGER                                  :: i, ierr, j, k, msglen, msgsiz, &
                                                   numtask, taskid
       INTEGER, ALLOCATABLE                     :: imsg(:), imsglen(:)
 #endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-      CALL mp_environ(numtask, taskid, gid)
+      CALL comm%environ(numtask, taskid)
       msgsiz = SIZE(msg)
       ! Determine size of the minimum array of integers to broadcast the string
       ALLOCATE (imsglen(1:msgsiz))
       DO j = 1, msgsiz
          IF (taskid == source) imsglen(j) = LEN_TRIM(msg(j))
       END DO
-      CALL mp_bcast(imsglen, source, gid)
+      CALL comm%bcast(imsglen, source)
       msglen = SUM(imsglen)
       ! this is a workaround to avoid problems on the T3E
       ! at the moment we have a data alignment error when trying to
       ! broadcast characters on the T3E (not always!)
       ! JH 19/3/99 on galileo
-      ! CALL mpi_bcast(msg,msglen,MPI_CHARACTER,source,gid,ierr)
       ALLOCATE (imsg(1:msglen))
       k = 0
       DO j = 1, msgsiz
@@ -2590,7 +2835,7 @@ CONTAINS
             imsg(k) = ICHAR(msg(j) (i:i))
          END DO
       END DO
-      CALL mpi_bcast(imsg, msglen, MPI_INTEGER, source, gid, ierr)
+      CALL mpi_bcast(imsg, msglen, MPI_INTEGER, source, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_bcast @ "//routineN)
       msg = ""
       k = 0
@@ -2606,7 +2851,7 @@ CONTAINS
 #else
       MARK_USED(msg)
       MARK_USED(source)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_bcast_am
@@ -2615,25 +2860,24 @@ CONTAINS
 !> \brief Finds the location of the minimal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MINLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_minloc_dv(msg, gid)
-      REAL(kind=real_8), INTENT(INOUT)         :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_minloc_dv(msg, comm)
+      REAL(kind=real_8), CONTIGUOUS, INTENT(INOUT)         :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_dv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       REAL(kind=real_8), ALLOCATABLE           :: res(:)
 #endif
 
-      ierr = 0
       IF ("d" .EQ. "l" .AND. real_8 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
       END IF
@@ -2644,14 +2888,14 @@ CONTAINS
       ALLOCATE (res(1:msglen), STAT=ierr)
       IF (ierr /= 0) &
          CPABORT("allocate @ "//routineN)
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2DOUBLE_PRECISION, MPI_MINLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2DOUBLE_PRECISION, MPI_MINLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*real_8_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_minloc_dv
@@ -2660,25 +2904,24 @@ CONTAINS
 !> \brief Finds the location of the minimal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MINLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_minloc_iv(msg, gid)
-      INTEGER(KIND=int_4), INTENT(INOUT)       :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_minloc_iv(msg, comm)
+      INTEGER(KIND=int_4), CONTIGUOUS, INTENT(INOUT)       :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_iv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       INTEGER(KIND=int_4), ALLOCATABLE         :: res(:)
 #endif
 
-      ierr = 0
       IF ("i" .EQ. "l" .AND. int_4 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
       END IF
@@ -2687,14 +2930,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2INTEGER, MPI_MINLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2INTEGER, MPI_MINLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*int_4_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_minloc_iv
@@ -2703,25 +2946,24 @@ CONTAINS
 !> \brief Finds the location of the minimal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MINLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_minloc_lv(msg, gid)
-      INTEGER(KIND=int_8), INTENT(INOUT)       :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_minloc_lv(msg, comm)
+      INTEGER(KIND=int_8), CONTIGUOUS, INTENT(INOUT)       :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_lv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       INTEGER(KIND=int_8), ALLOCATABLE         :: res(:)
 #endif
 
-      ierr = 0
       IF ("l" .EQ. "l" .AND. int_8 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
       END IF
@@ -2730,14 +2972,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_INTEGER8, MPI_MINLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_INTEGER8, MPI_MINLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*int_8_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_minloc_lv
@@ -2746,25 +2988,24 @@ CONTAINS
 !> \brief Finds the location of the minimal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MINLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_minloc_rv(msg, gid)
-      REAL(kind=real_4), INTENT(INOUT)         :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_minloc_rv(msg, comm)
+      REAL(kind=real_4), CONTIGUOUS, INTENT(INOUT)         :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_minloc_rv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       REAL(kind=real_4), ALLOCATABLE           :: res(:)
 #endif
 
-      ierr = 0
       IF ("r" .EQ. "l" .AND. real_4 .EQ. int_8) THEN
          CPABORT("Minimal location not available with long integers @ "//routineN)
       END IF
@@ -2773,14 +3014,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2REAL, MPI_MINLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2REAL, MPI_MINLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*real_4_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_minloc_rv
@@ -2789,25 +3030,24 @@ CONTAINS
 !> \brief Finds the location of the maximal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MAXLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_maxloc_dv(msg, gid)
-      REAL(kind=real_8), INTENT(INOUT)         :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_maxloc_dv(msg, comm)
+      REAL(kind=real_8), CONTIGUOUS, INTENT(INOUT)         :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_dv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       REAL(kind=real_8), ALLOCATABLE           :: res(:)
 #endif
 
-      ierr = 0
       IF ("d" .EQ. "l" .AND. real_8 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
       END IF
@@ -2816,14 +3056,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2DOUBLE_PRECISION, MPI_MAXLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2DOUBLE_PRECISION, MPI_MAXLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*real_8_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_maxloc_dv
@@ -2832,25 +3072,24 @@ CONTAINS
 !> \brief Finds the location of the maximal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MAXLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_maxloc_iv(msg, gid)
-      INTEGER(KIND=int_4), INTENT(INOUT)       :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_maxloc_iv(msg, comm)
+      INTEGER(KIND=int_4), CONTIGUOUS, INTENT(INOUT)       :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_iv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       INTEGER(KIND=int_4), ALLOCATABLE         :: res(:)
 #endif
 
-      ierr = 0
       IF ("i" .EQ. "l" .AND. int_4 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
       END IF
@@ -2859,14 +3098,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2INTEGER, MPI_MAXLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2INTEGER, MPI_MAXLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*int_4_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_maxloc_iv
@@ -2875,25 +3114,24 @@ CONTAINS
 !> \brief Finds the location of the maximal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MAXLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_maxloc_lv(msg, gid)
-      INTEGER(KIND=int_8), INTENT(INOUT)       :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_maxloc_lv(msg, comm)
+      INTEGER(KIND=int_8), CONTIGUOUS, INTENT(INOUT)       :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_lv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       INTEGER(KIND=int_8), ALLOCATABLE         :: res(:)
 #endif
 
-      ierr = 0
       IF ("l" .EQ. "l" .AND. int_8 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
       END IF
@@ -2902,14 +3140,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_INTEGER8, MPI_MAXLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_INTEGER8, MPI_MAXLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*int_8_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_maxloc_lv
@@ -2918,25 +3156,24 @@ CONTAINS
 !> \brief Finds the location of the maximal element in a vector.
 !> \param[in,out] msg         Find location of maximum element among these
 !>                            data (input).
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce with the MPI_MAXLOC reduction function identifier
 !> \par Invalid data types
 !>      This routine is invalid for (int_8) data!
 ! **************************************************************************************************
-   SUBROUTINE mp_maxloc_rv(msg, gid)
-      REAL(kind=real_4), INTENT(INOUT)         :: msg(:)
-      INTEGER, INTENT(IN)                      :: gid
+   SUBROUTINE mp_maxloc_rv(msg, comm)
+      REAL(kind=real_4), CONTIGUOUS, INTENT(INOUT)         :: msg(:)
+      CLASS(mp_comm_type), INTENT(IN)                      :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_maxloc_rv'
 
-      INTEGER                                  :: handle, ierr
+      INTEGER                                  :: handle
 #if defined(__parallel)
-      INTEGER                                  :: msglen
+      INTEGER                                  :: ierr, msglen
       REAL(kind=real_4), ALLOCATABLE           :: res(:)
 #endif
 
-      ierr = 0
       IF ("r" .EQ. "l" .AND. real_4 .EQ. int_8) THEN
          CPABORT("Maximal location not available with long integers @ "//routineN)
       END IF
@@ -2945,14 +3182,14 @@ CONTAINS
 #if defined(__parallel)
       msglen = SIZE(msg)
       ALLOCATE (res(1:msglen))
-      CALL mpi_allreduce(msg, res, msglen/2, MPI_2REAL, MPI_MAXLOC, gid, ierr)
+      CALL mpi_allreduce(msg, res, msglen/2, MPI_2REAL, MPI_MAXLOC, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       msg = res
       DEALLOCATE (res)
       CALL add_perf(perf_id=3, count=1, msg_size=msglen*real_4_size)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_maxloc_rv
@@ -2961,27 +3198,29 @@ CONTAINS
 !> \brief Logical OR reduction
 !> \param[in,out] msg         Datum to perform inclusive disjunction (input)
 !>                            and resultant inclusive disjunction (output)
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce
 ! **************************************************************************************************
-   SUBROUTINE mp_sum_b(msg, gid)
+   SUBROUTINE mp_sum_b(msg, comm)
       LOGICAL, INTENT(INOUT)                             :: msg
-      INTEGER, INTENT(IN)                                :: gid
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_b'
 
-      INTEGER                                            :: handle, ierr, msglen
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, msglen
+#endif
 
       CALL mp_timeset(routineN, handle)
-      ierr = 0
-      msglen = 1
 #if defined(__parallel)
-      CALL mpi_allreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, gid, ierr)
+      msglen = 1
+      CALL mpi_allreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, comm%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_sum_b
@@ -2990,29 +3229,31 @@ CONTAINS
 !> \brief Logical OR reduction
 !> \param[in,out] msg         Datum to perform inclusive disjunction (input)
 !>                            and resultant inclusive disjunction (output)
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \par MPI mapping
 !>      mpi_allreduce
 ! **************************************************************************************************
-   SUBROUTINE mp_sum_bv(msg, gid)
-      LOGICAL, DIMENSION(:), INTENT(INOUT)               :: msg
-      INTEGER, INTENT(IN)                                :: gid
+   SUBROUTINE mp_sum_bv(msg, comm)
+      LOGICAL, DIMENSION(:), CONTIGUOUS, INTENT(INOUT)               :: msg
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_sum_bv'
 
-      INTEGER                                            :: handle, ierr, msglen
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, msglen
+#endif
 
       CALL mp_timeset(routineN, handle)
-      ierr = 0
-      msglen = SIZE(msg)
 #if defined(__parallel)
+      msglen = SIZE(msg)
       IF (msglen .GT. 0) THEN
-         CALL mpi_allreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, gid, ierr)
+         CALL mpi_allreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, comm%handle, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       END IF
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
+      MARK_USED(comm)
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_sum_bv
@@ -3021,41 +3262,40 @@ CONTAINS
 !> \brief Logical OR reduction
 !> \param[in,out] msg         Datum to perform inclusive disjunction (input)
 !>                            and resultant inclusive disjunction (output)
-!> \param[in] gid             Message passing environment identifier
+!> \param[in] comm             Message passing environment identifier
 !> \param request ...
 !> \par MPI mapping
 !>      mpi_allreduce
 ! **************************************************************************************************
-   SUBROUTINE mp_isum_bv(msg, gid, request)
+   SUBROUTINE mp_isum_bv(msg, comm, request)
       LOGICAL, DIMENSION(:), INTENT(INOUT)               :: msg
-      INTEGER, INTENT(IN)                                :: gid
-      INTEGER, INTENT(INOUT)                             :: request
+      CLASS(mp_comm_type), INTENT(IN)                                :: comm
+      TYPE(mp_request_type), INTENT(INOUT)                             :: request
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_isum_bv'
 
-      INTEGER                                            :: handle, ierr, msglen
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr, msglen
+#endif
 
       CALL mp_timeset(routineN, handle)
-      ierr = 0
-      msglen = SIZE(msg)
 #if defined(__parallel)
-#if __MPI_VERSION > 2
+      msglen = SIZE(msg)
+#if !defined(__GNUC__) || __GNUC__ >= 9
+      CPASSERT(IS_CONTIGUOUS(msg))
+#endif
+
       IF (msglen .GT. 0) THEN
-         CALL mpi_iallreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, gid, request, ierr)
+         CALL mpi_iallreduce(MPI_IN_PLACE, msg, msglen, MPI_LOGICAL, MPI_LOR, comm%handle, request%handle, ierr)
          IF (ierr /= 0) CALL mp_stop(ierr, "mpi_allreduce @ "//routineN)
       ELSE
          request = mp_request_null
       END IF
 #else
       MARK_USED(msg)
-      MARK_USED(gid)
-      MARK_USED(request)
-      CPABORT("mp_isum requires MPI-3 standard")
-#endif
-#else
-      MARK_USED(msg)
-      MARK_USED(gid)
-      MARK_USED(request)
+      MARK_USED(comm)
+      request = mp_request_null
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_isum_bv
@@ -3071,25 +3311,17 @@ CONTAINS
       CHARACTER(len=*), INTENT(OUT)                      :: version
       INTEGER, INTENT(OUT)                               :: resultlen
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_get_library_version'
-
+#if defined(__parallel)
       INTEGER                                            :: ierr
-
-      ierr = 0
+#endif
 
       version = ''
 
 #if defined(__parallel)
-#if __MPI_VERSION > 2
+      ierr = 0
       CALL mpi_get_library_version(version, resultlen, ierr)
-      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_get_library_version @ "//routineN)
+      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_get_library_version @ mp_get_library_version")
 #else
-      MARK_USED(version)
-      MARK_USED(resultlen)
-      CPABORT("mp_get_library_version requires MPI-3 standard")
-#endif
-#else
-      MARK_USED(version)
       resultlen = 0
 #endif
    END SUBROUTINE mp_get_library_version
@@ -3109,28 +3341,27 @@ CONTAINS
 !>      11.2012 created [Hossein Bani-Hashemian]
 ! **************************************************************************************************
    SUBROUTINE mp_file_open(groupid, fh, filepath, amode_status, info)
-      INTEGER, INTENT(IN)                      :: groupid
-      INTEGER, INTENT(OUT)                     :: fh
+      TYPE(mp_comm_type), INTENT(IN)                      :: groupid
+      CLASS(mp_file_type), INTENT(OUT)                     :: fh
       CHARACTER(len=*), INTENT(IN)             :: filepath
       INTEGER, INTENT(IN)                      :: amode_status
-      INTEGER, INTENT(IN), OPTIONAL            :: info
+      TYPE(mp_info_type), INTENT(IN), OPTIONAL            :: info
 
-      INTEGER                                  :: ierr, istat
 #if defined(__parallel)
-      INTEGER                                  :: my_info
+      INTEGER                                  :: ierr
+      MPI_INFO_TYPE                           :: my_info
 #else
       CHARACTER(LEN=10)                        :: fstatus, fposition
-      INTEGER                                  :: amode
+      INTEGER                                  :: amode, handle, istat
       LOGICAL                                  :: exists, is_open
 #endif
 
-      ierr = 0
-      istat = 0
 #if defined(__parallel)
+      ierr = 0
       my_info = mpi_info_null
-      IF (PRESENT(info)) my_info = info
-      CALL mpi_file_open(groupid, filepath, amode_status, my_info, fh, ierr)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
+      IF (PRESENT(info)) my_info = info%handle
+      CALL mpi_file_open(groupid%handle, filepath, amode_status, my_info, fh%handle, ierr)
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ mp_file_open")
 #else
       MARK_USED(groupid)
@@ -3150,11 +3381,12 @@ CONTAINS
          fstatus = "OLD"
       END IF
       ! Get a new unit number
-      DO fh = 1, 999
-         INQUIRE (UNIT=fh, EXIST=exists, OPENED=is_open, IOSTAT=istat)
+      DO handle = 1, 999
+         INQUIRE (UNIT=handle, EXIST=exists, OPENED=is_open, IOSTAT=istat)
          IF (exists .AND. (.NOT. is_open) .AND. (istat == 0)) EXIT
       END DO
-      OPEN (UNIT=fh, FILE=filepath, STATUS=fstatus, ACCESS="STREAM", POSITION=fposition)
+      OPEN (UNIT=handle, FILE=filepath, STATUS=fstatus, ACCESS="STREAM", POSITION=fposition)
+      fh%handle = handle
 #endif
    END SUBROUTINE mp_file_open
 
@@ -3168,18 +3400,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_delete(filepath, info)
       CHARACTER(len=*), INTENT(IN)             :: filepath
-      INTEGER, INTENT(IN), OPTIONAL            :: info
+      TYPE(mp_info_type), INTENT(IN), OPTIONAL            :: info
 
 #if defined(__parallel)
       INTEGER                                  :: ierr
-      INTEGER                                  :: my_info
+      MPI_INFO_TYPE                           :: my_info
       LOGICAL                                  :: exists
-#endif
 
-#if defined(__parallel)
       ierr = 0
       my_info = mpi_info_null
-      IF (PRESENT(info)) my_info = info
+      IF (PRESENT(info)) my_info = info%handle
       INQUIRE (FILE=filepath, EXIST=exists)
       IF (exists) CALL mpi_file_delete(filepath, my_info, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ mp_file_delete")
@@ -3201,19 +3431,32 @@ CONTAINS
 !>      11.2012 created [Hossein Bani-Hashemian]
 ! **************************************************************************************************
    SUBROUTINE mp_file_close(fh)
-      INTEGER, INTENT(INOUT)                             :: fh
+      CLASS(mp_file_type), INTENT(INOUT)                             :: fh
 
+#if defined(__parallel)
       INTEGER                                            :: ierr
 
       ierr = 0
+#endif
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
 #if defined(__parallel)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
-      CALL mpi_file_close(fh, ierr)
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
+      CALL mpi_file_close(fh%handle, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ mp_file_close")
 #else
-      CLOSE (fh)
+      CLOSE (fh%handle)
+      fh%handle = mp_file_null_handle
 #endif
    END SUBROUTINE mp_file_close
+
+   SUBROUTINE mp_file_assign(fh_new, fh_old)
+      CLASS(mp_file_type), INTENT(OUT) :: fh_new
+      CLASS(mp_file_type), INTENT(IN) :: fh_old
+
+      fh_new%handle = fh_old%handle
+
+   END SUBROUTINE
 
 ! **************************************************************************************************
 !> \brief Returns the file size
@@ -3226,18 +3469,23 @@ CONTAINS
 !>      12.2012 created [Hossein Bani-Hashemian]
 ! **************************************************************************************************
    SUBROUTINE mp_file_get_size(fh, file_size)
-      INTEGER, INTENT(IN)                                :: fh
+      CLASS(mp_file_type), INTENT(IN)                                :: fh
       INTEGER(kind=file_offset), INTENT(OUT)             :: file_size
 
-      INTEGER                                            :: ierr
-
-      ierr = 0
 #if defined(__parallel)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
-      CALL mpi_file_get_size(fh, file_size, ierr)
+      INTEGER                                            :: ierr
+#endif
+
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      ierr = 0
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
+      CALL mpi_file_get_size(fh%handle, file_size, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ mp_file_get_size")
 #else
-      INQUIRE (UNIT=fh, SIZE=file_size)
+      INQUIRE (UNIT=fh%handle, SIZE=file_size)
 #endif
    END SUBROUTINE mp_file_get_size
 
@@ -3252,18 +3500,23 @@ CONTAINS
 !>      11.2017 created [Nico Holmberg]
 ! **************************************************************************************************
    SUBROUTINE mp_file_get_position(fh, pos)
-      INTEGER, INTENT(IN)                                :: fh
+      CLASS(mp_file_type), INTENT(IN)                                :: fh
       INTEGER(kind=file_offset), INTENT(OUT)             :: pos
 
-      INTEGER                                            :: ierr
-
-      ierr = 0
 #if defined(__parallel)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
-      CALL mpi_file_get_position(fh, pos, ierr)
+      INTEGER                                            :: ierr
+#endif
+
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      ierr = 0
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
+      CALL mpi_file_get_position(fh%handle, pos, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ mp_file_get_position")
 #else
-      INQUIRE (UNIT=fh, POS=pos)
+      INQUIRE (UNIT=fh%handle, POS=pos)
 #endif
    END SUBROUTINE mp_file_get_position
 
@@ -3279,24 +3532,27 @@ CONTAINS
 !> \param[in](optional) msglen number of the elements of data
 ! **************************************************************************************************
    SUBROUTINE mp_file_write_at_chv(fh, offset, msg, msglen)
-      CHARACTER, INTENT(IN)                      :: msg(:)
-      INTEGER, INTENT(IN)                        :: fh
+      CHARACTER, CONTIGUOUS, INTENT(IN)                      :: msg(:)
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_chv'
-
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
+#endif
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
       msg_len = SIZE(msg)
       IF (PRESENT(msglen)) msg_len = msglen
-      CALL MPI_FILE_WRITE_AT(fh, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL MPI_FILE_WRITE_AT(fh%handle, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_write_at_chv @ "//routineN)
+         CPABORT("mpi_file_write_at_chv @ mp_file_write_at_chv")
 #else
       MARK_USED(msglen)
-      WRITE (UNIT=fh, POS=offset + 1) msg
+      WRITE (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_write_at_chv
 
@@ -3308,19 +3564,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_write_at_ch(fh, offset, msg)
       CHARACTER(LEN=*), INTENT(IN)               :: msg
-      INTEGER, INTENT(IN)                        :: fh
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
+#endif
 
-      CALL MPI_FILE_WRITE_AT(fh, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      CALL MPI_FILE_WRITE_AT(fh%handle, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_write_at_ch @ "//routineN)
+         CPABORT("mpi_file_write_at_ch @ mp_file_write_at_ch")
 #else
-      WRITE (UNIT=fh, POS=offset + 1) msg
+      WRITE (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_write_at_ch
 
@@ -3335,24 +3594,27 @@ CONTAINS
 !> \par STREAM-I/O mapping   WRITE
 ! **************************************************************************************************
    SUBROUTINE mp_file_write_at_all_chv(fh, offset, msg, msglen)
-      CHARACTER, INTENT(IN)                      :: msg(:)
-      INTEGER, INTENT(IN)                        :: fh
+      CHARACTER, CONTIGUOUS, INTENT(IN)                      :: msg(:)
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_chv'
-
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
+#endif
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
       msg_len = SIZE(msg)
       IF (PRESENT(msglen)) msg_len = msglen
-      CALL MPI_FILE_WRITE_AT_ALL(fh, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL MPI_FILE_WRITE_AT_ALL(fh%handle, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_write_at_all_chv @ "//routineN)
+         CPABORT("mpi_file_write_at_all_chv @ mp_file_write_at_all_chv")
 #else
       MARK_USED(msglen)
-      WRITE (UNIT=fh, POS=offset + 1) msg
+      WRITE (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_write_at_all_chv
 
@@ -3364,19 +3626,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_write_at_all_ch(fh, offset, msg)
       CHARACTER(LEN=*), INTENT(IN)               :: msg
-      INTEGER, INTENT(IN)                        :: fh
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_at_all_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
+#endif
 
-      CALL MPI_FILE_WRITE_AT_ALL(fh, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      CALL MPI_FILE_WRITE_AT_ALL(fh%handle, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_write_at_all_ch @ "//routineN)
+         CPABORT("mpi_file_write_at_all_ch @ mp_file_write_at_all_ch")
 #else
-      WRITE (UNIT=fh, POS=offset + 1) msg
+      WRITE (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_write_at_all_ch
 
@@ -3392,24 +3657,27 @@ CONTAINS
 !> \param[in](optional) msglen  number of elements of data
 ! **************************************************************************************************
    SUBROUTINE mp_file_read_at_chv(fh, offset, msg, msglen)
-      CHARACTER, INTENT(OUT)                     :: msg(:)
-      INTEGER, INTENT(IN)                        :: fh
+      CHARACTER, CONTIGUOUS, INTENT(OUT)                     :: msg(:)
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_chv'
-
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
+#endif
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
       msg_len = SIZE(msg)
       IF (PRESENT(msglen)) msg_len = msglen
-      CALL MPI_FILE_READ_AT(fh, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL MPI_FILE_READ_AT(fh%handle, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_read_at_chv @ "//routineN)
+         CPABORT("mpi_file_read_at_chv @ mp_file_read_at_chv")
 #else
       MARK_USED(msglen)
-      READ (UNIT=fh, POS=offset + 1) msg
+      READ (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_read_at_chv
 
@@ -3421,19 +3689,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_read_at_ch(fh, offset, msg)
       CHARACTER(LEN=*), INTENT(OUT)              :: msg
-      INTEGER, INTENT(IN)                        :: fh
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
+#endif
 
-      CALL MPI_FILE_READ_AT(fh, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      CALL MPI_FILE_READ_AT(fh%handle, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_read_at_ch @ "//routineN)
+         CPABORT("mpi_file_read_at_ch @ mp_file_read_at_ch")
 #else
-      READ (UNIT=fh, POS=offset + 1) msg
+      READ (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_read_at_ch
 
@@ -3449,23 +3720,26 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_read_at_all_chv(fh, offset, msg, msglen)
       CHARACTER, INTENT(OUT)                     :: msg(:)
-      INTEGER, INTENT(IN)                        :: fh
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER, INTENT(IN), OPTIONAL              :: msglen
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_chv'
-
 #if defined(__parallel)
       INTEGER                                    :: ierr, msg_len
+#endif
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
       msg_len = SIZE(msg)
       IF (PRESENT(msglen)) msg_len = msglen
-      CALL MPI_FILE_READ_AT_ALL(fh, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL MPI_FILE_READ_AT_ALL(fh%handle, offset, msg, msg_len, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_read_at_all_chv @ "//routineN)
+         CPABORT("mpi_file_read_at_all_chv @ mp_file_read_at_all_chv")
 #else
       MARK_USED(msglen)
-      READ (UNIT=fh, POS=offset + 1) msg
+      READ (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_read_at_all_chv
 
@@ -3477,19 +3751,22 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_file_read_at_all_ch(fh, offset, msg)
       CHARACTER(LEN=*), INTENT(OUT)              :: msg
-      INTEGER, INTENT(IN)                        :: fh
+      CLASS(mp_file_type), INTENT(IN)                        :: fh
       INTEGER(kind=file_offset), INTENT(IN)      :: offset
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_at_all_ch'
 
 #if defined(__parallel)
       INTEGER                                    :: ierr
+#endif
 
-      CALL MPI_FILE_READ_AT_ALL(fh, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
+#if defined(__parallel)
+      CALL MPI_FILE_READ_AT_ALL(fh%handle, offset, msg, LEN(msg), MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_file_read_at_all_ch @ "//routineN)
+         CPABORT("mpi_file_read_at_all_ch @ mp_file_read_at_all_ch")
 #else
-      READ (UNIT=fh, POS=offset + 1) msg
+      READ (UNIT=fh%handle, POS=offset + 1) msg
 #endif
    END SUBROUTINE mp_file_read_at_all_ch
 
@@ -3505,15 +3782,13 @@ CONTAINS
       TYPE(mp_type_descriptor_type), INTENT(IN)          :: type_descriptor
       INTEGER, INTENT(OUT)                               :: type_size
 
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_size'
-
+#if defined(__parallel)
       INTEGER                                            :: ierr
 
       ierr = 0
-#if defined(__parallel)
       CALL MPI_TYPE_SIZE(type_descriptor%type_handle, type_size, ierr)
       IF (ierr .NE. 0) &
-         CPABORT("mpi_type_size @ "//routineN)
+         CPABORT("mpi_type_size failed @ mp_type_size")
 #else
       SELECT CASE (type_descriptor%type_handle)
       CASE (1)
@@ -3548,18 +3823,20 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_make_struct'
 
-      INTEGER                                  :: i, ierr, n
+      INTEGER                                  :: i, n
+      INTEGER, ALLOCATABLE, DIMENSION(:)       :: lengths
 #if defined(__parallel)
+      INTEGER :: ierr
       INTEGER(kind=mpi_address_kind), &
          ALLOCATABLE, DIMENSION(:)              :: displacements
 #endif
-      INTEGER, ALLOCATABLE, DIMENSION(:)       :: lengths, old_types
+      MPI_DATA_TYPE, ALLOCATABLE, DIMENSION(:) :: old_types
 
-      ierr = 0
       n = SIZE(subtypes)
       !type_descriptor%mpi_type_handle = MPI_DATATYPE_NULL
       type_descriptor%length = 1
 #if defined(__parallel)
+      ierr = 0
       CALL mpi_get_address(MPI_BOTTOM, type_descriptor%base, ierr)
       IF (ierr /= 0) &
          CPABORT("MPI_get_address @ "//routineN)
@@ -3601,10 +3878,12 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_type_free_m'
 
-      INTEGER                                            :: handle, i, ierr
+      INTEGER                                            :: handle, i
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
       CALL mp_timeset(routineN, handle)
-      ierr = 0
 
       ! If the subtype is associated, then it's a user-defined data type.
 
@@ -3615,6 +3894,7 @@ CONTAINS
          DEALLOCATE (type_descriptor%subtype)
       END IF
 #if defined(__parallel)
+      ierr = 0
       CALL MPI_Type_free(type_descriptor%type_handle, ierr)
       IF (ierr /= 0) &
          CPABORT("MPI_Type_free @ "//routineN)
@@ -3663,7 +3943,6 @@ CONTAINS
 
       ierr = 0
       CALL mp_timeset(routineN, handle)
-      type_descriptor%type_handle = 0
 
 #if defined(__parallel)
       CALL MPI_Type_create_hindexed(count, lengths, INT(displs, KIND=address_kind), MPI_CHARACTER, &
@@ -3694,20 +3973,26 @@ CONTAINS
 !> \author Nico Holmberg [05.2017]
 ! **************************************************************************************************
    SUBROUTINE mp_file_type_set_view_chv(fh, offset, type_descriptor)
-      INTEGER, INTENT(IN)                      :: fh
+      TYPE(mp_file_type), INTENT(IN)                      :: fh
       INTEGER(kind=file_offset), INTENT(IN)    :: offset
       TYPE(mp_file_descriptor_type)            :: type_descriptor
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_set_view_chv'
 
-      INTEGER                                   :: ierr, handle
+      INTEGER                                   :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
 #if defined(__parallel)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
-      CALL MPI_File_set_view(fh, offset, MPI_CHARACTER, &
+      ierr = 0
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
+      CALL MPI_File_set_view(fh%handle, offset, MPI_CHARACTER, &
                              type_descriptor%type_handle, "native", MPI_INFO_NULL, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ MPI_File_set_view")
 #else
@@ -3733,24 +4018,31 @@ CONTAINS
 !> \author Nico Holmberg [05.2017]
 ! **************************************************************************************************
    SUBROUTINE mp_file_read_all_chv(fh, msglen, ndims, buffer, type_descriptor)
-      INTEGER, INTENT(IN)                       :: fh
+      CLASS(mp_file_type), INTENT(IN)                       :: fh
       INTEGER, INTENT(IN)                       :: msglen
       INTEGER, INTENT(IN)                       :: ndims
-      CHARACTER(LEN=msglen), DIMENSION(ndims)   :: buffer
+      CHARACTER(LEN=msglen), DIMENSION(ndims), INTENT(INOUT)   :: buffer
       TYPE(mp_file_descriptor_type), &
          INTENT(IN), OPTIONAL                   :: type_descriptor
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_read_all_chv'
 
-      INTEGER                                   :: ierr, handle, i
+      INTEGER                                   :: handle
+#if defined(__parallel)
+      INTEGER:: ierr
+#else
+      INTEGER :: i
+#endif
 
-      i = 0
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
+
 #if defined(__parallel)
+      ierr = 0
       MARK_USED(type_descriptor)
-      CALL MPI_File_read_all(fh, buffer, ndims*msglen, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL MPI_File_read_all(fh%handle, buffer, ndims*msglen, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ MPI_File_read_all")
       CALL add_perf(perf_id=28, count=1, msg_size=ndims*msglen)
 #else
@@ -3764,7 +4056,7 @@ CONTAINS
                        "File view has not been set in mp_file_descriptor_type.")
       ! Use explicit offsets
       DO i = 1, ndims
-         READ (fh, POS=type_descriptor%index_descriptor%chunks(i)) buffer(i)
+         READ (fh%handle, POS=type_descriptor%index_descriptor%chunks(i)) buffer(i)
       END DO
 #endif
 
@@ -3784,25 +4076,31 @@ CONTAINS
 !> \author Nico Holmberg [05.2017]
 ! **************************************************************************************************
    SUBROUTINE mp_file_write_all_chv(fh, msglen, ndims, buffer, type_descriptor)
-      INTEGER, INTENT(IN)                       :: fh
+      CLASS(mp_file_type), INTENT(IN)                       :: fh
       INTEGER, INTENT(IN)                       :: msglen
       INTEGER, INTENT(IN)                       :: ndims
-      CHARACTER(LEN=msglen), DIMENSION(ndims)   :: buffer
+      CHARACTER(LEN=msglen), DIMENSION(ndims), INTENT(IN)   :: buffer
       TYPE(mp_file_descriptor_type), &
          INTENT(IN), OPTIONAL                   :: type_descriptor
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_write_all_chv'
 
-      INTEGER                                   :: ierr, handle, i
+      INTEGER                                   :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#else
+      INTEGER :: i
+#endif
 
-      i = 0
-      ierr = 0
       CALL mp_timeset(routineN, handle)
+
+      IF (fh%handle == mp_file_null_handle) &
+         CPABORT("Invalid file handle")
 
 #if defined(__parallel)
       MARK_USED(type_descriptor)
-      CALL mpi_file_set_errhandler(fh, MPI_ERRORS_RETURN, ierr)
-      CALL MPI_File_write_all(fh, buffer, ndims*msglen, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
+      CALL mpi_file_set_errhandler(fh%handle, MPI_ERRORS_RETURN, ierr)
+      CALL MPI_File_write_all(fh%handle, buffer, ndims*msglen, MPI_CHARACTER, MPI_STATUS_IGNORE, ierr)
       IF (ierr .NE. 0) CALL mp_stop(ierr, "mpi_file_set_errhandler @ MPI_File_write_all")
       CALL add_perf(perf_id=28, count=1, msg_size=ndims*msglen)
 #else
@@ -3816,7 +4114,7 @@ CONTAINS
                        "File view has not been set in mp_file_descriptor_type.")
       ! Use explicit offsets
       DO i = 1, ndims
-         WRITE (fh, POS=type_descriptor%index_descriptor%chunks(i)) buffer(i)
+         WRITE (fh%handle, POS=type_descriptor%index_descriptor%chunks(i)) buffer(i)
       END DO
 #endif
 
@@ -3834,9 +4132,11 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_file_type_free'
 
-      INTEGER                                   :: ierr, handle
+      INTEGER                                   :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
@@ -3844,8 +4144,12 @@ CONTAINS
       IF (ierr /= 0) &
          CPABORT("MPI_Type_free @ "//routineN)
 #endif
-      type_descriptor%length = -1
+#if defined(__parallel) && defined(__MPI_F08)
+      type_descriptor%type_handle%mpi_val = -1
+#else
       type_descriptor%type_handle = -1
+#endif
+      type_descriptor%length = -1
       IF (type_descriptor%has_indexing) THEN
          NULLIFY (type_descriptor%index_descriptor%index)
          NULLIFY (type_descriptor%index_descriptor%chunks)
@@ -4002,11 +4306,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_isend_custom(msgin, dest, comm, request, tag)
       TYPE(mp_type_descriptor_type), INTENT(IN)          :: msgin
-      INTEGER, INTENT(IN)                                :: dest, comm
-      INTEGER, INTENT(out)                               :: request
+      INTEGER, INTENT(IN)                                :: dest
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                               :: request
       INTEGER, INTENT(in), OPTIONAL                      :: tag
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_isend_custom'
 
       INTEGER                                            :: ierr, my_tag
 
@@ -4017,16 +4320,15 @@ CONTAINS
       IF (PRESENT(tag)) my_tag = tag
 
       CALL mpi_isend(MPI_BOTTOM, 1, msgin%type_handle, dest, my_tag, &
-                     comm, request, ierr)
-      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_isend @ "//routineN)
+                     comm%handle, request%handle, ierr)
+      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_isend @ mp_isend_custom")
 #else
       MARK_USED(msgin)
       MARK_USED(dest)
       MARK_USED(comm)
-      MARK_USED(request)
       MARK_USED(tag)
       ierr = 1
-      request = 0
+      request = mp_request_null
       CALL mp_stop(ierr, "mp_isend called in non parallel case")
 #endif
    END SUBROUTINE mp_isend_custom
@@ -4041,11 +4343,10 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE mp_irecv_custom(msgout, source, comm, request, tag)
       TYPE(mp_type_descriptor_type), INTENT(INOUT)       :: msgout
-      INTEGER, INTENT(IN)                                :: source, comm
-      INTEGER, INTENT(out)                               :: request
+      INTEGER, INTENT(IN)                                :: source
+      CLASS(mp_comm_type), INTENT(IN) :: comm
+      TYPE(mp_request_type), INTENT(out)                               :: request
       INTEGER, INTENT(in), OPTIONAL                      :: tag
-
-      CHARACTER(len=*), PARAMETER :: routineN = 'mp_irecv_custom'
 
       INTEGER                                            :: ierr, my_tag
 
@@ -4056,16 +4357,15 @@ CONTAINS
       IF (PRESENT(tag)) my_tag = tag
 
       CALL mpi_irecv(MPI_BOTTOM, 1, msgout%type_handle, source, my_tag, &
-                     comm, request, ierr)
-      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_irecv @ "//routineN)
+                     comm%handle, request%handle, ierr)
+      IF (ierr /= 0) CALL mp_stop(ierr, "mpi_irecv @ mp_irecv_custom")
 #else
       MARK_USED(msgout)
       MARK_USED(source)
       MARK_USED(comm)
-      MARK_USED(request)
       MARK_USED(tag)
       ierr = 1
-      request = 0
+      request = mp_request_null
       CPABORT("mp_irecv called in non parallel case")
 #endif
    END SUBROUTINE mp_irecv_custom
@@ -4075,34 +4375,43 @@ CONTAINS
 !> \param win ...
 ! **************************************************************************************************
    SUBROUTINE mp_win_free(win)
-      INTEGER, INTENT(INOUT)                             :: win
+      CLASS(mp_win_type), INTENT(INOUT)                             :: win
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_free'
 
-      INTEGER                                            :: handle, ierr
+      INTEGER                                            :: handle
+#if defined(__parallel)
+      INTEGER :: ierr
+#endif
 
-      ierr = 0
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-
-      CALL mpi_win_free(win, ierr)
+      ierr = 0
+      CALL mpi_win_free(win%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_win_free @ "//routineN)
 
       CALL add_perf(perf_id=21, count=1)
 #else
-      MARK_USED(win)
-      win = mp_win_null
+      win%handle = mp_win_null_handle
 #endif
       CALL mp_timestop(handle)
    END SUBROUTINE mp_win_free
+
+   SUBROUTINE mp_win_assign(win_new, win_old)
+      CLASS(mp_win_type), INTENT(OUT) :: win_new
+      CLASS(mp_win_type), INTENT(IN) :: win_old
+
+      win_new%handle = win_old%handle
+
+   END SUBROUTINE mp_win_assign
 
 ! **************************************************************************************************
 !> \brief Window flush
 !> \param win ...
 ! **************************************************************************************************
    SUBROUTINE mp_win_flush_all(win)
-      INTEGER, INTENT(IN)                                :: win
+      CLASS(mp_win_type), INTENT(IN)                                :: win
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_flush_all'
 
@@ -4112,13 +4421,8 @@ CONTAINS
       CALL mp_timeset(routineN, handle)
 
 #if defined(__parallel)
-#if __MPI_VERSION > 2
-      CALL mpi_win_flush_all(win, ierr)
+      CALL mpi_win_flush_all(win%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_win_flush_all @ "//routineN)
-#else
-      MARK_USED(win)
-      CPABORT("mp_win_flush_all requires MPI-3 standard")
-#endif
 #else
       MARK_USED(win)
 #endif
@@ -4130,7 +4434,7 @@ CONTAINS
 !> \param win ...
 ! **************************************************************************************************
    SUBROUTINE mp_win_lock_all(win)
-      INTEGER, INTENT(INOUT)                             :: win
+      CLASS(mp_win_type), INTENT(IN)                             :: win
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_lock_all'
 
@@ -4141,12 +4445,7 @@ CONTAINS
 
 #if defined(__parallel)
 
-#if __MPI_VERSION > 2
-      CALL mpi_win_lock_all(MPI_MODE_NOCHECK, win, ierr)
-#else
-      MARK_USED(win)
-      CPABORT("mp_win_lock_all requires MPI-3 standard")
-#endif
+      CALL mpi_win_lock_all(MPI_MODE_NOCHECK, win%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_win_lock_all @ "//routineN)
 
       CALL add_perf(perf_id=19, count=1)
@@ -4161,7 +4460,7 @@ CONTAINS
 !> \param win ...
 ! **************************************************************************************************
    SUBROUTINE mp_win_unlock_all(win)
-      INTEGER, INTENT(INOUT)                             :: win
+      CLASS(mp_win_type), INTENT(IN)                             :: win
 
       CHARACTER(len=*), PARAMETER :: routineN = 'mp_win_unlock_all'
 
@@ -4172,12 +4471,7 @@ CONTAINS
 
 #if defined(__parallel)
 
-#if __MPI_VERSION > 2
-      CALL mpi_win_unlock_all(win, ierr)
-#else
-      MARK_USED(win)
-      CPABORT("mp_win_unlock_all requires MPI-3 standard")
-#endif
+      CALL mpi_win_unlock_all(win%handle, ierr)
       IF (ierr /= 0) CALL mp_stop(ierr, "mpi_win_unlock_all @ "//routineN)
 
       CALL add_perf(perf_id=19, count=1)
@@ -4199,8 +4493,8 @@ CONTAINS
 !>      quickly adapted benchmark code, will only work on an even number of CPUs.
 ! **************************************************************************************************
    SUBROUTINE mpi_perf_test(comm, npow, output_unit)
-
-      INTEGER, INTENT(IN)                      :: comm, npow, output_unit
+      TYPE(mp_comm_type), INTENT(IN) :: comm
+      INTEGER, INTENT(IN)                      :: npow, output_unit
 
 #if defined(__parallel)
 
@@ -4220,8 +4514,8 @@ CONTAINS
       ! set system sizes !
       ngrid = 10**npow
 
-      CALL mpi_comm_rank(comm, taskid, ierror)
-      CALL mpi_comm_size(comm, Nprocs, ierror)
+      CALL mpi_comm_rank(comm%handle, taskid, ierror)
+      CALL mpi_comm_size(comm%handle, Nprocs, ierror)
       ionode = (taskid == 0)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Running with ", nprocs
@@ -4261,7 +4555,7 @@ CONTAINS
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ some in memory tests                   ---------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing in memory copies just 1 CPU "
          WRITE (output_unit, *) "  could tell something about the motherboard / cache / compiler "
@@ -4271,21 +4565,21 @@ CONTAINS
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             buffer2(1:ncount) = buffer1(1:ncount)
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
       END DO
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ some in memory tests                   ---------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing in memory copies all cpus"
          WRITE (output_unit, *) "  is the memory bandwidth affected on an SMP machine ?"
@@ -4295,21 +4589,21 @@ CONTAINS
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             buffer2(1:ncount) = buffer1(1:ncount)
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
       END DO
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ first test point to point communication ---------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing truly point to point communication (i with j only)"
          WRITE (output_unit, *) "  is there some different connection between i j (e.g. shared memory comm)"
@@ -4319,19 +4613,19 @@ CONTAINS
       IF (ncount .GT. nbufmax) CPABORT("")
       DO itask = 0, nprocs - 1
          DO jtask = itask + 1, nprocs - 1
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             IF (taskid .EQ. itask) THEN
-               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, jtask, itask*jtask, comm, ierror)
+               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, jtask, itask*jtask, comm%handle, ierror)
             END IF
             IF (taskid .EQ. jtask) THEN
-               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, itask, itask*jtask, comm, MPI_STATUS_IGNORE, ierror)
+               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, itask, itask*jtask, comm%handle, MPI_STATUS_IGNORE, ierror)
             END IF
             send_timings(itask, jtask) = MPI_WTIME() - t1 + threshold
          END DO
       END DO
       send_timings2(:, :) = send_timings
-      CALL MPI_REDUCE(send_timings2, send_timings, nprocs**2, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+      CALL MPI_REDUCE(send_timings2, send_timings, nprocs**2, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          DO itask = 0, nprocs - 1
             DO jtask = itask + 1, nprocs - 1
@@ -4339,11 +4633,11 @@ CONTAINS
             END DO
          END DO
       END IF
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ second test point to point communication -------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing all nearby point to point communication (0,1)(2,3)..."
          WRITE (output_unit, *) "    these could / should all be on the same shared memory node "
@@ -4353,25 +4647,25 @@ CONTAINS
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             IF (MODULO(taskid, 2) == 0) THEN
-               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + 1, 0, comm, ierror)
+               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + 1, 0, comm%handle, ierror)
             ELSE
-               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - 1, 0, comm, MPI_STATUS_IGNORE, ierror)
+               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - 1, 0, comm%handle, MPI_STATUS_IGNORE, ierror)
             END IF
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
       END DO
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ third test point to point communication -------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing all far point to point communication (0,nprocs/2),(1,nprocs/2+1),.."
          WRITE (output_unit, *) "    these could all be going over the network, and stress it a lot"
@@ -4381,17 +4675,17 @@ CONTAINS
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             ! first half with partner
             IF (taskid .LT. nprocs/2) THEN
-               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + nprocs/2, 0, comm, ierror)
+               CALL MPI_SEND(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid + nprocs/2, 0, comm%handle, ierror)
             ELSE
-               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - nprocs/2, 0, comm, MPI_STATUS_IGNORE, ierror)
+               CALL MPI_RECV(buffer1, ncount, MPI_DOUBLE_PRECISION, taskid - nprocs/2, 0, comm%handle, MPI_STATUS_IGNORE, ierror)
             END IF
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
@@ -4399,7 +4693,7 @@ CONTAINS
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ test root to all broadcast               -------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Testing root to all broadcast "
          WRITE (output_unit, *) "    using trees at least ? "
@@ -4409,32 +4703,32 @@ CONTAINS
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
-            CALL MPI_BCAST(buffer1, ncount, MPI_DOUBLE_PRECISION, 0, comm, ierror)
+            CALL MPI_BCAST(buffer1, ncount, MPI_DOUBLE_PRECISION, 0, comm%handle, ierror)
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
       END DO
       ! -------------------------------------------------------------------------------------------
-      ! ------------------------------ test mp_sum like behavior                -------------------
+      ! ------------------------------ test parallel sum like behavior                -------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
-      IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "Test global summation (mp_sum / mpi_allreduce) "
+      CALL MPI_BARRIER(comm%handle, ierror)
+      IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "Test global summation (mpi_allreduce) "
       DO i = 1, npow
          ncount = 10**i
          t2 = 0.0E0_dp
          IF (ncount .GT. nbufmax) CPABORT("")
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
-            CALL MPI_ALLREDUCE(buffer1, buffer2, ncount, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
+            CALL MPI_ALLREDUCE(buffer1, buffer2, ncount, MPI_DOUBLE_PRECISION, MPI_SUM, comm%handle, ierr)
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*ncount, " Bytes ", (3**(npow - i))*ncount*8.0E-6_dp/t1, " MB/s"
          END IF
@@ -4442,7 +4736,7 @@ CONTAINS
       ! -------------------------------------------------------------------------------------------
       ! ------------------------------ test all to all communication            -------------------
       ! -------------------------------------------------------------------------------------------
-      CALL MPI_BARRIER(comm, ierror)
+      CALL MPI_BARRIER(comm%handle, ierror)
       IF (ionode .AND. output_unit > 0) THEN
          WRITE (output_unit, *) "Test all to all communication (mpi_alltoallv)"
          WRITE (output_unit, *) "    mpi/network getting confused ? "
@@ -4458,13 +4752,13 @@ CONTAINS
             rdispl(j) = (j - 1)*(ncount/nprocs)
          END DO
          DO j = 1, 3**(npow - i)
-            CALL MPI_BARRIER(comm, ierror)
+            CALL MPI_BARRIER(comm%handle, ierror)
             t1 = MPI_WTIME()
             CALL mpi_alltoallv(buffer1, scount, sdispl, MPI_DOUBLE_PRECISION, &
-                               buffer2, rcount, rdispl, MPI_DOUBLE_PRECISION, comm, ierr)
+                               buffer2, rcount, rdispl, MPI_DOUBLE_PRECISION, comm%handle, ierr)
             t2 = t2 + MPI_WTIME() - t1 + threshold
          END DO
-         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm, ierror)
+         CALL MPI_REDUCE(t2, t1, 1, MPI_DOUBLE_PRECISION, MPI_MAX, 0, comm%handle, ierror)
          IF (ionode .AND. output_unit > 0) THEN
             WRITE (output_unit, '(I9,A,F12.4,A)') 8*(ncount/nprocs)*nprocs, " Bytes ", &
                (3**(npow - i))*(ncount/nprocs)*nprocs*8.0E-6_dp/t1, " MB/s"
@@ -4489,9 +4783,9 @@ CONTAINS
             END DO
          END DO
          t1 = MPI_WTIME()
-         CALL MPI_REDUCE_SCATTER(grid, lgrid, rcount, MPI_DOUBLE_PRECISION, MPI_SUM, comm, ierr)
+         CALL MPI_REDUCE_SCATTER(grid, lgrid, rcount, MPI_DOUBLE_PRECISION, MPI_SUM, comm%handle, ierr)
          t2 = MPI_WTIME() - t1 + threshold
-         CALL mpi_allreduce(t2, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+         CALL mpi_allreduce(t2, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
          IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "MPI_REDUCE_SCATTER    ", res
          ! *** simple shift ***
          DO j = 1, Nprocs
@@ -4506,12 +4800,12 @@ CONTAINS
          DO i = 1, Nprocs
             lgrid2(:) = lgrid2 + grid(:, MODULO(taskid - i, Nprocs) + 1)
             IF (i .EQ. nprocs) EXIT
-            CALL MPI_SENDRECV_REPLACE(lgrid2, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm, MPI_STATUS_IGNORE, ierr)
+            CALL MPI_SENDRECV_REPLACE(lgrid2, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm%handle, MPI_STATUS_IGNORE, ierr)
          END DO
          t4 = MPI_WTIME() - t3 + threshold
-         CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+         CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
          maxdiff = MAXVAL(ABS(lgrid2 - lgrid))
-         CALL mpi_allreduce(maxdiff, res2, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+         CALL mpi_allreduce(maxdiff, res2, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
          IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "MPI_SENDRECV_REPLACE  ", res, res2
          ! *** involved shift ****
          IF (MODULO(nprocs, 2) /= 0) CPABORT("")
@@ -4529,14 +4823,14 @@ CONTAINS
             partner = taskid + 1
             DO i = 1, Nprocs, 2 ! sum the full grid with the partner
                CALL MPI_SENDRECV(grid3(1, i + 1), nloc, MPI_DOUBLE_PRECISION, partner, 17, &
-                                 lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 19, comm, MPI_STATUS_IGNORE, ierr)
+                                 lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 19, comm%handle, MPI_STATUS_IGNORE, ierr)
                grid3(:, i) = grid3(:, i) + lgrid3(:)
             END DO
          ELSE
             partner = taskid - 1
             DO i = 1, Nprocs, 2
                CALL MPI_SENDRECV(grid3(1, i), nloc, MPI_DOUBLE_PRECISION, partner, 19, &
-                                 lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 17, comm, MPI_STATUS_IGNORE, ierr)
+                                 lgrid3, nloc, MPI_DOUBLE_PRECISION, partner, 17, comm%handle, MPI_STATUS_IGNORE, ierr)
                grid3(:, i + 1) = grid3(:, i + 1) + lgrid3(:)
             END DO
          END IF
@@ -4550,13 +4844,13 @@ CONTAINS
          DO i = 1, Nprocs, 2
             lgrid3(:) = lgrid3 + grid3(:, MODULO(taskid - i - 1, Nprocs) + 1)
             IF (i .EQ. nprocs - 1) EXIT
-            CALL MPI_SENDRECV_REPLACE(lgrid3, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm, MPI_STATUS_IGNORE, ierr)
+            CALL MPI_SENDRECV_REPLACE(lgrid3, nloc, MPI_DOUBLE_PRECISION, right, 0, left, 0, comm%handle, MPI_STATUS_IGNORE, ierr)
          END DO
          t5 = MPI_WTIME() - t3 + threshold
-         CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
-         CALL mpi_allreduce(t5, res2, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+         CALL mpi_allreduce(t4, res, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
+         CALL mpi_allreduce(t5, res2, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
          maxdiff = MAXVAL(ABS(lgrid3 - lgrid))
-         CALL mpi_allreduce(maxdiff, res3, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm, ierr)
+         CALL mpi_allreduce(maxdiff, res3, 1, MPI_DOUBLE_PRECISION, MPI_MAX, comm%handle, ierr)
        IF (ionode .AND. output_unit > 0) WRITE (output_unit, *) "INVOLVED SHIFT        ", res + res2, "(", res, ",", res2, ")", res3
       END DO
       DEALLOCATE (rcount)

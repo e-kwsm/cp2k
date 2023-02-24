@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -36,7 +36,6 @@ MODULE replica_types
                                               f_env_type
    USE kinds,                           ONLY: default_path_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_sum
    USE qs_wf_history_types,             ONLY: qs_wf_history_p_type,&
                                               wfi_release
 #include "./base/base_uses.f90"
@@ -243,7 +242,7 @@ CONTAINS
             vals(:, irep) = 0._dp
          END IF
       END DO
-      CALL mp_sum(vals, rep_env%para_env_inter_rep%group)
+      CALL rep_env%para_env_inter_rep%group%sum(vals)
       CALL timestop(handle)
    END SUBROUTINE rep_env_sync
 
@@ -270,7 +269,7 @@ CONTAINS
       DO irep = 1, nrep
 !         source = 0
 !         IF (rep_env%rep_is_local(irep)) source = rep_env%para_env_inter_rep%mepos
-!         CALL mp_sum(source, rep_env%para_env_inter_rep%group)
+!         CALL rep_env%para_env_inter_rep%group%sum(source)
 ! above three lines should be the same as just:
          source = rep_env%inter_rep_rank(rep_env%replica_owner(irep))
          CALL cp_results_mp_bcast(results(irep)%results, source, rep_env%para_env_inter_rep)

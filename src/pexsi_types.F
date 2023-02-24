@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -28,8 +28,8 @@ MODULE pexsi_types
                                               dbcsr_scale,&
                                               dbcsr_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_dims_create,&
-                                              mp_environ
+   USE message_passing,                 ONLY: mp_comm_type,&
+                                              mp_dims_create
    USE pexsi_interface,                 ONLY: cp_pexsi_get_options,&
                                               cp_pexsi_options,&
                                               cp_pexsi_plan_finalize,&
@@ -94,8 +94,8 @@ MODULE pexsi_types
       TYPE(dbcsr_p_type), DIMENSION(:), &
          POINTER                               :: matrix_w => NULL()
       INTEGER(KIND=C_INTPTR_T)                 :: plan
-      INTEGER                                  :: nspin, num_ranks_per_pole, mp_group
-
+      INTEGER                                  :: nspin, num_ranks_per_pole
+      TYPE(mp_comm_type) :: mp_group
       TYPE(dbcsr_type), DIMENSION(:), &
          POINTER                               :: max_ev_vector
       TYPE(dbcsr_type)                         :: csr_sparsity
@@ -119,7 +119,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE lib_pexsi_init(pexsi_env, mp_group, nspin)
       TYPE(lib_pexsi_env), INTENT(INOUT)                 :: pexsi_env
-      INTEGER, INTENT(IN)                                :: mp_group, nspin
+      TYPE(mp_comm_type), INTENT(IN)                     :: mp_group
+      INTEGER, INTENT(IN)                                :: nspin
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'lib_pexsi_init'
 
@@ -140,7 +141,7 @@ CONTAINS
       CALL cite_reference(Lin2013)
 
       pexsi_env%mp_group = mp_group
-      CALL mp_environ(numnodes, mynode, pexsi_env%mp_group)
+      CALL pexsi_env%mp_group%environ(numnodes, mynode)
 
       ! Use all nodes available per pole by default or if the user tries to use
       ! more nodes than MPI size
@@ -270,7 +271,7 @@ CONTAINS
                                                             muInertiaTolerance, muMax0, muMin0, &
                                                             muPEXSISafeGuard, temperature
 
-      CALL mp_environ(numnodes, mynode, pexsi_env%mp_group)
+      CALL pexsi_env%mp_group%environ(numnodes, mynode)
 
       CALL cp_pexsi_get_options(pexsi_env%options, temperature=temperature, gap=gap, &
                                 numPole=numPole, muMin0=muMin0, muMax0=muMax0, muInertiaTolerance= &

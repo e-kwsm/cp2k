@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -201,10 +201,13 @@ CONTAINS
       keyword%location = location
       keyword%removed = .FALSE.
 
+      CPASSERT(LEN_TRIM(name) > 0)
+
       IF (PRESENT(variants)) THEN
          ALLOCATE (keyword%names(SIZE(variants) + 1))
          keyword%names(1) = name
          DO i = 1, SIZE(variants)
+            CPASSERT(LEN_TRIM(variants(i)) > 0)
             keyword%names(i + 1) = variants(i)
          END DO
       ELSE

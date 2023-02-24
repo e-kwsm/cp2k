@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -47,7 +47,6 @@ MODULE qs_scf_methods
                                               cholesky_reduce,&
                                               cholesky_restore
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_max
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_density_mixing_types,         ONLY: mixing_storage_type
    USE qs_mo_types,                     ONLY: get_mo_set,&
@@ -522,7 +521,7 @@ CONTAINS
       END DO
       CALL dbcsr_iterator_stop(iter)
 
-      CALL mp_max(delta, para_env%group)
+      CALL para_env%group%max(delta)
 
       CALL timestop(handle)
 

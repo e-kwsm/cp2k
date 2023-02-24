@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -41,7 +41,7 @@ MODULE arnoldi_api
                                               create_replicated_row_vec_from_matrix,&
                                               dbcsr_matrix_colvec_multiply
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -309,7 +309,7 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'arnoldi_conjugate_gradient'
 
-      INTEGER                                            :: handle, i, j, mpgrp, nb, nloc, no
+      INTEGER                                            :: handle, i, j, nb, nloc, no
       INTEGER, DIMENSION(:), POINTER                     :: rb_offset, rb_size
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: xvec
       TYPE(arnoldi_control_type), POINTER                :: control
@@ -368,8 +368,7 @@ CONTAINS
       END DO
       CALL dbcsr_iterator_stop(dbcsr_iter)
       control => get_control(my_arnoldi)
-      mpgrp = control%mp_group
-      CALL mp_sum(vec_x, mpgrp)
+      CALL control%mp_group%sum(vec_x)
       ! Deallocated the work vectors
       CALL dbcsr_release(x)
       CALL dbcsr_release(vectors%input_vec)
@@ -395,11 +394,12 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:)                   :: arnoldi_matrices
       TYPE(m_x_v_vectors_type)                           :: vectors
 
-      INTEGER                                            :: iter, mpgrp, pcgrp
+      INTEGER                                            :: iter
       REAL(KIND=dp)                                      :: alpha, beta, pap, rsnew, rsold
       TYPE(arnoldi_control_type), POINTER                :: control
       TYPE(dbcsr_type)                                   :: apvec, pvec, rvec, zvec
       TYPE(dbcsr_type), POINTER                          :: amat, pmat, xvec
+      TYPE(mp_comm_type)                                 :: mpgrp, pcgrp
 
       control => get_control(arnoldi_data)
       control%converged = .FALSE.
@@ -507,7 +507,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION vec_dot_vec(avec, bvec, mpgrp) RESULT(adotb)
       TYPE(dbcsr_type)                                   :: avec, bvec
-      INTEGER, INTENT(IN)                                :: mpgrp
+      TYPE(mp_comm_type), INTENT(IN)                     :: mpgrp
       REAL(KIND=dp)                                      :: adotb
 
       INTEGER                                            :: i, j
@@ -525,7 +525,7 @@ CONTAINS
          END IF
       END DO
       CALL dbcsr_iterator_stop(dbcsr_iter)
-      CALL mp_sum(adotb, mpgrp)
+      CALL mpgrp%sum(adotb)
 
    END FUNCTION vec_dot_vec
 

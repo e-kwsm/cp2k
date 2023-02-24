@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -35,11 +35,11 @@ else()
 endif()
 
 if(CP2K_PLUMED_FOUND)
-  if(NOT TARGET CP2K_plumed::plumed)
-    add_library(CP2K_plumed::plumed INTERFACE IMPORTED)
+  if(NOT TARGET CP2K::plumed::plumed)
+    add_library(CP2K::plumed::plumed INTERFACE IMPORTED)
   endif()
   set_target_properties(
-    CP2K_plumed::plumed
+    CP2K::plumed::plumed
     PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CP2K_PLUMED_INCLUDE_DIRS}"
                INTERFACE_LINK_LIBRARIES "${CP2K_PLUMED_LINK_LIBRARIES}")
 endif()

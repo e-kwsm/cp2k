@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -23,7 +23,6 @@ MODULE rt_propagator_init
    USE cp_fm_diag,                      ONLY: cp_fm_syevd
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
@@ -55,6 +54,7 @@ MODULE rt_propagator_init
                                               put_data_to_history,&
                                               s_matrices_create
    USE rt_propagation_types,            ONLY: get_rtp,&
+                                              rt_prop_release_mos,&
                                               rt_prop_type
 #include "../base/base_uses.f90"
 
@@ -81,7 +81,7 @@ CONTAINS
 
       INTEGER                                            :: i, imat, unit_nr
       REAL(KIND=dp)                                      :: dt, prefac
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new, mos_next, mos_old
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: mos_new, mos_next, mos_old
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: exp_H_new, exp_H_old, matrix_ks, &
                                                             matrix_ks_im, propagator_matrix, &
@@ -147,12 +147,12 @@ CONTAINS
             CALL propagate_arnoldi(rtp, rtp_control)
             CALL get_rtp(rtp=rtp, mos_new=mos_new, mos_next=mos_next)
             DO imat = 1, SIZE(mos_new)
-               CALL cp_fm_to_fm(mos_new(imat)%matrix, mos_next(imat)%matrix)
+               CALL cp_fm_to_fm(mos_new(imat), mos_next(imat))
             END DO
          ELSEIF (rtp_control%mat_exp == do_bch) THEN
          ELSE
             IF (rtp%linear_scaling) THEN
-               CALL compute_exponential_sparse(exp_H_new, propagator_matrix, rtp_control, rtp)
+               CALL compute_exponential_sparse(exp_H_new, propagator_matrix, rtp)
             ELSE
                CALL compute_exponential(exp_H_new, propagator_matrix, rtp_control, rtp)
             END IF
@@ -407,33 +407,131 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief Computes the density matrix from the mos
+!>        Update: Initialized the density matrix from complex mos (for
+!>        instance after delta kick)
 !> \param rtp ...
 !> \param mos ...
+!> \param mos_old ...
 !> \author Samuel Andermatt (08.15)
+!> \author Guillaume Le Breton (01.23)
 ! **************************************************************************************************
 
-   SUBROUTINE rt_initialize_rho_from_mos(rtp, mos)
+   SUBROUTINE rt_initialize_rho_from_mos(rtp, mos, mos_old)
 
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(cp_fm_type), DIMENSION(:), OPTIONAL, POINTER  :: mos_old
 
-      INTEGER                                            :: ispin, ncol, re
+      INTEGER                                            :: im, ispin, ncol, re
       REAL(KIND=dp)                                      :: alpha
+      TYPE(cp_fm_type)                                   :: mos_occ, mos_occ_im
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_new, rho_old
 
       CALL get_rtp(rtp=rtp, rho_old=rho_old, rho_new=rho_new)
 
-      DO ispin = 1, SIZE(mos)
-         re = 2*ispin - 1
-         alpha = 3.0_dp - REAL(SIZE(mos), dp)
-         CALL dbcsr_set(rho_old(re)%matrix, 0.0_dp)
-         CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=ncol)
-         CALL cp_fm_column_scale(mos(ispin)%mo_coeff, mos(ispin)%occupation_numbers/alpha)
-         CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
-                                    matrix_v=mos(ispin)%mo_coeff, ncol=ncol, alpha=alpha, keep_sparsity=.FALSE.)
-         CALL dbcsr_filter(rho_old(re)%matrix, eps=rtp%filter_eps)
-         CALL dbcsr_copy(rho_new(re)%matrix, rho_old(re)%matrix)
-      END DO
+      IF (PRESENT(mos_old)) THEN
+         ! Used the mos from delta kick. Initialize both real and im part
+         DO ispin = 1, SIZE(mos_old)/2
+            re = 2*ispin - 1; im = 2*ispin
+            CALL dbcsr_set(rho_old(re)%matrix, 0.0_dp)
+            CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=ncol)
+            CALL cp_fm_create(mos_occ, &
+                              matrix_struct=mos(ispin)%mo_coeff%matrix_struct, &
+                              name="mos_occ")
+            !Real part of rho
+            CALL cp_fm_to_fm(mos_old(re), mos_occ)
+            IF (mos(ispin)%uniform_occupation) THEN
+               alpha = 3.0_dp - REAL(SIZE(mos_old)/2, dp)
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            ELSE
+               alpha = 1.0_dp
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos_old(re), &
+                                          matrix_g=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            END IF
+
+            ! Add complex part of MOs, i*i=-1
+            CALL cp_fm_to_fm(mos_old(im), mos_occ)
+            IF (mos(ispin)%uniform_occupation) THEN
+               alpha = 3.0_dp - REAL(SIZE(mos_old)/2, dp)
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            ELSE
+               alpha = 1.0_dp
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos_old(im), &
+                                          matrix_g=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            END IF
+            CALL dbcsr_filter(rho_old(re)%matrix, rtp%filter_eps)
+            CALL dbcsr_copy(rho_new(re)%matrix, rho_old(re)%matrix)
+
+            ! Imaginary part of rho
+            CALL cp_fm_create(mos_occ_im, &
+                              matrix_struct=mos(ispin)%mo_coeff%matrix_struct, &
+                              name="mos_occ_im")
+            alpha = 3.0_dp - REAL(SIZE(mos_old)/2, dp)
+            CALL cp_fm_to_fm(mos_old(re), mos_occ)
+            CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+            CALL cp_fm_to_fm(mos_old(im), mos_occ_im)
+            CALL cp_fm_column_scale(mos_occ_im, mos(ispin)%occupation_numbers/alpha)
+            CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(im)%matrix, &
+                                       matrix_v=mos_occ_im, &
+                                       matrix_g=mos_occ, &
+                                       ncol=ncol, &
+                                       alpha=2.0_dp*alpha, &
+                                       symmetry_mode=-1, keep_sparsity=.FALSE.)
+
+            CALL dbcsr_filter(rho_old(im)%matrix, rtp%filter_eps)
+            CALL dbcsr_copy(rho_new(im)%matrix, rho_old(im)%matrix)
+            CALL cp_fm_release(mos_occ_im)
+            CALL cp_fm_release(mos_occ)
+         END DO
+         ! Release the mos used to apply the delta kick, no longer required
+         CALL rt_prop_release_mos(rtp)
+      ELSE
+         DO ispin = 1, SIZE(mos)
+            re = 2*ispin - 1
+            CALL dbcsr_set(rho_old(re)%matrix, 0.0_dp)
+            CALL cp_fm_get_info(mos(ispin)%mo_coeff, ncol_global=ncol)
+
+            CALL cp_fm_create(mos_occ, &
+                              matrix_struct=mos(ispin)%mo_coeff%matrix_struct, &
+                              name="mos_occ")
+            CALL cp_fm_to_fm(mos(ispin)%mo_coeff, mos_occ)
+            IF (mos(ispin)%uniform_occupation) THEN
+               alpha = 3.0_dp - REAL(SIZE(mos), dp)
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            ELSE
+               alpha = 1.0_dp
+               CALL cp_fm_column_scale(mos_occ, mos(ispin)%occupation_numbers/alpha)
+               CALL cp_dbcsr_plus_fm_fm_t(sparse_matrix=rho_old(re)%matrix, &
+                                          matrix_v=mos(ispin)%mo_coeff, &
+                                          matrix_g=mos_occ, &
+                                          ncol=ncol, &
+                                          alpha=alpha, keep_sparsity=.FALSE.)
+            END IF
+            CALL dbcsr_filter(rho_old(re)%matrix, rtp%filter_eps)
+            CALL dbcsr_copy(rho_new(re)%matrix, rho_old(re)%matrix)
+            CALL cp_fm_release(mos_occ)
+         END DO
+      END IF
 
    END SUBROUTINE rt_initialize_rho_from_mos
 

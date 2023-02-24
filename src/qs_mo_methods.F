@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -47,7 +47,6 @@ MODULE qs_mo_methods
                                               dbcsr_type,&
                                               dbcsr_type_no_symmetry
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_max
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE physcon,                         ONLY: evolt
    USE qs_mo_occupation,                ONLY: set_mo_occupation
@@ -743,7 +742,7 @@ CONTAINS
          END DO
          CALL cp_fm_release(overlap)
       END DO
-      CALL mp_max(max_alpha, mo_array(1)%mo_coeff%matrix_struct%para_env%group)
+      CALL mo_array(1)%mo_coeff%matrix_struct%para_env%group%max(max_alpha)
       orthonormality = max_alpha
       ! write(*,*) "max deviation from orthonormalization ",orthonormality
 

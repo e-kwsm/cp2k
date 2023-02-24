@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -29,7 +29,7 @@ MODULE ewalds
    USE mathconstants,                   ONLY: fourpi,&
                                               oorootpi,&
                                               pi
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_types,                  ONLY: particle_type
    USE pw_grid_types,                   ONLY: pw_grid_type
    USE pw_poisson_types,                ONLY: do_ewald_none
@@ -94,8 +94,9 @@ CONTAINS
 
       COMPLEX(KIND=dp)                                   :: snode
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: summe
-      INTEGER :: gpt, group, handle, iparticle, iparticle_kind, iparticle_local, lp, mp, nnodes, &
-         node, np, nparticle_kind, nparticle_local
+      INTEGER                                            :: gpt, handle, iparticle, iparticle_kind, &
+                                                            iparticle_local, lp, mp, nnodes, node, &
+                                                            np, nparticle_kind, nparticle_local
       INTEGER, DIMENSION(:, :), POINTER                  :: bds
       LOGICAL                                            :: atenergy, atstress, use_charge_array
       REAL(KIND=dp)                                      :: alpha, denom, e_igdotr, factor, &
@@ -106,6 +107,7 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(dg_rho0_type), POINTER                        :: dg_rho0
       TYPE(dg_type), POINTER                             :: dg
+      TYPE(mp_comm_type)                                 :: group
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       TYPE(pw_pool_type), POINTER                        :: pw_pool
       TYPE(structure_factor_type)                        :: exp_igr
@@ -195,7 +197,7 @@ CONTAINS
                           *exp_igr%ez(np, node))
          END DO
       END DO
-      CALL mp_sum(summe, group)
+      CALL group%sum(summe)
 
       pref = fourpi/pw_grid%vol
 
@@ -308,12 +310,13 @@ CONTAINS
       REAL(KIND=dp), INTENT(OUT)                         :: e_self, e_neut
       REAL(KIND=dp), DIMENSION(:), POINTER               :: charges
 
-      INTEGER                                            :: ewald_type, group, iparticle_kind, &
+      INTEGER                                            :: ewald_type, iparticle_kind, &
                                                             nparticle_kind, nparticle_local
       LOGICAL                                            :: is_shell
       REAL(KIND=dp)                                      :: alpha, mm_radius, q, q_neutg, q_self, &
                                                             q_sum, qcore, qshell
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
+      TYPE(mp_comm_type)                                 :: group
       TYPE(shell_kind_type), POINTER                     :: shell
 
       CALL ewald_env_get(ewald_env, ewald_type=ewald_type, &
@@ -358,8 +361,8 @@ CONTAINS
             END IF
          END DO
 
-         CALL mp_sum(q_self, group)
-         CALL mp_sum(q_sum, group)
+         CALL group%sum(q_self)
+         CALL group%sum(q_sum)
       END IF
 
       e_neut = 0.0_dp

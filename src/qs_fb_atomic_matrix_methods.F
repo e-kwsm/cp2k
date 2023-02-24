@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -14,7 +14,6 @@ MODULE qs_fb_atomic_matrix_methods
                                               dbcsr_type
    USE kinds,                           ONLY: dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_alltoall
    USE qs_fb_atomic_halo_types,         ONLY: fb_atomic_halo_atom_global2halo,&
                                               fb_atomic_halo_get,&
                                               fb_atomic_halo_has_data,&
@@ -249,9 +248,8 @@ CONTAINS
       END DO ! ipe
 
       ! do communication
-      CALL mp_alltoall(send_buf, send_sizes, send_disps, &
-                       recv_buf, recv_sizes, recv_disps, &
-                       para_env%group)
+      CALL para_env%group%alltoall(send_buf, send_sizes, send_disps, &
+                                   recv_buf, recv_sizes, recv_disps)
 
       ! cleanup temporary arrays no longer needed
       DEALLOCATE (send_buf)

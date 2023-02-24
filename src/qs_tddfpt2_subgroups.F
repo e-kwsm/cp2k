@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -27,7 +27,6 @@ MODULE qs_tddfpt2_subgroups
    USE cp_fm_types,                     ONLY: cp_fm_copy_general,&
                                               cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
    USE cp_para_env,                     ONLY: cp_para_env_create,&
@@ -55,7 +54,7 @@ MODULE qs_tddfpt2_subgroups
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_comm_split
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_kind_types,             ONLY: molecule_kind_type
    USE molecule_types,                  ONLY: molecule_type
    USE particle_types,                  ONLY: particle_type
@@ -110,7 +109,7 @@ MODULE qs_tddfpt2_subgroups
       !> can still be accessed; in this case they simply point to the corresponding global variables
       LOGICAL                                            :: is_split
       !> MPI communicator of the current parallel group
-      INTEGER                                            :: mpi_comm
+      TYPE(mp_comm_type)                                 :: mpi_comm
       !> number of parallel groups
       INTEGER                                            :: ngroups
       !> group_distribution(0:ngroups-1) : a process with rank 'i' belongs to the parallel group
@@ -122,7 +121,7 @@ MODULE qs_tddfpt2_subgroups
       TYPE(cp_para_env_type), POINTER                    :: para_env
       !> occupied MOs stored in a matrix form [nao x nmo_occ(spin)] distributed across processes
       !> in the parallel group
-      TYPE(cp_fm_p_type), ALLOCATABLE, DIMENSION(:)      :: mos_occ
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)      :: mos_occ
       !> group-specific copy of the ADMM A matrix 'admm_type%A'
       TYPE(cp_fm_type), POINTER                          :: admm_A
       !
@@ -186,7 +185,7 @@ CONTAINS
    SUBROUTINE tddfpt_sub_env_init(sub_env, qs_env, mos_occ, kernel)
       TYPE(tddfpt_subgroup_env_type), INTENT(out)        :: sub_env
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(in)       :: mos_occ
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(in)         :: mos_occ
       INTEGER, INTENT(in)                                :: kernel
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_sub_env_init'
@@ -227,8 +226,8 @@ CONTAINS
       IF (sub_env%is_split) THEN
          ALLOCATE (sub_env%group_distribution(0:para_env_global%num_pe - 1))
 
-         CALL mp_comm_split(comm=para_env_global%group, sub_comm=sub_env%mpi_comm, ngroups=sub_env%ngroups, &
-                            group_distribution=sub_env%group_distribution, subgroup_min_size=tddfpt_control%nprocs)
+         CALL sub_env%mpi_comm%from_split(comm=para_env_global%group, ngroups=sub_env%ngroups, &
+                                          group_distribution=sub_env%group_distribution, subgroup_min_size=tddfpt_control%nprocs)
 
          ! ++ create a new parallel environment based on the given sub-communicator)
          NULLIFY (sub_env%blacs_env, sub_env%para_env)
@@ -244,13 +243,12 @@ CONTAINS
          NULLIFY (fm_struct)
 
          DO ispin = 1, nspins
-            ALLOCATE (sub_env%mos_occ(ispin)%matrix)
-            CALL cp_fm_get_info(mos_occ(ispin)%matrix, nrow_global=nao, ncol_global=nmo_occ)
+            CALL cp_fm_get_info(mos_occ(ispin), nrow_global=nao, ncol_global=nmo_occ)
             CALL cp_fm_struct_create(fm_struct, nrow_global=nao, ncol_global=nmo_occ, context=sub_env%blacs_env)
-            CALL cp_fm_create(sub_env%mos_occ(ispin)%matrix, fm_struct)
+            CALL cp_fm_create(sub_env%mos_occ(ispin), fm_struct)
             CALL cp_fm_struct_release(fm_struct)
-            CALL tddfpt_fm_replicate_across_subgroups(fm_src=mos_occ(ispin)%matrix, &
-                                                      fm_dest_sub=sub_env%mos_occ(ispin)%matrix, sub_env=sub_env)
+            CALL tddfpt_fm_replicate_across_subgroups(fm_src=mos_occ(ispin), &
+                                                      fm_dest_sub=sub_env%mos_occ(ispin), sub_env=sub_env)
          END DO
 
          IF (dft_control%do_admm) THEN
@@ -269,9 +267,7 @@ CONTAINS
          CALL cp_blacs_env_retain(blacs_env_global)
          sub_env%blacs_env => blacs_env_global
 
-         DO ispin = 1, nspins
-            sub_env%mos_occ(ispin)%matrix => mos_occ(ispin)%matrix
-         END DO
+         sub_env%mos_occ(:) = mos_occ(:)
 
          IF (dft_control%do_admm) THEN
             CALL get_qs_env(qs_env, admm_env=admm_env)
@@ -475,8 +471,7 @@ CONTAINS
 
       IF (sub_env%is_split) THEN
          DO i = SIZE(sub_env%mos_occ), 1, -1
-            CALL cp_fm_release(sub_env%mos_occ(i)%matrix)
-            DEALLOCATE (sub_env%mos_occ(i)%matrix)
+            CALL cp_fm_release(sub_env%mos_occ(i))
          END DO
       END IF
       DEALLOCATE (sub_env%mos_occ)

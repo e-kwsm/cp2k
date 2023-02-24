@@ -6,8 +6,8 @@
 [ "${BASH_SOURCE[0]}" ] && SCRIPT_NAME="${BASH_SOURCE[0]}" || SCRIPT_NAME=$0
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
-mpich_ver="3.4.3"
-mpich_sha256="8154d89f3051903181018166678018155f4c2b6f04a9bb6fe9515656452c4fd7"
+mpich_ver="4.0.3"
+mpich_sha256="17406ea90a6ed4ecd5be39c9ddcbfac9343e6ab4f77ac4e8c5ebe4a3e3b6c501"
 mpich_pkg="mpich-${mpich_ver}.tar.gz"
 
 source "${SCRIPT_DIR}"/common_vars.sh
@@ -68,26 +68,26 @@ case "${with_mpich}" in
     check_dir "${pkg_install_dir}/bin"
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
-    check_install ${pkg_install_dir}/bin/mpirun "mpich" && MPIRUN="${pkg_install_dir}/bin/mpirun" || exit 1
+    check_install ${pkg_install_dir}/bin/mpiexec "mpich" && MPIRUN="${pkg_install_dir}/bin/mpiexec" || exit 1
     check_install ${pkg_install_dir}/bin/mpicc "mpich" && MPICC="${pkg_install_dir}/bin/mpicc" || exit 1
     check_install ${pkg_install_dir}/bin/mpicxx "mpich" && MPICXX="${pkg_install_dir}/bin/mpicxx" || exit 1
-    check_install ${pkg_install_dir}/bin/mpif90 "mpich" && MPIFC="${pkg_install_dir}/bin/mpif90" || exit 1
-    MPIF90="${MPIFC}"
+    check_install ${pkg_install_dir}/bin/mpifort "mpich" && MPIFC="${pkg_install_dir}/bin/mpifort" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     MPICH_CFLAGS="-I'${pkg_install_dir}/include'"
     MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
     ;;
   __SYSTEM__)
     echo "==================== Finding MPICH from system paths ===================="
-    check_command mpirun "mpich" && MPIRUN="$(command -v mpirun)" || exit 1
+    check_command mpiexec "mpich" && MPIRUN="$(command -v mpiexec)" || exit 1
     check_command mpicc "mpich" && MPICC="$(command -v mpicc)" || exit 1
     if [ $(command -v mpic++ > /dev/null 2>&1) ]; then
       check_command mpic++ "mpich" && MPICXX="$(command -v mpic++)" || exit 1
     else
       check_command mpicxx "mpich" && MPICXX="$(command -v mpicxx)" || exit 1
     fi
-    check_command mpif90 "mpich" && MPIFC="$(command -v mpif90)" || exit 1
-    MPIF90="${MPIFC}"
+    check_command mpifort "mpich" && MPIFC="$(command -v mpifort)" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     check_lib -lmpifort "mpich"
     check_lib -lmpicxx "mpich"
@@ -104,11 +104,11 @@ case "${with_mpich}" in
     check_dir "${pkg_install_dir}/bin"
     check_dir "${pkg_install_dir}/lib"
     check_dir "${pkg_install_dir}/include"
-    check_command ${pkg_install_dir}/bin/mpirun "mpich" && MPIRUN="${pkg_install_dir}/bin/mpirun" || exit 1
+    check_command ${pkg_install_dir}/bin/mpiexec "mpich" && MPIRUN="${pkg_install_dir}/bin/mpiexec" || exit 1
     check_command ${pkg_install_dir}/bin/mpicc "mpich" && MPICC="${pkg_install_dir}/bin/mpicc" || exit 1
     check_command ${pkg_install_dir}/bin/mpicxx "mpich" && MPICXX="${pkg_install_dir}/bin/mpicxx" || exit 1
-    check_command ${pkg_install_dir}/bin/mpif90 "mpich" && MPIFC="${pkg_install_dir}/bin/mpif90" || exit 1
-    MPIF90="${MPIFC}"
+    check_command ${pkg_install_dir}/bin/mpifort "mpich" && MPIFC="${pkg_install_dir}/bin/mpifort" || exit 1
+    MPIFORT="${MPIFC}"
     MPIF77="${MPIFC}"
     MPICH_CFLAGS="-I'${pkg_install_dir}/include'"
     MPICH_LDFLAGS="-L'${pkg_install_dir}/lib' -Wl,-rpath,'${pkg_install_dir}/lib'"
@@ -116,18 +116,9 @@ case "${with_mpich}" in
 esac
 if [ "${with_mpich}" != "__DONTUSE__" ]; then
   if [ "${with_mpich}" != "__SYSTEM__" ]; then
-    mpi_bin="${pkg_install_dir}/bin/mpirun"
+    mpi_bin="${pkg_install_dir}/bin/mpiexec"
   else
-    mpi_bin="mpirun"
-  fi
-  # check MPICH version, versions less than 3.0 will get -D__MPI_VERSION=2 flag
-  raw_version=$(${mpi_bin} --version | grep "Version:" | awk '{print $2}')
-  major_version=$(echo $raw_version | cut -d '.' -f 1)
-  minor_version=$(echo $raw_version | cut -d '.' -f 2)
-  if [ ${major_version} -lt 3 ]; then
-    mpi2_dflags="-D__MPI_VERSION=2"
-  else
-    mpi2_dflags=""
+    mpi_bin="mpiexec"
   fi
   MPICH_LIBS="-lmpifort -lmpicxx -lmpi"
   cat << EOF > "${BUILDDIR}/setup_mpich"
@@ -136,7 +127,7 @@ export MPIRUN="${MPIRUN}"
 export MPICC="${MPICC}"
 export MPICXX="${MPICXX}"
 export MPIFC="${MPIFC}"
-export MPIF90="${MPIF90}"
+export MPIFORT="${MPIFORT}"
 export MPIF77="${MPIF77}"
 export MPICH_CFLAGS="${MPICH_CFLAGS}"
 export MPICH_LDFLAGS="${MPICH_LDFLAGS}"
@@ -144,7 +135,7 @@ export MPICH_LIBS="${MPICH_LIBS}"
 export MPI_CFLAGS="${MPICH_CFLAGS}"
 export MPI_LDFLAGS="${MPICH_LDFLAGS}"
 export MPI_LIBS="${MPICH_LIBS}"
-export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__parallel ${mpi2_dflags}|)"
+export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__parallel|)"
 export CP_CFLAGS="\${CP_CFLAGS} IF_MPI(${MPICH_CFLAGS}|)"
 export CP_LDFLAGS="\${CP_LDFLAGS} IF_MPI(${MPICH_LDFLAGS}|)"
 export CP_LIBS="\${CP_LIBS} IF_MPI(${MPICH_LIBS}|)"

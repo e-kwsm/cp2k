@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -503,6 +503,7 @@ CONTAINS
          helium_env(k)%helium%rho_inst(1, :, :, :) = 0.0_dp
          nbin = helium_env(k)%helium%rho_nbin
          delr = helium_env(k)%helium%rho_delr
+         helium_env(k)%helium%center(:) = 0.0_dp
          ox = helium_env(k)%helium%center(1) - helium_env(k)%helium%rho_maxr/2.0_dp
          oy = helium_env(k)%helium%center(2) - helium_env(k)%helium%rho_maxr/2.0_dp
          oz = helium_env(k)%helium%center(3) - helium_env(k)%helium%rho_maxr/2.0_dp

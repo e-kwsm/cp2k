@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -538,8 +538,7 @@ CONTAINS
                                  dft_control, particle_set, atomic_kind_set, qs_kind_set, &
                                  nspin, nelectron_spin, para_env)
       ELSE
-         CALL calculate_atomic_block_dm(rho_ao, matrix_s(1)%matrix, &
-                                        particle_set, atomic_kind_set, qs_kind_set, &
+         CALL calculate_atomic_block_dm(rho_ao, matrix_s(1)%matrix, atomic_kind_set, qs_kind_set, &
                                         nspin, nelectron_spin, unit_nr, para_env)
       END IF
 

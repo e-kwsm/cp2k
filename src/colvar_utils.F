@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -28,7 +28,6 @@ MODULE colvar_utils
    USE kinds,                           ONLY: dp
    USE mathlib,                         ONLY: invert_matrix
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_sum
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
    USE molecule_kind_types,             ONLY: colvar_constraint_type,&
                                               fixd_constraint_type,&
@@ -262,9 +261,9 @@ CONTAINS
                END IF
             END DO
          END DO MOL
-         CALL mp_sum(n_tot, force_env%para_env%group)
-         CALL mp_sum(cvalues, force_env%para_env%group)
-         IF (PRESENT(Bmatrix)) CALL mp_sum(Bmatrix, force_env%para_env%group)
+         CALL force_env%para_env%group%sum(n_tot)
+         CALL force_env%para_env%group%sum(cvalues)
+         IF (PRESENT(Bmatrix)) CALL force_env%para_env%group%sum(Bmatrix)
       END IF
       offset = n_tot
       ! Intermolecular Colvars

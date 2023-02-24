@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -34,10 +34,8 @@ MODULE qmmm_gpw_forces
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_irecv,&
-                                              mp_isend,&
-                                              mp_sum,&
-                                              mp_wait
+   USE message_passing,                 ONLY: mp_comm_type,&
+                                              mp_request_type
    USE mm_collocate_potential,          ONLY: collocate_gf_rspace_NoPBC,&
                                               integrate_gf_rspace_NoPBC
    USE particle_types,                  ONLY: particle_type
@@ -287,9 +285,9 @@ CONTAINS
       IF (need_f) THEN
          !ikuo Temporary change to alleviate compiler problems on Intel with
          !array dimension of 0
-         IF (qmmm_env%num_mm_atoms /= 0) CALL mp_sum(Forces, para_env%group)
-         IF (qmmm_env%added_charges%num_mm_atoms /= 0) CALL mp_sum(Forces_added_charges, para_env%group)
-         IF (qmmm_env%added_shells%num_mm_atoms /= 0) CALL mp_sum(Forces_added_shells, para_env%group)
+         IF (qmmm_env%num_mm_atoms /= 0) CALL para_env%group%sum(Forces)
+         IF (qmmm_env%added_charges%num_mm_atoms /= 0) CALL para_env%group%sum(Forces_added_charges)
+         IF (qmmm_env%added_shells%num_mm_atoms /= 0) CALL para_env%group%sum(Forces_added_shells)
          ! Debug Forces
          IF (debug_this_module) THEN
             IF (dft_control%qs_control%semi_empirical .OR. &
@@ -423,12 +421,14 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'qmmm_forces_with_gaussian'
 
-      INTEGER                                            :: group, handle, i, igrid, j, k, &
-                                                            kind_interp, me, ngrids, request, stat
+      INTEGER                                            :: handle, i, igrid, j, k, kind_interp, me, &
+                                                            ngrids, stat
       INTEGER, DIMENSION(3)                              :: glb, gub, lb, ub
       INTEGER, DIMENSION(:), POINTER                     :: pos_of_x
       LOGICAL                                            :: shells
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: tmp
+      TYPE(mp_comm_type)                                 :: group
+      TYPE(mp_request_type)                              :: request
       TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: grids
 
 ! Statements
@@ -487,17 +487,17 @@ CONTAINS
                    stat=stat)
          CPASSERT(stat == 0)
          tmp = rho%cr3d(lb(1), :, :)
-         CALL mp_isend(msgin=tmp, dest=pos_of_x(rho%pw_grid%bounds(2, 1)), comm=group, &
-                       request=request, tag=112)
-         CALL mp_wait(request)
+         CALL group%isend(msgin=tmp, dest=pos_of_x(rho%pw_grid%bounds(2, 1)), &
+                          request=request, tag=112)
+         CALL request%wait()
       ELSE IF (pos_of_x(gub(1)) .EQ. me) THEN
          ALLOCATE (tmp(rho%pw_grid%bounds_local(1, 2):rho%pw_grid%bounds_local(2, 2), &
                        rho%pw_grid%bounds_local(1, 3):rho%pw_grid%bounds_local(2, 3)), &
                    stat=stat)
          CPASSERT(stat == 0)
-         CALL mp_irecv(msgout=tmp, source=pos_of_x(rho%pw_grid%bounds(1, 1)), &
-                       comm=group, request=request, tag=112)
-         CALL mp_wait(request)
+         CALL group%irecv(msgout=tmp, source=pos_of_x(rho%pw_grid%bounds(1, 1)), &
+                          request=request, tag=112)
+         CALL request%wait()
 
          DO k = lb(3), ub(3)
             DO j = lb(2), ub(2)
@@ -515,7 +515,7 @@ CONTAINS
       END IF
       ! Further setup of parallelization scheme
       IF (qmmm_env%par_scheme == do_par_atom) THEN
-         CALL mp_sum(grids(auxbas_grid)%cr3d, para_env%group)
+         CALL para_env%group%sum(grids(auxbas_grid)%cr3d)
       END IF
       ! RealSpace Interpolation
       CALL section_vals_val_get(interp_section, "kind", i_val=kind_interp)

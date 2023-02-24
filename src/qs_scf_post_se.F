@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -44,7 +44,6 @@ MODULE qs_scf_post_se
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE mathconstants,                   ONLY: twopi
-   USE message_passing,                 ONLY: mp_sum
    USE moments_utils,                   ONLY: get_reference_point
    USE orbital_pointers,                ONLY: coset,&
                                               ncoset
@@ -461,8 +460,7 @@ CONTAINS
       TYPE(qs_rho_type), POINTER                         :: rho
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      CHARACTER(LEN=2)                                   :: ana
-      CHARACTER(LEN=default_string_length)               :: aname
+      CHARACTER(LEN=2)                                   :: aname
       INTEGER                                            :: i, iat, iatom, ikind, j, nat, natom, &
                                                             natorb, nkind, nspin, unit_nr
       LOGICAL                                            :: found
@@ -517,8 +515,8 @@ CONTAINS
             END DO
          END DO
          !
-         CALL mp_sum(charges, para_env%group)
-         CALL mp_sum(mcharge, para_env%group)
+         CALL para_env%group%sum(charges)
+         CALL para_env%group%sum(mcharge)
          !
          IF (unit_nr > 0) THEN
             WRITE (UNIT=unit_nr, FMT="(/,/,T2,A)") "POPULATION ANALYSIS"
@@ -528,12 +526,11 @@ CONTAINS
                DO ikind = 1, nkind
                   CALL get_atomic_kind(atomic_kind_set(ikind), natom=nat)
                   CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind, element_symbol=aname)
-                  ana = ADJUSTR(TRIM(ADJUSTL(aname)))
                   DO iatom = 1, nat
                      iat = atomic_kind_set(ikind)%atom_list(iatom)
                      WRITE (UNIT=unit_nr, &
                             FMT="(T2,I7,6X,A2,3X,I6,T39,F12.6,T69,F12.6)") &
-                        iat, ana, ikind, charges(iat, 1), mcharge(iat)
+                        iat, aname, ikind, charges(iat, 1), mcharge(iat)
                   END DO
                END DO
                WRITE (UNIT=unit_nr, &
@@ -545,12 +542,11 @@ CONTAINS
                DO ikind = 1, nkind
                   CALL get_atomic_kind(atomic_kind_set(ikind), natom=nat)
                   CALL get_qs_kind(qs_kind_set(ikind), se_parameter=se_kind, element_symbol=aname)
-                  ana = ADJUSTR(TRIM(ADJUSTL(aname)))
                   DO iatom = 1, nat
                      iat = atomic_kind_set(ikind)%atom_list(iatom)
                      WRITE (UNIT=unit_nr, &
                             FMT="(T2,I6,5X,A2,2X,I6,T29,4(1X,F12.6))") &
-                        iat, ana, ikind, charges(iat, 1:2), mcharge(iat), charges(iat, 1) - charges(iat, 2)
+                        iat, aname, ikind, charges(iat, 1:2), mcharge(iat), charges(iat, 1) - charges(iat, 2)
                   END DO
                END DO
                WRITE (UNIT=unit_nr, &

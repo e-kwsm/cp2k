@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -29,8 +29,7 @@ MODULE xray_diffraction
    USE mathconstants,                   ONLY: pi,&
                                               twopi
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_gather,&
-                                              mp_gatherv
+   USE message_passing,                 ONLY: mp_comm_type
    USE orbital_pointers,                ONLY: indco,&
                                               nco,&
                                               ncoset,&
@@ -38,8 +37,7 @@ MODULE xray_diffraction
                                               nsoset
    USE orbital_transformation_matrices, ONLY: orbtramat
    USE particle_types,                  ONLY: particle_type
-   USE paw_proj_set_types,              ONLY: get_paw_proj_set,&
-                                              paw_proj_set_type
+   USE paw_basis_types,                 ONLY: get_paw_basis_info
    USE physcon,                         ONLY: angstrom
    USE pw_env_types,                    ONLY: pw_env_get,&
                                               pw_env_type
@@ -96,9 +94,9 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'xray_diffraction_spectrum'
       INTEGER, PARAMETER                                 :: nblock = 100
 
-      INTEGER                                            :: group, handle, i, ig, ig_shell, ipe, &
-                                                            ishell, jg, ng, npe, nshell, &
-                                                            nshell_gather, source
+      INTEGER                                            :: handle, i, ig, ig_shell, ipe, ishell, &
+                                                            jg, ng, npe, nshell, nshell_gather, &
+                                                            source
       INTEGER(KIND=int_8)                                :: ngpts
       INTEGER, DIMENSION(3)                              :: npts
       INTEGER, DIMENSION(:), POINTER                     :: aux_index, ng_shell, ng_shell_gather, &
@@ -111,6 +109,7 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
@@ -265,7 +264,7 @@ CONTAINS
 
       ! Root (source) process gathers the number of shell of each process
 
-      CALL mp_gather(nshell, nshell_pe, source, group)
+      CALL group%gather(nshell, nshell_pe, source)
 
       ! Only the root process which has to print the full spectrum has to
       ! allocate here the receive buffers with their real sizes
@@ -288,13 +287,13 @@ CONTAINS
       CALL reallocate(f2sum_gather, 1, nshell_gather)
       CALL reallocate(f4sum_gather, 1, nshell_gather)
 
-      CALL mp_gatherv(q_shell, q_shell_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(ng_shell, ng_shell_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(fmax, fmax_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(fmin, fmin_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(fsum, fsum_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(f2sum, f2sum_gather, nshell_pe, offset_pe, source, group)
-      CALL mp_gatherv(f4sum, f4sum_gather, nshell_pe, offset_pe, source, group)
+      CALL group%gatherv(q_shell, q_shell_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(ng_shell, ng_shell_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(fmax, fmax_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(fmin, fmin_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(fsum, fsum_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(f2sum, f2sum_gather, nshell_pe, offset_pe, source)
+      CALL group%gatherv(f4sum, f4sum_gather, nshell_pe, offset_pe, source)
 
       IF (ASSOCIATED(offset_pe)) THEN
          DEALLOCATE (offset_pe)
@@ -520,9 +519,8 @@ CONTAINS
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dft_control_type), POINTER                    :: dft_control
-      TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
+      TYPE(gto_basis_set_type), POINTER                  :: basis_1c_set
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
-      TYPE(paw_proj_set_type), POINTER                   :: paw_proj
       TYPE(pw_type)                                      :: rho_elec_gspace
       TYPE(pw_type), DIMENSION(:), POINTER               :: rho_r
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -547,7 +545,7 @@ CONTAINS
       NULLIFY (lmax)
       NULLIFY (lmin)
       NULLIFY (npgf)
-      NULLIFY (orb_basis_set)
+      NULLIFY (basis_1c_set)
       NULLIFY (pab)
       NULLIFY (particle_set)
       NULLIFY (rho, rho_r)
@@ -620,15 +618,15 @@ CONTAINS
                               natom=natom)
 
          CALL get_qs_kind(qs_kind_set(ikind), &
-                          basis_set=orb_basis_set, &
-                          paw_proj_set=paw_proj, &
+                          basis_set=basis_1c_set, &
+                          basis_type="GAPW_1C", &
                           paw_atom=paw_atom)
 
          IF (.NOT. paw_atom) CYCLE ! no PAW atom: nothing to do
 
-         CALL get_paw_proj_set(paw_proj_set=paw_proj, o2nindex=o2nindex, nsatbas=nsatbas)
+         CALL get_paw_basis_info(basis_1c_set, o2nindex=o2nindex, nsatbas=nsatbas)
 
-         CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
+         CALL get_gto_basis_set(gto_basis_set=basis_1c_set, &
                                 lmax=lmax, &
                                 lmin=lmin, &
                                 maxco=maxco, &
@@ -736,6 +734,7 @@ CONTAINS
                END DO ! next shell set "jset"
             END DO ! next shell set "iset"
          END DO ! next atom "iatom" of atomic kind "ikind"
+         DEALLOCATE (o2nindex)
       END DO ! next atomic kind "ikind"
 
       rho_total = pw_integrate_function(rhotot_elec_gspace, isign=-1)/volume

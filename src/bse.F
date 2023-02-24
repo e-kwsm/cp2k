@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -24,8 +24,7 @@ MODULE bse
    USE group_dist_types,                ONLY: get_group_dist,&
                                               group_dist_d1_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_alltoall,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_request_type
    USE mp2_types,                       ONLY: integ_mat_buffer_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE rpa_communication,               ONLY: communicate_buffer
@@ -163,8 +162,8 @@ CONTAINS
 
       END DO
 
-      ! we make the mp_sum to sum over all RI basis functions
-      CALL mp_sum(BZ, para_env%group)
+      ! we make the sum over all RI basis functions
+      CALL para_env%group%sum(BZ)
 
    END SUBROUTINE
 
@@ -224,8 +223,8 @@ CONTAINS
 
       END DO
 
-      ! we make the mp_sum to sum over all RI basis functions
-      CALL mp_sum(AZ, para_env%group)
+      ! we make the sum over all RI basis functions
+      CALL para_env%group%sum(AZ)
 
       ! add (e_a-e_i)*Z_ia
       DO i_occ = 1, homo
@@ -491,10 +490,10 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: entry_counter, mepos_from_RI_index, &
                                                             num_entries_rec, num_entries_send
       INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
-      INTEGER, DIMENSION(:, :), POINTER                  :: req_array
       REAL(KIND=dp)                                      :: matrix_el
       TYPE(integ_mat_buffer_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: buffer_rec, buffer_send
+      TYPE(mp_request_type), DIMENSION(:, :), POINTER    :: req_array
 
       CALL timeset(routineN, handle)
 
@@ -549,7 +548,7 @@ CONTAINS
 
          END DO
 
-         CALL mp_alltoall(num_entries_send, num_entries_rec, 1, para_env%group)
+         CALL para_env%group%alltoall(num_entries_send, num_entries_rec, 1)
 
          ALLOCATE (buffer_rec(0:para_env%num_pe - 1))
          ALLOCATE (buffer_send(0:para_env%num_pe - 1))

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -42,7 +42,7 @@ MODULE metadynamics
                                   section_vals_type, &
                                   section_vals_val_get
    USE kinds, ONLY: dp
-   USE message_passing, ONLY: mp_bcast, cp2k_is_parallel
+   USE message_passing, ONLY: cp2k_is_parallel
    USE metadynamics_types, ONLY: hills_env_type, &
                                  meta_env_type, &
                                  metavar_type, &
@@ -169,7 +169,7 @@ CONTAINS
          CPABORT("NO PLUMED IN YOUR LD_LIBRARY_PATH?")
       ELSE
          CALL plumed_gcreate()
-         IF (cp2k_is_parallel) CALL plumed_gcmd_int("setMPIFComm"//CHAR(0), force_env%para_env%group)
+         IF (cp2k_is_parallel) CALL plumed_gcmd_int("setMPIFComm"//CHAR(0), force_env%para_env%group%get_handle())
          CALL plumed_gcmd_int("setRealPrecision"//CHAR(0), 8)
          CALL plumed_gcmd_double("setMDEnergyUnits"//CHAR(0), kjmol) ! Hartree to kjoule/mol
          CALL plumed_gcmd_double("setMDLengthUnits"//CHAR(0), angstrom*0.1_dp) ! Bohr to nm

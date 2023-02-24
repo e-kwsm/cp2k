@@ -27,6 +27,7 @@ FLAG_EXCEPTIONS = (
     r"LIBINT_CONTRACTED_INTS",
     r"XC_MAJOR_VERSION",
     r"XC_MINOR_VERSION",
+    r"OMP_DEFAULT_NONE_WITH_OOP",
     r"_OPENMP",
     r"__COMPILE_ARCH",
     r"__COMPILE_DATE",
@@ -170,6 +171,10 @@ def check_file(path: pathlib.Path) -> typing.List[str]:
             warnings += [f"{path}: Copyright banner malformed"]
     if fn_ext in C_EXTENSIONS and not content.startswith(BANNER_C.format(year, spdx)):
         warnings += [f"{path}: Copyright banner malformed"]
+    if path.name == "LICENSE" and bsd_licensed and f"2000-{year}" not in content:
+        warnings += [f"{path}: Copyright banner malformed"]
+    if path.name == "cp2k_info.F" and f'cp2k_year = "{year}"' not in content:
+        warnings += [f"{path}: Wrong year."]
 
     # check shebang
     PY_SHEBANG = "#!/usr/bin/env python3"

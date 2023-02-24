@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -34,7 +34,6 @@ MODULE pint_qtb
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi,&
                                               twopi
-   USE message_passing,                 ONLY: mp_bcast
    USE parallel_rng_types,              ONLY: GAUSSIAN,&
                                               rng_record_length,&
                                               rng_stream_type,&
@@ -387,8 +386,8 @@ CONTAINS
          IF (p > 1) DEALLOCATE (fp1)
       END IF
 
-      CALL mp_bcast(qtb_therm%h, para_env%source, para_env%group)
-      CALL mp_bcast(qtb_therm%step, para_env%source, para_env%group)
+      CALL para_env%group%bcast(qtb_therm%h, para_env%source)
+      CALL para_env%group%bcast(qtb_therm%step, para_env%source)
 
       ALLOCATE (qtb_therm%r(nf, p, ndim))
       ALLOCATE (qtb_therm%cpt(p))

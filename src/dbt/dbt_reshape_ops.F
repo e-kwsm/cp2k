@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -28,11 +28,8 @@ MODULE dbt_reshape_ops
                         dbt_clear
    USE kinds, ONLY: default_string_length
    USE kinds, ONLY: dp, dp
-   USE message_passing, ONLY: mp_alltoall, &
-                              mp_environ, &
-                              mp_irecv, &
-                              mp_isend, &
-                              mp_waitall
+   USE message_passing, ONLY: &
+      mp_waitall, mp_comm_type, mp_request_type
 
 #include "../base/base_uses.f90"
 
@@ -63,7 +60,7 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dbt_reshape'
 
-      INTEGER                                            :: iproc, mp_comm, mynode, numnodes, &
+      INTEGER                                            :: iproc, mynode, numnodes, &
                                                             handle, iblk, jblk, offset, ndata, &
                                                             nblks_recv_mythread
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: blks_to_allocate
@@ -76,6 +73,7 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: nblks_send_total, ndata_send_total, &
                                                             nblks_recv_total, ndata_recv_total, &
                                                             nblks_send_mythread, ndata_send_mythread
+      TYPE(mp_comm_type) :: mp_comm
 
       CALL timeset(routineN, handle)
 
@@ -96,12 +94,12 @@ CONTAINS
       IF (.NOT. summation_prv) CALL dbt_clear(tensor_out)
 
       mp_comm = tensor_in%pgrid%mp_comm_2d
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
       ALLOCATE (buffer_send(0:numnodes - 1), buffer_recv(0:numnodes - 1))
       ALLOCATE (nblks_send_total(0:numnodes - 1), ndata_send_total(0:numnodes - 1), source=0)
       ALLOCATE (nblks_recv_total(0:numnodes - 1), ndata_recv_total(0:numnodes - 1), source=0)
 
-!$OMP PARALLEL DEFAULT(NONE) &
+!$OMP PARALLEL DEFAULT(OMP_DEFAULT_NONE_WITH_OOP) &
 !$OMP SHARED(tensor_in,tensor_out,summation) &
 !$OMP SHARED(buffer_send,buffer_recv,mp_comm,numnodes) &
 !$OMP SHARED(nblks_send_total,ndata_send_total,nblks_recv_total,ndata_recv_total) &
@@ -127,8 +125,8 @@ CONTAINS
 !$OMP BARRIER
 
 !$OMP MASTER
-      CALL mp_alltoall(nblks_send_total, nblks_recv_total, 1, mp_comm)
-      CALL mp_alltoall(ndata_send_total, ndata_recv_total, 1, mp_comm)
+      CALL mp_comm%alltoall(nblks_send_total, nblks_recv_total, 1)
+      CALL mp_comm%alltoall(ndata_send_total, ndata_recv_total, 1)
 !$OMP END MASTER
 !$OMP BARRIER
 
@@ -226,18 +224,18 @@ CONTAINS
 !> \author Patrick Seewald
 ! **************************************************************************************************
    SUBROUTINE dbt_communicate_buffer(mp_comm, buffer_recv, buffer_send)
-      INTEGER, INTENT(IN)                    :: mp_comm
+      TYPE(mp_comm_type), INTENT(IN)                    :: mp_comm
       TYPE(block_buffer_type), DIMENSION(0:), INTENT(INOUT) :: buffer_recv, buffer_send
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'dbt_communicate_buffer'
 
       INTEGER                                               :: iproc, mynode, numnodes, &
                                                                rec_counter, send_counter, i
-      INTEGER, ALLOCATABLE, DIMENSION(:, :)                 :: req_array
+      TYPE(mp_request_type), ALLOCATABLE, DIMENSION(:, :)                 :: req_array
       INTEGER                                               :: handle
 
       CALL timeset(routineN, handle)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
 
       IF (numnodes > 1) THEN
 !$OMP MASTER
@@ -249,16 +247,16 @@ CONTAINS
          DO iproc = 0, numnodes - 1
             IF (SIZE(buffer_recv(iproc)%blocks) > 0) THEN
                rec_counter = rec_counter + 1
-               CALL mp_irecv(buffer_recv(iproc)%blocks, iproc, mp_comm, req_array(rec_counter, 3), tag=4)
-               CALL mp_irecv(buffer_recv(iproc)%data, iproc, mp_comm, req_array(rec_counter, 4), tag=7)
+               CALL mp_comm%irecv(buffer_recv(iproc)%blocks, iproc, req_array(rec_counter, 3), tag=4)
+               CALL mp_comm%irecv(buffer_recv(iproc)%data, iproc, req_array(rec_counter, 4), tag=7)
             END IF
          END DO
 
          DO iproc = 0, numnodes - 1
             IF (SIZE(buffer_send(iproc)%blocks) > 0) THEN
                send_counter = send_counter + 1
-               CALL mp_isend(buffer_send(iproc)%blocks, iproc, mp_comm, req_array(send_counter, 1), tag=4)
-               CALL mp_isend(buffer_send(iproc)%data, iproc, mp_comm, req_array(send_counter, 2), tag=7)
+               CALL mp_comm%isend(buffer_send(iproc)%blocks, iproc, req_array(send_counter, 1), tag=4)
+               CALL mp_comm%isend(buffer_send(iproc)%data, iproc, req_array(send_counter, 2), tag=7)
             END IF
          END DO
 

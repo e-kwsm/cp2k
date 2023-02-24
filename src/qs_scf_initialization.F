@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -452,8 +452,7 @@ CONTAINS
             IF (do_kpoints) nw = 4
             ALLOCATE (scf_env%scf_work1(nw))
             DO is = 1, SIZE(scf_env%scf_work1)
-               ALLOCATE (scf_env%scf_work1(is)%matrix)
-               CALL cp_fm_create(scf_env%scf_work1(is)%matrix, &
+               CALL cp_fm_create(scf_env%scf_work1(is), &
                                  matrix_struct=ao_ao_fmstruct, &
                                  name="SCF-WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
             END DO
@@ -517,8 +516,7 @@ CONTAINS
             nw = 4
             ALLOCATE (scf_env%scf_work1(nw))
             DO is = 1, SIZE(scf_env%scf_work1)
-               ALLOCATE (scf_env%scf_work1(is)%matrix)
-               CALL cp_fm_create(scf_env%scf_work1(is)%matrix, &
+               CALL cp_fm_create(scf_env%scf_work1(is), &
                                  matrix_struct=ao_ao_fmstruct, &
                                  name="SCF-WORK_MATRIX-1-"//TRIM(ADJUSTL(cp_to_string(is))))
             END DO

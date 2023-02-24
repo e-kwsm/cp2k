@@ -62,7 +62,13 @@ def main() -> None:
         f.write(regtest("ssmp"))
 
     with OutputFile("Dockerfile.test_arm64-psmp", args.check) as f:
-        f.write(toolchain_full(base_image="arm64v8/ubuntu:22.04", with_libxsmm="no"))
+        f.write(
+            toolchain_full(
+                base_image="arm64v8/ubuntu:22.04",
+                with_libxsmm="no",
+                with_libtorch="no",
+            )
+        )
         f.write(regtest("psmp"))
 
     with OutputFile(f"Dockerfile.test_performance", args.check) as f:
@@ -187,15 +193,20 @@ RUN ./test_coverage.sh "{version}" 2>&1 | tee report.log
 # ======================================================================================
 def conventions() -> str:
     return (
-        install_cp2k(version="psmp", arch="local_warn")
-        + rf"""
+        rf"""
 # Run test for conventions.
-COPY ./arch/Linux-x86-64-gfortran.dumpast ./arch/
+WORKDIR /opt/cp2k
+COPY ./Makefile .
+COPY ./src ./src
+COPY ./exts ./exts
+COPY ./tools/build_utils ./tools/build_utils
 COPY ./tools/conventions ./tools/conventions
-WORKDIR ./tools/conventions
+COPY ./arch/Linux-x86-64-gfortran.dumpast ./arch/
 RUN /bin/bash -ec " \
+    ln -vs /opt/cp2k-toolchain/install/arch/local_warn.psmp ./arch/ && \
     source /opt/cp2k-toolchain/install/setup && \
-   ./test_conventions.sh |& tee report.log"
+    ./tools/conventions/test_conventions.sh |& tee report.log && \
+    rm -rf lib obj exe"
 """
         + print_cached_report()
     )
@@ -210,7 +221,8 @@ def manual() -> str:
 COPY ./tools/manual ./tools/manual
 COPY ./tools/input_editing ./tools/input_editing
 COPY ./tools/docker/scripts/test_manual.sh .
-RUN ./test_manual.sh 2>&1 | tee report.log
+ARG ADD_EDIT_LINKS=yes
+RUN ./test_manual.sh "${{ADD_EDIT_LINKS}}" 2>&1 | tee report.log
 """
         + print_cached_report()
     )
@@ -268,6 +280,7 @@ COPY ./src ./src
 COPY ./exts ./exts
 COPY ./data ./data
 COPY ./tools ./tools
+COPY ./cmake ./cmake
 COPY ./Makefile .
 RUN bash -c "if [ -n "${{GIT_COMMIT_SHA}}" ] ; then echo "git:\${{GIT_COMMIT_SHA::7}}" > REVISION; fi"
 
@@ -350,6 +363,7 @@ def install_cp2k(
         run_lines.append(f"rm -rf lib obj exe/{arch}/libcp2k_unittest.{version}")
     else:
         run_lines.append(f"( {build_command} &> /dev/null || true )")
+        run_lines.append(f"rm -rf lib obj")
 
     # Ensure MPI is dynamically linked, which is needed e.g. for Shifter.
     if version.startswith("p"):
@@ -394,11 +408,9 @@ COPY ./cp2k.pc.in .
 WORKDIR ./build
 RUN /bin/bash -c " \
     echo 'Compiling cp2k...' && \
-    ls /opt/cp2k-toolchain/install/scalapack-2.2.1 && \
-    ls /opt/cp2k-toolchain/install/fftw-3.3.10/lib && \
     source /opt/cp2k-toolchain/install/setup && \
-    export PKG_CONFIG_PATH=/opt/cp2k-toolchain/install/libxsmm-1.17/lib:/opt/cp2k-toolchain/install/openblas-0.3.21/lib/pkgconfig:/opt/cp2k-toolchain/install/libxc-6.0.0/lib/pkgconfig:/opt/cp2k-toolchain/install/fftw-3.3.10/lib/pkgconfig:/opt/cp2k-toolchain/install/libint-v2.6.0-cp2k-lmax-5/lib/pkgconfig:/opt/cp2k-toolchain/install/plumed-2.8.0/lib/pkgconfig:/opt/cp2k-toolchain/install/superlu_dist-6.1.0/lib/pkgconfig && \
-    cmake -DCP2K_USE_COSMA=OFF -DCP2K_USE_LIBXSMM=NO -DSCALAPACK_ROOT=/opt/cp2k-toolchain/install/scalapack-2.2.1 -DCP2K_BLAS_VENDOR=OpenBLAS -DLibXC_ROOT=/opt/cp2k-toolchain/install/libxc-6.0.0 -DLibint2_ROOT=/opt/cp2k-toolchain/install/libint-v2.6.0-cp2k-lmax-5 -DDBCSR_ROOT=/opt/cp2k-toolchain/install/DBCSR-2.4.1 -DCP2K_USE_SPGLIB=ON -DCP2K_USE_LIBINT2=NO -DCP2K_USE_LIBXC=ON -DLibSPG_ROOT=/opt/cp2k-toolchain/install/spglib-1.16.2 .. && \
+    cmake -Werror=dev -DCP2K_USE_VORI=ON -DCP2K_USE_COSMA=NO -DCP2K_USE_LIBXSMM=ON -DCP2K_BLAS_VENDOR=OpenBLAS -DCP2K_USE_SPGLIB=ON -DCP2K_USE_LIBINT2=ON -DCP2K_USE_LIBXC=ON -DCP2K_USE_LIBTORCH=OFF .. |& tee ./cmake.log && \
+    ! grep -A5 'CMake Warning' ./cmake.log && \
     make -j"
 COPY ./data ./data
 COPY ./tests ./tests

@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -36,10 +36,10 @@ check_symbol_exists(vdwxc_init_mpi "${CP2K_LIBVDWXC_INCLUDE_DIRS}/vdwxc_mpi.h"
 find_package_handle_standard_args(
   LibVDWXC DEFAULT_MSG CP2K_LIBVDWXC_LINK_LIBRARIES CP2K_LIBVDWXC_INCLUDE_DIRS)
 
-if(LibVDWXC_FOUND AND NOT TARGET CP2K_libvdwxc::libvdwxc)
-  add_library(CP2K_libvdwxc::libvdwxc INTERFACE IMPORTED)
+if(LibVDWXC_FOUND AND NOT TARGET CP2K::libvdwxc::libvdwxc)
+  add_library(CP2K::libvdwxc::libvdwxc INTERFACE IMPORTED)
   set_target_properties(
-    CP2K_libvdwxc::libvdwxc
+    CP2K::libvdwxc::libvdwxc
     PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CP2K_LIBVDWXC_INCLUDE_DIRS}"
                INTERFACE_LINK_LIBRARIES "${CP2K_LIBVDWXC_LINK_LIBRARIES}")
 endif()

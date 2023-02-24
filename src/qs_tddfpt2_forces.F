@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -26,7 +26,6 @@ MODULE qs_tddfpt2_forces
    USE cp_fm_types,                     ONLY: cp_fm_copy_general,&
                                               cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_type
@@ -58,7 +57,6 @@ MODULE qs_tddfpt2_forces
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE mulliken,                        ONLY: ao_charges
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
@@ -183,17 +181,15 @@ CONTAINS
       ! rhs of linres equation
       IF (ASSOCIATED(ex_env%cpmos)) THEN
          DO ispin = 1, SIZE(ex_env%cpmos)
-            CALL cp_fm_release(ex_env%cpmos(ispin)%matrix)
-            DEALLOCATE (ex_env%cpmos(ispin)%matrix)
+            CALL cp_fm_release(ex_env%cpmos(ispin))
          END DO
          DEALLOCATE (ex_env%cpmos)
       END IF
       ALLOCATE (ex_env%cpmos(nspins))
       DO ispin = 1, nspins
-         CALL cp_fm_get_info(matrix=ex_env%evect(ispin)%matrix, matrix_struct=matrix_struct)
-         ALLOCATE (ex_env%cpmos(ispin)%matrix)
-         CALL cp_fm_create(ex_env%cpmos(ispin)%matrix, matrix_struct)
-         CALL cp_fm_set_all(ex_env%cpmos(ispin)%matrix, 0.0_dp)
+         CALL cp_fm_get_info(matrix=ex_env%evect(ispin), matrix_struct=matrix_struct)
+         CALL cp_fm_create(ex_env%cpmos(ispin), matrix_struct)
+         CALL cp_fm_set_all(ex_env%cpmos(ispin), 0.0_dp)
       END DO
       CALL get_qs_env(qs_env=qs_env, matrix_s=matrix_s)
       NULLIFY (matrix_pe_asymm, matrix_pe_symm)
@@ -215,7 +211,7 @@ CONTAINS
                            matrix_type=dbcsr_type_antisymmetric)
          CALL dbcsr_complete_redistribute(ex_env%matrix_pe(ispin)%matrix, matrix_pe_asymm(ispin)%matrix)
 
-         CALL tddfpt_resvec1(ex_env%evect(ispin)%matrix, gs_mos(ispin)%mos_occ, &
+         CALL tddfpt_resvec1(ex_env%evect(ispin), gs_mos(ispin)%mos_occ, &
                              matrix_s(1)%matrix, ex_env%matrix_pe(ispin)%matrix)
       END DO
       !
@@ -316,7 +312,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_forces'
       LOGICAL, PARAMETER                                 :: debug_forces = .FALSE.
 
-      INTEGER                                            :: handle, nkind
+      INTEGER                                            :: handle
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: natom_of_kind
       REAL(KIND=dp)                                      :: ehartree, exc
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
@@ -328,8 +324,6 @@ CONTAINS
       ! prepare force array
       CALL get_qs_env(qs_env, dft_control=dft_control, force=ks_force, &
                       atomic_kind_set=atomic_kind_set)
-      nkind = SIZE(atomic_kind_set)
-      ALLOCATE (natom_of_kind(nkind))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, natom_of_kind=natom_of_kind)
       NULLIFY (td_force)
       CALL allocate_qs_force(td_force, natom_of_kind)
@@ -392,7 +386,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: ftot1, ftot2
       REAL(KIND=dp), DIMENSION(3)                        :: fodeb
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: evect
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: evect
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, matrix_wx1, &
@@ -440,13 +434,13 @@ CONTAINS
          CALL cp_dbcsr_alloc_block_from_nbl(matrix_wz(ispin)%matrix, sab_orb)
          CALL dbcsr_set(matrix_wz(ispin)%matrix, 0.0_dp)
          CALL cp_fm_get_info(gs_mos(ispin)%mos_occ, ncol_global=norb)
-         CALL cp_dbcsr_plus_fm_fm_t(matrix_wz(ispin)%matrix, matrix_v=evect(ispin)%matrix, ncol=norb)
+         CALL cp_dbcsr_plus_fm_fm_t(matrix_wz(ispin)%matrix, matrix_v=evect(ispin), ncol=norb)
          evalue = ex_env%evalue
          IF (tddfpt_control%oe_corr == oe_shift) THEN
             evalue = ex_env%evalue - tddfpt_control%ev_shift
          END IF
          CALL dbcsr_scale(matrix_wz(ispin)%matrix, evalue)
-         CALL calculate_wx_matrix(gs_mos(ispin)%mos_occ, evect(ispin)%matrix, matrix_ks(ispin)%matrix, &
+         CALL calculate_wx_matrix(gs_mos(ispin)%mos_occ, evect(ispin), matrix_ks(ispin)%matrix, &
                                   matrix_wz(ispin)%matrix)
       END DO
       IF (nspins == 2) THEN
@@ -464,7 +458,7 @@ CONTAINS
       CALL dbcsr_deallocate_matrix_set(matrix_wz)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%overlap(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Wx*dS ", fodeb
       END IF
 
@@ -482,7 +476,7 @@ CONTAINS
          IF (tddfpt_control%oe_corr == oe_shift) THEN
             evalue = ex_env%evalue - tddfpt_control%ev_shift
          END IF
-         CALL calculate_xwx_matrix(gs_mos(ispin)%mos_occ, evect(ispin)%matrix, matrix_s(1)%matrix, &
+         CALL calculate_xwx_matrix(gs_mos(ispin)%mos_occ, evect(ispin), matrix_s(1)%matrix, &
                                    matrix_ks(ispin)%matrix, matrix_wz(ispin)%matrix, evalue)
       END DO
       IF (nspins == 2) THEN
@@ -500,7 +494,7 @@ CONTAINS
       CALL dbcsr_deallocate_matrix_set(matrix_wz)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%overlap(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: xWx*dS ", fodeb
       END IF
 
@@ -520,7 +514,7 @@ CONTAINS
          CALL dbcsr_deallocate_matrix_set(scrm)
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%overlap(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: WK*dS ", fodeb
          END IF
       END IF
@@ -529,7 +523,7 @@ CONTAINS
          ALLOCATE (ftot2(3, natom))
          CALL total_qs_force(ftot2, force, atomic_kind_set)
          fodeb(1:3) = ftot2(1:3, 1) - ftot1(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T30,3F16.8)") "DEBUG:: Excitation Force", fodeb
          DEALLOCATE (ftot1, ftot2)
       END IF
@@ -650,7 +644,7 @@ CONTAINS
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_hz
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: cpmos
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_resvec2'
 
@@ -1122,7 +1116,7 @@ CONTAINS
       DO ispin = 1, nspins
          mos => gs_mos(ispin)%mos_occ
          CALL cp_fm_get_info(mos, ncol_global=norb)
-         CALL cp_dbcsr_sm_fm_multiply(matrix_hz(ispin)%matrix, mos, cpmos(ispin)%matrix, &
+         CALL cp_dbcsr_sm_fm_multiply(matrix_hz(ispin)%matrix, mos, cpmos(ispin), &
                                       norb, alpha=focc, beta=0.0_dp)
       END DO
 
@@ -1145,7 +1139,7 @@ CONTAINS
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          POINTER                                         :: gs_mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_hz
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: cpmos
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_resvec2_xtb'
 
@@ -1231,7 +1225,7 @@ CONTAINS
       DO ispin = 1, nspins
          mos => gs_mos(ispin)%mos_occ
          CALL cp_fm_get_info(mos, ncol_global=norb)
-         CALL cp_dbcsr_sm_fm_multiply(matrix_hz(ispin)%matrix, mos, cpmos(ispin)%matrix, &
+         CALL cp_dbcsr_sm_fm_multiply(matrix_hz(ispin)%matrix, mos, cpmos(ispin), &
                                       norb, alpha=focc, beta=0.0_dp)
       END DO
 
@@ -1248,7 +1242,7 @@ CONTAINS
    SUBROUTINE tddfpt_resvec3(qs_env, cpmos, work)
 
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: cpmos
       TYPE(tddfpt_work_matrices)                         :: work
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'tddfpt_resvec3'
@@ -1256,7 +1250,7 @@ CONTAINS
       INTEGER                                            :: handle, ispin, nao, norb, nspins
       TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
       TYPE(cp_fm_type)                                   :: cvec, umat
-      TYPE(cp_fm_type), POINTER                          :: omos, rvecs, scmat
+      TYPE(cp_fm_type), POINTER                          :: omos
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
 
@@ -1267,18 +1261,18 @@ CONTAINS
 
       DO ispin = 1, nspins
          CALL get_mo_set(mos(ispin), mo_coeff=omos)
-         scmat => work%S_C0(ispin)%matrix
-         rvecs => cpmos(ispin)%matrix
-         CALL cp_fm_get_info(rvecs, nrow_global=nao, ncol_global=norb)
-         CALL cp_fm_create(cvec, rvecs%matrix_struct, "cvec")
-         CALL cp_fm_struct_create(fmstruct, context=rvecs%matrix_struct%context, nrow_global=norb, &
-                                  ncol_global=norb, para_env=rvecs%matrix_struct%para_env)
-         CALL cp_fm_create(umat, fmstruct, "umat")
-         CALL cp_fm_struct_release(fmstruct)
-         !
-         CALL parallel_gemm("T", "N", norb, norb, nao, 1.0_dp, omos, scmat, 0.0_dp, umat)
-         CALL cp_fm_copy_general(rvecs, cvec, rvecs%matrix_struct%para_env)
-         CALL parallel_gemm("N", "T", nao, norb, norb, 1.0_dp, cvec, umat, 0.0_dp, rvecs)
+         ASSOCIATE (rvecs => cpmos(ispin))
+            CALL cp_fm_get_info(rvecs, nrow_global=nao, ncol_global=norb)
+            CALL cp_fm_create(cvec, rvecs%matrix_struct, "cvec")
+            CALL cp_fm_struct_create(fmstruct, context=rvecs%matrix_struct%context, nrow_global=norb, &
+                                     ncol_global=norb, para_env=rvecs%matrix_struct%para_env)
+            CALL cp_fm_create(umat, fmstruct, "umat")
+            CALL cp_fm_struct_release(fmstruct)
+            !
+            CALL parallel_gemm("T", "N", norb, norb, nao, 1.0_dp, omos, work%S_C0(ispin), 0.0_dp, umat)
+            CALL cp_fm_copy_general(rvecs, cvec, rvecs%matrix_struct%para_env)
+            CALL parallel_gemm("N", "T", nao, norb, norb, 1.0_dp, cvec, umat, 0.0_dp, rvecs)
+         END ASSOCIATE
          CALL cp_fm_release(cvec)
          CALL cp_fm_release(umat)
       END DO

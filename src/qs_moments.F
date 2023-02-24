@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -17,6 +17,7 @@ MODULE qs_moments
                                               cossin,&
                                               diff_momop,&
                                               diff_momop2,&
+                                              diff_momop_velocity,&
                                               moment
    USE atomic_kind_types,               ONLY: atomic_kind_type,&
                                               get_atomic_kind
@@ -31,8 +32,8 @@ MODULE qs_moments
    USE cp_cfm_basic_linalg,             ONLY: cp_cfm_lu_decompose
    USE cp_cfm_types,                    ONLY: cp_cfm_create,&
                                               cp_cfm_get_info,&
-                                              cp_cfm_p_type,&
-                                              cp_cfm_release
+                                              cp_cfm_release,&
+                                              cp_cfm_type
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_cp2k_link,              ONLY: cp_dbcsr_alloc_block_from_nbl
    USE cp_dbcsr_operations,             ONLY: cp_dbcsr_sm_fm_multiply,&
@@ -44,7 +45,6 @@ MODULE qs_moments
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_type
@@ -63,7 +63,6 @@ MODULE qs_moments
                                               kpoint_type
    USE mathconstants,                   ONLY: pi,&
                                               twopi
-   USE message_passing,                 ONLY: mp_sum
    USE moments_utils,                   ONLY: get_reference_point
    USE orbital_pointers,                ONLY: current_maxl,&
                                               indco,&
@@ -106,8 +105,445 @@ MODULE qs_moments
    PUBLIC :: build_berry_kpoint_matrix, build_local_magmom_matrix
    PUBLIC :: qs_moment_berry_phase, qs_moment_locop
    PUBLIC :: dipole_deriv_ao
+   PUBLIC :: build_local_moments_der_matrix
+   PUBLIC :: build_dsdv_moments
+   PUBLIC :: dipole_velocity_deriv
 
 CONTAINS
+
+! *****************************************************************************
+!> \brief This returns the derivative of the moment integrals [a|\mu|b], with respect
+!>        to the basis function on the right
+!>        difdip(beta, alpha) = < mu | r_beta | ∂_alpha nu >  * (mu - nu)
+!> \param qs_env ...
+!> \param difdip ...
+!> \param order The order of the derivative (1 for dipole moment)
+!> \param lambda The atom on which we take the derivative
+!> \param rc ...
+!> \author Edward Ditler
+! **************************************************************************************************
+   SUBROUTINE dipole_velocity_deriv(qs_env, difdip, order, lambda, rc)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(dbcsr_p_type), DIMENSION(:, :), INTENT(INOUT) :: difdip
+      INTEGER, INTENT(IN)                                :: order, lambda
+      REAL(KIND=dp), DIMENSION(3)                        :: rc
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'dipole_velocity_deriv'
+
+      INTEGER :: handle, i, iatom, icol, idir, ikind, inode, irow, iset, j, jatom, jkind, jset, &
+         last_jatom, lda, ldab, ldb, M_dim, maxsgf, natom, ncoa, ncob, nkind, nseta, nsetb, sgfa, &
+         sgfb
+      LOGICAL                                            :: found
+      REAL(dp)                                           :: dab
+      REAL(dp), DIMENSION(3)                             :: ra, rab, rac, rb, rbc
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: mab
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: difmab, difmab2
+      TYPE(block_p_type), ALLOCATABLE, DIMENSION(:, :)   :: mint, mint2
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
+      TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
+      TYPE(neighbor_list_iterator_p_type), &
+         DIMENSION(:), POINTER                           :: nl_iterator
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         POINTER                                         :: sab_all
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(qs_kind_type), POINTER                        :: qs_kind
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (cell, particle_set, qs_kind_set, sab_all)
+      CALL get_qs_env(qs_env, cell=cell, particle_set=particle_set, &
+                      qs_kind_set=qs_kind_set, sab_all=sab_all)
+      CALL get_qs_kind_set(qs_kind_set=qs_kind_set, &
+                           maxco=ldab, maxsgf=maxsgf)
+
+      nkind = SIZE(qs_kind_set)
+      natom = SIZE(particle_set)
+
+      M_dim = ncoset(order) - 1
+
+      ALLOCATE (basis_set_list(nkind))
+
+      ALLOCATE (mab(ldab, ldab, M_dim))
+      ALLOCATE (difmab2(ldab, ldab, M_dim, 3))
+      ALLOCATE (work(ldab, maxsgf))
+      ALLOCATE (mint(3, 3))
+      ALLOCATE (mint2(3, 3))
+
+      mab(1:ldab, 1:ldab, 1:M_dim) = 0.0_dp
+      difmab2(1:ldab, 1:ldab, 1:M_dim, 1:3) = 0.0_dp
+      work(1:ldab, 1:maxsgf) = 0.0_dp
+
+      DO i = 1, 3
+      DO j = 1, 3
+         NULLIFY (mint(i, j)%block)
+         NULLIFY (mint2(i, j)%block)
+      END DO
+      END DO
+
+      ! Set the basis_set_list(nkind) to point to the corresponding basis sets
+      DO ikind = 1, nkind
+         qs_kind => qs_kind_set(ikind)
+         CALL get_qs_kind(qs_kind=qs_kind, basis_set=basis_set_a)
+         IF (ASSOCIATED(basis_set_a)) THEN
+            basis_set_list(ikind)%gto_basis_set => basis_set_a
+         ELSE
+            NULLIFY (basis_set_list(ikind)%gto_basis_set)
+         END IF
+      END DO
+
+      CALL neighbor_list_iterator_create(nl_iterator, sab_all)
+      DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
+         CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, inode=inode, &
+                                iatom=iatom, jatom=jatom, r=rab)
+
+         basis_set_a => basis_set_list(ikind)%gto_basis_set
+         basis_set_b => basis_set_list(jkind)%gto_basis_set
+         IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
+         IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
+
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
+
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
+
+            IF (inode == 1) last_jatom = 0
+
+            ! this guarantees minimum image convention
+            ! anything else would not make sense
+            IF (jatom == last_jatom) THEN
+               CYCLE
+            END IF
+
+            last_jatom = jatom
+
+            irow = iatom
+            icol = jatom
+
+            DO i = 1, 3
+            DO j = 1, 3
+               NULLIFY (mint(i, j)%block)
+               CALL dbcsr_get_block_p(matrix=difdip(i, j)%matrix, &
+                                      row=irow, col=icol, BLOCK=mint(i, j)%block, &
+                                      found=found)
+               CPASSERT(found)
+               mint(i, j)%block = 0._dp
+            END DO
+            END DO
+
+            ! With and without MIC, rab(:) is the vector giving us the coordinates of rb.
+            ra = pbc(particle_set(iatom)%r(:), cell)
+            rb(:) = ra(:) + rab(:)
+            rac = pbc(rc, ra, cell)
+            rbc = rac + rab
+            dab = norm2(rab)
+
+            DO iset = 1, nseta
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
+               DO jset = 1, nsetb
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
+                  ldab = MAX(ncoa, ncob)
+                  lda = ncoset(la_max(iset))*npgfa(iset)
+                  ldb = ncoset(lb_max(jset))*npgfb(jset)
+                  ALLOCATE (difmab(lda, ldb, M_dim, 3))
+
+                  ! Calculate integral difmab(beta, alpha) = (a|r_beta|db_alpha)
+                  ! difmab(beta, alpha) = < a | r_beta | ∂_alpha b >
+                  ! difmab(j, idir) = < a | r_j | ∂_idir b >
+                  CALL diff_momop_velocity(la_max(iset), npgfa(iset), zeta(:, iset), &
+                                           rpgfa(:, iset), la_min(iset), lb_max(jset), npgfb(jset), &
+                                           zetb(:, jset), rpgfb(:, jset), lb_min(jset), order, rac, rbc, &
+                                           difmab, lambda=lambda, iatom=iatom, jatom=jatom)
+
+                  !                  *** Contraction step ***
+
+                  DO idir = 1, 3 ! derivative of AO function
+                  DO j = 1, 3     ! position operator r_j
+                     CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                1.0_dp, difmab(1, 1, j, idir), SIZE(difmab, 1), &
+                                sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                0.0_dp, work(1, 1), SIZE(work, 1))
+
+                     CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                work(1, 1), SIZE(work, 1), &
+                                1.0_dp, mint(j, idir)%block(sgfa, sgfb), &
+                                SIZE(mint(j, idir)%block, 1))
+                  END DO !j
+                  END DO !idir
+                  DEALLOCATE (difmab)
+               END DO !jset
+            END DO !iset
+         END ASSOCIATE
+      END DO!iterator
+
+      CALL neighbor_list_iterator_release(nl_iterator)
+
+      DO i = 1, 3
+      DO j = 1, 3
+         NULLIFY (mint(i, j)%block)
+      END DO
+      END DO
+
+      DEALLOCATE (mab, difmab2, basis_set_list, work, mint, mint2)
+
+      CALL timestop(handle)
+   END SUBROUTINE dipole_velocity_deriv
+
+! **************************************************************************************************
+!> \brief Builds the moments for the derivative of the overlap with respect to nuclear velocities
+!> \param qs_env ...
+!> \param moments ...
+!> \param nmoments ...
+!> \param ref_point ...
+!> \param ref_points ...
+!> \param basis_type ...
+!> \author Edward Ditler
+! **************************************************************************************************
+   SUBROUTINE build_dsdv_moments(qs_env, moments, nmoments, ref_point, ref_points, basis_type)
+
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(dbcsr_p_type), DIMENSION(:)                   :: moments
+      INTEGER, INTENT(IN)                                :: nmoments
+      REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: ref_point
+      REAL(KIND=dp), DIMENSION(:, :), INTENT(IN), &
+         OPTIONAL                                        :: ref_points
+      CHARACTER(len=*), OPTIONAL                         :: basis_type
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'build_dsdv_moments'
+
+      INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, last_jatom, &
+         maxco, maxsgf, natom, ncoa, ncob, nkind, nm, nseta, nsetb, sgfa, sgfb
+      INTEGER, DIMENSION(3)                              :: image_cell
+      LOGICAL                                            :: found
+      REAL(KIND=dp)                                      :: dab
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: mab
+      REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rac, rb, rbc, rc
+      TYPE(block_p_type), ALLOCATABLE, DIMENSION(:)      :: mint
+      TYPE(cell_type), POINTER                           :: cell
+      TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
+      TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
+      TYPE(neighbor_list_iterator_p_type), &
+         DIMENSION(:), POINTER                           :: nl_iterator
+      TYPE(neighbor_list_set_p_type), DIMENSION(:), &
+         POINTER                                         :: sab_orb
+      TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(qs_kind_type), POINTER                        :: qs_kind
+
+      IF (nmoments < 1) RETURN
+
+      CALL timeset(routineN, handle)
+
+      NULLIFY (qs_kind_set, cell, particle_set, sab_orb)
+
+      nm = (6 + 11*nmoments + 6*nmoments**2 + nmoments**3)/6 - 1
+      CPASSERT(SIZE(moments) >= nm)
+
+      NULLIFY (qs_kind_set, particle_set, sab_orb, cell)
+      CALL get_qs_env(qs_env=qs_env, &
+                      qs_kind_set=qs_kind_set, &
+                      particle_set=particle_set, cell=cell, &
+                      sab_orb=sab_orb)
+
+      nkind = SIZE(qs_kind_set)
+      natom = SIZE(particle_set)
+
+      ! Allocate work storage
+      CALL get_qs_kind_set(qs_kind_set=qs_kind_set, &
+                           maxco=maxco, maxsgf=maxsgf, &
+                           basis_type=basis_type)
+
+      ALLOCATE (mab(maxco, maxco, nm))
+      mab(:, :, :) = 0.0_dp
+
+      ALLOCATE (work(maxco, maxsgf))
+      work(:, :) = 0.0_dp
+
+      ALLOCATE (mint(nm))
+      DO i = 1, nm
+         NULLIFY (mint(i)%block)
+      END DO
+
+      ALLOCATE (basis_set_list(nkind))
+      DO ikind = 1, nkind
+         qs_kind => qs_kind_set(ikind)
+         CALL get_qs_kind(qs_kind=qs_kind, basis_set=basis_set_a, basis_type=basis_type)
+         IF (ASSOCIATED(basis_set_a)) THEN
+            basis_set_list(ikind)%gto_basis_set => basis_set_a
+         ELSE
+            NULLIFY (basis_set_list(ikind)%gto_basis_set)
+         END IF
+      END DO
+      CALL neighbor_list_iterator_create(nl_iterator, sab_orb)
+      DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
+         CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, inode=inode, &
+                                iatom=iatom, jatom=jatom, r=rab, cell=image_cell)
+         basis_set_a => basis_set_list(ikind)%gto_basis_set
+         IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
+         basis_set_b => basis_set_list(jkind)%gto_basis_set
+         IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
+         ! basis ikind
+         ASSOCIATE ( &
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
+
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
+
+            IF (inode == 1) last_jatom = 0
+
+            ! this guarantees minimum image convention
+            ! anything else would not make sense
+            IF (jatom == last_jatom) THEN
+               CYCLE
+            END IF
+
+            last_jatom = jatom
+
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
+
+            DO i = 1, nm
+               NULLIFY (mint(i)%block)
+               CALL dbcsr_get_block_p(matrix=moments(i)%matrix, &
+                                      row=irow, col=icol, BLOCK=mint(i)%block, found=found)
+               mint(i)%block = 0._dp
+            END DO
+
+            ! fold atomic position back into unit cell
+            IF (PRESENT(ref_points)) THEN
+               rc(:) = 0.5_dp*(ref_points(:, iatom) + ref_points(:, jatom))
+            ELSE IF (PRESENT(ref_point)) THEN
+               rc(:) = ref_point(:)
+            ELSE
+               rc(:) = 0._dp
+            END IF
+            ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
+            ! by folding around the center, such screwing can be avoided for a proper choice of center.
+            ! we dont use PBC at this point
+
+            ! With and without MIC, rab(:) is the vector giving us the coordinates of rb.
+            ra(:) = particle_set(iatom)%r(:)
+            rb(:) = ra(:) + rab(:)
+            rac = pbc(rc, ra, cell)
+            rbc = rac + rab
+
+            dab = NORM2(rab)
+
+            DO iset = 1, nseta
+
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
+
+               DO jset = 1, nsetb
+
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
+
+                  ! Calculate the primitive integrals
+                  CALL moment(la_max(iset), npgfa(iset), zeta(:, iset), &
+                              rpgfa(:, iset), la_min(iset), &
+                              lb_max(jset), npgfb(jset), zetb(:, jset), &
+                              rpgfb(:, jset), nmoments, rac, rbc, mab)
+
+                  ! Contraction step
+                  DO i = 1, nm
+
+                     CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
+                                sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                0.0_dp, work(1, 1), SIZE(work, 1))
+
+                     IF (iatom <= jatom) THEN
+
+                        CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                   1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   work(1, 1), SIZE(work, 1), &
+                                   1.0_dp, mint(i)%block(sgfa, sgfb), &
+                                   SIZE(mint(i)%block, 1))
+
+                     ELSE
+
+                        CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                   1.0_dp, work(1, 1), SIZE(work, 1), &
+                                   sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   1.0_dp, mint(i)%block(sgfb, sgfa), &
+                                   SIZE(mint(i)%block, 1))
+
+                     END IF
+
+                  END DO
+
+               END DO
+            END DO
+         END ASSOCIATE
+
+      END DO ! iterator
+
+      CALL neighbor_list_iterator_release(nl_iterator)
+
+      ! Release work storage
+      DEALLOCATE (mab, basis_set_list)
+      DEALLOCATE (work)
+      DO i = 1, nm
+         NULLIFY (mint(i)%block)
+      END DO
+      DEALLOCATE (mint)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE build_dsdv_moments
 
 ! **************************************************************************************************
 !> \brief ...
@@ -132,16 +568,11 @@ CONTAINS
 
       INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, last_jatom, &
          maxco, maxsgf, natom, ncoa, ncob, nkind, nm, nseta, nsetb, sgfa, sgfb
-      INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, npgfa, npgfb, &
-                                                            nsgfa, nsgfb
-      INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: dab
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: mab
       REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rac, rb, rbc, rc
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rpgfa, rpgfb, sphi_a, sphi_b, zeta, zetb
       TYPE(block_p_type), ALLOCATABLE, DIMENSION(:)      :: mint
       TYPE(cell_type), POINTER                           :: cell
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
@@ -206,119 +637,123 @@ CONTAINS
          IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
          basis_set_b => basis_set_list(jkind)%gto_basis_set
          IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
-         ! basis ikind
-         first_sgfa => basis_set_a%first_sgf
-         la_max => basis_set_a%lmax
-         la_min => basis_set_a%lmin
-         npgfa => basis_set_a%npgf
-         nseta = basis_set_a%nset
-         nsgfa => basis_set_a%nsgf_set
-         rpgfa => basis_set_a%pgf_radius
-         set_radius_a => basis_set_a%set_radius
-         sphi_a => basis_set_a%sphi
-         zeta => basis_set_a%zet
-         ! basis jkind
-         first_sgfb => basis_set_b%first_sgf
-         lb_max => basis_set_b%lmax
-         npgfb => basis_set_b%npgf
-         nsetb = basis_set_b%nset
-         nsgfb => basis_set_b%nsgf_set
-         rpgfb => basis_set_b%pgf_radius
-         set_radius_b => basis_set_b%set_radius
-         sphi_b => basis_set_b%sphi
-         zetb => basis_set_b%zet
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
 
-         IF (inode == 1) last_jatom = 0
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
 
-         ! this guarantees minimum image convention
-         ! anything else would not make sense
-         IF (jatom == last_jatom) THEN
-            CYCLE
-         END IF
+            IF (inode == 1) last_jatom = 0
 
-         last_jatom = jatom
+            ! this guarantees minimum image convention
+            ! anything else would not make sense
+            IF (jatom == last_jatom) THEN
+               CYCLE
+            END IF
 
-         IF (iatom <= jatom) THEN
-            irow = iatom
-            icol = jatom
-         ELSE
-            irow = jatom
-            icol = iatom
-         END IF
+            last_jatom = jatom
 
-         DO i = 1, nm
-            NULLIFY (mint(i)%block)
-            CALL dbcsr_get_block_p(matrix=moments(i)%matrix, &
-                                   row=irow, col=icol, BLOCK=mint(i)%block, found=found)
-            mint(i)%block = 0._dp
-         END DO
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
 
-         ! fold atomic position back into unit cell
-         IF (PRESENT(ref_points)) THEN
-            rc(:) = 0.5_dp*(ref_points(:, iatom) + ref_points(:, jatom))
-         ELSE IF (PRESENT(ref_point)) THEN
-            rc(:) = ref_point(:)
-         ELSE
-            rc(:) = 0._dp
-         END IF
-         ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
-         ! by folding around the center, such screwing can be avoided for a proper choice of center.
-         ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
-         rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
-         ! we dont use PBC at this point
-         rab(:) = ra(:) - rb(:)
-         rac(:) = ra(:) - rc(:)
-         rbc(:) = rb(:) - rc(:)
-         dab = NORM2(rab)
+            DO i = 1, nm
+               NULLIFY (mint(i)%block)
+               CALL dbcsr_get_block_p(matrix=moments(i)%matrix, &
+                                      row=irow, col=icol, BLOCK=mint(i)%block, found=found)
+               mint(i)%block = 0._dp
+            END DO
 
-         DO iset = 1, nseta
+            ! fold atomic position back into unit cell
+            IF (PRESENT(ref_points)) THEN
+               rc(:) = 0.5_dp*(ref_points(:, iatom) + ref_points(:, jatom))
+            ELSE IF (PRESENT(ref_point)) THEN
+               rc(:) = ref_point(:)
+            ELSE
+               rc(:) = 0._dp
+            END IF
+            ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
+            ! by folding around the center, such screwing can be avoided for a proper choice of center.
+            ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
+            rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
+            ! we dont use PBC at this point
+            rab(:) = ra(:) - rb(:)
+            rac(:) = ra(:) - rc(:)
+            rbc(:) = rb(:) - rc(:)
+            dab = NORM2(rab)
 
-            ncoa = npgfa(iset)*ncoset(la_max(iset))
-            sgfa = first_sgfa(1, iset)
+            DO iset = 1, nseta
 
-            DO jset = 1, nsetb
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
 
-               IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+               DO jset = 1, nsetb
 
-               ncob = npgfb(jset)*ncoset(lb_max(jset))
-               sgfb = first_sgfb(1, jset)
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
 
-               ! Calculate the primitive integrals
-               CALL moment(la_max(iset), npgfa(iset), zeta(:, iset), &
-                           rpgfa(:, iset), la_min(iset), &
-                           lb_max(jset), npgfb(jset), zetb(:, jset), &
-                           rpgfb(:, jset), nmoments, rac, rbc, mab)
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
 
-               ! Contraction step
-               DO i = 1, nm
+                  ! Calculate the primitive integrals
+                  CALL moment(la_max(iset), npgfa(iset), zeta(:, iset), &
+                              rpgfa(:, iset), la_min(iset), &
+                              lb_max(jset), npgfb(jset), zetb(:, jset), &
+                              rpgfb(:, jset), nmoments, rac, rbc, mab)
 
-                  CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
-                             1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
-                             sphi_b(1, sgfb), SIZE(sphi_b, 1), &
-                             0.0_dp, work(1, 1), SIZE(work, 1))
+                  ! Contraction step
+                  DO i = 1, nm
 
-                  IF (iatom <= jatom) THEN
+                     CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
+                                sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                0.0_dp, work(1, 1), SIZE(work, 1))
 
-                     CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
-                                1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                work(1, 1), SIZE(work, 1), &
-                                1.0_dp, mint(i)%block(sgfa, sgfb), &
-                                SIZE(mint(i)%block, 1))
+                     IF (iatom <= jatom) THEN
 
-                  ELSE
+                        CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                   1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   work(1, 1), SIZE(work, 1), &
+                                   1.0_dp, mint(i)%block(sgfa, sgfb), &
+                                   SIZE(mint(i)%block, 1))
 
-                     CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
-                                1.0_dp, work(1, 1), SIZE(work, 1), &
-                                sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                1.0_dp, mint(i)%block(sgfb, sgfa), &
-                                SIZE(mint(i)%block, 1))
+                     ELSE
 
-                  END IF
+                        CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                   1.0_dp, work(1, 1), SIZE(work, 1), &
+                                   sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   1.0_dp, mint(i)%block(sgfb, sgfa), &
+                                   SIZE(mint(i)%block, 1))
+
+                     END IF
+
+                  END DO
 
                END DO
-
             END DO
-         END DO
+         END ASSOCIATE
 
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
@@ -336,40 +771,42 @@ CONTAINS
    END SUBROUTINE build_local_moment_matrix
 
 ! **************************************************************************************************
-!> \brief Calculate derivatives of multipole moments assuming the moments are already calculated
+!> \brief Calculate right-hand sided derivatives of multipole moments, e. g. < a | xy d/dz | b >
+!>        Optionally stores the multipole moments themselves for free.
 !>        Note that the multipole moments are symmetric while their derivatives are anti-symmetric
+!>        Only first derivatives are performed, e. g. x d/dy
 !> \param qs_env ...
-!> \param moments contains the multipole moments, already calculated
 !> \param moments_der will contain the derivatives of the multipole moments
-!> \param nmoments order of the multipole moments
-!> \param nders ...
+!> \param nmoments_der order of the moments with derivatives
+!> \param nmoments order of the multipole moments (no derivatives, same output as
+!>        build_local_moment_matrix, needs moments as arguments to store results)
 !> \param ref_point ...
+!> \param moments contains the multipole moments, optionally for free, up to order nmoments
 !> \note
 !>        Adapted from rRc_xyz_der_ao in qs_operators_ao
 ! **************************************************************************************************
-   SUBROUTINE build_local_moments_der_matrix(qs_env, moments, moments_der, nmoments, nders, ref_point)
+   SUBROUTINE build_local_moments_der_matrix(qs_env, moments_der, nmoments_der, nmoments, &
+                                             ref_point, moments)
       TYPE(qs_environment_type), POINTER                 :: qs_env
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: moments
-      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: moments_der
-      INTEGER, INTENT(IN)                                :: nmoments, nders
+      TYPE(dbcsr_p_type), DIMENSION(:, :), &
+         INTENT(INOUT), POINTER                          :: moments_der
+      INTEGER, INTENT(IN)                                :: nmoments_der, nmoments
       REAL(KIND=dp), DIMENSION(:), INTENT(IN), OPTIONAL  :: ref_point
+      TYPE(dbcsr_p_type), DIMENSION(:), INTENT(INOUT), &
+         OPTIONAL, POINTER                               :: moments
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'build_local_moments_der_matrix'
 
-      INTEGER :: handle, i, iatom, icol, idir, ii, ikind, inode, ipgf, irow, iset, j, jatom, &
-         jkind, jpgf, jset, last_jatom, M_dim, maxco, maxsgf, na, nb, ncoa, ncob, nda, ndb, nkind, &
-         nm, nseta, nsetb, sgfa, sgfb
-      INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, lb_min, npgfa, &
-                                                            npgfb, nsgfa, nsgfb
-      INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
+      INTEGER :: dimders, handle, i, iatom, icol, ider, ii, ikind, inode, ipgf, irow, iset, j, &
+         jatom, jkind, jpgf, jset, last_jatom, M_dim, maxco, maxsgf, na, nb, ncoa, ncob, nda, ndb, &
+         nders, nkind, nm, nmom_build, nseta, nsetb, sgfa, sgfb
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: dab
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
+      REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: mab
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: difmab
       REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rac, rb, rbc, rc
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rpgfa, rpgfb, sphi_a, sphi_b, zeta, zetb
-      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: mab, mab_tmp
+      REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: mab_tmp
       TYPE(block_p_type), ALLOCATABLE, DIMENSION(:)      :: mom_block
       TYPE(block_p_type), ALLOCATABLE, DIMENSION(:, :)   :: mom_block_der
       TYPE(cell_type), POINTER                           :: cell
@@ -378,24 +815,25 @@ CONTAINS
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: nl_iterator
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
-         POINTER                                         :: sab_all
+         POINTER                                         :: sab_orb
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
       TYPE(qs_kind_type), POINTER                        :: qs_kind
 
+      nmom_build = MAX(nmoments, nmoments_der)      ! build moments up to order nmom_buiod
+      IF (nmom_build < 1) RETURN
+
       CALL timeset(routineN, handle)
 
-      IF (nmoments < 1) RETURN
+      nders = 1                                    ! only first order derivatives
+      dimders = ncoset(nders) - 1
 
-      nm = (6 + 11*nmoments + 6*nmoments**2 + nmoments**3)/6 - 1
-      CPASSERT(SIZE(moments) >= nm)
-      CPASSERT(nmoments >= nders)
-      NULLIFY (qs_kind_set, particle_set, sab_all, cell)
+      NULLIFY (qs_kind_set, particle_set, sab_orb, cell)
       CALL get_qs_env(qs_env=qs_env, &
                       qs_kind_set=qs_kind_set, &
                       particle_set=particle_set, &
                       cell=cell, &
-                      sab_all=sab_all)
+                      sab_orb=sab_orb)
 
       nkind = SIZE(qs_kind_set)
 
@@ -403,28 +841,38 @@ CONTAINS
       CALL get_qs_kind_set(qs_kind_set=qs_kind_set, &
                            maxco=maxco, maxsgf=maxsgf)
 
-      NULLIFY (mab)
-      ALLOCATE (mab(maxco, maxco, nm))
-      mab(:, :, :) = 0.0_dp
+      IF (nmoments > 0) THEN
+         CPASSERT(PRESENT(moments))
+         nm = (6 + 11*nmoments + 6*nmoments**2 + nmoments**3)/6 - 1
+         CPASSERT(SIZE(moments) == nm)
+         ! storage for integrals
+         ALLOCATE (mab(maxco, maxco, nm))
+         ! blocks
+         mab(:, :, :) = 0.0_dp
+         ALLOCATE (mom_block(nm))
+         DO i = 1, nm
+            NULLIFY (mom_block(i)%block)
+         END DO
+      END IF
 
-      M_dim = ncoset(nders) - 1
-      ! CPASSERT(M_dim <= SIZE(moments, 1))
-      ALLOCATE (difmab(maxco, maxco, M_dim, 3))
-      difmab(:, :, :, :) = 0.0_dp
+      IF (nmoments_der > 0) THEN
+         M_dim = ncoset(nmoments_der) - 1
+         CPASSERT(SIZE(moments_der, dim=1) == M_dim)
+         CPASSERT(SIZE(moments_der, dim=2) == dimders)
+         ! storage for integrals
+         ALLOCATE (difmab(maxco, maxco, M_dim, dimders))
+         difmab(:, :, :, :) = 0.0_dp
+         ! blocks
+         ALLOCATE (mom_block_der(M_dim, dimders))
+         DO i = 1, M_dim
+            DO ider = 1, dimders
+               NULLIFY (mom_block_der(i, ider)%block)
+            END DO
+         END DO
+      END IF
 
       ALLOCATE (work(maxco, maxsgf))
       work(:, :) = 0.0_dp
-
-      ALLOCATE (mom_block(nm))
-      ALLOCATE (mom_block_der(M_dim, 3))
-      DO i = 1, nm
-         NULLIFY (mom_block(i)%block)
-      END DO
-      DO i = 1, M_dim
-         DO idir = 1, 3
-            NULLIFY (mom_block_der(i, idir)%block)
-         END DO
-      END DO
 
       NULLIFY (basis_set_a, basis_set_b, basis_set_list)
       NULLIFY (qs_kind)
@@ -440,10 +888,8 @@ CONTAINS
       END DO
 
       ! Calculate derivatives looping over neighbour list
-      NULLIFY (first_sgfa, la_max, la_min, npgfa, nsgfa, set_radius_a, sphi_a, zeta)
-      NULLIFY (first_sgfb, lb_max, lb_min, npgfb, nsgfb, set_radius_b, sphi_b, zetb)
       NULLIFY (nl_iterator)
-      CALL neighbor_list_iterator_create(nl_iterator, sab_all)
+      CALL neighbor_list_iterator_create(nl_iterator, sab_orb)
       DO WHILE (neighbor_list_iterate(nl_iterator) == 0)
          CALL get_iterator_info(nl_iterator, ikind=ikind, jkind=jkind, inode=inode, &
                                 iatom=iatom, jatom=jatom, r=rab)
@@ -451,174 +897,214 @@ CONTAINS
          IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
          basis_set_b => basis_set_list(jkind)%gto_basis_set
          IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
-         ! basis ikind
-         first_sgfa => basis_set_a%first_sgf
-         la_max => basis_set_a%lmax
-         la_min => basis_set_a%lmin
-         npgfa => basis_set_a%npgf
-         nseta = basis_set_a%nset
-         nsgfa => basis_set_a%nsgf_set
-         rpgfa => basis_set_a%pgf_radius
-         set_radius_a => basis_set_a%set_radius
-         sphi_a => basis_set_a%sphi
-         zeta => basis_set_a%zet
-         ! basis jkind
-         first_sgfb => basis_set_b%first_sgf
-         lb_max => basis_set_b%lmax
-         lb_min => basis_set_b%lmin
-         npgfb => basis_set_b%npgf
-         nsetb = basis_set_b%nset
-         nsgfb => basis_set_b%nsgf_set
-         rpgfb => basis_set_b%pgf_radius
-         set_radius_b => basis_set_b%set_radius
-         sphi_b => basis_set_b%sphi
-         zetb => basis_set_b%zet
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
 
-         ! reference point
-         IF (PRESENT(ref_point)) THEN
-            rc(:) = ref_point(:)
-         ELSE
-            rc(:) = 0._dp
-         END IF
-         ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
-         ! by folding around the center, such screwing can be avoided for a proper choice of center.
-         ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
-         rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
-         ! we dont use PBC at this point
-         rab(:) = ra(:) - rb(:)
-         rac(:) = ra(:) - rc(:)
-         rbc(:) = rb(:) - rc(:)
-         dab = NORM2(rab)
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
 
-         ! get blocks
-         IF (inode == 1) last_jatom = 0
+            ! reference point
+            IF (PRESENT(ref_point)) THEN
+               rc(:) = ref_point(:)
+            ELSE
+               rc(:) = 0._dp
+            END IF
+            ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
+            ! by folding around the center, such screwing can be avoided for a proper choice of center.
+            ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
+            rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
+            ! we dont use PBC at this point
+            rab(:) = ra(:) - rb(:)
+            rac(:) = ra(:) - rc(:)
+            rbc(:) = rb(:) - rc(:)
+            dab = NORM2(rab)
 
-         IF (jatom == last_jatom) THEN
-            CYCLE
-         END IF
+            ! get blocks
+            IF (inode == 1) last_jatom = 0
 
-         last_jatom = jatom
+            IF (jatom == last_jatom) THEN
+               CYCLE
+            END IF
 
-         irow = iatom
-         icol = jatom
+            last_jatom = jatom
 
-         DO i = 1, nm
-            NULLIFY (mom_block(i)%block)
-            ! get block from pre calculated overlap matrix
-            CALL dbcsr_get_block_p(matrix=moments(i)%matrix, &
-                                   row=irow, col=icol, BLOCK=mom_block(i)%block, found=found)
-            CPASSERT(found .AND. ASSOCIATED(mom_block(i)%block))
-            mom_block(i)%block = 0._dp
-         END DO
-         DO i = 1, M_dim
-            DO idir = 1, 3
-               NULLIFY (mom_block_der(i, idir)%block)
-               CALL dbcsr_get_block_p(matrix=moments_der(i, idir)%matrix, &
-                                      row=irow, col=icol, &
-                                      block=mom_block_der(i, idir)%block, &
-                                      found=found)
-               CPASSERT(found .AND. ASSOCIATED(mom_block_der(i, idir)%block))
-               mom_block_der(i, idir)%block = 0._dp
-            END DO
-         END DO
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
 
-         DO iset = 1, nseta
-
-            ncoa = npgfa(iset)*ncoset(la_max(iset))
-            sgfa = first_sgfa(1, iset)
-
-            DO jset = 1, nsetb
-
-               IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
-
-               ncob = npgfb(jset)*ncoset(lb_max(jset))
-               sgfb = first_sgfb(1, jset)
-
-               ALLOCATE (mab_tmp(npgfa(iset)*ncoset(la_max(iset) + 1), &
-                                 npgfb(jset)*ncoset(lb_max(jset) + 1), ncoset(nmoments) - 1))
-
-               ! Calculate the primitive integrals (need l+1 for derivatives)
-               CALL moment(la_max(iset) + 1, npgfa(iset), zeta(:, iset), &
-                           rpgfa(:, iset), la_min(iset), &
-                           lb_max(jset) + 1, npgfb(jset), zetb(:, jset), &
-                           rpgfb(:, jset), nmoments, rac, rbc, mab_tmp)
-
-               CALL diff_momop(la_max(iset), npgfa(iset), zeta(:, iset), &
-                               rpgfa(:, iset), la_min(iset), &
-                               lb_max(jset), npgfb(jset), zetb(:, jset), &
-                               rpgfb(:, jset), lb_min(jset), &
-                               nders, rac, rbc, difmab, mab_ext=mab_tmp)
-               ! copy subset of mab_tmp (l+1) to mab (l)
-               mab = 0.0_dp
-               DO ii = 1, nm
-                  na = 0
-                  nda = 0
-                  DO ipgf = 1, npgfa(iset)
-                     nb = 0
-                     ndb = 0
-                     DO jpgf = 1, npgfb(jset)
-                        DO j = 1, ncoset(lb_max(jset))
-                           DO i = 1, ncoset(la_max(iset))
-                              mab(i + na, j + nb, ii) = mab_tmp(i + nda, j + ndb, ii)
-                           END DO ! i
-                        END DO ! j
-                        nb = nb + ncoset(lb_max(jset))
-                        ndb = ndb + ncoset(lb_max(jset) + 1)
-                     END DO ! jpgf
-                     na = na + ncoset(la_max(iset))
-                     nda = nda + ncoset(la_max(iset) + 1)
-                  END DO ! ipgf
-
-               END DO
-               ! Contraction step
+            IF (nmoments > 0) THEN
                DO i = 1, nm
-
-                  CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
-                             1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
-                             sphi_b(1, sgfb), SIZE(sphi_b, 1), &
-                             0.0_dp, work(1, 1), SIZE(work, 1))
-
-                  CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
-                             1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                             work(1, 1), SIZE(work, 1), &
-                             1.0_dp, mom_block(i)%block(sgfa, sgfb), &
-                             SIZE(mom_block(i)%block, 1))
+                  NULLIFY (mom_block(i)%block)
+                  ! get block from pre calculated overlap matrix
+                  CALL dbcsr_get_block_p(matrix=moments(i)%matrix, &
+                                         row=irow, col=icol, BLOCK=mom_block(i)%block, found=found)
+                  CPASSERT(found .AND. ASSOCIATED(mom_block(i)%block))
+                  mom_block(i)%block = 0._dp
                END DO
+            END IF
+            IF (nmoments_der > 0) THEN
                DO i = 1, M_dim
-                  DO idir = 1, 3
-                     CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
-                                1.0_dp, difmab(1, 1, i, idir), SIZE(difmab, 1), &
-                                sphi_b(1, sgfb), SIZE(sphi_b, 1), &
-                                0._dp, work(1, 1), SIZE(work, 1))
-
-                     CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
-                                1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                work(1, 1), SIZE(work, 1), &
-                                1._dp, mom_block_der(i, idir)%block(sgfa, sgfb), &
-                                SIZE(mom_block_der(i, idir)%block, 1))
+                  DO ider = 1, dimders
+                     NULLIFY (mom_block_der(i, ider)%block)
+                     CALL dbcsr_get_block_p(matrix=moments_der(i, ider)%matrix, &
+                                            row=irow, col=icol, &
+                                            block=mom_block_der(i, ider)%block, &
+                                            found=found)
+                     CPASSERT(found .AND. ASSOCIATED(mom_block_der(i, ider)%block))
+                     mom_block_der(i, ider)%block = 0._dp
                   END DO
                END DO
-               DEALLOCATE (mab_tmp)
+            END IF
+
+            DO iset = 1, nseta
+
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
+
+               DO jset = 1, nsetb
+
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
+
+                  NULLIFY (mab_tmp)
+                  ALLOCATE (mab_tmp(npgfa(iset)*ncoset(la_max(iset) + 1), &
+                                    npgfb(jset)*ncoset(lb_max(jset) + 1), ncoset(nmom_build) - 1))
+
+                  ! Calculate the primitive integrals (need l+1 for derivatives)
+                  CALL moment(la_max(iset) + 1, npgfa(iset), zeta(:, iset), &
+                              rpgfa(:, iset), la_min(iset), &
+                              lb_max(jset) + 1, npgfb(jset), zetb(:, jset), &
+                              rpgfb(:, jset), nmom_build, rac, rbc, mab_tmp)
+
+                  IF (nmoments_der > 0) THEN
+                     CALL diff_momop(la_max(iset), npgfa(iset), zeta(:, iset), &
+                                     rpgfa(:, iset), la_min(iset), &
+                                     lb_max(jset), npgfb(jset), zetb(:, jset), &
+                                     rpgfb(:, jset), lb_min(jset), &
+                                     nmoments_der, rac, rbc, difmab, mab_ext=mab_tmp)
+                  END IF
+
+                  IF (nmoments > 0) THEN
+                     ! copy subset of mab_tmp (l+1) to mab (l)
+                     mab = 0.0_dp
+                     DO ii = 1, nm
+                        na = 0
+                        nda = 0
+                        DO ipgf = 1, npgfa(iset)
+                           nb = 0
+                           ndb = 0
+                           DO jpgf = 1, npgfb(jset)
+                              DO j = 1, ncoset(lb_max(jset))
+                                 DO i = 1, ncoset(la_max(iset))
+                                    mab(i + na, j + nb, ii) = mab_tmp(i + nda, j + ndb, ii)
+                                 END DO ! i
+                              END DO ! j
+                              nb = nb + ncoset(lb_max(jset))
+                              ndb = ndb + ncoset(lb_max(jset) + 1)
+                           END DO ! jpgf
+                           na = na + ncoset(la_max(iset))
+                           nda = nda + ncoset(la_max(iset) + 1)
+                        END DO ! ipgf
+                     END DO
+                     ! Contraction step
+                     DO i = 1, nm
+
+                        CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                   1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
+                                   sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                   0.0_dp, work(1, 1), SIZE(work, 1))
+
+                        IF (iatom <= jatom) THEN
+                           CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                      1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                      work(1, 1), SIZE(work, 1), &
+                                      1.0_dp, mom_block(i)%block(sgfa, sgfb), &
+                                      SIZE(mom_block(i)%block, 1))
+                        ELSE
+                           CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                      1.0_dp, work(1, 1), SIZE(work, 1), &
+                                      sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                      1.0_dp, mom_block(i)%block(sgfb, sgfa), &
+                                      SIZE(mom_block(i)%block, 1))
+                        END IF
+                     END DO
+                  END IF
+
+                  IF (nmoments_der > 0) THEN
+                     DO i = 1, M_dim
+                        DO ider = 1, dimders
+                           CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                      1.0_dp, difmab(1, 1, i, ider), SIZE(difmab, 1), &
+                                      sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                      0._dp, work(1, 1), SIZE(work, 1))
+
+                           IF (iatom <= jatom) THEN
+                              CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                         1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                         work(1, 1), SIZE(work, 1), &
+                                         1._dp, mom_block_der(i, ider)%block(sgfa, sgfb), &
+                                         SIZE(mom_block_der(i, ider)%block, 1))
+                           ELSE
+                              CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                         -1.0_dp, work(1, 1), SIZE(work, 1), &
+                                         sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                         1.0_dp, mom_block_der(i, ider)%block(sgfb, sgfa), &
+                                         SIZE(mom_block_der(i, ider)%block, 1))
+                           END IF
+                        END DO
+                     END DO
+                  END IF
+                  DEALLOCATE (mab_tmp)
+               END DO
             END DO
-         END DO
+         END ASSOCIATE
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
 
       ! deallocations
       DEALLOCATE (basis_set_list)
-      DEALLOCATE (mab)
-      DEALLOCATE (difmab)
       DEALLOCATE (work)
-      DO i = 1, nm
-         NULLIFY (mom_block(i)%block)
-      END DO
-      DO i = 1, M_dim
-         DO idir = 1, 3
-            NULLIFY (mom_block_der(i, idir)%block)
+      IF (nmoments > 0) THEN
+         DEALLOCATE (mab)
+         DO i = 1, nm
+            NULLIFY (mom_block(i)%block)
          END DO
-      END DO
-      DEALLOCATE (mom_block)
-      DEALLOCATE (mom_block_der)
+         DEALLOCATE (mom_block)
+      END IF
+      IF (nmoments_der > 0) THEN
+         DEALLOCATE (difmab)
+         DO i = 1, M_dim
+            DO ider = 1, dimders
+               NULLIFY (mom_block_der(i, ider)%block)
+            END DO
+         END DO
+         DEALLOCATE (mom_block_der)
+      END IF
 
       CALL timestop(handle)
 
@@ -647,16 +1133,11 @@ CONTAINS
 
       INTEGER :: handle, i, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, maxco, &
          maxsgf, natom, ncoa, ncob, nkind, nm, nseta, nsetb, sgfa, sgfb
-      INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, npgfa, npgfb, &
-                                                            nsgfa, nsgfb
-      INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: dab
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: work
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: mab
       REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rac, rb, rbc, rc
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rpgfa, rpgfb, sphi_a, sphi_b, zeta, zetb
       TYPE(block_p_type), ALLOCATABLE, DIMENSION(:)      :: mint
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
@@ -724,106 +1205,109 @@ CONTAINS
          IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
          basis_set_b => basis_set_list(jkind)%gto_basis_set
          IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
-         ! basis ikind
-         first_sgfa => basis_set_a%first_sgf
-         la_max => basis_set_a%lmax
-         la_min => basis_set_a%lmin
-         npgfa => basis_set_a%npgf
-         nseta = basis_set_a%nset
-         nsgfa => basis_set_a%nsgf_set
-         rpgfa => basis_set_a%pgf_radius
-         set_radius_a => basis_set_a%set_radius
-         sphi_a => basis_set_a%sphi
-         zeta => basis_set_a%zet
-         ! basis jkind
-         first_sgfb => basis_set_b%first_sgf
-         lb_max => basis_set_b%lmax
-         npgfb => basis_set_b%npgf
-         nsetb = basis_set_b%nset
-         nsgfb => basis_set_b%nsgf_set
-         rpgfb => basis_set_b%pgf_radius
-         set_radius_b => basis_set_b%set_radius
-         sphi_b => basis_set_b%sphi
-         zetb => basis_set_b%zet
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
 
-         IF (iatom <= jatom) THEN
-            irow = iatom
-            icol = jatom
-         ELSE
-            irow = jatom
-            icol = iatom
-         END IF
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
 
-         DO i = 1, nm
-            NULLIFY (mint(i)%block)
-            CALL dbcsr_get_block_p(matrix=magmom(i)%matrix, &
-                                   row=irow, col=icol, BLOCK=mint(i)%block, found=found)
-            mint(i)%block = 0._dp
-            CPASSERT(ASSOCIATED(mint(i)%block))
-         END DO
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
 
-         ! fold atomic position back into unit cell
-         IF (PRESENT(ref_points)) THEN
-            rc(:) = 0.5_dp*(ref_points(:, iatom) + ref_points(:, jatom))
-         ELSE IF (PRESENT(ref_point)) THEN
-            rc(:) = ref_point(:)
-         ELSE
-            rc(:) = 0._dp
-         END IF
-         ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
-         ! by folding around the center, such screwing can be avoided for a proper choice of center.
-         ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
-         rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
-         ! we dont use PBC at this point
-         rab(:) = ra(:) - rb(:)
-         rac(:) = ra(:) - rc(:)
-         rbc(:) = rb(:) - rc(:)
-         dab = NORM2(rab)
+            DO i = 1, nm
+               NULLIFY (mint(i)%block)
+               CALL dbcsr_get_block_p(matrix=magmom(i)%matrix, &
+                                      row=irow, col=icol, BLOCK=mint(i)%block, found=found)
+               mint(i)%block = 0._dp
+               CPASSERT(ASSOCIATED(mint(i)%block))
+            END DO
 
-         DO iset = 1, nseta
+            ! fold atomic position back into unit cell
+            IF (PRESENT(ref_points)) THEN
+               rc(:) = 0.5_dp*(ref_points(:, iatom) + ref_points(:, jatom))
+            ELSE IF (PRESENT(ref_point)) THEN
+               rc(:) = ref_point(:)
+            ELSE
+               rc(:) = 0._dp
+            END IF
+            ! using PBC here might screw a molecule that fits the box (but e.g. hasn't been shifted by center_molecule)
+            ! by folding around the center, such screwing can be avoided for a proper choice of center.
+            ra(:) = pbc(particle_set(iatom)%r(:) - rc, cell) + rc
+            rb(:) = pbc(particle_set(jatom)%r(:) - rc, cell) + rc
+            ! we dont use PBC at this point
+            rab(:) = ra(:) - rb(:)
+            rac(:) = ra(:) - rc(:)
+            rbc(:) = rb(:) - rc(:)
+            dab = NORM2(rab)
 
-            ncoa = npgfa(iset)*ncoset(la_max(iset))
-            sgfa = first_sgfa(1, iset)
+            DO iset = 1, nseta
 
-            DO jset = 1, nsetb
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
 
-               IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+               DO jset = 1, nsetb
 
-               ncob = npgfb(jset)*ncoset(lb_max(jset))
-               sgfb = first_sgfb(1, jset)
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
 
-               ! Calculate the primitive integrals
-               CALL angmom(la_max(iset), npgfa(iset), zeta(:, iset), &
-                           rpgfa(:, iset), la_min(iset), &
-                           lb_max(jset), npgfb(jset), zetb(:, jset), &
-                           rpgfb(:, jset), rac, rbc, mab)
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
 
-               ! Contraction step
-               DO i = 1, nm
-                  CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
-                             1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
-                             sphi_b(1, sgfb), SIZE(sphi_b, 1), &
-                             0.0_dp, work(1, 1), SIZE(work, 1))
+                  ! Calculate the primitive integrals
+                  CALL angmom(la_max(iset), npgfa(iset), zeta(:, iset), &
+                              rpgfa(:, iset), la_min(iset), &
+                              lb_max(jset), npgfb(jset), zetb(:, jset), &
+                              rpgfb(:, jset), rac, rbc, mab)
 
-                  IF (iatom <= jatom) THEN
-                     CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
-                                1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                work(1, 1), SIZE(work, 1), &
-                                1.0_dp, mint(i)%block(sgfa, sgfb), &
-                                SIZE(mint(i)%block, 1))
-                  ELSE
-                     CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
-                                -1.0_dp, work(1, 1), SIZE(work, 1), &
-                                sphi_a(1, sgfa), SIZE(sphi_a, 1), &
-                                1.0_dp, mint(i)%block(sgfb, sgfa), &
-                                SIZE(mint(i)%block, 1))
-                  END IF
+                  ! Contraction step
+                  DO i = 1, nm
+                     CALL dgemm("N", "N", ncoa, nsgfb(jset), ncob, &
+                                1.0_dp, mab(1, 1, i), SIZE(mab, 1), &
+                                sphi_b(1, sgfb), SIZE(sphi_b, 1), &
+                                0.0_dp, work(1, 1), SIZE(work, 1))
+
+                     IF (iatom <= jatom) THEN
+                        CALL dgemm("T", "N", nsgfa(iset), nsgfb(jset), ncoa, &
+                                   1.0_dp, sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   work(1, 1), SIZE(work, 1), &
+                                   1.0_dp, mint(i)%block(sgfa, sgfb), &
+                                   SIZE(mint(i)%block, 1))
+                     ELSE
+                        CALL dgemm("T", "N", nsgfb(jset), nsgfa(iset), ncoa, &
+                                   -1.0_dp, work(1, 1), SIZE(work, 1), &
+                                   sphi_a(1, sgfa), SIZE(sphi_a, 1), &
+                                   1.0_dp, mint(i)%block(sgfb, sgfa), &
+                                   SIZE(mint(i)%block, 1))
+                     END IF
+
+                  END DO
 
                END DO
-
             END DO
-         END DO
-
+         END ASSOCIATE
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
 
@@ -861,15 +1345,10 @@ CONTAINS
 
       INTEGER :: handle, iatom, icol, ikind, inode, irow, iset, jatom, jkind, jset, ldab, ldsa, &
          ldsb, ldwork, natom, ncoa, ncob, nkind, nseta, nsetb, sgfa, sgfb
-      INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, lb_min, npgfa, &
-                                                            npgfb, nsgfa, nsgfb
-      INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
       LOGICAL                                            :: found
       REAL(dp), DIMENSION(:, :), POINTER                 :: cblock, cosab, sblock, sinab, work
       REAL(KIND=dp)                                      :: dab
       REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rb
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rpgfa, rpgfb, sphi_a, sphi_b, zeta, zetb
       TYPE(cell_type), POINTER                           :: cell
       TYPE(gto_basis_set_p_type), DIMENSION(:), POINTER  :: basis_set_list
       TYPE(gto_basis_set_type), POINTER                  :: basis_set_a, basis_set_b
@@ -921,83 +1400,85 @@ CONTAINS
          IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
          basis_set_b => basis_set_list(jkind)%gto_basis_set
          IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
-         ! basis ikind
-         first_sgfa => basis_set_a%first_sgf
-         la_max => basis_set_a%lmax
-         la_min => basis_set_a%lmin
-         npgfa => basis_set_a%npgf
-         nseta = basis_set_a%nset
-         nsgfa => basis_set_a%nsgf_set
-         rpgfa => basis_set_a%pgf_radius
-         set_radius_a => basis_set_a%set_radius
-         sphi_a => basis_set_a%sphi
-         zeta => basis_set_a%zet
-         ! basis jkind
-         first_sgfb => basis_set_b%first_sgf
-         lb_max => basis_set_b%lmax
-         lb_min => basis_set_b%lmin
-         npgfb => basis_set_b%npgf
-         nsetb = basis_set_b%nset
-         nsgfb => basis_set_b%nsgf_set
-         rpgfb => basis_set_b%pgf_radius
-         set_radius_b => basis_set_b%set_radius
-         sphi_b => basis_set_b%sphi
-         zetb => basis_set_b%zet
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
 
-         ldsa = SIZE(sphi_a, 1)
-         ldsb = SIZE(sphi_b, 1)
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
 
-         IF (iatom <= jatom) THEN
-            irow = iatom
-            icol = jatom
-         ELSE
-            irow = jatom
-            icol = iatom
-         END IF
+            ldsa = SIZE(sphi_a, 1)
+            ldsb = SIZE(sphi_b, 1)
 
-         NULLIFY (cblock)
-         CALL dbcsr_get_block_p(matrix=cosmat, &
-                                row=irow, col=icol, BLOCK=cblock, found=found)
-         NULLIFY (sblock)
-         CALL dbcsr_get_block_p(matrix=sinmat, &
-                                row=irow, col=icol, BLOCK=sblock, found=found)
-         IF (ASSOCIATED(cblock) .AND. .NOT. ASSOCIATED(sblock) .OR. &
-             .NOT. ASSOCIATED(cblock) .AND. ASSOCIATED(sblock)) THEN
-            CPABORT("")
-         END IF
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
 
-         IF (ASSOCIATED(cblock) .AND. ASSOCIATED(sblock)) THEN
+            NULLIFY (cblock)
+            CALL dbcsr_get_block_p(matrix=cosmat, &
+                                   row=irow, col=icol, BLOCK=cblock, found=found)
+            NULLIFY (sblock)
+            CALL dbcsr_get_block_p(matrix=sinmat, &
+                                   row=irow, col=icol, BLOCK=sblock, found=found)
+            IF (ASSOCIATED(cblock) .AND. .NOT. ASSOCIATED(sblock) .OR. &
+                .NOT. ASSOCIATED(cblock) .AND. ASSOCIATED(sblock)) THEN
+               CPABORT("")
+            END IF
 
-            ra(:) = pbc(particle_set(iatom)%r(:), cell)
-            rb(:) = ra + rab
-            dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))
+            IF (ASSOCIATED(cblock) .AND. ASSOCIATED(sblock)) THEN
 
-            DO iset = 1, nseta
+               ra(:) = pbc(particle_set(iatom)%r(:), cell)
+               rb(:) = ra + rab
+               dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))
 
-               ncoa = npgfa(iset)*ncoset(la_max(iset))
-               sgfa = first_sgfa(1, iset)
+               DO iset = 1, nseta
 
-               DO jset = 1, nsetb
+                  ncoa = npgfa(iset)*ncoset(la_max(iset))
+                  sgfa = first_sgfa(1, iset)
 
-                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+                  DO jset = 1, nsetb
 
-                  ncob = npgfb(jset)*ncoset(lb_max(jset))
-                  sgfb = first_sgfb(1, jset)
+                     IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
 
-                  ! Calculate the primitive integrals
-                  CALL cossin(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
-                              lb_max(jset), npgfb(jset), zetb(:, jset), rpgfb(:, jset), lb_min(jset), &
-                              ra, rb, kvec, cosab, sinab)
-                  CALL contract_cossin(cblock, sblock, &
-                                       iatom, ncoa, nsgfa(iset), sgfa, sphi_a, ldsa, &
-                                       jatom, ncob, nsgfb(jset), sgfb, sphi_b, ldsb, &
-                                       cosab, sinab, ldab, work, ldwork)
+                     ncob = npgfb(jset)*ncoset(lb_max(jset))
+                     sgfb = first_sgfb(1, jset)
 
+                     ! Calculate the primitive integrals
+                     CALL cossin(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
+                                 lb_max(jset), npgfb(jset), zetb(:, jset), rpgfb(:, jset), lb_min(jset), &
+                                 ra, rb, kvec, cosab, sinab)
+                     CALL contract_cossin(cblock, sblock, &
+                                          iatom, ncoa, nsgfa(iset), sgfa, sphi_a, ldsa, &
+                                          jatom, ncob, nsgfb(jset), sgfb, sphi_b, ldsb, &
+                                          cosab, sinab, ldab, work, ldwork)
+
+                  END DO
                END DO
-            END DO
 
-         END IF
-
+            END IF
+         END ASSOCIATE
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
 
@@ -1030,16 +1511,12 @@ CONTAINS
       INTEGER :: handle, i, iatom, ic, icol, ikind, inode, irow, iset, jatom, jkind, jset, ldab, &
          ldsa, ldsb, ldwork, natom, ncoa, ncob, nimg, nkind, nseta, nsetb, sgfa, sgfb
       INTEGER, DIMENSION(3)                              :: icell
-      INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, lb_max, lb_min, npgfa, &
-                                                            npgfb, nsgfa, nsgfb, row_blk_sizes
-      INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa, first_sgfb
+      INTEGER, DIMENSION(:), POINTER                     :: row_blk_sizes
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       LOGICAL                                            :: found, use_cell_mapping
       REAL(dp), DIMENSION(:, :), POINTER                 :: cblock, cosab, sblock, sinab, work
       REAL(KIND=dp)                                      :: dab
       REAL(KIND=dp), DIMENSION(3)                        :: ra, rab, rb
-      REAL(KIND=dp), DIMENSION(:), POINTER               :: set_radius_a, set_radius_b
-      REAL(KIND=dp), DIMENSION(:, :), POINTER            :: rpgfa, rpgfb, sphi_a, sphi_b, zeta, zetb
       TYPE(cell_type), POINTER                           :: cell
       TYPE(dbcsr_distribution_type), POINTER             :: dbcsr_dist
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -1129,84 +1606,86 @@ CONTAINS
          IF (.NOT. ASSOCIATED(basis_set_a)) CYCLE
          basis_set_b => basis_set_list(jkind)%gto_basis_set
          IF (.NOT. ASSOCIATED(basis_set_b)) CYCLE
-         ! basis ikind
-         first_sgfa => basis_set_a%first_sgf
-         la_max => basis_set_a%lmax
-         la_min => basis_set_a%lmin
-         npgfa => basis_set_a%npgf
-         nseta = basis_set_a%nset
-         nsgfa => basis_set_a%nsgf_set
-         rpgfa => basis_set_a%pgf_radius
-         set_radius_a => basis_set_a%set_radius
-         sphi_a => basis_set_a%sphi
-         zeta => basis_set_a%zet
-         ! basis jkind
-         first_sgfb => basis_set_b%first_sgf
-         lb_max => basis_set_b%lmax
-         lb_min => basis_set_b%lmin
-         npgfb => basis_set_b%npgf
-         nsetb = basis_set_b%nset
-         nsgfb => basis_set_b%nsgf_set
-         rpgfb => basis_set_b%pgf_radius
-         set_radius_b => basis_set_b%set_radius
-         sphi_b => basis_set_b%sphi
-         zetb => basis_set_b%zet
+         ASSOCIATE ( &
+            ! basis ikind
+            first_sgfa => basis_set_a%first_sgf, &
+            la_max => basis_set_a%lmax, &
+            la_min => basis_set_a%lmin, &
+            npgfa => basis_set_a%npgf, &
+            nsgfa => basis_set_a%nsgf_set, &
+            rpgfa => basis_set_a%pgf_radius, &
+            set_radius_a => basis_set_a%set_radius, &
+            sphi_a => basis_set_a%sphi, &
+            zeta => basis_set_a%zet, &
+            ! basis jkind, &
+            first_sgfb => basis_set_b%first_sgf, &
+            lb_max => basis_set_b%lmax, &
+            lb_min => basis_set_b%lmin, &
+            npgfb => basis_set_b%npgf, &
+            nsgfb => basis_set_b%nsgf_set, &
+            rpgfb => basis_set_b%pgf_radius, &
+            set_radius_b => basis_set_b%set_radius, &
+            sphi_b => basis_set_b%sphi, &
+            zetb => basis_set_b%zet)
 
-         ldsa = SIZE(sphi_a, 1)
-         ldsb = SIZE(sphi_b, 1)
+            nseta = basis_set_a%nset
+            nsetb = basis_set_b%nset
 
-         IF (iatom <= jatom) THEN
-            irow = iatom
-            icol = jatom
-         ELSE
-            irow = jatom
-            icol = iatom
-         END IF
+            ldsa = SIZE(sphi_a, 1)
+            ldsb = SIZE(sphi_b, 1)
 
-         IF (use_cell_mapping) THEN
-            ic = cell_to_index(icell(1), icell(2), icell(3))
-            CPASSERT(ic > 0)
-         ELSE
-            ic = 1
-         END IF
+            IF (iatom <= jatom) THEN
+               irow = iatom
+               icol = jatom
+            ELSE
+               irow = jatom
+               icol = iatom
+            END IF
 
-         NULLIFY (sblock)
-         CALL dbcsr_get_block_p(matrix=sinmat(1, ic)%matrix, &
-                                row=irow, col=icol, BLOCK=sblock, found=found)
-         CPASSERT(found)
-         NULLIFY (cblock)
-         CALL dbcsr_get_block_p(matrix=cosmat(1, ic)%matrix, &
-                                row=irow, col=icol, BLOCK=cblock, found=found)
-         CPASSERT(found)
+            IF (use_cell_mapping) THEN
+               ic = cell_to_index(icell(1), icell(2), icell(3))
+               CPASSERT(ic > 0)
+            ELSE
+               ic = 1
+            END IF
 
-         ra(:) = pbc(particle_set(iatom)%r(:), cell)
-         rb(:) = ra + rab
-         dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))
+            NULLIFY (sblock)
+            CALL dbcsr_get_block_p(matrix=sinmat(1, ic)%matrix, &
+                                   row=irow, col=icol, BLOCK=sblock, found=found)
+            CPASSERT(found)
+            NULLIFY (cblock)
+            CALL dbcsr_get_block_p(matrix=cosmat(1, ic)%matrix, &
+                                   row=irow, col=icol, BLOCK=cblock, found=found)
+            CPASSERT(found)
 
-         DO iset = 1, nseta
+            ra(:) = pbc(particle_set(iatom)%r(:), cell)
+            rb(:) = ra + rab
+            dab = SQRT(rab(1)*rab(1) + rab(2)*rab(2) + rab(3)*rab(3))
 
-            ncoa = npgfa(iset)*ncoset(la_max(iset))
-            sgfa = first_sgfa(1, iset)
+            DO iset = 1, nseta
 
-            DO jset = 1, nsetb
+               ncoa = npgfa(iset)*ncoset(la_max(iset))
+               sgfa = first_sgfa(1, iset)
 
-               IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
+               DO jset = 1, nsetb
 
-               ncob = npgfb(jset)*ncoset(lb_max(jset))
-               sgfb = first_sgfb(1, jset)
+                  IF (set_radius_a(iset) + set_radius_b(jset) < dab) CYCLE
 
-               ! Calculate the primitive integrals
-               CALL cossin(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
-                           lb_max(jset), npgfb(jset), zetb(:, jset), rpgfb(:, jset), lb_min(jset), &
-                           ra, rb, kvec, cosab, sinab)
-               CALL contract_cossin(cblock, sblock, &
-                                    iatom, ncoa, nsgfa(iset), sgfa, sphi_a, ldsa, &
-                                    jatom, ncob, nsgfb(jset), sgfb, sphi_b, ldsb, &
-                                    cosab, sinab, ldab, work, ldwork)
+                  ncob = npgfb(jset)*ncoset(lb_max(jset))
+                  sgfb = first_sgfb(1, jset)
 
+                  ! Calculate the primitive integrals
+                  CALL cossin(la_max(iset), npgfa(iset), zeta(:, iset), rpgfa(:, iset), la_min(iset), &
+                              lb_max(jset), npgfb(jset), zetb(:, jset), rpgfb(:, jset), lb_min(jset), &
+                              ra, rb, kvec, cosab, sinab)
+                  CALL contract_cossin(cblock, sblock, &
+                                       iatom, ncoa, nsgfa(iset), sgfa, sphi_a, ldsa, &
+                                       jatom, ncob, nsgfb(jset), sgfb, sphi_b, ldsb, &
+                                       cosab, sinab, ldab, work, ldwork)
+
+               END DO
             END DO
-         END DO
-
+         END ASSOCIATE
       END DO
       CALL neighbor_list_iterator_release(nl_iterator)
 
@@ -1254,10 +1733,11 @@ CONTAINS
       REAL(dp), DIMENSION(3)                             :: kvec, qq, rcc, ria
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_cfm_p_type), DIMENSION(:), POINTER         :: eigrmat
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new, opvec
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: op_fm_set
+      TYPE(cp_cfm_type), ALLOCATABLE, DIMENSION(:)       :: eigrmat
       TYPE(cp_fm_struct_type), POINTER                   :: tmp_fm_struct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: opvec
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: op_fm_set
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: mos_new
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(cp_result_type), POINTER                      :: results
@@ -1329,16 +1809,13 @@ CONTAINS
          NULLIFY (tmp_fm_struct, mo_coeff)
          CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nao=nao, nmo=nmo)
          nmotot = nmotot + nmo
-         ALLOCATE (opvec(ispin)%matrix)
-         CALL cp_fm_create(opvec(ispin)%matrix, mo_coeff%matrix_struct)
+         CALL cp_fm_create(opvec(ispin), mo_coeff%matrix_struct)
          CALL cp_fm_struct_create(tmp_fm_struct, nrow_global=nmo, &
                                   ncol_global=nmo, para_env=para_env, context=mo_coeff%matrix_struct%context)
          DO i = 1, SIZE(op_fm_set, 1)
-            ALLOCATE (op_fm_set(i, ispin)%matrix)
-            CALL cp_fm_create(op_fm_set(i, ispin)%matrix, tmp_fm_struct)
+            CALL cp_fm_create(op_fm_set(i, ispin), tmp_fm_struct)
          END DO
-         ALLOCATE (eigrmat(ispin)%matrix)
-         CALL cp_cfm_create(eigrmat(ispin)%matrix, op_fm_set(1, ispin)%matrix%matrix_struct)
+         CALL cp_cfm_create(eigrmat(ispin), op_fm_set(1, ispin)%matrix_struct)
          CALL cp_fm_struct_release(tmp_fm_struct)
       END DO
 
@@ -1488,13 +1965,13 @@ CONTAINS
                END IF
                zdet = CMPLX(1._dp, 0._dp, dp)
                DO ispin = 1, dft_control%nspins
-                  CALL cp_cfm_get_info(eigrmat(ispin)%matrix, ncol_local=tmp_dim)
+                  CALL cp_cfm_get_info(eigrmat(ispin), ncol_local=tmp_dim)
                   DO idim = 1, tmp_dim
-                     eigrmat(ispin)%matrix%local_data(:, idim) = &
-                        CMPLX(op_fm_set(1, ispin)%matrix%local_data(:, idim), &
-                              -op_fm_set(2, ispin)%matrix%local_data(:, idim), dp)
+                     eigrmat(ispin)%local_data(:, idim) = &
+                        CMPLX(op_fm_set(1, ispin)%local_data(:, idim), &
+                              -op_fm_set(2, ispin)%local_data(:, idim), dp)
                   END DO
-                  CALL cp_cfm_lu_decompose(eigrmat(ispin)%matrix, zdeta)
+                  CALL cp_cfm_lu_decompose(eigrmat(ispin), zdeta)
                   zdet = zdet*zdeta
                   IF (dft_control%nspins == 1) THEN
                      zdet = zdet*zdeta
@@ -1519,13 +1996,13 @@ CONTAINS
                   END IF
                   zdet = CMPLX(1._dp, 0._dp, dp)
                   DO ispin = 1, dft_control%nspins
-                     CALL cp_cfm_get_info(eigrmat(ispin)%matrix, ncol_local=tmp_dim)
+                     CALL cp_cfm_get_info(eigrmat(ispin), ncol_local=tmp_dim)
                      DO idim = 1, tmp_dim
-                        eigrmat(ispin)%matrix%local_data(:, idim) = &
-                           CMPLX(op_fm_set(1, ispin)%matrix%local_data(:, idim), &
-                                 -op_fm_set(2, ispin)%matrix%local_data(:, idim), dp)
+                        eigrmat(ispin)%local_data(:, idim) = &
+                           CMPLX(op_fm_set(1, ispin)%local_data(:, idim), &
+                                 -op_fm_set(2, ispin)%local_data(:, idim), dp)
                      END DO
-                     CALL cp_cfm_lu_decompose(eigrmat(ispin)%matrix, zdeta)
+                     CALL cp_cfm_lu_decompose(eigrmat(ispin), zdeta)
                      zdet = zdet*zdeta
                      IF (dft_control%nspins == 1) THEN
                         zdet = zdet*zdeta
@@ -1610,13 +2087,10 @@ CONTAINS
       CALL dbcsr_deallocate_matrix(sinmat)
 
       DO ispin = 1, dft_control%nspins
-         CALL cp_fm_release(opvec(ispin)%matrix)
-         DEALLOCATE (opvec(ispin)%matrix)
-         CALL cp_cfm_release(eigrmat(ispin)%matrix)
-         DEALLOCATE (eigrmat(ispin)%matrix)
+         CALL cp_fm_release(opvec(ispin))
+         CALL cp_cfm_release(eigrmat(ispin))
          DO i = 1, SIZE(op_fm_set, 1)
-            CALL cp_fm_release(op_fm_set(i, ispin)%matrix)
-            DEALLOCATE (op_fm_set(i, ispin)%matrix)
+            CALL cp_fm_release(op_fm_set(i, ispin))
          END DO
       END DO
       DEALLOCATE (op_fm_set)
@@ -1638,21 +2112,21 @@ CONTAINS
    SUBROUTINE op_orbbas(cosmat, sinmat, mos, op_fm_set, opvec)
 
       TYPE(dbcsr_type), POINTER                          :: cosmat, sinmat
-      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: op_fm_set
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: opvec
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(IN)      :: op_fm_set
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: opvec
 
       INTEGER                                            :: i, nao, nmo
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
 
       DO i = 1, SIZE(op_fm_set, 2) ! spin
          CALL get_mo_set(mo_set=mos(i), nao=nao, mo_coeff=mo_coeff, nmo=nmo)
-         CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff, opvec(i)%matrix, ncol=nmo)
-         CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff, opvec(i)%matrix, 0.0_dp, &
-                            op_fm_set(1, i)%matrix)
-         CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff, opvec(i)%matrix, ncol=nmo)
-         CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff, opvec(i)%matrix, 0.0_dp, &
-                            op_fm_set(2, i)%matrix)
+         CALL cp_dbcsr_sm_fm_multiply(cosmat, mo_coeff, opvec(i), ncol=nmo)
+         CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff, opvec(i), 0.0_dp, &
+                            op_fm_set(1, i))
+         CALL cp_dbcsr_sm_fm_multiply(sinmat, mo_coeff, opvec(i), ncol=nmo)
+         CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, mo_coeff, opvec(i), 0.0_dp, &
+                            op_fm_set(2, i))
       END DO
 
    END SUBROUTINE op_orbbas
@@ -1668,9 +2142,9 @@ CONTAINS
    SUBROUTINE op_orbbas_rtp(cosmat, sinmat, mos, op_fm_set, mos_new)
 
       TYPE(dbcsr_type), POINTER                          :: cosmat, sinmat
-      TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: op_fm_set
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new
+      TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(IN)      :: op_fm_set
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: mos_new
 
       INTEGER                                            :: i, icol, lcol, nao, newdim, nmo
       LOGICAL                                            :: double_col, double_row
@@ -1680,12 +2154,12 @@ CONTAINS
 
       DO i = 1, SIZE(op_fm_set, 2) ! spin
          CALL get_mo_set(mo_set=mos(i), nao=nao, mo_coeff=mo_coeff, nmo=nmo)
-         CALL cp_fm_get_info(mos_new(2*i)%matrix, ncol_local=lcol, ncol_global=nmo)
+         CALL cp_fm_get_info(mos_new(2*i), ncol_local=lcol, ncol_global=nmo)
          double_col = .TRUE.
          double_row = .FALSE.
          CALL cp_fm_struct_double(newstruct, &
-                                  mos_new(2*i)%matrix%matrix_struct, &
-                                  mos_new(2*i)%matrix%matrix_struct%context, &
+                                  mos_new(2*i)%matrix_struct, &
+                                  mos_new(2*i)%matrix_struct%context, &
                                   double_col, &
                                   double_row)
 
@@ -1696,8 +2170,8 @@ CONTAINS
 
          CALL cp_fm_set_all(work, 0.0_dp, 0.0_dp)
          DO icol = 1, lcol
-            work%local_data(:, icol) = mos_new(2*i - 1)%matrix%local_data(:, icol)
-            work%local_data(:, icol + lcol) = mos_new(2*i)%matrix%local_data(:, icol)
+            work%local_data(:, icol) = mos_new(2*i - 1)%local_data(:, icol)
+            work%local_data(:, icol + lcol) = mos_new(2*i)%local_data(:, icol)
          END DO
 
          CALL cp_dbcsr_sm_fm_multiply(cosmat, work, work1, ncol=newdim)
@@ -1712,29 +2186,29 @@ CONTAINS
          CALL cp_fm_release(work2)
 
          CALL cp_fm_struct_double(newstruct1, &
-                                  op_fm_set(1, i)%matrix%matrix_struct, &
-                                  op_fm_set(1, i)%matrix%matrix_struct%context, &
+                                  op_fm_set(1, i)%matrix_struct, &
+                                  op_fm_set(1, i)%matrix_struct%context, &
                                   double_col, &
                                   double_row)
 
          CALL cp_fm_create(work1, matrix_struct=newstruct1)
 
-         CALL parallel_gemm("T", "N", nmo, newdim, nao, 1.0_dp, mos_new(2*i - 1)%matrix, &
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, 1.0_dp, mos_new(2*i - 1), &
                             work, 0.0_dp, work1)
 
          DO icol = 1, lcol
-            op_fm_set(1, i)%matrix%local_data(:, icol) = work1%local_data(:, icol)
-            op_fm_set(2, i)%matrix%local_data(:, icol) = work1%local_data(:, icol + lcol)
+            op_fm_set(1, i)%local_data(:, icol) = work1%local_data(:, icol)
+            op_fm_set(2, i)%local_data(:, icol) = work1%local_data(:, icol + lcol)
          END DO
 
-         CALL parallel_gemm("T", "N", nmo, newdim, nao, 1.0_dp, mos_new(2*i)%matrix, &
+         CALL parallel_gemm("T", "N", nmo, newdim, nao, 1.0_dp, mos_new(2*i), &
                             work, 0.0_dp, work1)
 
          DO icol = 1, lcol
-            op_fm_set(1, i)%matrix%local_data(:, icol) = &
-               op_fm_set(1, i)%matrix%local_data(:, icol) + work1%local_data(:, icol + lcol)
-            op_fm_set(2, i)%matrix%local_data(:, icol) = &
-               op_fm_set(2, i)%matrix%local_data(:, icol) - work1%local_data(:, icol)
+            op_fm_set(1, i)%local_data(:, icol) = &
+               op_fm_set(1, i)%local_data(:, icol) + work1%local_data(:, icol + lcol)
+            op_fm_set(2, i)%local_data(:, icol) = &
+               op_fm_set(2, i)%local_data(:, icol) - work1%local_data(:, icol)
          END DO
 
          CALL cp_fm_release(work)
@@ -1847,8 +2321,8 @@ CONTAINS
          ALLOCATE (moments(i)%matrix)
          IF (my_velreprs .AND. (nmom >= 2)) THEN
             CALL dbcsr_create(moments(i)%matrix, template=matrix_s(1)%matrix, &
-                              matrix_type=dbcsr_type_no_symmetry)
-            CALL cp_dbcsr_alloc_block_from_nbl(moments(i)%matrix, sab_all)
+                              matrix_type=dbcsr_type_symmetric)
+            CALL cp_dbcsr_alloc_block_from_nbl(moments(i)%matrix, sab_orb)
          ELSE
             CALL dbcsr_copy(moments(i)%matrix, matrix_s(1)%matrix, "Moments")
          END IF
@@ -1863,12 +2337,12 @@ CONTAINS
             DO idir = 1, 3 ! d/dx, d/dy, d/dz
                CALL dbcsr_init_p(moments_der(i, idir)%matrix)
                CALL dbcsr_create(moments_der(i, idir)%matrix, template=matrix_s(1)%matrix, &
-                                 matrix_type=dbcsr_type_no_symmetry)
-               CALL cp_dbcsr_alloc_block_from_nbl(moments_der(i, idir)%matrix, sab_all)
+                                 matrix_type=dbcsr_type_antisymmetric)
+               CALL cp_dbcsr_alloc_block_from_nbl(moments_der(i, idir)%matrix, sab_orb)
                CALL dbcsr_set(moments_der(i, idir)%matrix, 0.0_dp)
             END DO
          END DO
-         CALL build_local_moments_der_matrix(qs_env, moments, moments_der, 2, 1, rcc)
+         CALL build_local_moments_der_matrix(qs_env, moments_der, 1, 2, ref_point=rcc, moments=moments)
       ELSE
          CALL build_local_moment_matrix(qs_env, moments, nmom, ref_point=rcc)
       END IF
@@ -1939,7 +2413,7 @@ CONTAINS
             END DO
          END DO
       END DO
-      CALL mp_sum(rmom(:, 2), para_env%group)
+      CALL para_env%group%sum(rmom(:, 2))
       rmom(:, :) = -rmom(:, :)
       rmom(:, 3) = rmom(:, 1) + rmom(:, 2)
 

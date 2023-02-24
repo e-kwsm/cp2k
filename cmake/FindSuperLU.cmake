@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -28,11 +28,11 @@ endif()
 find_package_handle_standard_args(SuperLU DEFAULT_MSG CP2K_SUPERLU_INCLUDE_DIRS
                                   CP2K_SUPERLU_LINK_LIBRARIES)
 
-if(CP2K_SUPERLU_FOUND AND NOT TARGET CP2K_superlu::superlu)
-  add_library(CP2K_superlu::superlu INTERFACE IMPORTED)
+if(CP2K_SUPERLU_FOUND AND NOT TARGET CP2K::superlu::superlu)
+  add_library(CP2K::superlu::superlu INTERFACE IMPORTED)
 endif()
 set_target_properties(
-  CP2K_superlu::superlu
+  CP2K::superlu::superlu
   PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${CP2K_SUPERLU_INCLUDE_DIRS}"
              INTERFACE_LINK_LIBRARIES "${CP2K_SUPERLU_LINK_LIBRARIES}")
 mark_as_advanced(CP2K_SUPERLU_LINK_LIBRARIES CP2K_SUPERLU_INCLUDE_DIRS

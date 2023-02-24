@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -43,7 +43,6 @@ MODULE population_analyses
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE machine,                         ONLY: m_flush
-   USE message_passing,                 ONLY: mp_sum
    USE orbital_pointers,                ONLY: nso
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_methods,                ONLY: get_particle_set
@@ -401,7 +400,7 @@ CONTAINS
          END IF
       END DO
 
-      CALL mp_sum(orbpop, para_env%group)
+      CALL para_env%group%sum(orbpop)
 
       ! Write atomic populations and charges
       IF (output_unit > 0) THEN

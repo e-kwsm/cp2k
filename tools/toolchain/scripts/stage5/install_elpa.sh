@@ -7,11 +7,8 @@
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_NAME")/.." && pwd -P)"
 
 # From https://elpa.mpcdf.mpg.de/software/tarball-archive/ELPA_TARBALL_ARCHIVE.html
-elpa_ver="2022.05.001"
-elpa_sha256="207e6f26d6532fb70373afc3ef3d38255213af61def659c25dad3a30e4fca38b"
-patches=(
-  "${SCRIPT_DIR}/stage5/elpa-${elpa_ver}-fix_nvcc_wrap.patch"
-)
+elpa_ver="2022.11.001"
+elpa_sha256="35e397d7c0af95bb43bc7bef7fff29425c1da400fa0cd86ae8d3bd2ff2f9d999"
 
 source "${SCRIPT_DIR}"/common_vars.sh
 source "${SCRIPT_DIR}"/tool_kit.sh
@@ -66,19 +63,9 @@ case "$with_elpa" in
       [ -d elpa-${elpa_ver} ] && rm -rf elpa-${elpa_ver}
       tar -xzf elpa-${elpa_ver}.tar.gz
 
-      # fix wrong dependency order (at least in elpa 2016.05.003)
-      # sed -i "s/build_lib = libelpa@SUFFIX@.la libelpatest@SUFFIX@.la/build_lib = libelpatest@SUFFIX@.la libelpa@SUFFIX@.la/g" elpa-${elpa_ver}/Makefile.in
-      # sed -i "s/build_lib = libelpa@SUFFIX@.la libelpatest@SUFFIX@.la/build_lib = libelpatest@SUFFIX@.la libelpa@SUFFIX@.la/g" elpa-${elpa_ver}/Makefile.am
-
-      # need both flavors ?
-
       # elpa expect FC to be an mpi fortran compiler that is happy
       # with long lines, and that a bunch of libs can be found
       cd elpa-${elpa_ver}
-
-      for patch in "${patches[@]}"; do
-        patch -p1 < "${patch}"
-      done
 
       # ELPA-2017xxxx enables AVX2 by default, switch off if machine doesn't support it.
       AVX_flag=""
@@ -114,6 +101,8 @@ case "$with_elpa" in
           --enable-openmp=${enable_openmp} \
           --enable-shared=no \
           --enable-static=yes \
+          --disable-c-tests \
+          --disable-cpp-tests \
           ${config_flags} \
           --enable-nvidia-gpu=$([ "$TARGET" = "nvidia" ] && echo "yes" || echo "no") \
           --with-cuda-path=${CUDA_PATH:-${CUDA_HOME:-/CUDA_HOME-notset}} \
@@ -187,6 +176,8 @@ prepend_path PATH "$pkg_install_dir/bin"
 prepend_path LD_LIBRARY_PATH "$pkg_install_dir/lib"
 prepend_path LD_RUN_PATH "$pkg_install_dir/lib"
 prepend_path LIBRARY_PATH "$pkg_install_dir/lib"
+prepend_path PKG_CONFIG_PATH "$pkg_install_dir/lib/pkgconfig"
+prepend_path CMAKE_PREFIX_PATH "$pkg_install_dir"
 export ELPA_ROOT="$pkg_install_dir"
 EOF
   fi
@@ -199,15 +190,10 @@ export CP_DFLAGS="\${CP_DFLAGS} IF_MPI(-D__ELPA IF_CUDA(-D__ELPA_NVIDIA_GPU|)|)"
 export CP_CFLAGS="\${CP_CFLAGS} IF_MPI(${ELPA_CFLAGS}|)"
 export CP_LDFLAGS="\${CP_LDFLAGS} IF_MPI(${ELPA_LDFLAGS}|)"
 export CP_LIBS="IF_MPI(${ELPA_LIBS}|) \${CP_LIBS}"
-prepend_path PKG_CONFIG_PATH "$pkg_install_dir/lib/pkgconfig"
 export ELPA_ROOT="$pkg_install_dir"
 export ELPA_VERSION="${elpa_ver}"
 EOF
 
-  cat << EOF >> ${INSTALLDIR}/lsan.supp
-# leaks related to ELPA
-leak:cublasXtDeviceSelect
-EOF
 fi
 
 load "${BUILDDIR}/setup_elpa"

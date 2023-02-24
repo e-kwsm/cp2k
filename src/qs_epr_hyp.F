@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -27,8 +27,7 @@ MODULE qs_epr_hyp
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: fourpi
-   USE message_passing,                 ONLY: mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_types,                  ONLY: particle_type
    USE periodic_table,                  ONLY: ptable
    USE physcon,                         ONLY: a_bohr,&
@@ -82,10 +81,10 @@ CONTAINS
       TYPE(qs_environment_type), POINTER                 :: qs_env
 
       CHARACTER(LEN=2)                                   :: element_symbol
-      INTEGER                                            :: bo(2), group, ia, iat, iatom, idir1, &
-                                                            idir2, ig, ikind, ir, iso, jatom, &
-                                                            mepos, natom, natomkind, nkind, &
-                                                            num_pe, output_unit, z
+      INTEGER                                            :: bo(2), ia, iat, iatom, idir1, idir2, ig, &
+                                                            ikind, ir, iso, jatom, mepos, natom, &
+                                                            natomkind, nkind, num_pe, output_unit, &
+                                                            z
       INTEGER, DIMENSION(:), POINTER                     :: atom_list
       LOGICAL                                            :: lsd, paw_atom
       REAL(dp)                                           :: arg, esum, hard_radius, hypanisotemp, &
@@ -100,6 +99,7 @@ CONTAINS
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(grid_atom_type), POINTER                      :: grid_atom
       TYPE(harmonics_atom_type), POINTER                 :: harmonics
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_grid_type), POINTER                        :: pw_grid
@@ -351,10 +351,10 @@ CONTAINS
       END DO
 
       ! Global sum
-      CALL mp_sync(group)
-      CALL mp_sum(hypaniso, group)
-      CALL mp_sum(hypiso, group)
-      CALL mp_sum(hypiso_one, group)
+      CALL group%sync()
+      CALL group%sum(hypaniso)
+      CALL group%sum(hypiso)
+      CALL group%sum(hypiso_one)
 
       ! Print hyperfine matrices
       IF (output_unit > 0) THEN

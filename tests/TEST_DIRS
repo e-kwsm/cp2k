@@ -35,11 +35,11 @@ QS/regtest-mp2-admm-grad                                    libint
 QS/regtest-double-hybrid-stress                             
 QS/regtest-double-hybrid-grad                               
 QS/regtest-hfx-ri-2                                         libint libxc
-QS/regtest-rma                                              libint mpi3
+QS/regtest-rma                                              libint
 QS/regtest-gapw_xc                                          libint
 LIBTEST/libvori                                             libvori
 LIBTEST/libbqb                                              libbqb
-QS/regtest-rma-3D                                           libint mpi3
+QS/regtest-rma-3D                                           libint
 TMC/regtest_ana_on_the_fly                                  parallel mpiranks>2
 TMC/regtest                                                 parallel mpiranks>1
 TMC/regtest_ana_post_proc                                   parallel mpiranks>1
@@ -259,6 +259,7 @@ Fist/regtest-8
 QS/regtest-cdft-4-1
 QMMM/SE/regtest_2
 QS/regtest-mp2-1                                            libint
+QS/regtest-LnPP2
 QMMM/DFTB/regtest
 Fist/regtest-10
 QS/regtest-sccs-2
@@ -288,6 +289,7 @@ QS/regtest-as                                               libint
 QS/regtest-as-dft                                           libint
 QS/regtest-tddfpt-prop
 QS/regtest-sym-3
+QS/regtest-gapw-ext
 FARMING/regtest-1
 QS/regtest-cdft-2
 QS/regtest-sym-1
@@ -317,7 +319,7 @@ QS/regtest-pao-3
 DFTB/regtest-debug
 optimize_input/regtest-1
 FE/regtest-2
-QS/regtest-lsroks
+QS/regtest-lsroks                                           libint
 NEB/regtest-3
 QS/regtest-linearscaling
 SE/regtest-3-1
@@ -330,5 +332,8 @@ ATOM/regtest-libxc                                          libxc
 Fist/regtest-spgr                                           spglib
 Fist/regtest-plumed2                                        plumed2
 Fist/regtest-quip                                           quip
+Fist/regtest-nequip                                         libtorch
 Fist/regtest-16
 QS/regtest-rtp-4
+QS/regtest-rtp-5
+DFTB/regtest-vdw

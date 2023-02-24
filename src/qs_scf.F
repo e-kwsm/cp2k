@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -95,7 +95,7 @@ MODULE qs_scf
    USE machine,                         ONLY: m_flush,&
                                               m_walltime
    USE mathlib,                         ONLY: invert_matrix
-   USE message_passing,                 ONLY: mp_send
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_types,                  ONLY: particle_type
    USE preconditioner,                  ONLY: prepare_preconditioner,&
                                               restart_preconditioner
@@ -343,8 +343,9 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'scf_env_do_scf'
 
       CHARACTER(LEN=default_string_length)               :: description, name
-      INTEGER :: ext_master_id, external_comm, handle, handle2, i_tmp, ic, ispin, iter_count, &
-         output_unit, scf_energy_message_tag, total_steps
+      INTEGER                                            :: ext_master_id, handle, handle2, i_tmp, &
+                                                            ic, ispin, iter_count, output_unit, &
+                                                            scf_energy_message_tag, total_steps
       LOGICAL :: diis_step, do_kpoints, energy_only, exit_inner_loop, exit_outer_loop, &
          inner_loop_converged, just_energy, outer_loop_converged
       REAL(KIND=dp)                                      :: t1, t2
@@ -358,6 +359,7 @@ CONTAINS
       TYPE(energy_correction_type), POINTER              :: ec_env
       TYPE(kpoint_type), POINTER                         :: kpoints
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos, mos_last_converged
+      TYPE(mp_comm_type)                                 :: external_comm
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(qs_charges_type), POINTER                     :: qs_charges
@@ -438,7 +440,7 @@ CONTAINS
                           " Trying to access result ("//TRIM(description)// &
                           ") which is not correctly stored.")
       END IF
-      external_comm = NINT(res_val_3(1))
+      CALL external_comm%set_handle(NINT(res_val_3(1)))
       ext_master_id = NINT(res_val_3(2))
       scf_energy_message_tag = NINT(res_val_3(3))
 
@@ -507,7 +509,7 @@ CONTAINS
 
             ! check for external communicator and if the intermediate energy should be sent
             IF (scf_energy_message_tag .GT. 0) THEN
-               CALL mp_send(energy%total, ext_master_id, scf_energy_message_tag, external_comm)
+               CALL external_comm%send(energy%total, ext_master_id, scf_energy_message_tag)
             END IF
 
             CALL qs_scf_check_inner_exit(qs_env, scf_env, scf_control, should_stop, exit_inner_loop, &
@@ -885,8 +887,7 @@ CONTAINS
       ! Release SCF work storage
       IF (ASSOCIATED(scf_env%scf_work1)) THEN
          DO ispin = 1, SIZE(scf_env%scf_work1)
-            CALL cp_fm_release(scf_env%scf_work1(ispin)%matrix)
-            DEALLOCATE (scf_env%scf_work1(ispin)%matrix)
+            CALL cp_fm_release(scf_env%scf_work1(ispin))
          END DO
          DEALLOCATE (scf_env%scf_work1)
       END IF
@@ -1109,12 +1110,11 @@ CONTAINS
          NULLIFY (cdft_control%mo_coeff)
          ALLOCATE (cdft_control%mo_coeff(dft_control%nspins))
          DO ispin = 1, dft_control%nspins
-            ALLOCATE (cdft_control%mo_coeff(ispin)%matrix)
-            CALL cp_fm_create(matrix=cdft_control%mo_coeff(ispin)%matrix, &
+            CALL cp_fm_create(matrix=cdft_control%mo_coeff(ispin), &
                               matrix_struct=qs_env%mos(ispin)%mo_coeff%matrix_struct, &
                               name="MO_COEFF_A"//TRIM(ADJUSTL(cp_to_string(ispin)))//"MATRIX")
             CALL cp_fm_to_fm(qs_env%mos(ispin)%mo_coeff, &
-                             cdft_control%mo_coeff(ispin)%matrix)
+                             cdft_control%mo_coeff(ispin))
          END DO
          ! Density matrix
          IF (cdft_control%calculate_metric) THEN

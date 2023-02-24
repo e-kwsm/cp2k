@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -243,8 +243,8 @@ CONTAINS
 
 ! **************************************************************************************************
 !> \brief subroutine for general complex matrix exponentials
-!>        on input a separate cp_fm_type for real and complex part
-!>        on output a size 2 cp_fm_p_type, first element is the real part of
+!>        on input a separate dbcsr_type for real and complex part
+!>        on output a size 2 dbcsr_p_type, first element is the real part of
 !>        the exponential second the imaginary
 !> \param exp_H ...
 !> \param re_part ...

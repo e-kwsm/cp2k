@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -24,7 +24,6 @@ MODULE manybody_eam
                                               fist_nonbond_env_type,&
                                               pos_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE pair_potential_types,            ONLY: ea_type,&
                                               eam_pot_type,&
                                               pair_potential_pp_type
@@ -148,7 +147,7 @@ CONTAINS
                END DO
             END DO Kind_Group_Loop
          END DO
-         CALL mp_sum(rho, para_env%group)
+         CALL para_env%group%sum(rho)
          DO iparticle = 1, nparticle
             eam_data(iparticle)%rho = rho(iparticle)
          END DO

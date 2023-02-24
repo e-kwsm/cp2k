@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -49,7 +49,6 @@ MODULE mp2_eri
                                   section_vals_val_get
    USE kinds, ONLY: dp
    USE libint_2c_3c, ONLY: libint_potential_type
-   USE message_passing, ONLY: mp_sum
    USE orbital_pointers, ONLY: coset, &
                                init_orbital_pointers, &
                                ncoset
@@ -186,9 +185,6 @@ CONTAINS
       CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set, qs_kind_set=qs_kind_set, &
                       cell=cell, particle_set=particle_set, natom=natom, nkind=nkind)
 
-      ALLOCATE (atom_of_kind(natom))
-      ALLOCATE (kind_of(natom))
-      ALLOCATE (natom_of_kind(nkind))
       CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of, natom_of_kind=natom_of_kind, atom_of_kind=atom_of_kind)
 
       IF (PRESENT(force_a)) CALL mp2_eri_allocate_forces(force_a, natom_of_kind)
@@ -319,9 +315,9 @@ CONTAINS
 
       END IF
 
-      CALL mp_sum(hab, para_env%group)
-      IF (PRESENT(hdab)) CALL mp_sum(hdab, para_env%group)
-      IF (PRESENT(hadb)) CALL mp_sum(hadb, para_env%group)
+      CALL para_env%group%sum(hab)
+      IF (PRESENT(hdab)) CALL para_env%group%sum(hdab)
+      IF (PRESENT(hadb)) CALL para_env%group%sum(hadb)
 
       CALL timestop(handle)
    END SUBROUTINE mp2_eri_2c_integrate
@@ -710,9 +706,6 @@ CONTAINS
                       cell=cell, &
                       nkind=nkind)
 
-      ALLOCATE (atom_of_kind(natom))
-      ALLOCATE (kind_of(natom))
-      ALLOCATE (natom_of_kind(nkind))
       CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind, kind_of=kind_of, natom_of_kind=natom_of_kind)
 
       IF (PRESENT(force_a)) CALL mp2_eri_allocate_forces(force_a, natom_of_kind)
@@ -1428,8 +1421,6 @@ CONTAINS
 
       CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set, qs_kind_set=qs_kind_set, &
                       particle_set=particle_set, natom=natom, nkind=nkind)
-
-      ALLOCATE (kind_of(natom))
 
       CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of)
 

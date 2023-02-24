@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -31,7 +31,7 @@ endif()
 find_file(
   CP2K_LIBINT2_MOD_FILE
   NAMES "libint_f.mod"
-  PATHS "${CP2K_LIBINT2_PREFIX}/include;${CP2K_LIBINT2_PREFIX}/include/libint2")
+  PATHS "${CP2K_LIBINT2_ROOT}/include" "${CP2K_LIBINT2_ROOT}/include/libint2")
 
 if(NOT CP2K_LIBINT2_MOD_FILE)
   message(FATAL_ERROR "Libint2 : Fortran support is missing")
@@ -41,15 +41,20 @@ find_package_handle_standard_args(
   Libint2 CP2K_LIBINT2_FOUND CP2K_LIBINT2_INCLUDE_DIRS
   CP2K_LIBINT2_LINK_LIBRARIES)
 
-if(CP2K_LIBINT2_FOUND AND NOT TARGET CP2K_Libint2::int2)
-  add_library(CP2K_Libint2::int2 INTERFACE IMPORTED)
+if(CP2K_LIBINT2_FOUND)
+  if(NOT TARGET CP2K::Libint2::int2)
+    add_library(CP2K::Libint2::int2 INTERFACE IMPORTED)
+  endif()
+
+  if(CP2K_LIBINT2_INCLUDE_DIRS)
+    set_target_properties(
+      CP2K::Libint2::int2 PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
+                                     "${CP2K_LIBINT2_INCLUDE_DIRS}")
+  endif()
+
   set_target_properties(
-    CP2K_Libint2::int2
-    PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
-               "${CP2K_LIBINT2_INCLUDE_DIRS};${CP2K_LIBINT2_PREFIX}/include")
-  set_target_properties(
-    CP2K_Libint2::int2 PROPERTIES INTERFACE_LINK_LIBRARIES
-                                  ${CP2K_LIBINT2_LINK_LIBRARIES})
+    CP2K::Libint2::int2 PROPERTIES INTERFACE_LINK_LIBRARIES
+                                   ${CP2K_LIBINT2_LINK_LIBRARIES})
 endif()
 
 mark_as_advanced(CP2K_LIBINT2_FOUND CP2K_LIBINT2_LINK_LIBRARIES

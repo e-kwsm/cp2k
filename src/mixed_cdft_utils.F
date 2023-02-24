@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -31,7 +31,6 @@ MODULE mixed_cdft_utils
    USE cp_fm_types,                     ONLY: cp_fm_copy_general,&
                                               cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
@@ -78,10 +77,7 @@ MODULE mixed_cdft_utils
                                               section_vals_val_get
    USE kinds,                           ONLY: default_path_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_irecv,&
-                                              mp_isend,&
-                                              mp_sum,&
-                                              mp_wait,&
+   USE message_passing,                 ONLY: mp_request_type,&
                                               mp_waitall
    USE mixed_cdft_types,                ONLY: mixed_cdft_result_type_release,&
                                               mixed_cdft_result_type_set,&
@@ -321,13 +317,13 @@ CONTAINS
          END IF
       END DO
       ! Make sure the grids are consistent
-      CALL mp_sum(settings%grid_span, force_env%para_env%group)
-      CALL mp_sum(settings%npts, force_env%para_env%group)
-      CALL mp_sum(settings%cutoff, force_env%para_env%group)
-      CALL mp_sum(settings%rel_cutoff, force_env%para_env%group)
-      CALL mp_sum(settings%spherical, force_env%para_env%group)
-      CALL mp_sum(settings%rs_dims, force_env%para_env%group)
-      CALL mp_sum(settings%odd, force_env%para_env%group)
+      CALL force_env%para_env%group%sum(settings%grid_span)
+      CALL force_env%para_env%group%sum(settings%npts)
+      CALL force_env%para_env%group%sum(settings%cutoff)
+      CALL force_env%para_env%group%sum(settings%rel_cutoff)
+      CALL force_env%para_env%group%sum(settings%spherical)
+      CALL force_env%para_env%group%sum(settings%rs_dims)
+      CALL force_env%para_env%group%sum(settings%odd)
       is_match = .TRUE.
       DO iforce_eval = 2, nforce_eval
          is_match = is_match .AND. (settings%grid_span(1) == settings%grid_span(iforce_eval))
@@ -345,9 +341,9 @@ CONTAINS
       IF (settings%spherical(1) == 1) settings%is_spherical = .TRUE.
       IF (settings%odd(1) == 1) settings%is_odd = .TRUE.
       ! Make sure CDFT settings are consistent
-      CALL mp_sum(settings%atoms, force_env%para_env%group)
+      CALL force_env%para_env%group%sum(settings%atoms)
       IF (mixed_cdft%run_type == mixed_cdft_parallel) &
-         CALL mp_sum(settings%coeffs, force_env%para_env%group)
+         CALL force_env%para_env%group%sum(settings%coeffs)
       settings%ncdft = 0
       DO i = 1, SIZE(settings%atoms, 1)
          DO iforce_eval = 2, nforce_eval
@@ -364,12 +360,12 @@ CONTAINS
                        "Parallel mode mixed CDFT requires identical constraint definitions in both CDFT states. "// &
                        "Switch to serial mode or disable keyword PARALLEL_BUILD if you "// &
                        "want to use nonidentical constraint definitions.")
-      CALL mp_sum(settings%si, force_env%para_env%group)
-      CALL mp_sum(settings%sr, force_env%para_env%group)
+      CALL force_env%para_env%group%sum(settings%si)
+      CALL force_env%para_env%group%sum(settings%sr)
       DO i = 1, SIZE(settings%sb, 1)
-         CALL mp_sum(settings%sb(i, 1), force_env%para_env%group)
+         CALL force_env%para_env%group%sum(settings%sb(i, 1))
          DO iforce_eval = 2, nforce_eval
-            CALL mp_sum(settings%sb(i, iforce_eval), force_env%para_env%group)
+            CALL force_env%para_env%group%sum(settings%sb(i, iforce_eval))
             IF (settings%sb(i, 1) .NEQV. settings%sb(i, iforce_eval)) is_match = .FALSE.
          END DO
       END DO
@@ -413,7 +409,7 @@ CONTAINS
             END IF
          END DO
          ! Sum up array sizes and check consistency
-         CALL mp_sum(array_sizes, force_env%para_env%group)
+         CALL force_env%para_env%group%sum(array_sizes)
          IF (ANY(array_sizes(:, :, 1) /= array_sizes(1, 1, 1)) .OR. &
              ANY(array_sizes(:, :, 2) /= array_sizes(1, 1, 2))) &
             mixed_cdft%identical_constraints = .FALSE.
@@ -454,9 +450,9 @@ CONTAINS
             ! Sum up constraint definitions and check consistency
             DO i = 1, settings%si(4, 1)
                DO iforce_eval = 1, nforce_eval
-                  CALL mp_sum(atoms(iforce_eval, i)%array, force_env%para_env%group)
-                  CALL mp_sum(coeff(iforce_eval, i)%array, force_env%para_env%group)
-                  CALL mp_sum(constraint_type(iforce_eval, i), force_env%para_env%group)
+                  CALL force_env%para_env%group%sum(atoms(iforce_eval, i)%array)
+                  CALL force_env%para_env%group%sum(coeff(iforce_eval, i)%array)
+                  CALL force_env%para_env%group%sum(constraint_type(iforce_eval, i))
                END DO
                DO iforce_eval = 2, nforce_eval
                   DO iatom = 1, SIZE(atoms(1, i)%array)
@@ -594,7 +590,7 @@ CONTAINS
          cdft_control%becke_control%eps_cavity = settings%sr(3, 1)
          nkinds = 0
          IF (cdft_control%becke_control%cutoff_type == becke_cutoff_element) THEN
-            CALL mp_sum(settings%cutoffs, force_env%para_env%group)
+            CALL force_env%para_env%group%sum(settings%cutoffs)
             DO i = 1, SIZE(settings%cutoffs, 1)
                IF (settings%cutoffs(i, 1) /= settings%cutoffs(i, 2)) is_match = .FALSE.
                IF (settings%cutoffs(i, 1) /= 0.0_dp) nkinds = nkinds + 1
@@ -608,7 +604,7 @@ CONTAINS
          END IF
          nkinds = 0
          IF (cdft_control%becke_control%adjust) THEN
-            CALL mp_sum(settings%radii, force_env%para_env%group)
+            CALL force_env%para_env%group%sum(settings%radii)
             DO i = 1, SIZE(settings%radii, 1)
                IF (settings%radii(i, 1) /= settings%radii(i, 2)) is_match = .FALSE.
                IF (settings%radii(i, 1) /= 0.0_dp) nkinds = nkinds + 1
@@ -643,7 +639,7 @@ CONTAINS
       CHARACTER(len=default_path_length)                 :: c_val, input_file_path, output_file_path
       INTEGER                                            :: i, imap, iounit, j, lp, n_force_eval, &
                                                             ncpu, nforce_eval, ntargets, offset, &
-                                                            req(3), unit_nr
+                                                            unit_nr
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: bounds
       INTEGER, DIMENSION(2, 3)                           :: bo, bo_mixed
       INTEGER, DIMENSION(3)                              :: higher_grid_layout
@@ -656,6 +652,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_subsys_type), POINTER                      :: subsys_mix
       TYPE(global_environment_type), POINTER             :: globenv
+      TYPE(mp_request_type), DIMENSION(3)                :: req
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
@@ -840,15 +837,15 @@ CONTAINS
                sendbuffer = (/bo_mixed(1, 1), bo_mixed(2, 1)/)
             END IF
             ! Communicate bounds in steps
-            CALL mp_isend(msgin=sendbuffer, dest=mixed_cdft%dest_list(1), &
-                          request=req(1), comm=force_env%para_env%group)
-            CALL mp_irecv(msgout=recvbuffer, source=mixed_cdft%source_list(1), &
-                          request=req(2), comm=force_env%para_env%group)
-            CALL mp_irecv(msgout=recvbuffer2, source=mixed_cdft%source_list(2), &
-                          request=req(3), comm=force_env%para_env%group)
-            CALL mp_wait(req(1))
-            CALL mp_isend(msgin=sendbuffer, dest=mixed_cdft%dest_list(2), &
-                          request=req(1), comm=force_env%para_env%group)
+            CALL force_env%para_env%group%isend(msgin=sendbuffer, dest=mixed_cdft%dest_list(1), &
+                                                request=req(1))
+            CALL force_env%para_env%group%irecv(msgout=recvbuffer, source=mixed_cdft%source_list(1), &
+                                                request=req(2))
+            CALL force_env%para_env%group%irecv(msgout=recvbuffer2, source=mixed_cdft%source_list(2), &
+                                                request=req(3))
+            CALL req(1)%wait()
+            CALL force_env%para_env%group%isend(msgin=sendbuffer, dest=mixed_cdft%dest_list(2), &
+                                                request=req(1))
             CALL mp_waitall(req)
             mixed_cdft%recv_bo(1:2) = recvbuffer
             mixed_cdft%recv_bo(3:4) = recvbuffer2
@@ -1056,13 +1053,12 @@ CONTAINS
       LOGICAL, ALLOCATABLE, DIMENSION(:)                 :: has_occupation_numbers
       TYPE(cp_1d_r_p_type), ALLOCATABLE, DIMENSION(:, :) :: occno_tmp
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_p_type), DIMENSION(:, :), POINTER       :: matrix_p_tmp, mixed_matrix_p_tmp, &
-                                                            mixed_mo_coeff, mixed_wmat_tmp, &
-                                                            mo_coeff_tmp, wmat_tmp
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_mo, fm_struct_overlap, &
                                                             fm_struct_tmp, fm_struct_wmat
-      TYPE(cp_fm_type)                                   :: fm_dummy, matrix_s_tmp, &
-                                                            mixed_matrix_s_tmp
+      TYPE(cp_fm_type)                                   :: matrix_s_tmp, mixed_matrix_s_tmp
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: matrix_p_tmp, mixed_matrix_p_tmp, &
+                                                            mixed_wmat_tmp, mo_coeff_tmp, wmat_tmp
+      TYPE(cp_fm_type), DIMENSION(:, :), POINTER         :: mixed_mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: density_matrix, w_matrix
       TYPE(dbcsr_type)                                   :: desymm_tmp
       TYPE(dbcsr_type), POINTER                          :: mixed_matrix_s
@@ -1074,9 +1070,7 @@ CONTAINS
 
       NULLIFY (mixed_env, mixed_cdft, qs_env, dft_control, fm_struct_mo, &
                fm_struct_wmat, fm_struct_overlap, fm_struct_tmp, &
-               mixed_wmat_tmp, &
-               wmat_tmp, mixed_mo_coeff, matrix_p_tmp, mixed_matrix_p_tmp, &
-               mixed_matrix_s, density_matrix, blacs_env, w_matrix, force_env_qs)
+               mixed_mo_coeff, mixed_matrix_s, density_matrix, blacs_env, w_matrix, force_env_qs)
       CPASSERT(ASSOCIATED(force_env))
       mixed_env => force_env%mixed_env
       nforce_eval = SIZE(force_env%sub_force_env)
@@ -1100,9 +1094,9 @@ CONTAINS
          IF (force_env_qs%para_env%ionode) &
             has_occupation_numbers(iforce_eval) = ALLOCATED(dft_control%qs_control%cdft_control%occupations)
       END DO
-      CALL mp_sum(has_occupation_numbers(1), force_env%para_env%group)
+      CALL force_env%para_env%group%sum(has_occupation_numbers(1))
       DO iforce_eval = 2, nforce_eval
-         CALL mp_sum(has_occupation_numbers(iforce_eval), force_env%para_env%group)
+         CALL force_env%para_env%group%sum(has_occupation_numbers(iforce_eval))
          IF (has_occupation_numbers(1) .NEQV. has_occupation_numbers(iforce_eval)) &
             CALL cp_abort(__LOCATION__, &
                           "Mixing of uniform and non-uniform occupations is not allowed.")
@@ -1136,7 +1130,7 @@ CONTAINS
                   END DO
                END IF
             END DO
-            CALL mp_sum(mixed_cdft%constraint_type, force_env%para_env%group)
+            CALL force_env%para_env%group%sum(mixed_cdft%constraint_type)
          END IF
       END IF
       ! Transfer data from sub_force_envs to temporaries
@@ -1159,16 +1153,10 @@ CONTAINS
       END IF
       DO iforce_eval = 1, nforce_eval
          ! Temporary arrays need to be nulled on every process
-         DO ivar = 1, nvar
-            NULLIFY (wmat_tmp(iforce_eval, ivar)%matrix)
-         END DO
          DO ispin = 1, nspins
-            NULLIFY (mo_coeff_tmp(iforce_eval, ispin)%matrix)
             ! Valgrind 3.12/gfortran 4.8.4 oddly complains here (unconditional jump)
             ! if mixed_cdft%calculate_metric = .FALSE. and the need to null the array
             ! is queried with IF (mixed_cdft%calculate_metric) &
-            IF (ASSOCIATED(matrix_p_tmp)) &
-               NULLIFY (matrix_p_tmp(iforce_eval, ispin)%matrix)
             IF (.NOT. uniform_occupation) &
                NULLIFY (occno_tmp(iforce_eval, ispin)%array)
          END DO
@@ -1189,17 +1177,15 @@ CONTAINS
                              nfullrows_total=nrow_wmat, nfullcols_total=ncol_wmat)
          ! MO Coefficients
          DO ispin = 1, nspins
-            CALL cp_fm_get_info(dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix, &
+            CALL cp_fm_get_info(dft_control%qs_control%cdft_control%mo_coeff(ispin), &
                                 ncol_global=ncol_mo(ispin), nrow_global=nrow_mo(ispin))
-            ALLOCATE (mo_coeff_tmp(iforce_eval, ispin)%matrix)
-            CALL cp_fm_create(matrix=mo_coeff_tmp(iforce_eval, ispin)%matrix, &
-                              matrix_struct=dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix%matrix_struct, &
+            CALL cp_fm_create(matrix=mo_coeff_tmp(iforce_eval, ispin), &
+                              matrix_struct=dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix_struct, &
                               name="MO_COEFF_"//TRIM(ADJUSTL(cp_to_string(iforce_eval)))//"_" &
                               //TRIM(ADJUSTL(cp_to_string(ispin)))//"_MATRIX")
-            CALL cp_fm_to_fm(dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix, &
-                             mo_coeff_tmp(iforce_eval, ispin)%matrix)
-            CALL cp_fm_release(dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix)
-            DEALLOCATE (dft_control%qs_control%cdft_control%mo_coeff(ispin)%matrix)
+            CALL cp_fm_to_fm(dft_control%qs_control%cdft_control%mo_coeff(ispin), &
+                             mo_coeff_tmp(iforce_eval, ispin))
+            CALL cp_fm_release(dft_control%qs_control%cdft_control%mo_coeff(ispin))
          END DO
          DEALLOCATE (dft_control%qs_control%cdft_control%mo_coeff)
          ! Matrix representation(s) of the weight function(s) (dbcsr -> fm)
@@ -1207,10 +1193,9 @@ CONTAINS
                                   para_env=force_env%sub_force_env(iforce_eval)%force_env%para_env, &
                                   square_blocks=.TRUE.)
          DO ivar = 1, nvar
-            ALLOCATE (wmat_tmp(iforce_eval, ivar)%matrix)
-            CALL cp_fm_create(wmat_tmp(iforce_eval, ivar)%matrix, fm_struct_tmp, name="w_matrix")
+            CALL cp_fm_create(wmat_tmp(iforce_eval, ivar), fm_struct_tmp, name="w_matrix")
             CALL dbcsr_desymmetrize(dft_control%qs_control%cdft_control%wmat(ivar)%matrix, desymm_tmp)
-            CALL copy_dbcsr_to_fm(desymm_tmp, wmat_tmp(iforce_eval, ivar)%matrix)
+            CALL copy_dbcsr_to_fm(desymm_tmp, wmat_tmp(iforce_eval, ivar))
             CALL dbcsr_release(desymm_tmp)
             CALL dbcsr_release_p(dft_control%qs_control%cdft_control%wmat(ivar)%matrix)
          END DO
@@ -1235,11 +1220,10 @@ CONTAINS
                CALL cp_fm_struct_create(fm_struct_tmp, nrow_global=ncol_overlap, &
                                         ncol_global=ncol_overlap, context=blacs_env, &
                                         para_env=force_env%sub_force_env(iforce_eval)%force_env%para_env)
-               ALLOCATE (matrix_p_tmp(iforce_eval, ispin)%matrix)
-               CALL cp_fm_create(matrix_p_tmp(iforce_eval, ispin)%matrix, fm_struct_tmp, name="dm_matrix")
+               CALL cp_fm_create(matrix_p_tmp(iforce_eval, ispin), fm_struct_tmp, name="dm_matrix")
                CALL cp_fm_struct_release(fm_struct_tmp)
                CALL dbcsr_desymmetrize(dft_control%qs_control%cdft_control%matrix_p(ispin)%matrix, desymm_tmp)
-               CALL copy_dbcsr_to_fm(desymm_tmp, matrix_p_tmp(iforce_eval, ispin)%matrix)
+               CALL copy_dbcsr_to_fm(desymm_tmp, matrix_p_tmp(iforce_eval, ispin))
                CALL dbcsr_release(desymm_tmp)
                CALL dbcsr_release_p(dft_control%qs_control%cdft_control%matrix_p(ispin)%matrix)
             END DO
@@ -1276,83 +1260,48 @@ CONTAINS
             NULLIFY (fm_struct_mo)
             CALL cp_fm_struct_create(fm_struct_mo, nrow_global=nrow_mo(ispin), ncol_global=ncol_mo(ispin), &
                                      context=mixed_cdft%blacs_env, para_env=force_env%para_env)
-            ALLOCATE (mixed_mo_coeff(iforce_eval, ispin)%matrix)
-            CALL cp_fm_create(matrix=mixed_mo_coeff(iforce_eval, ispin)%matrix, &
+            CALL cp_fm_create(matrix=mixed_mo_coeff(iforce_eval, ispin), &
                               matrix_struct=fm_struct_mo, &
                               name="MO_COEFF_"//TRIM(ADJUSTL(cp_to_string(iforce_eval)))//"_" &
                               //TRIM(ADJUSTL(cp_to_string(ispin)))//"_MATRIX")
-            IF (ASSOCIATED(mo_coeff_tmp(iforce_eval, ispin)%matrix)) THEN
-               CALL cp_fm_copy_general(mo_coeff_tmp(iforce_eval, ispin)%matrix, &
-                                       mixed_mo_coeff(iforce_eval, ispin)%matrix, &
-                                       mixed_cdft%blacs_env%para_env)
-            ELSE
-               CALL cp_fm_copy_general(fm_dummy, &
-                                       mixed_mo_coeff(iforce_eval, ispin)%matrix, &
-                                       mixed_cdft%blacs_env%para_env)
-            END IF
-            IF (ASSOCIATED(mo_coeff_tmp(iforce_eval, ispin)%matrix)) THEN
-               CALL cp_fm_release(mo_coeff_tmp(iforce_eval, ispin)%matrix)
-               DEALLOCATE (mo_coeff_tmp(iforce_eval, ispin)%matrix)
-               NULLIFY (mo_coeff_tmp(iforce_eval, ispin)%matrix)
-            END IF
+            CALL cp_fm_copy_general(mo_coeff_tmp(iforce_eval, ispin), &
+                                    mixed_mo_coeff(iforce_eval, ispin), &
+                                    mixed_cdft%blacs_env%para_env)
+            CALL cp_fm_release(mo_coeff_tmp(iforce_eval, ispin))
             CALL cp_fm_struct_release(fm_struct_mo)
          END DO
          ! Weight
          DO ivar = 1, nvar
-            ALLOCATE (mixed_wmat_tmp(iforce_eval, ivar)%matrix)
             NULLIFY (w_matrix(iforce_eval, ivar)%matrix)
             CALL dbcsr_init_p(w_matrix(iforce_eval, ivar)%matrix)
-            CALL cp_fm_create(matrix=mixed_wmat_tmp(iforce_eval, ivar)%matrix, &
+            CALL cp_fm_create(matrix=mixed_wmat_tmp(iforce_eval, ivar), &
                               matrix_struct=fm_struct_wmat, &
                               name="WEIGHT_"//TRIM(ADJUSTL(cp_to_string(iforce_eval)))//"_MATRIX")
-            IF (ASSOCIATED(wmat_tmp(iforce_eval, ivar)%matrix)) THEN
-               CALL cp_fm_copy_general(wmat_tmp(iforce_eval, ivar)%matrix, &
-                                       mixed_wmat_tmp(iforce_eval, ivar)%matrix, &
-                                       mixed_cdft%blacs_env%para_env)
-            ELSE
-               CALL cp_fm_copy_general(fm_dummy, &
-                                       mixed_wmat_tmp(iforce_eval, ivar)%matrix, &
-                                       mixed_cdft%blacs_env%para_env)
-            END IF
-            IF (ASSOCIATED(wmat_tmp(iforce_eval, ivar)%matrix)) THEN
-               CALL cp_fm_release(wmat_tmp(iforce_eval, ivar)%matrix)
-               DEALLOCATE (wmat_tmp(iforce_eval, ivar)%matrix)
-               NULLIFY (wmat_tmp(iforce_eval, ivar)%matrix)
-            END IF
+            CALL cp_fm_copy_general(wmat_tmp(iforce_eval, ivar), &
+                                    mixed_wmat_tmp(iforce_eval, ivar), &
+                                    mixed_cdft%blacs_env%para_env)
+            CALL cp_fm_release(wmat_tmp(iforce_eval, ivar))
             ! (fm -> dbcsr)
-            CALL copy_fm_to_dbcsr_bc(mixed_wmat_tmp(iforce_eval, ivar)%matrix, &
+            CALL copy_fm_to_dbcsr_bc(mixed_wmat_tmp(iforce_eval, ivar), &
                                      w_matrix(iforce_eval, ivar)%matrix)
-            CALL cp_fm_release(mixed_wmat_tmp(iforce_eval, ivar)%matrix)
-            DEALLOCATE (mixed_wmat_tmp(iforce_eval, ivar)%matrix)
+            CALL cp_fm_release(mixed_wmat_tmp(iforce_eval, ivar))
          END DO
          ! Density matrix (fm -> dbcsr)
          IF (mixed_cdft%calculate_metric) THEN
             DO ispin = 1, nspins
-               ALLOCATE (mixed_matrix_p_tmp(iforce_eval, ispin)%matrix)
                NULLIFY (density_matrix(iforce_eval, ispin)%matrix)
                CALL dbcsr_init_p(density_matrix(iforce_eval, ispin)%matrix)
-               CALL cp_fm_create(matrix=mixed_matrix_p_tmp(iforce_eval, ispin)%matrix, &
+               CALL cp_fm_create(matrix=mixed_matrix_p_tmp(iforce_eval, ispin), &
                                  matrix_struct=fm_struct_overlap, &
                                  name="DENSITY_"//TRIM(ADJUSTL(cp_to_string(iforce_eval)))//"_"// &
                                  TRIM(ADJUSTL(cp_to_string(ispin)))//"_MATRIX")
-               IF (ASSOCIATED(matrix_p_tmp(iforce_eval, ispin)%matrix)) THEN
-                  CALL cp_fm_copy_general(matrix_p_tmp(iforce_eval, ispin)%matrix, &
-                                          mixed_matrix_p_tmp(iforce_eval, ispin)%matrix, &
-                                          mixed_cdft%blacs_env%para_env)
-               ELSE
-                  CALL cp_fm_copy_general(fm_dummy, &
-                                          mixed_matrix_p_tmp(iforce_eval, ispin)%matrix, &
-                                          mixed_cdft%blacs_env%para_env)
-               END IF
-               IF (ASSOCIATED(matrix_p_tmp(iforce_eval, ispin)%matrix)) THEN
-                  CALL cp_fm_release(matrix_p_tmp(iforce_eval, ispin)%matrix)
-                  DEALLOCATE (matrix_p_tmp(iforce_eval, ispin)%matrix)
-                  NULLIFY (matrix_p_tmp(iforce_eval, ispin)%matrix)
-               END IF
-               CALL copy_fm_to_dbcsr_bc(mixed_matrix_p_tmp(iforce_eval, ispin)%matrix, &
+               CALL cp_fm_copy_general(matrix_p_tmp(iforce_eval, ispin), &
+                                       mixed_matrix_p_tmp(iforce_eval, ispin), &
+                                       mixed_cdft%blacs_env%para_env)
+               CALL cp_fm_release(matrix_p_tmp(iforce_eval, ispin))
+               CALL copy_fm_to_dbcsr_bc(mixed_matrix_p_tmp(iforce_eval, ispin), &
                                         density_matrix(iforce_eval, ispin)%matrix)
-               CALL cp_fm_release(mixed_matrix_p_tmp(iforce_eval, ispin)%matrix)
-               DEALLOCATE (mixed_matrix_p_tmp(iforce_eval, ispin)%matrix)
+               CALL cp_fm_release(mixed_matrix_p_tmp(iforce_eval, ispin))
             END DO
          END IF
       END DO
@@ -1383,7 +1332,7 @@ CONTAINS
                   mixed_cdft%occupations(iforce_eval, ispin)%array = occno_tmp(iforce_eval, ispin)%array
                   DEALLOCATE (occno_tmp(iforce_eval, ispin)%array)
                END IF
-               CALL mp_sum(mixed_cdft%occupations(iforce_eval, ispin)%array, force_env%para_env%group)
+               CALL force_env%para_env%group%sum(mixed_cdft%occupations(iforce_eval, ispin)%array)
             END DO
          END DO
          DEALLOCATE (occno_tmp)

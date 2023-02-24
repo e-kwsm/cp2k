@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -13,7 +13,9 @@
 MODULE soft_basis_set
 
    USE ao_util,                         ONLY: exp_radius
-   USE basis_set_types,                 ONLY: get_gto_basis_set,&
+   USE basis_set_types,                 ONLY: copy_gto_basis_set,&
+                                              deallocate_gto_basis_set,&
+                                              get_gto_basis_set,&
                                               gto_basis_set_type,&
                                               init_cphi_and_sphi
    USE kinds,                           ONLY: default_string_length,&
@@ -297,8 +299,10 @@ CONTAINS
       END IF
 
       IF (.NOT. paw_atom) THEN
-         DEALLOCATE (soft_basis)
-         soft_basis => orb_basis
+         CALL deallocate_gto_basis_set(soft_basis)
+         CALL copy_gto_basis_set(orb_basis, soft_basis)
+         CALL get_gto_basis_set(gto_basis_set=orb_basis, name=bsname)
+         soft_basis%name = TRIM(bsname)//"_soft"
       END IF
 
    END SUBROUTINE create_soft_basis

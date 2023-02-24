@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -308,7 +308,7 @@ CONTAINS
       INTEGER                                            :: j
       LOGICAL                                            :: extrapolate
 
-      extrapolate = .FALSE.
+      extrapolate = nnp%output_expol
 
       DO j = 1, nnp%n_rad(ind)
          IF (nnp%rad(ind)%y(j) - &

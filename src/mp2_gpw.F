@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -66,8 +66,6 @@ MODULE mp2_gpw
                                               cp_libint_static_init
    USE machine,                         ONLY: default_output_unit,&
                                               m_flush
-   USE message_passing,                 ONLY: mp_max,&
-                                              mp_sendrecv
    USE molecule_kind_types,             ONLY: molecule_kind_type
    USE molecule_types,                  ONLY: molecule_type
    USE mp2_cphf,                        ONLY: solve_z_vector_eq
@@ -164,8 +162,9 @@ CONTAINS
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env_sub, blacs_env_sub_mat_munu
       TYPE(cp_fm_type)                                   :: fm_matrix_PQ
       TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: mo_coeff
-      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: fm_matrix_L_RI_metric, &
-                                                            fm_matrix_Sinv_Vtrunc_Sinv
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: fm_matrix_L_kpoints, fm_matrix_Minv, &
+                                                            fm_matrix_Minv_L_kpoints, &
+                                                            fm_matrix_Minv_Vtrunc_Minv
       TYPE(cp_fm_type), POINTER                          :: mo_coeff_ptr
       TYPE(cp_logger_type), POINTER                      :: logger, logger_sub
       TYPE(cp_para_env_type), POINTER                    :: para_env_sub
@@ -381,8 +380,8 @@ CONTAINS
             CALL mp2_ri_gpw_compute_in( &
                BIb_C, BIb_C_gw, BIb_C_bse_ij, BIb_C_bse_ab, gd_array, gd_B_virtual, dimen_RI, dimen_RI_red, qs_env, &
                para_env, para_env_sub, color_sub, cell, particle_set, &
-               atomic_kind_set, qs_kind_set, mo_coeff, fm_matrix_PQ, fm_matrix_L_RI_metric, fm_matrix_Sinv_Vtrunc_Sinv, &
-               nmo, homo, mat_munu, sab_orb_sub, &
+               atomic_kind_set, qs_kind_set, mo_coeff, fm_matrix_PQ, fm_matrix_L_kpoints, fm_matrix_Minv_L_kpoints, &
+               fm_matrix_Minv, fm_matrix_Minv_Vtrunc_Minv, nmo, homo, mat_munu, sab_orb_sub, &
                mo_coeff_o, mo_coeff_v, mo_coeff_all, mo_coeff_gw, &
                mp2_env%mp2_gpw%eps_filter, unit_nr, &
                mp2_env%mp2_memory, mp2_env%calc_PQ_cond_num, calc_forces, blacs_env_sub, my_do_gw .AND. .NOT. do_im_time, &
@@ -398,7 +397,8 @@ CONTAINS
                                        dimen_RI, dimen_RI_red, qs_env, para_env, para_env_sub, &
                                        color_sub, cell, particle_set, &
                                        atomic_kind_set, qs_kind_set, mo_coeff, fm_matrix_PQ, &
-                                       fm_matrix_L_RI_metric, fm_matrix_Sinv_Vtrunc_Sinv, nmo, homo, &
+                                       fm_matrix_L_kpoints, fm_matrix_Minv_L_kpoints, &
+                                       fm_matrix_Minv, fm_matrix_Minv_Vtrunc_Minv, nmo, homo, &
                                        mat_munu, sab_orb_sub, &
                                        mo_coeff_o, mo_coeff_v, mo_coeff_all, mo_coeff_gw, &
                                        mp2_env%mp2_gpw%eps_filter, unit_nr, &
@@ -537,7 +537,8 @@ CONTAINS
          CALL rpa_ri_compute_en(qs_env, Emp2, mp2_env, BIb_C, BIb_C_gw, BIb_C_bse_ij, BIb_C_bse_ab, &
                                 para_env, para_env_sub, color_sub, &
                                 gd_array, gd_B_virtual, gd_B_all, gd_B_occ_bse, gd_B_virt_bse, &
-                                mo_coeff, fm_matrix_PQ, fm_matrix_L_RI_metric, fm_matrix_Sinv_Vtrunc_Sinv, kpoints, &
+                                mo_coeff, fm_matrix_PQ, fm_matrix_L_kpoints, fm_matrix_Minv_L_kpoints, &
+                                fm_matrix_Minv, fm_matrix_Minv_Vtrunc_Minv, kpoints, &
                                 Eigenval, nmo, homo, dimen_RI, dimen_RI_red, gw_corr_lev_occ, gw_corr_lev_virt, &
                                 unit_nr, my_do_ri_sos_laplace_mp2, my_do_gw, do_im_time, do_bse, matrix_s, &
                                 mat_munu, mat_P_global, &
@@ -549,8 +550,10 @@ CONTAINS
             CALL rse_energy(qs_env, mp2_env, para_env, dft_control, mo_coeff, nmo, homo, Eigenval)
 
          IF (do_im_time) THEN
-            CALL dbcsr_release(mat_P_global%matrix)
-            DEALLOCATE (mat_P_global%matrix)
+            IF (ASSOCIATED(mat_P_global%matrix)) THEN
+               CALL dbcsr_release(mat_P_global%matrix)
+               DEALLOCATE (mat_P_global%matrix)
+            END IF
 
             CALL cp_libint_static_cleanup()
             IF (calc_forces) CALL cp_fm_release(fm_matrix_PQ)
@@ -709,7 +712,7 @@ CONTAINS
       NULLIFY (local_C_internal)
 
       max_row_col_local = MAX(nrow_local, ncol_local)
-      CALL mp_max(max_row_col_local, para_env%group)
+      CALL para_env%group%max(max_row_col_local)
 
       ALLOCATE (local_col_row_info(0:max_row_col_local, 2))
       local_col_row_info = 0
@@ -739,7 +742,7 @@ CONTAINS
       DO proc_shift = 1, para_env%num_pe - 1
          ! first exchange information on the local data
          rec_col_row_info = 0
-         CALL mp_sendrecv(local_col_row_info, proc_send_static, rec_col_row_info, proc_receive_static, para_env%group)
+         CALL para_env%group%sendrecv(local_col_row_info, proc_send_static, rec_col_row_info, proc_receive_static)
          nrow_rec = rec_col_row_info(0, 1)
          ncol_rec = rec_col_row_info(0, 2)
 
@@ -753,7 +756,7 @@ CONTAINS
          rec_C = 0.0_dp
 
          ! then send and receive the real data
-         CALL mp_sendrecv(local_C, proc_send_static, rec_C, proc_receive_static, para_env%group)
+         CALL para_env%group%sendrecv(local_C, proc_send_static, rec_C, proc_receive_static)
 
          ! accumulate the received data on C buffer
          DO iiB = 1, nrow_rec
@@ -893,7 +896,7 @@ CONTAINS
          rec_C = 0.0_dp
 
          ! then send and receive the real data
-         CALL mp_sendrecv(Cread, proc_send, rec_C, proc_receive, para_env_sub%group)
+         CALL para_env_sub%group%sendrecv(Cread, proc_send, rec_C, proc_receive)
 
          ! accumulate data on mo_coeff_to_build the data received from proc_rec
          CALL dbcsr_iterator_start(iter, mo_coeff_to_build)

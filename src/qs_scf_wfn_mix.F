@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -18,7 +18,6 @@ MODULE qs_scf_wfn_mix
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
@@ -67,7 +66,8 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(section_vals_type), POINTER                   :: dft_section
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: unoccupied_orbs
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN), &
+         POINTER                                         :: unoccupied_orbs
       TYPE(qs_scf_env_type), POINTER                     :: scf_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       INTEGER                                            :: output_unit
@@ -141,7 +141,9 @@ CONTAINS
                CALL cp_fm_to_fm(mos(orig_spin_index)%mo_coeff, matrix_x, 1, &
                                 mos(orig_spin_index)%nmo - orig_mo_index + 1, 1)
             ELSE
-               CALL cp_fm_to_fm(unoccupied_orbs(orig_spin_index)%matrix, matrix_x, 1, orig_mo_index, 1)
+               IF (.NOT. ASSOCIATED(unoccupied_orbs)) &
+                  CPABORT("If ORIG_IS_VIRTUAL is set, the array unoccupied_orbs must be associated!")
+               CALL cp_fm_to_fm(unoccupied_orbs(orig_spin_index), matrix_x, 1, orig_mo_index, 1)
             END IF
 
             ! now get a copy of the target

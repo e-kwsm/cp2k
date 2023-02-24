@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -66,8 +66,7 @@ MODULE hfx_types
    USE machine,                         ONLY: m_chdir,&
                                               m_getcwd
    USE mathlib,                         ONLY: erfc_cutoff
-   USE message_passing,                 ONLY: mp_cart_create,&
-                                              mp_environ
+   USE message_passing,                 ONLY: mp_cart_type
    USE orbital_pointers,                ONLY: nco,&
                                               ncoset,&
                                               nso
@@ -586,7 +585,7 @@ CONTAINS
       CHARACTER(LEN=default_path_length)                 :: char_val
       INTEGER :: handle, i, i_thread, iatom, ikind, int_val, irep, jkind, max_set, n_rep_hf, &
          n_threads, natom, natom_a, natom_b, nkind, nseta, nsetb, pbc_shells, storage_id
-      INTEGER, DIMENSION(:), POINTER                     :: atom2kind, kind_of
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom2kind, kind_of
       LOGICAL                                            :: do_ri, logic_val, my_do_exx
       REAL(dp)                                           :: real_val
       TYPE(hfx_type), POINTER                            :: actual_x_data
@@ -895,10 +894,9 @@ CONTAINS
                   END IF
                END IF
                ALLOCATE (actual_x_data%map_atom_to_kind_atom(natom))
-               ALLOCATE (kind_of(natom))
-               ALLOCATE (atom2kind(nkind))
                CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of)
 
+               ALLOCATE (atom2kind(nkind))
                atom2kind = 0
                DO iatom = 1, natom
                   ikind = kind_of(iatom)
@@ -1187,7 +1185,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'hfx_ri_init'
 
       INTEGER                                            :: handle, i_mem, iproc, j_mem, MO_dim, &
-                                                            mp_comm_3d, natom, nkind, nproc
+                                                            natom, nkind, nproc
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: bsizes_AO_store, bsizes_RI_store, dist1, &
                                                             dist2, dist3, dist_AO_1, dist_AO_2, &
                                                             dist_RI
@@ -1197,6 +1195,7 @@ CONTAINS
       TYPE(distribution_3d_type)                         :: dist_3d
       TYPE(gto_basis_set_p_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: basis_set_AO, basis_set_RI
+      TYPE(mp_cart_type)                                 :: mp_comm_3d
 
       CALL timeset(routineN, handle)
 
@@ -1205,7 +1204,7 @@ CONTAINS
 
       natom = SIZE(particle_set)
       nkind = SIZE(qs_kind_set, 1)
-      CALL mp_environ(nproc, iproc, para_env%group)
+      CALL para_env%group%environ(nproc, iproc)
 
       ASSOCIATE (ri_metric => ri_data%ri_metric, hfx_pot => ri_data%hfx_pot)
          IF (ri_metric%potential_type == do_potential_short) THEN
@@ -1232,7 +1231,7 @@ CONTAINS
       ri_data%same_op = same_op
 
       pdims = 0
-      CALL mp_cart_create(para_env%group, 3, pdims, pcoord, mp_comm_3d)
+      CALL mp_comm_3d%create(para_env%group, 3, pdims, pcoord)
 
       ALLOCATE (ri_data%bsizes_RI(natom))
       ALLOCATE (ri_data%bsizes_AO(natom))
@@ -1961,7 +1960,7 @@ CONTAINS
                          "Periodic Hartree Fock calculation requested without use "// &
                          "of a truncated or shortrange potential. This may lead to unphysical total energies. "// &
                          "Use a truncated  potential to avoid possible problems.")
-         ELSE
+         ELSE IF (x_data%potential_parameter%potential_type /= do_potential_id) THEN
             l_min = MIN(plane_distance(1, 0, 0, cell), &
                         plane_distance(0, 1, 0, cell), &
                         plane_distance(0, 0, 1, cell))

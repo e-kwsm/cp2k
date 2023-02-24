@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -27,7 +27,6 @@ MODULE constraint_fxd
    USE force_env_types,                 ONLY: force_env_get,&
                                               force_env_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
    USE molecule_kind_types,             ONLY: fixd_constraint_type,&
                                               get_molecule_kind,&
@@ -231,7 +230,7 @@ CONTAINS
          CALL release_local_fixd_list(lfixd_list)
 
          IF (.NOT. PRESENT(w)) THEN
-            CALL mp_sum(force, force_env%para_env%group)
+            CALL force_env%para_env%group%sum(force)
             DO iparticle = 1, natom
                shell_index = particle_set(iparticle)%shell_index
                IF (shell_index == 0) THEN

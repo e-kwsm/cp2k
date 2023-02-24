@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -437,7 +437,7 @@ CONTAINS
                   CALL cp_blacs_env_write(distribution_2d%blacs_env, unit_nr=unit_nr)
                ELSE
                   WRITE (unit=unit_nr, fmt="('    blacs_env=<blacs_env id=',i6,'>')") &
-                     distribution_2d%blacs_env%group
+                     distribution_2d%blacs_env%group%get_handle()
                END IF
             ELSE
                WRITE (unit=unit_nr, fmt="('    blacs_env=*null*')")

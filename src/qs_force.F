@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -41,7 +41,6 @@ MODULE qs_force
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
    USE lri_environment_types,           ONLY: lri_environment_type
-   USE message_passing,                 ONLY: mp_sum
    USE mp2_cphf,                        ONLY: update_mp2_forces
    USE mulliken,                        ONLY: mulliken_restraint
    USE particle_types,                  ONLY: particle_type
@@ -169,7 +168,6 @@ CONTAINS
       ! get atom mapping
       NULLIFY (atomic_kind_set)
       CALL get_qs_env(qs_env, atomic_kind_set=atomic_kind_set)
-      ALLOCATE (atom_of_kind(natom), kind_of(natom))
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
                                atom_of_kind=atom_of_kind, &
                                kind_of=kind_of)
@@ -182,9 +180,7 @@ CONTAINS
       IF (.NOT. ASSOCIATED(force)) THEN
          !   *** Allocate the force data structure ***
          nkind = SIZE(atomic_kind_set)
-         ALLOCATE (natom_of_kind(nkind))
-         CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
-                                  natom_of_kind=natom_of_kind)
+         CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, natom_of_kind=natom_of_kind)
          CALL allocate_qs_force(force, natom_of_kind)
          DEALLOCATE (natom_of_kind)
          CALL qs_subsys_set(subsys, force=force)
@@ -365,20 +361,20 @@ CONTAINS
       NULLIFY (virial, energy)
       CALL get_qs_env(qs_env=qs_env, virial=virial, energy=energy)
       IF (virial%pv_availability) THEN
-         CALL mp_sum(virial%pv_overlap, para_env%group)
-         CALL mp_sum(virial%pv_ekinetic, para_env%group)
-         CALL mp_sum(virial%pv_ppl, para_env%group)
-         CALL mp_sum(virial%pv_ppnl, para_env%group)
-         CALL mp_sum(virial%pv_ecore_overlap, para_env%group)
-         CALL mp_sum(virial%pv_ehartree, para_env%group)
-         CALL mp_sum(virial%pv_exc, para_env%group)
-         CALL mp_sum(virial%pv_exx, para_env%group)
-         CALL mp_sum(virial%pv_vdw, para_env%group)
-         CALL mp_sum(virial%pv_mp2, para_env%group)
-         CALL mp_sum(virial%pv_nlcc, para_env%group)
-         CALL mp_sum(virial%pv_gapw, para_env%group)
-         CALL mp_sum(virial%pv_lrigpw, para_env%group)
-         CALL mp_sum(virial%pv_virial, para_env%group)
+         CALL para_env%group%sum(virial%pv_overlap)
+         CALL para_env%group%sum(virial%pv_ekinetic)
+         CALL para_env%group%sum(virial%pv_ppl)
+         CALL para_env%group%sum(virial%pv_ppnl)
+         CALL para_env%group%sum(virial%pv_ecore_overlap)
+         CALL para_env%group%sum(virial%pv_ehartree)
+         CALL para_env%group%sum(virial%pv_exc)
+         CALL para_env%group%sum(virial%pv_exx)
+         CALL para_env%group%sum(virial%pv_vdw)
+         CALL para_env%group%sum(virial%pv_mp2)
+         CALL para_env%group%sum(virial%pv_nlcc)
+         CALL para_env%group%sum(virial%pv_gapw)
+         CALL para_env%group%sum(virial%pv_lrigpw)
+         CALL para_env%group%sum(virial%pv_virial)
          CALL symmetrize_virial(virial)
          ! Add the volume terms of the virial
          IF ((.NOT. virial%pv_numer) .AND. &
@@ -487,13 +483,8 @@ CONTAINS
                           "and cannot be printed")
          END IF
 
-         CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
-                                  natom=natom)
-         ALLOCATE (atom_of_kind(natom))
-         ALLOCATE (kind_of(natom))
-         CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
-                                  atom_of_kind=atom_of_kind, &
-                                  kind_of=kind_of)
+         CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, atom_of_kind=atom_of_kind, &
+                                  kind_of=kind_of, natom=natom)
 
          ! Variable precision output of the forces
          CALL section_vals_val_get(print_section, "NDIGITS", &

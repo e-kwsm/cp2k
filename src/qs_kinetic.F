@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -469,7 +469,6 @@ CONTAINS
 !$OMP END PARALLEL
 
       IF (do_forces) THEN
-         ALLOCATE (atom_of_kind(natom), kind_of(natom))
          CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, atom_of_kind=atom_of_kind, &
                                   kind_of=kind_of)
 
@@ -480,7 +479,6 @@ CONTAINS
             force(ikind)%kinetic(:, atom_a) = force(ikind)%kinetic(:, atom_a) + force_thread(:, iatom)
          END DO
 !$OMP END DO
-         DEALLOCATE (atom_of_kind, kind_of)
       END IF
       IF (do_forces .AND. use_virial) THEN
          virial%pv_ekinetic = virial%pv_ekinetic + pv_thread

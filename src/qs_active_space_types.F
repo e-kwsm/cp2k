@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -14,13 +14,14 @@
 MODULE qs_active_space_types
 
    USE cp_dbcsr_operations,             ONLY: dbcsr_deallocate_matrix_set
-   USE cp_fm_types,                     ONLY: cp_fm_p_type,&
-                                              cp_fm_release
+   USE cp_fm_types,                     ONLY: cp_fm_release,&
+                                              cp_fm_type
    USE dbcsr_api,                       ONLY: dbcsr_csr_destroy,&
                                               dbcsr_csr_p_type,&
                                               dbcsr_p_type
    USE kinds,                           ONLY: default_path_length,&
                                               dp
+   USE message_passing,                 ONLY: mp_comm_type
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
                                               mo_set_type
 #include "./base/base_uses.f90"
@@ -91,11 +92,11 @@ MODULE qs_active_space_types
       TYPE(mo_set_type), DIMENSION(:), POINTER  :: mos_active
       TYPE(mo_set_type), DIMENSION(:), POINTER  :: mos_inactive
       TYPE(eri_type)                :: eri
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: p_active
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: ks_sub
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: vxc_sub
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: h_sub
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER   :: fock_sub
+      TYPE(cp_fm_type), DIMENSION(:), POINTER   :: p_active
+      TYPE(cp_fm_type), DIMENSION(:), POINTER   :: ks_sub
+      TYPE(cp_fm_type), DIMENSION(:), POINTER   :: vxc_sub
+      TYPE(cp_fm_type), DIMENSION(:), POINTER   :: h_sub
+      TYPE(cp_fm_type), DIMENSION(:), POINTER   :: fock_sub
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER:: pmat_inactive
    END TYPE active_space_type
 
@@ -179,40 +180,35 @@ CONTAINS
 
          IF (ASSOCIATED(active_space_env%p_active)) THEN
             DO isp = 1, SIZE(active_space_env%p_active)
-               CALL cp_fm_release(active_space_env%p_active(isp)%matrix)
-               DEALLOCATE (active_space_env%p_active(isp)%matrix)
+               CALL cp_fm_release(active_space_env%p_active(isp))
             END DO
             DEALLOCATE (active_space_env%p_active)
          END IF
 
          IF (ASSOCIATED(active_space_env%ks_sub)) THEN
             DO isp = 1, SIZE(active_space_env%ks_sub)
-               CALL cp_fm_release(active_space_env%ks_sub(isp)%matrix)
-               DEALLOCATE (active_space_env%ks_sub(isp)%matrix)
+               CALL cp_fm_release(active_space_env%ks_sub(isp))
             END DO
             DEALLOCATE (active_space_env%ks_sub)
          END IF
 
          IF (ASSOCIATED(active_space_env%vxc_sub)) THEN
             DO isp = 1, SIZE(active_space_env%vxc_sub)
-               CALL cp_fm_release(active_space_env%vxc_sub(isp)%matrix)
-               DEALLOCATE (active_space_env%vxc_sub(isp)%matrix)
+               CALL cp_fm_release(active_space_env%vxc_sub(isp))
             END DO
             DEALLOCATE (active_space_env%vxc_sub)
          END IF
 
          IF (ASSOCIATED(active_space_env%h_sub)) THEN
             DO isp = 1, SIZE(active_space_env%h_sub)
-               CALL cp_fm_release(active_space_env%h_sub(isp)%matrix)
-               DEALLOCATE (active_space_env%h_sub(isp)%matrix)
+               CALL cp_fm_release(active_space_env%h_sub(isp))
             END DO
             DEALLOCATE (active_space_env%h_sub)
          END IF
 
          IF (ASSOCIATED(active_space_env%fock_sub)) THEN
             DO isp = 1, SIZE(active_space_env%fock_sub)
-               CALL cp_fm_release(active_space_env%fock_sub(isp)%matrix)
-               DEALLOCATE (active_space_env%fock_sub(isp)%matrix)
+               CALL cp_fm_release(active_space_env%fock_sub(isp))
             END DO
             DEALLOCATE (active_space_env%fock_sub)
          END IF
@@ -305,14 +301,15 @@ CONTAINS
 !>      04.2016 created [JGH]
 ! **************************************************************************************************
    FUNCTION get_irange_csr(nindex, mp_group) RESULT(irange)
-      USE message_passing, ONLY: mp_environ
-      INTEGER                                            :: nindex, mp_group
+      USE message_passing, ONLY: mp_comm_type
+      INTEGER, INTENT(IN)                                :: nindex
+      TYPE(mp_comm_type), INTENT(IN)                     :: mp_group
       INTEGER, DIMENSION(2)                              :: irange
 
       INTEGER                                            :: numtask, taskid
       REAL(KIND=dp)                                      :: rat
 
-      CALL mp_environ(numtask, taskid, mp_group)
+      CALL mp_group%environ(numtask, taskid)
 
       IF (numtask == 1 .AND. taskid == 0) THEN
          irange(1) = 1
@@ -347,7 +344,6 @@ CONTAINS
 !> \note Calls MPI, must be executed on all ranks.
 ! **************************************************************************************************
    SUBROUTINE eri_type_eri_foreach(this, nspin, active_orbitals, fobj, spin1, spin2)
-      USE message_passing, ONLY: mp_sum, mp_sync
       CLASS(eri_type), INTENT(in)              :: this
       CLASS(eri_type_eri_element_func)         :: fobj
       INTEGER, DIMENSION(:, :), INTENT(IN)     :: active_orbitals
@@ -357,6 +353,7 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:)       :: colind
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:) :: erival
       REAL(KIND=dp)                            :: erint
+      TYPE(mp_comm_type) :: mp_group
 
       IF (.NOT. PRESENT(spin1)) THEN
          spin1 = nspin
@@ -367,7 +364,8 @@ CONTAINS
 
       ASSOCIATE (eri => this%eri(nspin)%csr_mat, norb => this%norb)
          nindex = (norb*(norb + 1))/2
-         irange = get_irange_csr(nindex, eri%mp_group)
+         CALL mp_group%set_handle(eri%mp_group)
+         irange = get_irange_csr(nindex, mp_group)
          ALLOCATE (erival(nindex), colind(nindex))
 
          nmo = SIZE(active_orbitals, 1)
@@ -390,10 +388,10 @@ CONTAINS
                   nindex = 0
                END IF
 
-               CALL mp_sum(nindex, eri%mp_group)
-               CALL mp_sum(colind(1:nindex), eri%mp_group)
-               CALL mp_sum(erival(1:nindex), eri%mp_group)
-               CALL mp_sync(eri%mp_group)
+               CALL mp_group%sum(nindex)
+               CALL mp_group%sum(colind(1:nindex))
+               CALL mp_group%sum(erival(1:nindex))
+               CALL mp_group%sync()
 
                DO i34l = 1, nindex
                   i34 = colind(i34l)

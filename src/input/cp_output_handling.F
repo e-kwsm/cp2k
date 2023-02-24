@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -50,10 +50,9 @@ MODULE cp_output_handling
                                               default_string_length
    USE machine,                         ONLY: m_mov
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_file_close,&
-                                              mp_file_delete,&
+   USE message_passing,                 ONLY: mp_file_delete,&
                                               mp_file_get_amode,&
-                                              mp_file_open
+                                              mp_file_type
    USE string_utilities,                ONLY: compress,&
                                               s2a
 #include "../base/base_uses.f90"
@@ -821,13 +820,14 @@ CONTAINS
       CHARACTER(len=default_string_length)               :: my_file_action, my_file_form, &
                                                             my_file_position, my_file_status, &
                                                             outPath
-      INTEGER                                            :: c_i_level, f_backup_level, i, iounit, &
-                                                            mpi_amode, my_backup_level, my_nbak, &
-                                                            nbak, s_backup_level, unit_nr
+      INTEGER                                            :: c_i_level, f_backup_level, i, mpi_amode, &
+                                                            my_backup_level, my_nbak, nbak, &
+                                                            s_backup_level, unit_nr
       LOGICAL                                            :: do_log, found, my_do_backup, my_local, &
                                                             my_mpi_io, my_on_file, &
                                                             my_should_output, replace
       TYPE(cp_iteration_info_type), POINTER              :: iteration_info
+      TYPE(mp_file_type)                                 :: mp_unit
       TYPE(section_vals_type), POINTER                   :: print_key
 
       my_local = .FALSE.
@@ -967,10 +967,10 @@ CONTAINS
                               file_position=my_file_position, unit_number=res)
             ELSE
                IF (replace) CALL mp_file_delete(filename)
-               CALL mp_file_open(groupid=logger%para_env%group, &
-                                 fh=iounit, filepath=filename, amode_status=mpi_amode)
+               CALL mp_unit%open(groupid=logger%para_env%group, &
+                                 filepath=filename, amode_status=mpi_amode)
                IF (PRESENT(fout)) fout = filename
-               res = iounit
+               res = mp_unit%get_handle()
             END IF
             IF (do_log) THEN
                unit_nr = cp_logger_get_unit_nr(logger, local=my_local)
@@ -1020,6 +1020,7 @@ CONTAINS
       CHARACTER(len=default_string_length)               :: outPath
       LOGICAL                                            :: my_local, my_mpi_io, my_on_file, &
                                                             my_should_output
+      TYPE(mp_file_type)                                 :: mp_unit
       TYPE(section_vals_type), POINTER                   :: print_key
 
       my_local = .FALSE.
@@ -1044,7 +1045,8 @@ CONTAINS
             IF (.NOT. my_mpi_io) THEN
                CALL close_file(unit_nr, "KEEP")
             ELSE
-               CALL mp_file_close(unit_nr)
+               CALL mp_unit%set_handle(unit_nr)
+               CALL mp_unit%close()
             END IF
             unit_nr = -1
          ELSE

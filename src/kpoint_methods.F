@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -28,8 +28,7 @@ MODULE kpoint_methods
    USE cp_fm_struct,                    ONLY: cp_fm_struct_type
    USE cp_fm_types,                     ONLY: &
         copy_info_type, cp_fm_cleanup_copy_general, cp_fm_create, cp_fm_finish_copy_general, &
-        cp_fm_get_info, cp_fm_p_type, cp_fm_release, cp_fm_start_copy_general, cp_fm_to_fm, &
-        cp_fm_type
+        cp_fm_get_info, cp_fm_release, cp_fm_start_copy_general, cp_fm_to_fm, cp_fm_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit
    USE cp_para_env,                     ONLY: cp_cart_create,&
                                               cp_para_env_create,&
@@ -61,10 +60,7 @@ MODULE kpoint_methods
                                               kpoint_type
    USE mathconstants,                   ONLY: twopi
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_cart_create,&
-                                              mp_cart_sub,&
-                                              mp_max,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_cart_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_matrix_pools,                 ONLY: mpools_create,&
@@ -272,9 +268,8 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_env_initialize'
 
-      INTEGER                                            :: comm_cart, comm_inter_kp, comm_kp, &
-                                                            handle, igr, ik, ikk, ngr, niogrp, &
-                                                            nkp, nkp_grp, nkp_loc, npe, unit_nr
+      INTEGER                                            :: handle, igr, ik, ikk, ngr, niogrp, nkp, &
+                                                            nkp_grp, nkp_loc, npe, unit_nr
       INTEGER, DIMENSION(2)                              :: dims, pos
       LOGICAL, DIMENSION(2)                              :: rdim
       TYPE(cp_para_cart_type), POINTER                   :: cart
@@ -282,6 +277,7 @@ CONTAINS
                                                             para_env_inter_kp, para_env_kp
       TYPE(kpoint_env_p_type), DIMENSION(:), POINTER     :: kp_env
       TYPE(kpoint_env_type), POINTER                     :: kp
+      TYPE(mp_cart_type)                                 :: comm_cart, comm_inter_kp, comm_kp
 
       CALL timeset(routineN, handle)
 
@@ -351,24 +347,23 @@ CONTAINS
          END IF
 
          NULLIFY (cart, para_env_full, para_env_kp, para_env_inter_kp)
-         CALL mp_cart_create(comm_old=para_env%group, ndims=2, dims=dims, pos=pos, &
-                             comm_cart=comm_cart)
+         CALL comm_cart%create(comm_old=para_env%group, ndims=2, dims=dims, pos=pos)
 
-         CALL cp_cart_create(cart, comm_cart, ndims=2, owns_group=.TRUE.)
-         CALL cp_para_env_create(para_env_full, comm_cart, owns_group=.FALSE.)
+         CALL cp_cart_create(cart, comm_cart, ndims=2)
+         ALLOCATE (para_env_full)
+         para_env_full = comm_cart
          rdim(2) = .FALSE.
          rdim(1) = .TRUE.
-         CALL mp_cart_sub(comm=comm_cart, rdim=rdim, sub_comm=comm_kp)
-         CALL cp_para_env_create(para_env_kp, comm_kp, owns_group=.TRUE.)
+         CALL comm_kp%from_sub(comm=comm_cart, rdim=rdim)
+         CALL cp_para_env_create(para_env_kp, comm_kp)
          rdim(2) = .TRUE.
          rdim(1) = .FALSE.
-         CALL mp_cart_sub(comm=comm_cart, rdim=rdim, sub_comm=comm_inter_kp)
-         CALL cp_para_env_create(para_env_inter_kp, comm_inter_kp, &
-                                 owns_group=.TRUE.)
+         CALL comm_inter_kp%from_sub(comm=comm_cart, rdim=rdim)
+         CALL cp_para_env_create(para_env_inter_kp, comm_inter_kp)
 
          niogrp = 0
          IF (para_env%ionode) niogrp = 1
-         CALL mp_sum(niogrp, para_env_kp%group)
+         CALL para_env_kp%group%sum(niogrp)
          kpoint%iogrp = (niogrp == 1)
 
          ! parallel groups
@@ -512,8 +507,7 @@ CONTAINS
                IF (ASSOCIATED(kp%pmat)) THEN
                   DO is = 1, SIZE(kp%pmat, 2)
                      DO ic = 1, SIZE(kp%pmat, 1)
-                        CALL cp_fm_release(kp%pmat(ic, is)%matrix)
-                        DEALLOCATE (kp%pmat(ic, is)%matrix)
+                        CALL cp_fm_release(kp%pmat(ic, is))
                      END DO
                   END DO
                   DEALLOCATE (kp%pmat)
@@ -521,16 +515,14 @@ CONTAINS
                ALLOCATE (kp%pmat(nc, nspin))
                DO is = 1, nspin
                   DO ic = 1, nc
-                     ALLOCATE (kp%pmat(ic, is)%matrix)
-                     CALL cp_fm_create(kp%pmat(ic, is)%matrix, matrix_struct)
+                     CALL cp_fm_create(kp%pmat(ic, is), matrix_struct)
                   END DO
                END DO
                ! energy weighted density matrix
                IF (ASSOCIATED(kp%wmat)) THEN
                   DO is = 1, SIZE(kp%wmat, 2)
                      DO ic = 1, SIZE(kp%wmat, 1)
-                        CALL cp_fm_release(kp%wmat(ic, is)%matrix)
-                        DEALLOCATE (kp%wmat(ic, is)%matrix)
+                        CALL cp_fm_release(kp%wmat(ic, is))
                      END DO
                   END DO
                   DEALLOCATE (kp%wmat)
@@ -538,8 +530,7 @@ CONTAINS
                ALLOCATE (kp%wmat(nc, nspin))
                DO is = 1, nspin
                   DO ic = 1, nc
-                     ALLOCATE (kp%wmat(ic, is)%matrix)
-                     CALL cp_fm_create(kp%wmat(ic, is)%matrix, matrix_struct)
+                     CALL cp_fm_create(kp%wmat(ic, is), matrix_struct)
                   END DO
                END DO
             END DO
@@ -651,7 +642,7 @@ CONTAINS
       itm(1) = MAXVAL(ABS(list(1, 1:icount)))
       itm(2) = MAXVAL(ABS(list(2, 1:icount)))
       itm(3) = MAXVAL(ABS(list(3, 1:icount)))
-      CALL mp_max(itm, para_env%group)
+      CALL para_env%group%max(itm)
       it = MAXVAL(itm(1:3))
       IF (ASSOCIATED(kpoint%cell_to_index)) THEN
          DEALLOCATE (kpoint%cell_to_index)
@@ -665,7 +656,7 @@ CONTAINS
          i3 = list(3, ic)
          cti(i1, i2, i3) = ic
       END DO
-      CALL mp_sum(cti, para_env%group)
+      CALL para_env%group%sum(cti)
       ncount = 0
       DO i1 = -itm(1), itm(1)
          DO i2 = -itm(2), itm(2)
@@ -868,7 +859,7 @@ CONTAINS
          END DO
       END DO
       CALL get_kpoint_info(kpoint, para_env_inter_kp=para_env_inter_kp)
-      CALL mp_sum(weig, para_env_inter_kp%group)
+      CALL para_env_inter_kp%group%sum(weig)
 
       CALL get_kpoint_info(kpoint, wkp=wkp)
       IF (smear%do_smear) THEN
@@ -978,9 +969,9 @@ CONTAINS
             END IF
             IF (kpoint%use_real_wfn) THEN
                IF (wtype) THEN
-                  pmat => kp%wmat(1, ispin)%matrix
+                  pmat => kp%wmat(1, ispin)
                ELSE
-                  pmat => kp%pmat(1, ispin)%matrix
+                  pmat => kp%pmat(1, ispin)
                END IF
                CALL get_mo_set(mo_set, occupation_numbers=occupation)
                CALL cp_fm_to_fm(mo_set%mo_coeff, fwork)
@@ -991,11 +982,11 @@ CONTAINS
                CALL parallel_gemm("N", "T", nao, nao, nmo, 1.0_dp, mo_set%mo_coeff, fwork, 0.0_dp, pmat)
             ELSE
                IF (wtype) THEN
-                  rpmat => kp%wmat(1, ispin)%matrix
-                  cpmat => kp%wmat(2, ispin)%matrix
+                  rpmat => kp%wmat(1, ispin)
+                  cpmat => kp%wmat(2, ispin)
                ELSE
-                  rpmat => kp%pmat(1, ispin)%matrix
-                  cpmat => kp%pmat(2, ispin)%matrix
+                  rpmat => kp%pmat(1, ispin)
+                  cpmat => kp%pmat(2, ispin)
                END IF
                CALL get_mo_set(mo_set, occupation_numbers=occupation)
                CALL cp_fm_to_fm(mo_set%mo_coeff, fwork)
@@ -1045,7 +1036,7 @@ CONTAINS
       TYPE(dbcsr_type), POINTER                          :: tempmat
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_nl
-      TYPE(cp_fm_p_type), DIMENSION(:), INTENT(IN)       :: fmwork
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: fmwork
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_density_transform'
 
@@ -1116,15 +1107,15 @@ CONTAINS
                DO ic = 1, nc
                   indx = indx + 1
                   IF (wtype) THEN
-                     CALL cp_fm_start_copy_general(kp%wmat(ic, ispin)%matrix, fmwork(ic)%matrix, para_env, info(indx))
+                     CALL cp_fm_start_copy_general(kp%wmat(ic, ispin), fmwork(ic), para_env, info(indx))
                   ELSE
-                     CALL cp_fm_start_copy_general(kp%pmat(ic, ispin)%matrix, fmwork(ic)%matrix, para_env, info(indx))
+                     CALL cp_fm_start_copy_general(kp%pmat(ic, ispin), fmwork(ic), para_env, info(indx))
                   END IF
                END DO
             ELSE
                DO ic = 1, nc
                   indx = indx + 1
-                  CALL cp_fm_start_copy_general(fmdummy, fmwork(ic)%matrix, para_env, info(indx))
+                  CALL cp_fm_start_copy_general(fmdummy, fmwork(ic), para_env, info(indx))
                END DO
             END IF
          END DO
@@ -1136,16 +1127,16 @@ CONTAINS
          DO ik = 1, nkp
             DO ic = 1, nc
                indx = indx + 1
-               CALL cp_fm_finish_copy_general(fmwork(ic)%matrix, info(indx))
+               CALL cp_fm_finish_copy_general(fmwork(ic), info(indx))
             END DO
 
             ! reduce to dbcsr storage
             IF (real_only) THEN
-               CALL copy_fm_to_dbcsr(fmwork(1)%matrix, rpmat, keep_sparsity=.TRUE.)
+               CALL copy_fm_to_dbcsr(fmwork(1), rpmat, keep_sparsity=.TRUE.)
             ELSE
-               CALL copy_fm_to_dbcsr(fmwork(1)%matrix, rpmat, keep_sparsity=.TRUE.)
+               CALL copy_fm_to_dbcsr(fmwork(1), rpmat, keep_sparsity=.TRUE.)
                ! it seems this copy to a antisymmetric dbcsr matrix changes sign!
-               CALL copy_fm_to_dbcsr(fmwork(2)%matrix, cpmat, keep_sparsity=.TRUE.)
+               CALL copy_fm_to_dbcsr(fmwork(2), cpmat, keep_sparsity=.TRUE.)
             END IF
 
             ! symmetrization

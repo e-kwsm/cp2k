@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -8,14 +8,22 @@
 MODULE qs_tddfpt2_restart
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type,&
                                               get_blacs_info
+   USE cp_dbcsr_operations,             ONLY: cp_dbcsr_sm_fm_multiply
    USE cp_files,                        ONLY: close_file,&
                                               open_file
-   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale
+   USE cp_fm_basic_linalg,              ONLY: cp_fm_column_scale,&
+                                              cp_fm_scale_and_add,&
+                                              cp_fm_trace
    USE cp_fm_pool_types,                ONLY: cp_fm_pool_p_type,&
                                               fm_pool_create_fm
-   USE cp_fm_types,                     ONLY: cp_fm_get_info,&
-                                              cp_fm_p_type,&
+   USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
+                                              cp_fm_struct_release,&
+                                              cp_fm_struct_type
+   USE cp_fm_types,                     ONLY: cp_fm_create,&
+                                              cp_fm_get_info,&
                                               cp_fm_read_unformatted,&
+                                              cp_fm_release,&
+                                              cp_fm_type,&
                                               cp_fm_write_formatted,&
                                               cp_fm_write_info,&
                                               cp_fm_write_unformatted
@@ -26,14 +34,14 @@ MODULE qs_tddfpt2_restart
                                               cp_print_key_should_output,&
                                               cp_print_key_unit_nr
    USE cp_para_types,                   ONLY: cp_para_env_type
+   USE dbcsr_api,                       ONLY: dbcsr_type
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: default_path_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_bcast
-   USE qs_environment_types,            ONLY: get_qs_env,&
-                                              qs_environment_type
+   USE parallel_gemm_api,               ONLY: parallel_gemm
+   USE qs_tddfpt2_subgroups,            ONLY: tddfpt_subgroup_env_type
    USE qs_tddfpt2_types,                ONLY: tddfpt_ground_state_mos
    USE string_utilities,                ONLY: integer_to_string
 #include "./base/base_uses.f90"
@@ -67,7 +75,7 @@ CONTAINS
 !>    * 08.2016 created [Sergey Chulkov]
 ! **************************************************************************************************
    SUBROUTINE tddfpt_write_restart(evects, evals, gs_mos, logger, tddfpt_print_section)
-      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(in)    :: evects
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(in)      :: evects
       REAL(kind=dp), DIMENSION(:), INTENT(in)            :: evals
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          INTENT(in)                                      :: gs_mos
@@ -119,11 +127,11 @@ CONTAINS
                ! coefficients of the reference ground-state wave function. To make the restart file
                ! transferable, TDDFPT wave functions are stored in assumption that all ground state
                ! MOs have a positive phase.
-               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+               CALL cp_fm_column_scale(evects(ispin, istate), gs_mos(ispin)%phases_occ)
 
-               CALL cp_fm_write_unformatted(evects(ispin, istate)%matrix, ounit)
+               CALL cp_fm_write_unformatted(evects(ispin, istate), ounit)
 
-               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+               CALL cp_fm_column_scale(evects(ispin, istate), gs_mos(ispin)%phases_occ)
             END DO
          END DO
 
@@ -152,7 +160,7 @@ CONTAINS
 ! **************************************************************************************************
    FUNCTION tddfpt_read_restart(evects, evals, gs_mos, logger, tddfpt_section, tddfpt_print_section, &
                                 fm_pool_ao_mo_occ, blacs_env_global) RESULT(nstates_read)
-      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(inout) :: evects
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(inout)   :: evects
       REAL(kind=dp), DIMENSION(:), INTENT(out)           :: evals
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          INTENT(in)                                      :: gs_mos
@@ -196,7 +204,7 @@ CONTAINS
 
          IF (.NOT. file_exists) THEN
             nstates_read = 0
-            CALL mp_bcast(nstates_read, para_env_global%source, para_env_global%group)
+            CALL para_env_global%group%bcast(nstates_read, para_env_global%source)
 
             CALL cp_warn(__LOCATION__, &
                          "User requested to restart the TDDFPT wave functions from the file '"//TRIM(filename)// &
@@ -253,7 +261,7 @@ CONTAINS
                          " excited states were requested.")
          END IF
       END IF
-      CALL mp_bcast(nstates_read, para_env_global%source, para_env_global%group)
+      CALL para_env_global%group%bcast(nstates_read, para_env_global%source)
 
       ! exit if restart file does not exist
       IF (nstates_read <= 0) THEN
@@ -271,17 +279,16 @@ CONTAINS
          END IF
          DEALLOCATE (evals_read)
       END IF
-      CALL mp_bcast(evals, para_env_global%source, para_env_global%group)
+      CALL para_env_global%group%bcast(evals, para_env_global%source)
 
       DO istate = 1, nstates_read
          DO ispin = 1, nspins
             IF (istate <= nstates) THEN
-               ALLOCATE (evects(ispin, istate)%matrix)
-               CALL fm_pool_create_fm(fm_pool_ao_mo_occ(ispin)%pool, evects(ispin, istate)%matrix)
+               CALL fm_pool_create_fm(fm_pool_ao_mo_occ(ispin)%pool, evects(ispin, istate))
 
-               CALL cp_fm_read_unformatted(evects(ispin, istate)%matrix, iunit)
+               CALL cp_fm_read_unformatted(evects(ispin, istate), iunit)
 
-               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+               CALL cp_fm_column_scale(evects(ispin, istate), gs_mos(ispin)%phases_occ)
             END IF
          END DO
       END DO
@@ -300,30 +307,39 @@ CONTAINS
 !>                             molecular orbitals
 !> \param logger               a logger object
 !> \param tddfpt_print_section TDDFPT%PRINT input section
-!> \param qs_env ...
+!> \param matrix_s ...
+!> \param S_evects ...
+!> \param sub_env ...
 ! **************************************************************************************************
-   SUBROUTINE tddfpt_write_newtonx_output(evects, evals, gs_mos, logger, tddfpt_print_section, qs_env)
+   SUBROUTINE tddfpt_write_newtonx_output(evects, evals, gs_mos, logger, tddfpt_print_section, &
+                                          matrix_s, S_evects, sub_env)
 
-      TYPE(cp_fm_p_type), DIMENSION(:, :), INTENT(in)    :: evects
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(in)      :: evects
       REAL(kind=dp), DIMENSION(:), INTENT(in)            :: evals
       TYPE(tddfpt_ground_state_mos), DIMENSION(:), &
          INTENT(in)                                      :: gs_mos
-      TYPE(cp_logger_type), POINTER                      :: logger
-      TYPE(section_vals_type), POINTER                   :: tddfpt_print_section
-      TYPE(qs_environment_type), INTENT(in), POINTER     :: qs_env
+      TYPE(cp_logger_type), INTENT(in), POINTER          :: logger
+      TYPE(section_vals_type), INTENT(in), POINTER       :: tddfpt_print_section
+      TYPE(dbcsr_type), INTENT(in), POINTER              :: matrix_s
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(in)      :: S_evects
+      TYPE(tddfpt_subgroup_env_type), INTENT(in)         :: sub_env
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_write_newtonx_output'
 
       INTEGER                                            :: handle, iocc, ispin, istate, ivirt, nao, &
                                                             nspins, nstates, ounit
       INTEGER, DIMENSION(maxspins)                       :: nmo_occ, nmo_virt
-      LOGICAL                                            :: print_virtuals
-      TYPE(cp_para_env_type), POINTER                    :: para_env
+      LOGICAL                                            :: print_phases, print_virtuals, &
+                                                            scale_with_phases
+      REAL(kind=dp), ALLOCATABLE, DIMENSION(:)           :: phase_evects
+      TYPE(cp_fm_struct_type), POINTER                   :: fmstruct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:, :)     :: evects_mo
 
       IF (BTEST(cp_print_key_should_output(logger%iter_info, tddfpt_print_section, "NAMD_PRINT"), cp_p_file)) THEN
          CALL timeset(routineN, handle)
-         NULLIFY (para_env)
-         CALL get_qs_env(qs_env, para_env=para_env)
+         CALL section_vals_val_get(tddfpt_print_section, "NAMD_PRINT%PRINT_VIRTUALS", l_val=print_virtuals)
+         CALL section_vals_val_get(tddfpt_print_section, "NAMD_PRINT%PRINT_PHASES", l_val=print_phases)
+         CALL section_vals_val_get(tddfpt_print_section, "NAMD_PRINT%SCALE_WITH_PHASES", l_val=scale_with_phases)
 
          nspins = SIZE(evects, 1)
          nstates = SIZE(evects, 2)
@@ -336,36 +352,98 @@ CONTAINS
 
          CALL cp_fm_get_info(gs_mos(1)%mos_occ, nrow_global=nao)
 
+         IF (sub_env%is_split) THEN
+            CALL cp_abort(__LOCATION__, "NEWTONX interface print not possible when states"// &
+                          " are distributed to different CPU pools.")
+         END IF
+
          ounit = cp_print_key_unit_nr(logger, tddfpt_print_section, "NAMD_PRINT", &
                                       extension=".inp", file_form="FORMATTED", file_action="WRITE", file_status="REPLACE")
+         IF (debug_this_module) CALL tddfpt_check_orthonormality(evects, ounit, S_evects, matrix_s)
 
          ! print eigenvectors
+         IF (print_virtuals) THEN
+            ALLOCATE (evects_mo(nspins, nstates))
+            DO istate = 1, nstates
+               DO ispin = 1, nspins
+
+                  ! transform eigenvectors
+                  NULLIFY (fmstruct)
+                  nmo_occ(ispin) = SIZE(gs_mos(ispin)%evals_occ)
+                  nmo_virt(ispin) = SIZE(gs_mos(ispin)%evals_virt)
+                  CALL cp_fm_struct_create(fmstruct, para_env=sub_env%para_env, &
+                                           context=sub_env%blacs_env, &
+                                           nrow_global=nmo_virt(ispin), ncol_global=nmo_occ(ispin))
+                  CALL cp_fm_create(evects_mo(ispin, istate), fmstruct)
+                  CALL cp_fm_struct_release(fmstruct)
+                  CALL cp_dbcsr_sm_fm_multiply(matrix_s, evects(ispin, istate), S_evects(ispin, istate), &
+                                               ncol=nmo_occ(ispin), alpha=1.0_dp, beta=0.0_dp)
+               END DO
+            END DO
+            DO istate = 1, nstates
+               DO ispin = 1, nspins
+                  CALL parallel_gemm("T", "N", &
+                                     nmo_virt(ispin), &
+                                     nmo_occ(ispin), &
+                                     nao, &
+                                     1.0_dp, &
+                                     gs_mos(ispin)%mos_virt, &
+                                     S_evects(ispin, istate), & !this also needs to be orthogonalized
+                                     0.0_dp, &
+                                     evects_mo(ispin, istate))
+               END DO
+            END DO
+         END IF
+
          DO istate = 1, nstates
             DO ispin = 1, nspins
-               ! TDDFPT wave function is actually stored as a linear combination of virtual MOs
-               ! that replaces the corresponding deoccupied MO. Unfortunately, the phase
-               ! of the occupied MOs varies depending on the eigensolver used as well as
-               ! how eigenvectors are distributed across computational cores. The phase is important
-               ! because TDDFPT wave functions are used to compute a response electron density
-               ! \rho^{-} = 1/2 * [C_{0} * evect^T + evect * C_{0}^{-}], where C_{0} is the expansion
-               ! coefficients of the reference ground-state wave function. To make the restart file
-               ! transferable, TDDFPT wave functions are stored in assumption that all ground state
-               ! MOs have a positive phase.
-               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
 
-               IF (ounit > 0) THEN
-                  WRITE (ounit, "(/,A)") "ES EIGENVECTORS SIZE"
-                  CALL cp_fm_write_info(evects(ispin, istate)%matrix, ounit)
+               IF (.NOT. print_virtuals) THEN
+                  CALL cp_fm_column_scale(evects(ispin, istate), gs_mos(ispin)%phases_occ)
+                  IF (ounit > 0) THEN
+                     WRITE (ounit, "(/,A)") "ES EIGENVECTORS SIZE"
+                     CALL cp_fm_write_info(evects(ispin, istate), ounit)
+                  END IF
+                  CALL cp_fm_write_formatted(evects(ispin, istate), ounit, "ES EIGENVECTORS")
+               ELSE
+                  CALL cp_fm_column_scale(evects_mo(ispin, istate), gs_mos(ispin)%phases_occ)
+                  IF (ounit > 0) THEN
+                     WRITE (ounit, "(/,A)") "ES EIGENVECTORS SIZE"
+                     CALL cp_fm_write_info(evects_mo(ispin, istate), ounit)
+                  END IF
+                  CALL cp_fm_write_formatted(evects_mo(ispin, istate), ounit, "ES EIGENVECTORS")
                END IF
-               CALL cp_fm_write_formatted(evects(ispin, istate)%matrix, ounit, "ES EIGENVECTORS")
 
-               CALL cp_fm_column_scale(evects(ispin, istate)%matrix, gs_mos(ispin)%phases_occ)
+               ! compute and print phase of eigenvectors
+               nmo_occ(ispin) = SIZE(gs_mos(ispin)%evals_occ)
+               ALLOCATE (phase_evects(nmo_occ(ispin)))
+               IF (print_virtuals) THEN
+                  CALL compute_phase_eigenvectors(evects_mo(ispin, istate), phase_evects, sub_env)
+               ELSE
+                  CALL compute_phase_eigenvectors(evects(ispin, istate), phase_evects, sub_env)
+               END IF
+               IF (ounit > 0) THEN
+                  WRITE (ounit, "(/,A,/)") "PHASES ES EIGENVECTORS"
+                  DO iocc = 1, nmo_occ(ispin)
+                     WRITE (ounit, "(F20.14)") phase_evects(iocc)
+                  END DO
+               END IF
+               DEALLOCATE (phase_evects)
+
             END DO
          END DO
 
-         ! print molecular orbitals
+         IF (print_virtuals) THEN
+            IF (ALLOCATED(evects_mo)) THEN
+               DO istate = 1, nstates
+                  DO ispin = 1, nspins
+                     CALL cp_fm_release(matrix=evects_mo(ispin, istate))
+                  END DO
+               END DO
+            END IF
+            DEALLOCATE (evects_mo)
+         END IF
 
-         CALL section_vals_val_get(tddfpt_print_section, "NAMD_PRINT%PRINT_VIRTUALS", l_val=print_virtuals)
          DO ispin = 1, nspins
             IF (ounit > 0) THEN
                WRITE (ounit, "(/,A)") "OCCUPIED MOS SIZE"
@@ -404,6 +482,27 @@ CONTAINS
             END IF
          END IF
 
+         ! print phases of molecular orbitals
+
+         IF (print_phases) THEN
+            IF (ounit > 0) THEN
+               WRITE (ounit, "(A)") "PHASES OCCUPIED ORBITALS"
+               DO ispin = 1, nspins
+                  DO iocc = 1, nmo_occ(ispin)
+                     WRITE (ounit, "(F20.14)") gs_mos(ispin)%phases_occ(iocc)
+                  END DO
+               END DO
+               IF (print_virtuals) THEN
+                  WRITE (ounit, "(A)") "PHASES VIRTUAL ORBITALS"
+                  DO ispin = 1, nspins
+                     DO ivirt = 1, nmo_virt(ispin)
+                        WRITE (ounit, "(F20.14)") gs_mos(ispin)%phases_virt(ivirt)
+                     END DO
+                  END DO
+               END IF
+            END IF
+         END IF
+
          CALL cp_print_key_finished_output(ounit, logger, tddfpt_print_section, "NAMD_PRINT")
 
          CALL timestop(handle)
@@ -411,5 +510,166 @@ CONTAINS
 
    END SUBROUTINE tddfpt_write_newtonx_output
 ! **************************************************************************************************
+!> \brief ...
+!> \param evects ...
+!> \param ounit ...
+!> \param S_evects ...
+!> \param matrix_s ...
+! **************************************************************************************************
+   SUBROUTINE tddfpt_check_orthonormality(evects, ounit, S_evects, matrix_s)
+
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(in)      :: evects
+      INTEGER, INTENT(in)                                :: ounit
+      TYPE(cp_fm_type), DIMENSION(:, :), INTENT(in)      :: S_evects
+      TYPE(dbcsr_type), INTENT(in), POINTER              :: matrix_s
+
+      CHARACTER(LEN=*), PARAMETER :: routineN = 'tddfpt_check_orthonormality'
+
+      INTEGER                                            :: handle, ispin, ivect, jvect, nspins, &
+                                                            nvects_total
+      INTEGER, DIMENSION(maxspins)                       :: nactive
+      REAL(kind=dp)                                      :: norm
+      REAL(kind=dp), DIMENSION(maxspins)                 :: weights
+
+      CALL timeset(routineN, handle)
+
+      nspins = SIZE(evects, 1)
+      nvects_total = SIZE(evects, 2)
+
+      IF (debug_this_module) THEN
+         CPASSERT(SIZE(S_evects, 1) == nspins)
+         CPASSERT(SIZE(S_evects, 2) == nvects_total)
+      END IF
+
+      DO ispin = 1, nspins
+         CALL cp_fm_get_info(matrix=evects(ispin, 1), ncol_global=nactive(ispin))
+      END DO
+
+      DO jvect = 1, nvects_total
+         ! <psi1_i | psi1_j>
+         DO ivect = 1, jvect - 1
+            CALL cp_fm_trace(evects(:, jvect), S_evects(:, ivect), weights(1:nspins), accurate=.FALSE.)
+            norm = SUM(weights(1:nspins))
+
+            DO ispin = 1, nspins
+               CALL cp_fm_scale_and_add(1.0_dp, evects(ispin, jvect), -norm, evects(ispin, ivect))
+            END DO
+         END DO
+
+         ! <psi1_j | psi1_j>
+         DO ispin = 1, nspins
+            CALL cp_dbcsr_sm_fm_multiply(matrix_s, evects(ispin, jvect), S_evects(ispin, jvect), &
+                                         ncol=nactive(ispin), alpha=1.0_dp, beta=0.0_dp)
+         END DO
+
+         CALL cp_fm_trace(evects(:, jvect), S_evects(:, jvect), weights(1:nspins), accurate=.FALSE.)
+
+         norm = SUM(weights(1:nspins))
+         norm = 1.0_dp/SQRT(norm)
+
+         IF ((ounit > 0) .AND. debug_this_module) WRITE (ounit, '(A,F10.8)') "norm", norm
+
+      END DO
+
+      CALL timestop(handle)
+
+   END SUBROUTINE tddfpt_check_orthonormality
+! **************************************************************************************************
+!> \brief ...
+!> \param evects ...
+!> \param phase_evects ...
+!> \param sub_env ...
+! **************************************************************************************************
+   SUBROUTINE compute_phase_eigenvectors(evects, phase_evects, sub_env)
+
+      ! copied from parts of tddgpt_init_ground_state_mos by S. Chulkov
+
+      TYPE(cp_fm_type), INTENT(in)                       :: evects
+      REAL(kind=dp), DIMENSION(:), INTENT(out)           :: phase_evects
+      TYPE(tddfpt_subgroup_env_type), INTENT(in)         :: sub_env
+
+      CHARACTER(len=*), PARAMETER :: routineN = 'compute_phase_eigenvectors'
+      REAL(kind=dp), PARAMETER                           :: eps_dp = EPSILON(0.0_dp)
+
+      INTEGER :: handle, icol_global, icol_local, irow_global, irow_local, ncol_global, &
+         ncol_local, nrow_global, nrow_local, sign_int
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: minrow_neg_array, minrow_pos_array, &
+                                                            sum_sign_array
+      INTEGER, DIMENSION(:), POINTER                     :: col_indices, row_indices
+      REAL(kind=dp)                                      :: element
+      REAL(KIND=dp), CONTIGUOUS, DIMENSION(:, :), &
+         POINTER                                         :: my_block
+
+      CALL timeset(routineN, handle)
+
+      ! compute and print the phase of excited-state eigenvectors:
+      CALL cp_fm_get_info(evects, nrow_global=nrow_global, ncol_global=ncol_global, &
+                          nrow_local=nrow_local, ncol_local=ncol_local, local_data=my_block, &
+                          row_indices=row_indices, col_indices=col_indices) ! nrow_global either nao or nocc
+
+      ALLOCATE (minrow_neg_array(ncol_global), minrow_pos_array(ncol_global), sum_sign_array(ncol_global))
+      minrow_neg_array(:) = nrow_global
+      minrow_pos_array(:) = nrow_global
+      sum_sign_array(:) = 0
+
+      DO icol_local = 1, ncol_local
+         icol_global = col_indices(icol_local)
+
+         DO irow_local = 1, nrow_local
+            irow_global = row_indices(irow_local)
+
+            element = my_block(irow_local, icol_local)
+
+            sign_int = 0
+            IF (element >= eps_dp) THEN
+               sign_int = 1
+            ELSE IF (element <= -eps_dp) THEN
+               sign_int = -1
+            END IF
+
+            sum_sign_array(icol_global) = sum_sign_array(icol_global) + sign_int
+
+            IF (sign_int > 0) THEN
+               IF (minrow_pos_array(icol_global) > irow_global) &
+                  minrow_pos_array(icol_global) = irow_global
+            ELSE IF (sign_int < 0) THEN
+               IF (minrow_neg_array(icol_global) > irow_global) &
+                  minrow_neg_array(icol_global) = irow_global
+            END IF
+
+         END DO
+      END DO
+
+      CALL sub_env%para_env%group%sum(sum_sign_array)
+      CALL sub_env%para_env%group%min(minrow_neg_array)
+      CALL sub_env%para_env%group%min(minrow_pos_array)
+
+      DO icol_global = 1, ncol_global
+
+         IF (sum_sign_array(icol_global) > 0) THEN
+            ! most of the expansion coefficients are positive => MO's phase = +1
+            phase_evects(icol_global) = 1.0_dp
+         ELSE IF (sum_sign_array(icol_global) < 0) THEN
+            ! most of the expansion coefficients are negative => MO's phase = -1
+            phase_evects(icol_global) = -1.0_dp
+         ELSE
+            ! equal number of positive and negative expansion coefficients
+            IF (minrow_pos_array(icol_global) <= minrow_neg_array(icol_global)) THEN
+               ! the first positive expansion coefficient has a lower index then
+               ! the first negative expansion coefficient; MO's phase = +1
+               phase_evects(icol_global) = 1.0_dp
+            ELSE
+               ! MO's phase = -1
+               phase_evects(icol_global) = -1.0_dp
+            END IF
+         END IF
+
+      END DO
+
+      DEALLOCATE (minrow_neg_array, minrow_pos_array, sum_sign_array)
+
+      CALL timestop(handle)
+
+   END SUBROUTINE compute_phase_eigenvectors
 
 END MODULE qs_tddfpt2_restart

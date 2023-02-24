@@ -4,12 +4,12 @@
 # (https://www.cp2k.org/howto:compile_on_macos)
 #
 # Tested with: GNU 12.2.0, FFTW 3.3.10, LIBINT 2.6.0, LIBVORI 220621,
-#              LIBXC 6.0.0, OpenBLAS 0.3.21, SPGLIB 1.16.2
-# on an Apple M1 (macOS Ventura 13.0.1)
+#              LIBXC 6.1.0, OpenBLAS 0.3.21, SPGLIB 1.16.2
+# on an Apple M1 (macOS Ventura 13.1)
 #
 # Usage: Source this arch file and then run make as instructed.
 #
-# Author: Matthias Krack (20.11.2022)
+# Author: Matthias Krack (12.01.2023)
 #
 # \
    if [[ "${0}" == "${BASH_SOURCE}" ]]; then \
@@ -32,7 +32,7 @@
       cd ../..; \
       return 1; \
    fi; \
-   ./install_cp2k_toolchain.sh --mpi-mode=no --no-arch-files --target-cpu=${target_cpu} --with-cmake=system --with-gcc=system --with-libxsmm=no; \
+   ./install_cp2k_toolchain.sh -j${maxtasks} --mpi-mode=no --no-arch-files --target-cpu=${target_cpu} --with-cmake=system --with-gcc=system --with-libxsmm=no; \
    source ./install/setup; \
    cd ../..; \
    echo; \
@@ -49,7 +49,7 @@ TARGET_CPU     := native
 USE_FFTW       := 3.3.10
 USE_LIBINT     := 2.6.0
 USE_LIBVORI    := 220621
-USE_LIBXC      := 6.0.0
+USE_LIBXC      := 6.1.0
 USE_OPENBLAS   := 0.3.21
 USE_SPGLIB     := 1.16.2
 

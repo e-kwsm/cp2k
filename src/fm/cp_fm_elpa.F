@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -33,9 +33,7 @@ MODULE cp_fm_elpa
                               cp_logger_type
    USE kinds, ONLY: default_string_length, &
                     dp
-   USE message_passing, ONLY: mp_comm_free, &
-                              mp_comm_split_direct, &
-                              mp_bcast
+   USE message_passing, ONLY: mp_comm_type
    USE OMP_LIB, ONLY: omp_get_max_threads
 
 #include "../base/base_uses.f90"
@@ -334,7 +332,8 @@ CONTAINS
 
       CLASS(elpa_t), POINTER                   :: elpa_obj
       CHARACTER(len=default_string_length)     :: kernel_name
-      INTEGER                                  :: group, i, &
+      TYPE(mp_comm_type) :: group
+      INTEGER                                  :: i, &
                                                   mypcol, myprow, n, &
                                                   n_rows, n_cols, &
                                                   nblk, neig, io_unit, &
@@ -396,7 +395,7 @@ CONTAINS
       IF (use_qr .AND. elpa_qr_unsafe .AND. elpa_should_print) &
          check_eigenvalues = .TRUE.
 
-      CALL mp_bcast(check_eigenvalues, matrix%matrix_struct%para_env%source, matrix%matrix_struct%para_env%group)
+      CALL matrix%matrix_struct%para_env%group%bcast(check_eigenvalues, matrix%matrix_struct%para_env%source)
 
       IF (check_eigenvalues) THEN
          ! Allocate and initialize needed temporaries to compute eigenvalues without ELPA QR
@@ -489,7 +488,7 @@ CONTAINS
       CALL elpa_obj%set("nblk", nblk, success)
       CPASSERT(success == elpa_ok)
 
-      CALL elpa_obj%set("mpi_comm_parent", group, success)
+      CALL elpa_obj%set("mpi_comm_parent", group%get_handle(), success)
       CPASSERT(success == elpa_ok)
 
       CALL elpa_obj%set("process_row", myprow, success)

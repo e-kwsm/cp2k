@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -31,9 +31,7 @@ MODULE dbt_tas_io
    USE kinds,                           ONLY: default_string_length,&
                                               dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_environ,&
-                                              mp_max,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_cart_type
 #include "../../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -126,8 +124,10 @@ CONTAINS
       LOGICAL, INTENT(IN), OPTIONAL                      :: full_info
 
       CHARACTER(default_string_length)                   :: name
-      INTEGER :: icol, igroup, iproc, irow, mp_comm, mp_comm_group, nblock, ndbt_p_max, nelement, &
-         nelement_p_max, ngroup, nproc, split_rowcol, unit_nr_prv
+      INTEGER                                            :: icol, igroup, iproc, irow, nblock, &
+                                                            ndbt_p_max, nelement, nelement_p_max, &
+                                                            ngroup, nproc, split_rowcol, &
+                                                            unit_nr_prv
       INTEGER(KIND=int_8)                                :: ndbt_p_sum, ndbt_s, ndbt_s_max, &
                                                             ndbt_tot, nelement_p_sum, nelement_s, &
                                                             nelement_s_max
@@ -136,13 +136,14 @@ CONTAINS
       INTEGER, DIMENSION(:), POINTER                     :: coldist, rowdist
       REAL(KIND=dp)                                      :: occupation
       TYPE(dbm_distribution_obj)                         :: dist
+      TYPE(mp_cart_type)                                 :: mp_comm, mp_comm_group
 
       unit_nr_prv = prep_output_unit(unit_nr)
       IF (unit_nr_prv == 0) RETURN
 
       CALL dbt_tas_get_split_info(matrix%dist%info, mp_comm, ngroup, igroup, mp_comm_group, split_rowcol)
       CALL dbt_tas_get_info(matrix, name=name)
-      CALL mp_environ(nproc, iproc, mp_comm)
+      CALL mp_comm%environ(nproc, iproc)
 
       nblock = dbt_tas_get_num_blocks(matrix)
       nelement = dbt_tas_get_nze(matrix)
@@ -151,17 +152,17 @@ CONTAINS
       nelement_p_sum = dbt_tas_get_nze_total(matrix)
 
       tmp = (/nblock, nelement/)
-      CALL mp_max(tmp, mp_comm)
+      CALL mp_comm%max(tmp)
       ndbt_p_max = tmp(1); nelement_p_max = tmp(2)
 
       ndbt_s = nblock
       nelement_s = nelement
 
-      CALL mp_sum(ndbt_s, mp_comm_group)
-      CALL mp_sum(nelement_s, mp_comm_group)
+      CALL mp_comm_group%sum(ndbt_s)
+      CALL mp_comm_group%sum(nelement_s)
 
       tmp_i8 = (/ndbt_s, nelement_s/)
-      CALL mp_max(tmp_i8, mp_comm)
+      CALL mp_comm%max(tmp_i8)
       ndbt_s_max = tmp_i8(1); nelement_s_max = tmp_i8(2)
 
       ndbt_tot = dbt_tas_nblkrows_total(matrix)*dbt_tas_nblkcols_total(matrix)
@@ -216,11 +217,11 @@ CONTAINS
       CHARACTER(len=*), INTENT(IN), OPTIONAL             :: name
 
       CHARACTER(len=:), ALLOCATABLE                      :: name_prv
-      INTEGER                                            :: groupsize, igroup, mp_comm, &
-                                                            mp_comm_group, mynode, nsplit, &
+      INTEGER                                            :: groupsize, igroup, mynode, nsplit, &
                                                             numnodes, split_rowcol, unit_nr_prv
       INTEGER, DIMENSION(2)                              :: coord, dims, groupcoord, groupdims, &
                                                             pgrid_offset
+      TYPE(mp_cart_type)                                 :: mp_comm, mp_comm_group
 
       unit_nr_prv = prep_output_unit(unit_nr)
       IF (unit_nr_prv == 0) RETURN
@@ -233,9 +234,9 @@ CONTAINS
 
       CALL dbt_tas_get_split_info(info, mp_comm, nsplit, igroup, mp_comm_group, split_rowcol, pgrid_offset)
 
-      CALL mp_environ(numnodes, mynode, mp_comm)
-      CALL mp_environ(numnodes, dims, coord, mp_comm)
-      CALL mp_environ(groupsize, groupdims, groupcoord, mp_comm_group)
+      CALL mp_comm%environ(numnodes, mynode)
+      CALL mp_comm%environ_cart(numnodes, dims, coord)
+      CALL mp_comm_group%environ_cart(groupsize, groupdims, groupcoord)
 
       IF (unit_nr_prv > 0) THEN
          SELECT CASE (split_rowcol)

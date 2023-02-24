@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -141,7 +141,6 @@ CONTAINS
       NULLIFY (ec_env%force)
       NULLIFY (ec_env%dispersion_env)
       NULLIFY (ec_env%xc_section)
-      NULLIFY (ec_env%cpmos)
       NULLIFY (ec_env%matrix_z)
       NULLIFY (ec_env%matrix_hz)
       NULLIFY (ec_env%matrix_wz)

@@ -62,12 +62,12 @@ PROFOPT_FLAGS="\$(PROFOPT)"
 # special flags for gfortran
 # https://gcc.gnu.org/onlinedocs/gfortran/Error-and-Warning-Options.html
 # we error out for these warnings (-Werror=uninitialized -Wno-maybe-uninitialized -> error on variables that must be used uninitialized)
-WFLAGS_ERROR="-Werror=aliasing -Werror=ampersand -Werror=c-binding-type -Werror=intrinsic-shadow -Werror=intrinsics-std -Werror=line-truncation -Werror=tabs -Werror=target-lifetime -Werror=underflow -Werror=unused-but-set-variable -Werror=unused-variable -Werror=unused-dummy-argument -Werror=conversion -Werror=zerotrip -Wno-maybe-uninitialized"
+WFLAGS_ERROR="-Werror=aliasing -Werror=ampersand -Werror=c-binding-type -Werror=intrinsic-shadow -Werror=intrinsics-std -Werror=line-truncation -Werror=tabs -Werror=target-lifetime -Werror=underflow -Werror=unused-but-set-variable -Werror=unused-variable -Werror=unused-dummy-argument -Werror=unused-parameter -Werror=unused-label -Werror=conversion -Werror=zerotrip -Wno-maybe-uninitialized"
 # we just warn for those (that eventually might be promoted to WFLAGSERROR). It is useless to put something here with 100s of warnings.
 WFLAGS_WARN="-Wuninitialized -Wuse-without-only"
 # while here we collect all other warnings, some we'll ignore
 # TODO: -Wpedantic with -std2008 requires an upgrade of the MPI interfaces from mpi to mpi_f08
-WFLAGS_WARNALL="-Wno-pedantic -Wall -Wextra -Wsurprising -Wunused-parameter -Warray-temporaries -Wcharacter-truncation -Wconversion-extra -Wimplicit-interface -Wimplicit-procedure -Wreal-q-constant -Walign-commons -Wfunction-elimination -Wrealloc-lhs -Wcompare-reals -Wzerotrip"
+WFLAGS_WARNALL="-Wno-pedantic -Wall -Wextra -Wsurprising -Warray-temporaries -Wcharacter-truncation -Wconversion-extra -Wimplicit-interface -Wimplicit-procedure -Wreal-q-constant -Walign-commons -Wfunction-elimination -Wrealloc-lhs -Wcompare-reals -Wzerotrip"
 
 # IEEE_EXCEPTIONS dependency
 IEEE_EXCEPTIONS_DFLAGS="-D__HAS_IEEE_EXCEPTIONS"
@@ -118,7 +118,7 @@ LDFLAGS="IF_STATIC(${STATIC_FLAGS}|) \$(FCFLAGS) ${CP_LDFLAGS}"
 # add standard libs
 LIBS="${CP_LIBS} -lstdc++"
 
-CXXFLAGS+=" --std=c++11 \$(DFLAGS) -Wno-deprecated-declarations"
+CXXFLAGS+=" --std=c++14 \$(DFLAGS) -Wno-deprecated-declarations"
 # CUDA handling
 if [ "${ENABLE_CUDA}" = __TRUE__ ] && [ "${GPUVER}" != no ]; then
   CUDA_LIBS="-lcudart -lnvrtc -lcuda -lcufft -lcublas -lrt IF_DEBUG(-lnvToolsExt|)"
@@ -177,7 +177,7 @@ if [ "${ENABLE_HIP}" = __TRUE__ ] && [ "${GPUVER}" != no ]; then
       HIP_FLAGS+="-fPIE -D__HIP_PLATFORM_AMD__ -g --offload-arch=gfx906 -O3 --std=c++11 -Wall -Wextra -Werror \$(DFLAGS)"
       LIBS+=" IF_HIP(-lamdhip64 -lhipfft -lhipblas -lrocblas IF_DEBUG(-lroctx64 -lroctracer64|)|)"
       DFLAGS+=" IF_HIP(-D__HIP_PLATFORM_AMD__ -D__OFFLOAD_HIP IF_DEBUG(-D__OFFLOAD_PROFILING|)|)  -D__DBCSR_ACC"
-      CXXFLAGS+=" -fopenmp -std=c++11 -Wall -Wextra -Werror"
+      CXXFLAGS+=" -fopenmp -Wall -Wextra -Werror"
       ;;
     Mi100)
       check_lib -lamdhip64 "hip"
@@ -193,7 +193,7 @@ if [ "${ENABLE_HIP}" = __TRUE__ ] && [ "${GPUVER}" != no ]; then
       HIP_FLAGS+="-fPIE -D__HIP_PLATFORM_AMD__ -g --offload-arch=gfx908 -O3 --std=c++11 -Wall -Wextra -Werror \$(DFLAGS)"
       LIBS+=" IF_HIP(-lamdhip64 -lhipfft -lhipblas -lrocblas IF_DEBUG(-lroctx64 -lroctracer64|)|)"
       DFLAGS+=" IF_HIP(-D__HIP_PLATFORM_AMD__ -D__OFFLOAD_HIP IF_DEBUG(-D__OFFLOAD_PROFILING|)|) -D__DBCSR_ACC"
-      CXXFLAGS+=" -fopenmp -std=c++11 -Wall -Wextra -Werror"
+      CXXFLAGS+=" -fopenmp -Wall -Wextra -Werror"
       ;;
     Mi250)
       check_lib -lamdhip64 "hip"
@@ -209,7 +209,7 @@ if [ "${ENABLE_HIP}" = __TRUE__ ] && [ "${GPUVER}" != no ]; then
       HIP_FLAGS+="-fPIE -D__HIP_PLATFORM_AMD__ -g --offload-arch=gfx90a -O3 --std=c++11 -Wall -Wextra -Werror \$(DFLAGS)"
       LIBS+=" IF_HIP(-lamdhip64 -lhipfft -lhipblas -lrocblas IF_DEBUG(-lroctx64 -lroctracer64|)|)"
       DFLAGS+=" IF_HIP(-D__HIP_PLATFORM_AMD__ -D__OFFLOAD_HIP IF_DEBUG(-D__OFFLOAD_PROFILING|)|) -D__DBCSR_ACC"
-      CXXFLAGS+=" -fopenmp -std=c++11 -Wall -Wextra -Werror"
+      CXXFLAGS+=" -fopenmp -Wall -Wextra -Werror"
       ;;
     *)
       check_command nvcc "cuda"

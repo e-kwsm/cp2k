@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -36,7 +36,6 @@ MODULE response_solver
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
                                               cp_fm_init_random,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_type
@@ -72,7 +71,6 @@ MODULE response_solver
    USE kinds,                           ONLY: dp
    USE machine,                         ONLY: m_flush
    USE mathlib,                         ONLY: det_3x3
-   USE message_passing,                 ONLY: mp_sum
    USE mulliken,                        ONLY: ao_charges
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
@@ -120,8 +118,7 @@ MODULE response_solver
    USE qs_ks_methods,                   ONLY: calc_rho_tot_gspace
    USE qs_ks_types,                     ONLY: qs_ks_env_type
    USE qs_linres_methods,               ONLY: linres_solver
-   USE qs_linres_types,                 ONLY: linres_control_create,&
-                                              linres_control_type
+   USE qs_linres_types,                 ONLY: linres_control_type
    USE qs_matrix_pools,                 ONLY: mpools_rebuild_fm_pools
    USE qs_mo_methods,                   ONLY: make_basis_sm
    USE qs_mo_types,                     ONLY: deallocate_mo_set,&
@@ -187,9 +184,9 @@ CONTAINS
       REAL(KIND=dp)                                      :: focc
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
       TYPE(cp_fm_type)                                   :: sv
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: cpmos
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -228,7 +225,6 @@ CONTAINS
       ! initialize linres_control
       NULLIFY (linres_control)
       ALLOCATE (linres_control)
-      CALL linres_control_create(linres_control)
       linres_control%do_kernel = .TRUE.
       linres_control%lr_triplet = .FALSE.
       linres_control%converged = .FALSE.
@@ -355,18 +351,17 @@ CONTAINS
          DO ispin = 1, nspins
             CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
             CALL cp_fm_get_info(mo_coeff, matrix_struct=fm_struct)
-            ALLOCATE (cpmos(ispin)%matrix)
-            CALL cp_fm_create(cpmos(ispin)%matrix, fm_struct)
-            CALL cp_fm_set_all(cpmos(ispin)%matrix, 0.0_dp)
+            CALL cp_fm_create(cpmos(ispin), fm_struct)
+            CALL cp_fm_set_all(cpmos(ispin), 0.0_dp)
          END DO
 
          focc = 2.0_dp
          IF (nspins == 1) focc = 4.0_dp
          DO ispin = 1, nspins
             CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff, nmo=nmo)
-            CALL cp_fm_set_all(cpmos(ispin)%matrix, 0.0_dp)
+            CALL cp_fm_set_all(cpmos(ispin), 0.0_dp)
             CALL cp_dbcsr_sm_fm_multiply(ec_env%matrix_hz(ispin)%matrix, mo_coeff, &
-                                         cpmos(ispin)%matrix, nmo, &
+                                         cpmos(ispin), nmo, &
                                          alpha=focc, beta=0.0_dp)
          END DO
 
@@ -380,10 +375,7 @@ CONTAINS
          END DO
 
          DO ispin = 1, nspins
-            IF (ASSOCIATED(cpmos(ispin)%matrix)) THEN
-               CALL cp_fm_release(cpmos(ispin)%matrix)
-               DEALLOCATE (cpmos(ispin)%matrix)
-            END IF
+            CALL cp_fm_release(cpmos(ispin))
          END DO
          DEALLOCATE (cpmos)
 
@@ -552,7 +544,7 @@ CONTAINS
    SUBROUTINE response_equation_new(qs_env, p_env, cpmos, iounit)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_p_env_type)                                :: p_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT)      :: cpmos
       INTEGER, INTENT(IN)                                :: iounit
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'response_equation_new'
@@ -560,8 +552,8 @@ CONTAINS
       INTEGER                                            :: handle, ispin, nao, nao_aux, nspins
       LOGICAL                                            :: should_stop
       TYPE(admm_type), POINTER                           :: admm_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: psi0, psi1
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: psi0, psi1
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -569,7 +561,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      NULLIFY (dft_control, matrix_ks, mo_coeff, mos, psi0, psi1)
+      NULLIFY (dft_control, matrix_ks, mo_coeff, mos)
 
       CALL get_qs_env(qs_env, dft_control=dft_control, matrix_ks=matrix_ks, &
                       matrix_s=matrix_s, mos=mos)
@@ -581,11 +573,10 @@ CONTAINS
       ALLOCATE (psi0(nspins), psi1(nspins))
       DO ispin = 1, nspins
          CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
-         psi0(ispin)%matrix => mo_coeff
+         psi0(ispin) = mo_coeff
          CALL cp_fm_get_info(mo_coeff, matrix_struct=fm_struct)
-         ALLOCATE (psi1(ispin)%matrix)
-         CALL cp_fm_create(psi1(ispin)%matrix, fm_struct)
-         CALL cp_fm_set_all(psi1(ispin)%matrix, 0.0_dp)
+         CALL cp_fm_create(psi1(ispin), fm_struct)
+         CALL cp_fm_set_all(psi1(ispin), 0.0_dp)
       END DO
 
       should_stop = .FALSE.
@@ -623,13 +614,12 @@ CONTAINS
 
       ! Calculate Wz = 0.5*(psi1*eps*psi0^T + psi0*eps*psi1^T)
       DO ispin = 1, nspins
-         CALL calculate_wz_matrix(mos(ispin), psi1(ispin)%matrix, matrix_ks(ispin)%matrix, &
+         CALL calculate_wz_matrix(mos(ispin), psi1(ispin), matrix_ks(ispin)%matrix, &
                                   p_env%w1(ispin)%matrix)
       END DO
       DO ispin = 1, nspins
-         CALL cp_fm_release(cpmos(ispin)%matrix)
-         CALL cp_fm_release(psi1(ispin)%matrix)
-         DEALLOCATE (cpmos(ispin)%matrix, psi1(ispin)%matrix)
+         CALL cp_fm_release(cpmos(ispin))
+         CALL cp_fm_release(psi1(ispin))
       END DO
       DEALLOCATE (psi0, psi1)
 
@@ -645,16 +635,13 @@ CONTAINS
 !> \param p_env ...
 !> \param cpmos RHS of equation as Ax + b = 0 (sign of b)
 !> \param iounit ...
-!> \param p1_mat ...
 !> \param lr_section ...
 ! **************************************************************************************************
-   SUBROUTINE response_equation(qs_env, p_env, cpmos, iounit, p1_mat, lr_section)
+   SUBROUTINE response_equation(qs_env, p_env, cpmos, iounit, lr_section)
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_p_env_type)                                :: p_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: cpmos
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: cpmos
       INTEGER, INTENT(IN)                                :: iounit
-      TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
-         POINTER                                         :: p1_mat
       TYPE(section_vals_type), OPTIONAL, POINTER         :: lr_section
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'response_equation'
@@ -662,8 +649,8 @@ CONTAINS
       INTEGER                                            :: handle, ispin, nao, nao_aux, nspins
       LOGICAL                                            :: should_stop
       TYPE(admm_type), POINTER                           :: admm_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: psi0, psi1
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: psi0, psi1
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, matrix_s_aux
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -677,7 +664,6 @@ CONTAINS
       ! initialized linres_control
       NULLIFY (linres_control)
       ALLOCATE (linres_control)
-      CALL linres_control_create(linres_control)
       linres_control%do_kernel = .TRUE.
       linres_control%lr_triplet = .FALSE.
       IF (PRESENT(lr_section)) THEN
@@ -715,11 +701,10 @@ CONTAINS
       ALLOCATE (psi0(nspins), psi1(nspins))
       DO ispin = 1, nspins
          CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
-         psi0(ispin)%matrix => mo_coeff
+         psi0(ispin) = mo_coeff
          CALL cp_fm_get_info(mo_coeff, matrix_struct=fm_struct)
-         ALLOCATE (psi1(ispin)%matrix)
-         CALL cp_fm_create(psi1(ispin)%matrix, fm_struct)
-         CALL cp_fm_set_all(psi1(ispin)%matrix, 0.0_dp)
+         CALL cp_fm_create(psi1(ispin), fm_struct)
+         CALL cp_fm_set_all(psi1(ispin), 0.0_dp)
       END DO
 
       should_stop = .FALSE.
@@ -779,20 +764,13 @@ CONTAINS
       ! Calculate Wz = 0.5*(psi1*eps*psi0^T + psi0*eps*psi1^T)
       CALL get_qs_env(qs_env, matrix_ks=matrix_ks)
       DO ispin = 1, nspins
-         CALL calculate_wz_matrix(mos(ispin), psi1(ispin)%matrix, matrix_ks(ispin)%matrix, &
+         CALL calculate_wz_matrix(mos(ispin), psi1(ispin), matrix_ks(ispin)%matrix, &
                                   p_env%w1(ispin)%matrix)
       END DO
-      IF (PRESENT(p1_mat)) THEN
-         CPASSERT(.NOT. ASSOCIATED(p1_mat))
-         p1_mat => psi1
-      ELSE
-         DO ispin = 1, nspins
-            CALL cp_fm_release(psi1(ispin)%matrix)
-            DEALLOCATE (psi1(ispin)%matrix)
-         END DO
-         DEALLOCATE (psi1)
-      END IF
-      DEALLOCATE (psi0)
+      DO ispin = 1, nspins
+         CALL cp_fm_release(psi1(ispin))
+      END DO
+      DEALLOCATE (psi0, psi1)
 
       CALL timestop(handle)
 
@@ -970,12 +948,12 @@ CONTAINS
                                 matrix_p=mpa(1)%matrix)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%kinetic(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dT      ", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_ekinetic - stdeb)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| Kinetic energy', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -1015,12 +993,12 @@ CONTAINS
                             nimages, cell_to_index)
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%all_potential(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dHae    ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = fconv*(virial%pv_ppl - stdeb)
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| Pz*dHae    ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1036,12 +1014,12 @@ CONTAINS
                              sab_orb, sac_ppl, nimages, cell_to_index, "ORB")
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%gth_ppl(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dHppl   ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = fconv*(virial%pv_ppl - stdeb)
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| Pz*dHppl   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1057,12 +1035,12 @@ CONTAINS
                               sab_orb, sap_ppnl, eps_ppnl, nimages, cell_to_index, "ORB")
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%gth_ppnl(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dHppnl  ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = fconv*(virial%pv_ppnl - stdeb)
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| Pz*dHppnl   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1086,12 +1064,12 @@ CONTAINS
                                  particle_set=particle_set, sab_orb=sab_orb, dbcsr_dist=dbcsr_dist)
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%kinetic(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dTnadd  ", fodeb
             END IF
             IF (debug_stress .AND. use_virial) THEN
                stdeb = fconv*(virial%pv_virial - stdeb)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| Pz*dTnadd   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1123,12 +1101,12 @@ CONTAINS
          ALLOCATE (ftot2(3, natom))
          CALL total_qs_force(ftot2, force, atomic_kind_set)
          fodeb(1:3) = ftot2(1:3, 1) - ftot1(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dHcore", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_virial - sttot)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| Stress Pz*dHcore   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          ! save current total viral, does not contain volume terms yet
@@ -1178,12 +1156,12 @@ CONTAINS
       END IF
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dVhxc   ", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_virial - pv_loc)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| INT Pz*dVhxc   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -1199,12 +1177,12 @@ CONTAINS
          END DO
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dVxc_tau   ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = fconv*(virial%pv_virial - pv_loc)
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| INT Pz*dVxc_tau   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1220,7 +1198,7 @@ CONTAINS
                                     local_rho_set=ex_env%local_rho_set)
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%g0s_Vh_elec(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: P*dVh[X]PAWg0", fodeb
          END IF
       END IF
@@ -1232,7 +1210,7 @@ CONTAINS
                              kscale=0.5_dp)
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%Vhxc_atom(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dVhxc[X]PAW ", fodeb
          END IF
       END IF
@@ -1262,7 +1240,7 @@ CONTAINS
                                 pmat_ext=mpa)
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dVkg   ", fodeb
             END IF
             IF (debug_stress .AND. use_virial) THEN
@@ -1273,12 +1251,12 @@ CONTAINS
                   'STRESS| VOL KG Pz*dVKG ', one_third_sum_diag(stdeb), det_3x3(stdeb)
 
                stdeb = fconv*(virial%pv_virial - pv_loc)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| INT KG Pz*dVKG  ', one_third_sum_diag(stdeb), det_3x3(stdeb)
 
                stdeb = fconv*virial%pv_xc
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| GGA KG Pz*dVKG  ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1381,11 +1359,11 @@ CONTAINS
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| VOL 2nd v_H[n_in]*n_z  ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             stdeb = fconv*(h_stress/REAL(para_env%num_pe, dp))
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| GREEN 1st v_H[n_z]*n_in  ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             stdeb = fconv*(h_stress/REAL(para_env%num_pe, dp))
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| GREEN 2nd v_H[n_in]*n_z   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1432,12 +1410,12 @@ CONTAINS
       CALL integrate_v_core_rspace(zv_hartree_rspace, qs_env)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%rho_core(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Vh(rhoz)*dncore ", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_ehartree - stdeb)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| INT Vh(rhoz)*dncore   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -1476,7 +1454,7 @@ CONTAINS
 
       IF (debug_stress .AND. use_virial) THEN
          stdeb = 1.0_dp*fconv*virial%pv_xc
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| GGA 2nd Pin*dK*rhoz', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -1501,12 +1479,12 @@ CONTAINS
 
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pin*dK*rhoz ", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_virial - stdeb)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| INT 2nd f_Hxc[Pz]*Pin', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -1527,12 +1505,12 @@ CONTAINS
 
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pin*dKtau*tauz ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = fconv*(virial%pv_virial - stdeb)
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| INT 2nd f_xctau[Pz]*Pin', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -1563,17 +1541,17 @@ CONTAINS
 
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pin*d(Kkg)*rhoz ", fodeb
             END IF
             IF (debug_stress .AND. use_virial) THEN
                stdeb = fconv*(virial%pv_virial - pv_loc)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| INT KG Pin*d(KKG)*rhoz    ', one_third_sum_diag(stdeb), det_3x3(stdeb)
 
                stdeb = fconv*(virial%pv_xc)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| GGA KG Pin*d(KKG)*rhoz    ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1610,7 +1588,7 @@ CONTAINS
          ALLOCATE (ftot3(3, natom))
          CALL total_qs_force(ftot3, force, atomic_kind_set)
          fodeb(1:3) = ftot3(1:3, 1) - ftot2(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pin*V(rhoz)", fodeb
       END IF
       CALL dbcsr_deallocate_matrix_set(scrm)
@@ -1675,12 +1653,12 @@ CONTAINS
             END DO
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*Vxc(rho_admm)", fodeb
             END IF
             IF (debug_stress .AND. use_virial) THEN
                stdeb = fconv*(virial%pv_virial - pv_loc)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| INT 1st Pz*dVxc(rho_admm)   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1748,7 +1726,7 @@ CONTAINS
 
             IF (debug_stress .AND. use_virial) THEN
                stdeb = 1.0_dp*fconv*virial%pv_xc
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| GGA 2nd Pin_admm*dK*rhoz_admm', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1770,12 +1748,12 @@ CONTAINS
             END DO
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%rho_elec(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pin*dK*rhoz_admm ", fodeb
             END IF
             IF (debug_stress .AND. use_virial) THEN
                stdeb = fconv*(virial%pv_virial - pv_loc)
-               CALL mp_sum(stdeb, para_env%group)
+               CALL para_env%group%sum(stdeb)
                IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                   'STRESS| INT 2nd Pin*dK*rhoz_admm   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
             END IF
@@ -1924,7 +1902,7 @@ CONTAINS
             CALL admm_projection_derivative(qs_env, mhz(:, 1), matrix_pd)
             IF (debug_forces) THEN
                fodeb(1:3) = force(1)%overlap_admm(1:3, 1) - fodeb(1:3)
-               CALL mp_sum(fodeb, para_env%group)
+               CALL para_env%group%sum(fodeb)
                IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*hfx*S' ", fodeb
             END IF
             CALL dbcsr_deallocate_matrix_set(mpz)
@@ -2023,12 +2001,12 @@ CONTAINS
 
          IF (debug_forces) THEN
             fodeb(1:3) = force(1)%fock_4c(1:3, 1) - fodeb(1:3)
-            CALL mp_sum(fodeb, para_env%group)
+            CALL para_env%group%sum(fodeb)
             IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*hfx ", fodeb
          END IF
          IF (debug_stress .AND. use_virial) THEN
             stdeb = -1.0_dp*fconv*virial%pv_fock_4c
-            CALL mp_sum(stdeb, para_env%group)
+            CALL para_env%group%sum(stdeb)
             IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
                'STRESS| Pz*hfx  ', one_third_sum_diag(stdeb), det_3x3(stdeb)
          END IF
@@ -2086,12 +2064,12 @@ CONTAINS
 
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%overlap(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Wz*dS ", fodeb
       END IF
       IF (debug_stress .AND. use_virial) THEN
          stdeb = fconv*(virial%pv_overlap - stdeb)
-         CALL mp_sum(stdeb, para_env%group)
+         CALL para_env%group%sum(stdeb)
          IF (iounit > 0) WRITE (UNIT=iounit, FMT="(T2,A,T41,2(1X,ES19.11))") &
             'STRESS| WHz   ', one_third_sum_diag(stdeb), det_3x3(stdeb)
       END IF
@@ -2100,10 +2078,10 @@ CONTAINS
       IF (debug_forces) THEN
          CALL total_qs_force(ftot2, force, atomic_kind_set)
          fodeb(1:3) = ftot2(1:3, 1) - ftot1(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Response Force", fodeb
          fodeb(1:3) = ftot2(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Total Force ", fodeb
          DEALLOCATE (ftot1, ftot2, ftot3)
       END IF
@@ -2217,7 +2195,7 @@ CONTAINS
       CALL xtb_hab_force(qs_env, mpa(1)%matrix)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%all_potential(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Pz*dHcore  ", fodeb
       END IF
       IF (nspins == 2) THEN
@@ -2300,7 +2278,7 @@ CONTAINS
                                 matrix_p=matrix_wz(1)%matrix)
       IF (debug_forces) THEN
          fodeb(1:3) = force(1)%overlap(1:3, 1) - fodeb(1:3)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T33,3F16.8)") "DEBUG:: Wz*dS ", fodeb
       END IF
       CALL dbcsr_deallocate_matrix_set(scrm)
@@ -2308,7 +2286,7 @@ CONTAINS
       IF (debug_forces) THEN
          CALL total_qs_force(ftot2, force, atomic_kind_set)
          fodeb(1:3) = ftot2(1:3, 1) - ftot1(1:3, 1)
-         CALL mp_sum(fodeb, para_env%group)
+         CALL para_env%group%sum(fodeb)
          IF (iounit > 0) WRITE (iounit, "(T3,A,T30,3F16.8)") "DEBUG:: Response Force", fodeb
          DEALLOCATE (ftot1, ftot2)
       END IF

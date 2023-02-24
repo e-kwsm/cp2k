@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -15,8 +15,7 @@ MODULE optimize_basis
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_unit_nr,&
                                               cp_logger_type
-   USE cp_para_env,                     ONLY: cp_para_env_create,&
-                                              cp_para_env_release
+   USE cp_para_env,                     ONLY: cp_para_env_release
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE dbcsr_api,                       ONLY: dbcsr_p_type
    USE f77_interface,                   ONLY: create_force_env,&
@@ -37,12 +36,7 @@ MODULE optimize_basis
    USE machine,                         ONLY: m_chdir,&
                                               m_getcwd,&
                                               m_walltime
-   USE message_passing,                 ONLY: mp_allgather,&
-                                              mp_bcast,&
-                                              mp_comm_free,&
-                                              mp_comm_split,&
-                                              mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_type
    USE optbas_fenv_manipulation,        ONLY: allocate_mo_sets,&
                                               calculate_ks_matrix,&
                                               calculate_overlap_inverse,&
@@ -129,21 +123,22 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'driver_para_opt_basis'
 
-      INTEGER                                            :: handle, n_groups_created, opt_group
+      INTEGER                                            :: handle, n_groups_created
       INTEGER, DIMENSION(:), POINTER                     :: group_distribution_p
       INTEGER, DIMENSION(0:para_env%num_pe-1), TARGET    :: group_distribution
+      TYPE(mp_comm_type)                                 :: opt_group
 
       CALL timeset(routineN, handle)
       group_distribution_p => group_distribution
-      CALL mp_comm_split(para_env%group, opt_group, n_groups_created, group_distribution_p, &
-                         n_subgroups=SIZE(opt_bas%group_partition), group_partition=opt_bas%group_partition)
+      CALL opt_group%from_split(para_env%group, n_groups_created, group_distribution_p, &
+                                n_subgroups=SIZE(opt_bas%group_partition), group_partition=opt_bas%group_partition)
       opt_bas%opt_id = group_distribution(para_env%mepos) + 1
       opt_bas%n_groups_created = n_groups_created
       ALLOCATE (opt_bas%sub_sources(0:para_env%num_pe - 1))
 
       CALL driver_optimization_para_low(opt_bas, input_declaration, para_env, opt_group)
 
-      CALL mp_comm_free(opt_group)
+      CALL opt_group%free()
       CALL timestop(handle)
 
    END SUBROUTINE driver_para_opt_basis
@@ -162,7 +157,7 @@ CONTAINS
       TYPE(basis_optimization_type)                      :: opt_bas
       TYPE(section_type), POINTER                        :: input_declaration
       TYPE(cp_para_env_type), POINTER                    :: para_env_top
-      INTEGER                                            :: mpi_comm_opt
+      TYPE(mp_comm_type), INTENT(IN)                     :: mpi_comm_opt
 
       CHARACTER(len=*), PARAMETER :: routineN = 'driver_optimization_para_low'
 
@@ -185,11 +180,12 @@ CONTAINS
       ALLOCATE (tot_time(opt_bas%ncombinations*opt_bas%ntraining_sets))
       ALLOCATE (matrix_s_inv(SIZE(opt_bas%comp_group(mp_id)%member_list)))
 
-      CALL cp_para_env_create(para_env, group=mpi_comm_opt, owns_group=.FALSE.)
+      ALLOCATE (para_env)
+      para_env = mpi_comm_opt
 
       is = -1
       IF (para_env%ionode) is = para_env_top%mepos
-      CALL mp_allgather(is, opt_bas%sub_sources, para_env_top%group)
+      CALL para_env_top%group%allgather(is, opt_bas%sub_sources)
 
       CALL init_training_force_envs(opt_bas, f_env_id, input_declaration, matrix_s_inv, para_env, mpi_comm_opt)
 
@@ -202,8 +198,8 @@ CONTAINS
                                        para_env_top, para_env, iopt)
          IF (para_env_top%ionode) &
             CALL powell_optimize(opt_bas%powell_param%nvar, opt_bas%x_opt, opt_bas%powell_param)
-         CALL mp_bcast(opt_bas%powell_param%state, para_env_top%source, para_env_top%group)
-         CALL mp_bcast(opt_bas%x_opt, para_env_top%source, para_env_top%group)
+         CALL para_env_top%group%bcast(opt_bas%powell_param%state, para_env_top%source)
+         CALL para_env_top%group%bcast(opt_bas%x_opt, para_env_top%source)
          CALL update_free_vars(opt_bas)
          write_basis = MOD(iopt, opt_bas%write_frequency) == 0
          CALL update_derived_basis_sets(opt_bas, write_basis, opt_bas%output_basis_file, &
@@ -217,7 +213,7 @@ CONTAINS
          CALL powell_optimize(opt_bas%powell_param%nvar, opt_bas%x_opt, opt_bas%powell_param)
       END IF
 
-      CALL mp_bcast(opt_bas%x_opt, para_env_top%source, para_env_top%group)
+      CALL para_env_top%group%bcast(opt_bas%x_opt, para_env_top%source)
       CALL update_free_vars(opt_bas)
       CALL update_derived_basis_sets(opt_bas, .TRUE., opt_bas%output_basis_file, &
                                      para_env_top)
@@ -358,7 +354,7 @@ CONTAINS
          f_vec = 0.0_dp; cond_vec = 0.0_dp; my_time = 0.0_dp; energy = 0.0_dp
       END IF
       ! collect date from all subgroup ionodes on the main ionode
-      CALL mp_sum(gdata, para_env_top%group)
+      CALL para_env_top%group%sum(gdata)
 
       opt_bas%powell_param%f = 0.0_dp
       IF (para_env_top%ionode) THEN
@@ -373,13 +369,13 @@ CONTAINS
       ELSE
          f_vec = 0.0_dp; cond_vec = 0.0_dp; my_time = 0.0_dp; energy = 0.0_dp
       END IF
-      CALL mp_bcast(opt_bas%powell_param%f, para_env_top%source, para_env_top%group)
+      CALL para_env_top%group%bcast(opt_bas%powell_param%f, para_env_top%source)
 
       ! output info if required
       CALL output_opt_info(f_vec, cond_vec, my_time, tot_time, opt_bas, iopt, para_env_top)
       DEALLOCATE (gdata)
 
-      CALL mp_sync(para_env_top%group)
+      CALL para_env_top%group%sync()
 
       CALL timestop(handle)
 
@@ -402,7 +398,7 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       TYPE(cp_fm_type), DIMENSION(:), INTENT(OUT)        :: matrix_S_inv
       TYPE(cp_para_env_type), POINTER                    :: para_env
-      INTEGER                                            :: mpi_comm_opt
+      TYPE(mp_comm_type)                                 :: mpi_comm_opt
 
       CHARACTER(len=*), PARAMETER :: routineN = 'init_training_force_envs'
 

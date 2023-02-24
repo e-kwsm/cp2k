@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -38,7 +38,7 @@
 ! **************************************************************************************************
 MODULE t_sh_p_s_c
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_bcast
+   USE message_passing,                 ONLY: mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -1109,7 +1109,8 @@ CONTAINS
 !> \param group ...
 ! **************************************************************************************************
    SUBROUTINE INIT(Nder, iunit, mepos, group)
-      INTEGER, INTENT(IN)                                :: Nder, iunit, mepos, group
+      INTEGER, INTENT(IN)                                :: Nder, iunit, mepos
+      TYPE(mp_comm_type), INTENT(IN)                     :: group
 
       INTEGER                                            :: I
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: chunk
@@ -1130,7 +1131,7 @@ CONTAINS
          END DO
          DEALLOCATE (chunk)
       END IF
-      CALL mp_bcast(C0, 0, group)
+      CALL group%bcast(C0, 0)
    END SUBROUTINE INIT
 
 ! **************************************************************************************************

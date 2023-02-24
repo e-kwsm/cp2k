@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -13,7 +13,6 @@
 ! **************************************************************************************************
 MODULE group_dist_types
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE message_passing,                 ONLY: mp_allgather
    USE util,                            ONLY: get_limit
 #include "./base/base_uses.f90"
 
@@ -147,9 +146,9 @@ CONTAINS
       ALLOCATE (this%ends(0:para_env%num_pe - 1))
       ALLOCATE (this%sizes(0:para_env%num_pe - 1))
 
-      CALL mp_allgather(starts, this%starts, para_env%group)
-      CALL mp_allgather(ends, this%ends, para_env%group)
-      CALL mp_allgather(sizes, this%sizes, para_env%group)
+      CALL para_env%group%allgather(starts, this%starts)
+      CALL para_env%group%allgather(ends, this%ends)
+      CALL para_env%group%allgather(sizes, this%sizes)
 
       CALL timestop(handle)
 
@@ -176,9 +175,9 @@ CONTAINS
       ALLOCATE (this%ends(0:para_env%num_pe - 1))
       ALLOCATE (this%sizes(0:para_env%num_pe - 1))
 
-      CALL mp_allgather(group_dist_ext%starts, this%starts, para_env%group)
-      CALL mp_allgather(group_dist_ext%ends, this%ends, para_env%group)
-      CALL mp_allgather(group_dist_ext%sizes, this%sizes, para_env%group)
+      CALL para_env%group%allgather(group_dist_ext%starts, this%starts)
+      CALL para_env%group%allgather(group_dist_ext%ends, this%ends)
+      CALL para_env%group%allgather(group_dist_ext%sizes, this%sizes)
 
       CALL timestop(handle)
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -20,7 +20,6 @@ MODULE hfx_ri
                                               gto_basis_set_type
    USE cell_types,                      ONLY: cell_type,&
                                               real_to_scaled
-   USE cp_array_utils,                  ONLY: cp_1d_r_p_type
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type
    USE cp_dbcsr_cholesky,               ONLY: cp_dbcsr_cholesky_decompose,&
@@ -34,7 +33,6 @@ MODULE hfx_ri
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_to_fm,&
                                               cp_fm_type,&
@@ -82,10 +80,7 @@ MODULE hfx_ri
                                               dp,&
                                               int_8
    USE machine,                         ONLY: m_walltime
-   USE message_passing,                 ONLY: mp_cart_create,&
-                                              mp_environ,&
-                                              mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_cart_type
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -452,8 +447,8 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_pre_scf_calc_tensors'
 
-      INTEGER                                            :: handle, i_mem, ibasis, mp_comm_t3c, &
-                                                            n_mem, natom, nkind
+      INTEGER                                            :: handle, i_mem, ibasis, n_mem, natom, &
+                                                            nkind
       INTEGER, ALLOCATABLE, DIMENSION(:) :: dist_AO_1, dist_AO_2, dist_RI, &
          ends_array_mc_block_int, ends_array_mc_int, sizes_AO, sizes_RI, &
          starts_array_mc_block_int, starts_array_mc_int
@@ -471,6 +466,7 @@ CONTAINS
       TYPE(gto_basis_set_p_type), ALLOCATABLE, &
          DIMENSION(:), TARGET                            :: basis_set_AO, basis_set_RI
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis, ri_basis
+      TYPE(mp_cart_type)                                 :: mp_comm_t3c
       TYPE(neighbor_list_3c_type)                        :: nl_3c
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: nl_2c_pot, nl_2c_RI
@@ -515,7 +511,7 @@ CONTAINS
 
       CALL get_qs_env(qs_env, nkind=nkind, particle_set=particle_set, atomic_kind_set=atomic_kind_set)
       CALL dbt_mp_environ_pgrid(ri_data%pgrid, pdims, pcoord)
-      CALL mp_cart_create(ri_data%pgrid%mp_comm_2d, 3, pdims, pcoord, mp_comm_t3c)
+      CALL mp_comm_t3c%create(ri_data%pgrid%mp_comm_2d, 3, pdims, pcoord)
       CALL distribution_3d_create(dist_3d, dist_RI, dist_AO_1, dist_AO_2, &
                                   nkind, particle_set, mp_comm_t3c, own_comm=.TRUE.)
       DEALLOCATE (dist_RI, dist_AO_1, dist_AO_2)
@@ -779,11 +775,11 @@ CONTAINS
       DO i_mem = 1, ri_data%n_mem_RI
          bounds_i(:, 1) = [ri_data%starts_array_RI_mem(i_mem), ri_data%ends_array_RI_mem(i_mem)]
 
+         CALL dbt_batched_contract_init(ri_data%t_2c_int(1, 1))
          DO j_mem = 1, ri_data%n_mem
             bounds_j(:, 1) = [ri_data%starts_array_mem(j_mem), ri_data%ends_array_mem(j_mem)]
             bounds_j(:, 2) = [1, dims_3c(3)]
             CALL timeset(routineN//"_RIx3C", handle2)
-            CALL dbt_batched_contract_init(ri_data%t_2c_int(1, 1))
             CALL dbt_contract(1.0_dp, ri_data%t_2c_int(1, 1), ri_data%t_3c_int_ctr_3(1, 1), &
                               0.0_dp, t_3c_2, &
                               contract_1=[2], notcontract_1=[1], &
@@ -793,7 +789,6 @@ CONTAINS
                               bounds_3=bounds_j, &
                               unit_nr=unit_nr_dbcsr, &
                               flop=nflop)
-            CALL dbt_batched_contract_finalize(ri_data%t_2c_int(1, 1))
 
             ri_data%dbcsr_nflop = ri_data%dbcsr_nflop + nflop
             CALL timestop(handle2)
@@ -809,11 +804,12 @@ CONTAINS
 
             CALL timestop(handle2)
          END DO
+         CALL dbt_batched_contract_finalize(ri_data%t_2c_int(1, 1))
       END DO
       CALL dbt_batched_contract_finalize(t_3c_2)
       CALL dbt_batched_contract_finalize(ri_data%t_3c_int_ctr_3(1, 1))
 
-      CALL mp_sum(memory_3c, para_env%group)
+      CALL para_env%group%sum(memory_3c)
       compression_factor = REAL(nze_O, dp)*1.0E-06*8.0_dp/memory_3c
 
       IF (unit_nr > 0) THEN
@@ -937,9 +933,8 @@ CONTAINS
       LOGICAL                                            :: is_antisymmetric
       REAL(dp)                                           :: etmp, fac
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
-      TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: occupied_evals
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: homo_localized, moloc_coeff, &
-                                                            occupied_orbs
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: homo_localized
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: moloc_coeff
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: my_ks_matrix, my_rho_ao
@@ -993,8 +988,6 @@ CONTAINS
          CALL timeset(routineN//"_MO", handle2)
 
          IF (ri_data%do_loc) THEN
-            ALLOCATE (occupied_orbs(nspins))
-            ALLOCATE (occupied_evals(nspins))
             ALLOCATE (homo_localized(nspins))
          END IF
          DO ispin = 1, nspins
@@ -1011,11 +1004,8 @@ CONTAINS
             END IF
 
             IF (ri_data%do_loc) THEN
-               occupied_orbs(ispin)%matrix => mo_coeff
-               occupied_evals(ispin)%array => mo_eigenvalues
-               ALLOCATE (homo_localized(ispin)%matrix)
-               CALL cp_fm_create(homo_localized(ispin)%matrix, occupied_orbs(ispin)%matrix%matrix_struct)
-               CALL cp_fm_to_fm(occupied_orbs(ispin)%matrix, homo_localized(ispin)%matrix)
+               CALL cp_fm_create(homo_localized(ispin), mo_coeff%matrix_struct)
+               CALL cp_fm_to_fm(mo_coeff, homo_localized(ispin))
             END IF
          END DO
 
@@ -1026,21 +1016,20 @@ CONTAINS
             CALL qs_loc_init(qs_env, ri_data%qs_loc_env, ri_data%loc_subsection, homo_localized)
             DO ispin = 1, nspins
                CALL qs_loc_driver(qs_env, ri_data%qs_loc_env, ri_data%print_loc_subsection, ispin, &
-                                  ext_mo_coeff=homo_localized(ispin)%matrix)
+                                  ext_mo_coeff=homo_localized(ispin))
             END DO
             CALL get_qs_loc_env(qs_loc_env=ri_data%qs_loc_env, moloc_coeff=moloc_coeff)
 
             DO ispin = 1, nspins
-               CALL cp_fm_release(homo_localized(ispin)%matrix)
-               DEALLOCATE (homo_localized(ispin)%matrix)
+               CALL cp_fm_release(homo_localized(ispin))
             END DO
 
-            DEALLOCATE (occupied_orbs, occupied_evals, homo_localized)
+            DEALLOCATE (homo_localized)
          END IF
 
          DO ispin = 1, nspins
             IF (ri_data%do_loc) THEN
-               CALL copy_fm_to_dbcsr(moloc_coeff(ispin)%matrix, mo_coeff_b(ispin))
+               CALL copy_fm_to_dbcsr(moloc_coeff(ispin), mo_coeff_b(ispin))
             END IF
             CALL dbcsr_scale(mo_coeff_b(ispin), SQRT(mos(ispin)%maxocc))
             homo(ispin) = mos(ispin)%homo
@@ -1060,7 +1049,7 @@ CONTAINS
          CALL get_qs_env(qs_env, para_env=para_env)
          DO ispin = 1, SIZE(my_rho_ao, 1)
             nblks = dbcsr_get_num_blocks(my_rho_ao(ispin, 1)%matrix)
-            CALL mp_sum(nblks, para_env%group)
+            CALL para_env%group%sum(nblks)
             IF (nblks == 0) THEN
                CPABORT("received empty density matrix")
             END IF
@@ -1133,9 +1122,10 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'hfx_ri_update_ks_mo'
 
-      INTEGER                                            :: bsize, bsum, comm_2d, handle, handle2, &
-                                                            i_mem, iblock, iproc, ispin, n_mem, &
-                                                            n_mos, nblock, nproc, unit_nr_dbcsr
+      INTEGER                                            :: bsize, bsum, comm_2d_handle, handle, &
+                                                            handle2, i_mem, iblock, iproc, ispin, &
+                                                            n_mem, n_mos, nblock, nproc, &
+                                                            unit_nr_dbcsr
       INTEGER(int_8)                                     :: nblks, nflop
       INTEGER, ALLOCATABLE, DIMENSION(:) :: batch_ranges_1, batch_ranges_2, dist1, dist2, dist3, &
          mem_end, mem_end_block_1, mem_end_block_2, mem_size, mem_start, mem_start_block_1, &
@@ -1151,6 +1141,7 @@ CONTAINS
       TYPE(dbt_type)                                     :: ks_t, ks_t_mat, mo_coeff_t, &
                                                             mo_coeff_t_split
       TYPE(dbt_type), DIMENSION(1, 1)                    :: t_3c_int_mo_1, t_3c_int_mo_2
+      TYPE(mp_cart_type)                                 :: comm_2d
 
       CALL timeset(routineN, handle)
 
@@ -1192,8 +1183,9 @@ CONTAINS
       ALLOCATE (bounds(2, 1))
 
       CALL dbcsr_get_info(ks_matrix(1, 1)%matrix, distribution=ks_dist)
-      CALL dbcsr_distribution_get(ks_dist, group=comm_2d, nprows=pdims_2d(1), npcols=pdims_2d(2))
+      CALL dbcsr_distribution_get(ks_dist, group=comm_2d_handle, nprows=pdims_2d(1), npcols=pdims_2d(2))
 
+      CALL comm_2d%set_handle(comm_2d_handle)
       pgrid_2d = dbt_nd_mp_comm(comm_2d, [1], [2], pdims_2d=pdims_2d)
 
       CALL create_2c_tensor(ks_t, dist1, dist2, pgrid_2d, ri_data%bsizes_AO_fit, ri_data%bsizes_AO_fit, &
@@ -1201,7 +1193,7 @@ CONTAINS
 
       DEALLOCATE (dist1, dist2)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t1 = m_walltime()
 
       DO ispin = 1, nspins
@@ -1251,7 +1243,7 @@ CONTAINS
          batch_ranges_2(:ri_data%n_mem) = mem_start_block_2(:)
          batch_ranges_2(ri_data%n_mem + 1) = mem_end_block_2(ri_data%n_mem) + 1
 
-         CALL mp_environ(nproc, iproc, para_env%group)
+         CALL para_env%group%environ(nproc, iproc)
 
          CALL create_3c_tensor(t_3c_int_mo_1(1, 1), dist1, dist2, dist3, ri_data%pgrid_1, &
                                ri_data%bsizes_AO_split, ri_data%bsizes_RI_split, mo_bsizes_1, &
@@ -1440,7 +1432,7 @@ CONTAINS
       CALL dbt_pgrid_destroy(pgrid_2d)
       CALL dbt_destroy(ks_t)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t2 = m_walltime()
 
       ri_data%dbcsr_time = ri_data%dbcsr_time + t2 - t1
@@ -1532,7 +1524,7 @@ CONTAINS
       CALL dbt_create(ri_data%t_3c_int_ctr_2(1, 1), t_3c_1)
       CALL dbt_create(ri_data%t_3c_int_ctr_1(1, 1), t_3c_3)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t1 = m_walltime()
 
       flops_ks_max = 0; flops_p_max = 0
@@ -1678,7 +1670,7 @@ CONTAINS
 
       END DO
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t2 = m_walltime()
 
       ri_data%dbcsr_time = ri_data%dbcsr_time + t2 - t1
@@ -1831,7 +1823,6 @@ CONTAINS
       ALLOCATE (idx_to_at_AO(SIZE(ri_data%bsizes_AO_split)))
       CALL get_idx_to_atom(idx_to_at_AO, ri_data%bsizes_AO_split, ri_data%bsizes_AO)
 
-      ALLOCATE (atom_of_kind(natom), kind_of(natom))
       CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of, atom_of_kind=atom_of_kind)
 
       ! 2-center RI tensors
@@ -1967,7 +1958,7 @@ CONTAINS
             CALL dbt_batched_contract_init(t_3c_der_RI(i_xyz), batch_range_2=batch_ranges_RI)
          END DO
 
-         CALL mp_sync(para_env%group)
+         CALL para_env%group%sync()
          t1 = m_walltime()
 
          ! 2) Loop over batches
@@ -2380,7 +2371,7 @@ CONTAINS
       END DO
       CALL dbt_copy(ri_data%t_3c_int_ctr_2(1, 1), ri_data%t_3c_int_ctr_1(1, 1))
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t2 = m_walltime()
 
       ri_data%dbcsr_time = ri_data%dbcsr_time + t2 - t1
@@ -2518,7 +2509,6 @@ CONTAINS
       ALLOCATE (idx_to_at_AO(SIZE(ri_data%bsizes_AO_split)))
       CALL get_idx_to_atom(idx_to_at_AO, ri_data%bsizes_AO_split, ri_data%bsizes_AO)
 
-      ALLOCATE (atom_of_kind(natom), kind_of(natom))
       CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of, atom_of_kind=atom_of_kind)
 
       ! Go over batches of the 2 AO indices to save memory
@@ -2567,7 +2557,7 @@ CONTAINS
 
       CALL dbt_create(t_3c_ri_ao_ao, t_3c_int_2)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t1 = m_walltime()
 
       !Pre-calculate the necessary 2-center quantities
@@ -2643,6 +2633,8 @@ CONTAINS
 
          CALL timeset(routineN//"_3c", handle)
          !Start looping of the batches
+         CALL dbt_batched_contract_init(t_SVS)
+         CALL dbt_batched_contract_init(t_R)
          DO i_mem = 1, n_mem
             ibounds(:, 1) = [batch_start(i_mem), batch_end(i_mem)]
 
@@ -2684,14 +2676,12 @@ CONTAINS
                   CALL dbt_copy(t_3c_sparse, t_3c_4, bounds=bounds_cpy)
 
                   !Contract with the 2-center product S^-1 * V * S^-1 while keeping sparsity of derivatives
-                  CALL dbt_batched_contract_init(t_SVS)
                   CALL dbt_contract(1.0_dp, t_SVS, t_3c_3, 0.0_dp, t_3c_4, &
                                     contract_1=[2], notcontract_1=[1], &
                                     contract_2=[1], notcontract_2=[2, 3], &
                                     map_1=[1], map_2=[2, 3], filter_eps=ri_data%filter_eps, &
                                     retain_sparsity=.TRUE., unit_nr=unit_nr_dbcsr, flop=nflop)
                   ri_data%dbcsr_nflop = ri_data%dbcsr_nflop + nflop
-                  CALL dbt_batched_contract_finalize(t_SVS)
 
                   CALL dbt_copy(t_3c_4, t_3c_5, summation=.TRUE., move_data=.TRUE.)
 
@@ -2699,7 +2689,6 @@ CONTAINS
                   ijbounds(:, 2) = jbounds(:, 1)
 
                   !Contract R_PS = (acP) M_acS
-                  CALL dbt_batched_contract_init(t_R)
                   CALL dbt_contract(1.0_dp, t_3c_int_2, t_3c_3, 1.0_dp, t_R, &
                                     contract_1=[2, 3], notcontract_1=[1], &
                                     contract_2=[2, 3], notcontract_2=[1], &
@@ -2707,7 +2696,7 @@ CONTAINS
                                     bounds_1=ijbounds, bounds_3=kbounds, &
                                     unit_nr=unit_nr_dbcsr, flop=nflop)
                   ri_data%dbcsr_nflop = ri_data%dbcsr_nflop + nflop
-                  CALL dbt_batched_contract_finalize(t_R)
+
                END DO !k_mem
             END DO !j_mem
 
@@ -2765,6 +2754,8 @@ CONTAINS
             CALL dbt_clear(t_3c_help_1)
             CALL dbt_clear(t_3c_help_2)
          END DO !i_mem
+         CALL dbt_batched_contract_finalize(t_SVS)
+         CALL dbt_batched_contract_finalize(t_R)
          CALL timestop(handle)
 
          CALL timeset(routineN//"_2c", handle)
@@ -2849,7 +2840,7 @@ CONTAINS
       CALL dbt_batched_contract_finalize(t_3c_5)
       CALL dbt_batched_contract_finalize(t_3c_sparse)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t2 = m_walltime()
 
       CALL dbt_copy(t_3c_int, ri_data%t_3c_int_ctr_2(1, 1), move_data=.TRUE.)
@@ -2923,9 +2914,8 @@ CONTAINS
       INTEGER                                            :: handle, ispin
       INTEGER, DIMENSION(2)                              :: homo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: mo_eigenvalues
-      TYPE(cp_1d_r_p_type), DIMENSION(:), POINTER        :: occupied_evals
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: homo_localized, moloc_coeff, &
-                                                            occupied_orbs
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: homo_localized
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: moloc_coeff
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_type), DIMENSION(2)                     :: mo_coeff_b
       TYPE(dbcsr_type), POINTER                          :: mo_coeff_b_tmp
@@ -2936,8 +2926,6 @@ CONTAINS
       CASE (ri_mo)
 
          IF (ri_data%do_loc) THEN
-            ALLOCATE (occupied_orbs(nspins))
-            ALLOCATE (occupied_evals(nspins))
             ALLOCATE (homo_localized(nspins))
          END IF
          DO ispin = 1, nspins
@@ -2954,11 +2942,8 @@ CONTAINS
             END IF
 
             IF (ri_data%do_loc) THEN
-               occupied_orbs(ispin)%matrix => mo_coeff
-               occupied_evals(ispin)%array => mo_eigenvalues
-               ALLOCATE (homo_localized(ispin)%matrix)
-               CALL cp_fm_create(homo_localized(ispin)%matrix, occupied_orbs(ispin)%matrix%matrix_struct)
-               CALL cp_fm_to_fm(occupied_orbs(ispin)%matrix, homo_localized(ispin)%matrix)
+               CALL cp_fm_create(homo_localized(ispin), mo_coeff%matrix_struct)
+               CALL cp_fm_to_fm(mo_coeff, homo_localized(ispin))
             END IF
          END DO
 
@@ -2969,22 +2954,21 @@ CONTAINS
             CALL qs_loc_init(qs_env, ri_data%qs_loc_env, ri_data%loc_subsection, homo_localized)
             DO ispin = 1, nspins
                CALL qs_loc_driver(qs_env, ri_data%qs_loc_env, ri_data%print_loc_subsection, ispin, &
-                                  ext_mo_coeff=homo_localized(ispin)%matrix)
+                                  ext_mo_coeff=homo_localized(ispin))
             END DO
             CALL get_qs_loc_env(qs_loc_env=ri_data%qs_loc_env, moloc_coeff=moloc_coeff)
 
             DO ispin = 1, nspins
-               CALL cp_fm_release(homo_localized(ispin)%matrix)
-               DEALLOCATE (homo_localized(ispin)%matrix)
+               CALL cp_fm_release(homo_localized(ispin))
             END DO
 
-            DEALLOCATE (occupied_orbs, occupied_evals, homo_localized)
+            DEALLOCATE (homo_localized)
 
          END IF
 
          DO ispin = 1, nspins
             IF (ri_data%do_loc) THEN
-               CALL copy_fm_to_dbcsr(moloc_coeff(ispin)%matrix, mo_coeff_b(ispin))
+               CALL copy_fm_to_dbcsr(moloc_coeff(ispin), mo_coeff_b(ispin))
             END IF
             CALL dbcsr_scale(mo_coeff_b(ispin), SQRT(mos(ispin)%maxocc))
             homo(ispin) = mos(ispin)%homo
@@ -3036,8 +3020,8 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'precalc_derivatives'
 
-      INTEGER                                            :: handle, i_mem, i_xyz, ibasis, &
-                                                            mp_comm_t3c, n_mem, nkind
+      INTEGER                                            :: handle, i_mem, i_xyz, ibasis, n_mem, &
+                                                            nkind
       INTEGER(int_8)                                     :: nze, nze_tot
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dist1, dist2, dist_AO_1, dist_AO_2, &
                                                             dist_RI, dummy_end, dummy_start, &
@@ -3056,6 +3040,7 @@ CONTAINS
       TYPE(gto_basis_set_p_type), ALLOCATABLE, &
          DIMENSION(:), TARGET                            :: basis_set_AO, basis_set_RI
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis, ri_basis
+      TYPE(mp_cart_type)                                 :: mp_comm_t3c
       TYPE(neighbor_list_3c_type)                        :: nl_3c
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: nl_2c
@@ -3095,7 +3080,7 @@ CONTAINS
       CALL dbt_destroy(t_3c_template)
 
       CALL dbt_mp_environ_pgrid(ri_data%pgrid, pdims, pcoord)
-      CALL mp_cart_create(ri_data%pgrid%mp_comm_2d, 3, pdims, pcoord, mp_comm_t3c)
+      CALL mp_comm_t3c%create(ri_data%pgrid%mp_comm_2d, 3, pdims, pcoord)
       CALL distribution_3d_create(dist_3d, dist_RI, dist_AO_1, dist_AO_2, &
                                   nkind, particle_set, mp_comm_t3c, own_comm=.TRUE.)
       DEALLOCATE (dist_RI, dist_AO_1, dist_AO_2)
@@ -3149,7 +3134,7 @@ CONTAINS
          CALL dbt_destroy(t_3c_der_AO_prv(1, 1, i_xyz))
       END DO
 
-      CALL mp_sum(memory, para_env%group)
+      CALL para_env%group%sum(memory)
       compression_factor = REAL(nze_tot, dp)*1.0E-06*8.0_dp/memory
       IF (ri_data%unit_nr > 0) THEN
          WRITE (UNIT=ri_data%unit_nr, FMT="((T3,A,T66,F11.2,A4))") &
@@ -3764,8 +3749,8 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'get_RI_density_coeffs'
 
-      INTEGER                                            :: a, b, handle, i_mem, idx, mp_comm_t3c, &
-                                                            n_dependent, n_mem, n_mem_RI, natom, &
+      INTEGER                                            :: a, b, handle, i_mem, idx, n_dependent, &
+                                                            n_mem, n_mem_RI, natom, &
                                                             nblk_per_thread, nblks, nkind
       INTEGER(int_8)                                     :: nze
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: batch_block_end, batch_block_start, &
@@ -3790,6 +3775,7 @@ CONTAINS
       TYPE(dbt_type), DIMENSION(1, 1)                    :: t_3c_int_batched
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(distribution_3d_type)                         :: dist_nl3c
+      TYPE(mp_cart_type)                                 :: mp_comm_t3c
       TYPE(neighbor_list_3c_type)                        :: nl_3c
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
@@ -3962,7 +3948,7 @@ CONTAINS
                             name="(RI | AO AO)")
 
       CALL dbt_mp_environ_pgrid(ri_data%pgrid, pdims_3d, pcoord_3d)
-      CALL mp_cart_create(ri_data%pgrid%mp_comm_2d, 3, pdims_3d, pcoord_3d, mp_comm_t3c)
+      CALL mp_comm_t3c%create(ri_data%pgrid%mp_comm_2d, 3, pdims_3d, pcoord_3d)
       CALL distribution_3d_create(dist_nl3c, dist1, dist2, dist3, nkind, particle_set, &
                                   mp_comm_t3c, own_comm=.TRUE.)
       DEALLOCATE (dist1, dist2, dist3)
@@ -4041,7 +4027,7 @@ CONTAINS
       END DO
       CALL dbt_iterator_stop(iter)
 !$OMP END PARALLEL
-      CALL mp_sum(density_coeffs, para_env%group)
+      CALL para_env%group%sum(density_coeffs)
 
       CALL dbt_destroy(t2c_ri_ints)
       CALL dbt_destroy(t2c_ri_inv)

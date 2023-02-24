@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -30,8 +30,7 @@ MODULE cp2k_runs
                                               cp_print_key_finished_output,&
                                               cp_print_key_unit_nr,&
                                               cp_rm_iter_level
-   USE cp_para_env,                     ONLY: cp_para_env_create,&
-                                              cp_para_env_release,&
+   USE cp_para_env,                     ONLY: cp_para_env_release,&
                                               cp_para_env_retain
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_parser_methods,               ONLY: parser_search_string
@@ -108,9 +107,8 @@ MODULE cp2k_runs
                                               m_walltime
    USE mc_run,                          ONLY: do_mon_car
    USE md_run,                          ONLY: qs_mol_dyn
-   USE message_passing,                 ONLY: &
-        mp_any_source, mp_bcast, mp_comm_dup, mp_comm_free, mp_comm_split, mp_environ, mp_max, &
-        mp_recv, mp_send, mp_sum, mp_sync
+   USE message_passing,                 ONLY: mp_any_source,&
+                                              mp_comm_type
    USE mscfg_methods,                   ONLY: do_mol_loop,&
                                               loop_over_molecules
    USE neb_methods,                     ONLY: neb
@@ -177,7 +175,8 @@ CONTAINS
    RECURSIVE SUBROUTINE cp2k_run(input_declaration, input_file_name, output_unit, mpi_comm, initial_variables)
       TYPE(section_type), POINTER                        :: input_declaration
       CHARACTER(LEN=*), INTENT(IN)                       :: input_file_name
-      INTEGER, INTENT(IN)                                :: output_unit, mpi_comm
+      INTEGER, INTENT(IN)                                :: output_unit
+      TYPE(mp_comm_type)                                 :: mpi_comm
       CHARACTER(len=default_path_length), &
          DIMENSION(:, :), INTENT(IN)                     :: initial_variables
 
@@ -196,17 +195,18 @@ CONTAINS
       TYPE(section_vals_type), POINTER                   :: glob_section, input_file, root_section
 
       NULLIFY (para_env, f_env, dft_control)
-      CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.)
+      ALLOCATE (para_env)
+      para_env = mpi_comm
 
 #if defined(__DBCSR_ACC)
       IF (offload_get_device_count() > 0) THEN
-         CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit, &
+         CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit, &
                              accdrv_active_device_id=offload_get_chosen_device())
       ELSE
-         CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+         CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit)
       END IF
 #else
-      CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+      CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit)
 #endif
 
       CALL pw_gpu_init()
@@ -220,7 +220,7 @@ CONTAINS
       input_file => read_input(input_declaration, input_file_name, initial_variables=initial_variables, &
                                para_env=para_env)
 
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
 
       glob_section => section_vals_get_subs_vals(input_file, "GLOBAL")
       CALL section_vals_val_get(glob_section, "ECHO_INPUT", l_val=echo_input)
@@ -284,13 +284,13 @@ CONTAINS
          CALL farming_run(input_declaration, root_section, para_env, initial_variables)
 #if defined(__DBCSR_ACC)
          IF (offload_get_device_count() > 0) THEN
-            CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit, &
+            CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit, &
                                 accdrv_active_device_id=offload_get_chosen_device())
          ELSE
-            CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+            CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit)
          END IF
 #else
-         CALL dbcsr_init_lib(mpi_comm, io_unit=output_unit)
+         CALL dbcsr_init_lib(mpi_comm%get_handle(), io_unit=output_unit)
 #endif
 
          CALL pw_gpu_init()
@@ -426,7 +426,7 @@ CONTAINS
       CALL grid_library_print_stats(mpi_comm=mpi_comm, output_unit=output_unit)
 
       m_memory_max_mpi = m_memory_max
-      CALL mp_max(m_memory_max_mpi, mpi_comm)
+      CALL mpi_comm%max(m_memory_max_mpi)
       IF (output_unit > 0) THEN
          WRITE (output_unit, *)
          WRITE (output_unit, '(T2,"MEMORY| Estimated peak process memory [MiB]",T73,I8)') &
@@ -485,9 +485,9 @@ CONTAINS
       CHARACTER(LEN=default_path_length)       :: output_file
       CHARACTER(LEN=default_string_length)     :: str
       INTEGER :: dest, handle, i, i_job_to_restart, ierr, ijob, ijob_current, &
-                 ijob_end, ijob_start, iunit, n_jobs_to_run, new_group, new_output_unit, &
+                 ijob_end, ijob_start, iunit, n_jobs_to_run, new_output_unit, &
                  new_rank, new_size, ngroups, num_slaves, output_unit, primus_slave, &
-                 slave_group, slave_rank, source, tag, todo
+                 slave_rank, source, tag, todo
       INTEGER, DIMENSION(:), POINTER           :: group_distribution, &
                                                   master_slave_partition, &
                                                   slave_distribution, &
@@ -501,6 +501,7 @@ CONTAINS
       TYPE(farming_env_type), POINTER          :: farming_env
       TYPE(section_type), POINTER              :: g_section
       TYPE(section_vals_type), POINTER         :: g_data
+      TYPE(mp_comm_type) :: slave_group, new_group
 
       ! the primus of all slaves, talks to the master on topics concerning all slaves
       CALL timeset(routineN, handle)
@@ -528,17 +529,17 @@ CONTAINS
          master_slave_partition = (/1, para_env%num_pe - 1/)
          ALLOCATE (group_distribution(0:para_env%num_pe - 1))
 
-         CALL mp_comm_split(para_env%group, slave_group, ngroups, group_distribution, &
-                            n_subgroups=2, group_partition=master_slave_partition)
+         CALL slave_group%from_split(para_env%group, ngroups, group_distribution, &
+                                     n_subgroups=2, group_partition=master_slave_partition)
          DEALLOCATE (master_slave_partition)
          DEALLOCATE (group_distribution)
-         CALL mp_environ(num_slaves, slave_rank, slave_group)
+         CALL slave_group%environ(num_slaves, slave_rank)
 
          IF (para_env%mepos == 0) THEN
             slave = .FALSE.
             master = .TRUE.
             ! on the master node, num_slaves corresponds to the size of the master group
-            ! due to the mp_environ call.
+            ! due to the environ call.
             CPASSERT(num_slaves == 1)
             num_slaves = para_env%num_pe - 1
             slave_rank = -1
@@ -547,8 +548,8 @@ CONTAINS
       ELSE
          ! all processes are slaves
          IF (output_unit > 0) WRITE (output_unit, FMT="(T2,A)") "FARMING| using a slave-only setup"
-         CALL mp_comm_dup(para_env%group, slave_group)
-         CALL mp_environ(num_slaves, slave_rank, slave_group)
+         CALL slave_group%from_dup(para_env%group)
+         CALL slave_group%environ(num_slaves, slave_rank)
       END IF
       IF (output_unit > 0) WRITE (output_unit, FMT="(T2,A,I0)") "FARMING| number of slaves ", num_slaves
 
@@ -556,7 +557,7 @@ CONTAINS
       ALLOCATE (slave_distribution(0:para_env%num_pe - 1))
       slave_distribution = 0
       slave_distribution(para_env%mepos) = slave_rank
-      CALL mp_sum(slave_distribution, para_env%group)
+      CALL para_env%group%sum(slave_distribution)
       ! we do have a primus inter pares
       primus_slave = 0
       DO i = 1, para_env%num_pe - 1
@@ -570,36 +571,36 @@ CONTAINS
       IF (slave) THEN
          IF (farming_env%group_size_wish_set) THEN
             farming_env%group_size_wish = MIN(farming_env%group_size_wish, para_env%num_pe)
-            CALL mp_comm_split(slave_group, new_group, ngroups, group_distribution, &
-                               subgroup_min_size=farming_env%group_size_wish, stride=farming_env%stride)
+            CALL new_group%from_split(slave_group, ngroups, group_distribution, &
+                                      subgroup_min_size=farming_env%group_size_wish, stride=farming_env%stride)
          ELSE IF (farming_env%ngroup_wish_set) THEN
             IF (ASSOCIATED(farming_env%group_partition)) THEN
-               CALL mp_comm_split(slave_group, new_group, ngroups, group_distribution, &
-                                  n_subgroups=farming_env%ngroup_wish, &
-                                  group_partition=farming_env%group_partition, stride=farming_env%stride)
+               CALL new_group%from_split(slave_group, ngroups, group_distribution, &
+                                         n_subgroups=farming_env%ngroup_wish, &
+                                         group_partition=farming_env%group_partition, stride=farming_env%stride)
             ELSE
-               CALL mp_comm_split(slave_group, new_group, ngroups, group_distribution, &
-                                  n_subgroups=farming_env%ngroup_wish, stride=farming_env%stride)
+               CALL new_group%from_split(slave_group, ngroups, group_distribution, &
+                                         n_subgroups=farming_env%ngroup_wish, stride=farming_env%stride)
             END IF
          ELSE
             CPABORT("must set either group_size_wish or ngroup_wish")
          END IF
-         CALL mp_environ(new_size, new_rank, new_group)
+         CALL new_group%environ(new_size, new_rank)
       END IF
 
       ! transfer the info about the slave group distribution to the master
       IF (farming_env%master_slave) THEN
          IF (para_env%mepos == primus_slave) THEN
             tag = 1
-            CALL mp_send(group_distribution, 0, tag, para_env%group)
+            CALL para_env%group%send(group_distribution, 0, tag)
             tag = 2
-            CALL mp_send(ngroups, 0, tag, para_env%group)
+            CALL para_env%group%send(ngroups, 0, tag)
          END IF
          IF (para_env%mepos == 0) THEN
             tag = 1
-            CALL mp_recv(group_distribution, primus_slave, tag, para_env%group)
+            CALL para_env%group%recv(group_distribution, primus_slave, tag)
             tag = 2
-            CALL mp_recv(ngroups, primus_slave, tag, para_env%group)
+            CALL para_env%group%recv(ngroups, primus_slave, tag)
          END IF
       END IF
 
@@ -656,17 +657,17 @@ CONTAINS
                   ! the message tells what has been done lately
                   tag = 1
                   dest = 0
-                  CALL mp_send(todo, dest, tag, para_env%group)
+                  CALL para_env%group%send(todo, dest, tag)
 
                   ! gets the new todo item
                   tag = 2
                   source = 0
-                  CALL mp_recv(todo, source, tag, para_env%group)
+                  CALL para_env%group%recv(todo, source, tag)
 
                   ! and informs his peer slaves
-                  CALL mp_bcast(todo, 0, new_group)
+                  CALL new_group%bcast(todo, 0)
                ELSE
-                  CALL mp_bcast(todo, 0, new_group)
+                  CALL new_group%bcast(todo, 0)
                END IF
 
                ! if the todo is do_nothing we are flagged to quit. Otherwise it is the job number
@@ -695,7 +696,7 @@ CONTAINS
                ! who's the next slave waiting for work
                tag = 1
                source = mp_any_source
-               CALL mp_recv(todo, source, tag, para_env%group) ! updates source
+               CALL para_env%group%recv(todo, source, tag) ! updates source
                IF (todo > 0) THEN
                   farming_env%Job(todo)%status = job_finished
                   IF (output_unit > 0) THEN
@@ -708,7 +709,7 @@ CONTAINS
                CALL get_next_job(farming_env, ijob_start, ijob_end, ijob_current, todo)
                dest = source
                tag = 2
-               CALL mp_send(todo, dest, tag, para_env%group)
+               CALL para_env%group%send(todo, dest, tag)
 
                IF (todo > 0) THEN
                   farming_env%Job(todo)%status = job_running
@@ -778,12 +779,12 @@ CONTAINS
       ! keep information about how long each process has to wait
       ! i.e. the load imbalance
       t1 = m_walltime()
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
       t2 = m_walltime()
       ALLOCATE (waittime(0:para_env%num_pe - 1))
       waittime = 0.0_dp
       waittime(para_env%mepos) = t2 - t1
-      CALL mp_sum(waittime, para_env%group)
+      CALL para_env%group%sum(waittime)
       IF (output_unit > 0) THEN
          WRITE (output_unit, '(T2,A)') "Process idle times [s] at the end of the run"
          DO i = 0, para_env%num_pe - 1
@@ -796,8 +797,8 @@ CONTAINS
       DEALLOCATE (waittime)
 
       ! give back the communicators of the split groups
-      IF (slave) CALL mp_comm_free(new_group)
-      CALL mp_comm_free(slave_group)
+      IF (slave) CALL new_group%free()
+      CALL slave_group%free()
 
       ! and message passing deallocate structures
       DEALLOCATE (group_distribution)
@@ -971,14 +972,14 @@ CONTAINS
       CHARACTER(len=*), INTENT(in)                       :: input_file_path, output_file_path
       CHARACTER(len=default_path_length), &
          DIMENSION(:, :), INTENT(IN)                     :: initial_variables
-      INTEGER, INTENT(in), OPTIONAL                      :: mpi_comm
+      TYPE(mp_comm_type), INTENT(in), OPTIONAL           :: mpi_comm
 
       INTEGER                                            :: unit_nr
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
       IF (PRESENT(mpi_comm)) THEN
-         NULLIFY (para_env)
-         CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.)
+         ALLOCATE (para_env)
+         para_env = mpi_comm
       ELSE
          para_env => f77_default_para_env
          CALL cp_para_env_retain(para_env)

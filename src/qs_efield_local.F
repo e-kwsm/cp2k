@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -30,7 +30,6 @@ MODULE qs_efield_local
                                               dbcsr_p_type,&
                                               dbcsr_set
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE orbital_pointers,                ONLY: ncoset
    USE particle_types,                  ONLY: particle_type
    USE qs_energy_types,                 ONLY: qs_energy_type
@@ -201,7 +200,6 @@ CONTAINS
       natom = SIZE(particle_set)
       IF (calculate_forces) THEN
          CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, force=force)
-         ALLOCATE (atom_of_kind(natom))
          CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind)
       END IF
       ci = 0.0_dp
@@ -386,9 +384,8 @@ CONTAINS
 
       IF (calculate_forces) THEN
          DO ikind = 1, SIZE(atomic_kind_set)
-            CALL mp_sum(force(ikind)%efield, para_env%group)
+            CALL para_env%group%sum(force(ikind)%efield)
          END DO
-         DEALLOCATE (atom_of_kind)
       END IF
 
       CALL timestop(handle)

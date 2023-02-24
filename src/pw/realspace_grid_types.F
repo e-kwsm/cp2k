@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -25,9 +25,12 @@ MODULE realspace_grid_types
                                               int_8
    USE machine,                         ONLY: m_memory
    USE mathlib,                         ONLY: det_3x3
-   USE message_passing,                 ONLY: &
-        mp_comm_dup, mp_comm_free, mp_environ, mp_irecv, mp_isend, mp_isendrecv, mp_max, mp_min, &
-        mp_request_null, mp_sum, mp_sync, mp_waitall, mp_waitany
+   USE message_passing,                 ONLY: mp_comm_null,&
+                                              mp_comm_type,&
+                                              mp_request_null,&
+                                              mp_request_type,&
+                                              mp_waitall,&
+                                              mp_waitany
    USE offload_api,                     ONLY: offload_buffer_type,&
                                               offload_create_buffer,&
                                               offload_free_buffer
@@ -109,7 +112,7 @@ MODULE realspace_grid_types
       LOGICAL :: distributed ! whether the rs grid is distributed
       ! these MPI related quantities are only meaningful depending on how the grid has been laid out
       ! they are most useful for fully distributed grids, where they reflect the topology of the grid
-      INTEGER :: group
+      TYPE(mp_comm_type) :: group
       INTEGER :: my_pos
       LOGICAL :: group_head
       INTEGER :: group_size
@@ -171,7 +174,7 @@ CONTAINS
 !> \param shift ...
 !> \return ...
 ! **************************************************************************************************
-   FUNCTION rs_grid_locate_rank(rs_desc, rank_in, shift) RESULT(rank_out)
+   PURE FUNCTION rs_grid_locate_rank(rs_desc, rank_in, shift) RESULT(rank_out)
       TYPE(realspace_grid_desc_type), INTENT(IN)         :: rs_desc
       INTEGER, INTENT(IN)                                :: rank_in
       INTEGER, DIMENSION(3), INTENT(IN)                  :: shift
@@ -226,7 +229,7 @@ CONTAINS
 
       ALLOCATE (desc)
 
-      CALL mp_sync(pw_grid%para%group)
+      CALL pw_grid%para%group%sync()
 
       NULLIFY (desc%rank2coord, desc%coord2rank, desc%lb_global, desc%ub_global, desc%x2coord, desc%y2coord, desc%z2coord)
 
@@ -253,7 +256,7 @@ CONTAINS
          END IF
          desc%parallel = .FALSE.
          desc%distributed = .FALSE.
-         desc%group = -1
+         desc%group = mp_comm_null
          desc%group_size = 1
          desc%group_head = .TRUE.
          desc%group_dim = 1
@@ -349,8 +352,8 @@ CONTAINS
          END IF
 
          desc%group_dim(:) = n_slices(:)
-         CALL mp_comm_dup(pw_grid%para%group, desc%group)
-         CALL mp_environ(desc%group_size, desc%my_pos, desc%group)
+         CALL desc%group%from_dup(pw_grid%para%group)
+         CALL desc%group%environ(desc%group_size, desc%my_pos)
 
          IF (ALL(n_slices == 1)) THEN
             ! CASE 1 : only one slice: we do not need overlapping regions and special
@@ -618,13 +621,13 @@ CONTAINS
             DO dir = 1, 3
                IF (rs%desc%perd(dir) /= 1) THEN
                   nn = rs%npts_local(dir)
-                  CALL mp_sum(nn, rs%desc%group)
+                  CALL rs%desc%group%sum(nn)
                   pp(1) = REAL(nn, KIND=dp)/REAL(PRODUCT(rs%desc%group_dim), KIND=dp)
                   nn = rs%npts_local(dir)
-                  CALL mp_max(nn, rs%desc%group)
+                  CALL rs%desc%group%max(nn)
                   pp(2) = REAL(nn, KIND=dp)
                   nn = rs%npts_local(dir)
-                  CALL mp_min(nn, rs%desc%group)
+                  CALL rs%desc%group%min(nn)
                   pp(3) = REAL(nn, KIND=dp)
                   IF (iounit > 0) THEN
                      WRITE (iounit, '(A,T48,A)') " RS_GRID|   Distribution", &
@@ -820,15 +823,16 @@ CONTAINS
       TYPE(pw_type), INTENT(IN)                          :: pw
       INTEGER, INTENT(IN)                                :: dir
 
-      INTEGER                                            :: dest, group, i, ii, im, ip, ix, iy, iz, &
-                                                            j, jm, k, km, mepos, nma, nn, np, &
-                                                            req(2), s(3), source
+      INTEGER                                            :: dest, i, ii, im, ip, ix, iy, iz, j, jm, &
+                                                            k, km, mepos, nma, nn, np, s(3), source
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: rcount
       INTEGER, DIMENSION(3)                              :: lb, ub
       INTEGER, DIMENSION(:, :), POINTER                  :: pbo
       INTEGER, DIMENSION(:, :, :), POINTER               :: bo
       REAL(KIND=dp), DIMENSION(:), POINTER               :: recvbuf, sendbuf, swapptr
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: grid
+      TYPE(mp_comm_type)                                 :: group
+      TYPE(mp_request_type), DIMENSION(2)                :: req
 
       np = pw%pw_grid%para%group_size
       bo => pw%pw_grid%para%bo(1:2, 1:3, 0:np - 1, 1)
@@ -872,9 +876,7 @@ CONTAINS
                END DO
             END DO
             IF (ip .EQ. np) EXIT
-            CALL mp_isendrecv(sendbuf, dest, recvbuf, source, &
-                              group, req(1), req(2), 13)
-            CALL mp_waitall(req)
+            CALL group%sendrecv(sendbuf, dest, recvbuf, source, 13)
             swapptr => sendbuf
             sendbuf => recvbuf
             recvbuf => swapptr
@@ -903,8 +905,8 @@ CONTAINS
          DO ip = 0, np - 1
             ! we must shift the buffer only np-1 times around
             IF (ip .NE. np - 1) THEN
-               CALL mp_isendrecv(sendbuf, dest, recvbuf, source, &
-                                 group, req(1), req(2), 13)
+               CALL group%isendrecv(sendbuf, dest, recvbuf, source, &
+                                    req(1), req(2), 13)
             END IF
             lb = pbo(1, :) + bo(1, :, MODULO(mepos - ip, np) + 1) - 1
             ub = pbo(1, :) + bo(2, :, MODULO(mepos - ip, np) + 1) - 1
@@ -1004,19 +1006,19 @@ CONTAINS
       CHARACTER(LEN=200)                                 :: error_string
       INTEGER :: completed, dest_down, dest_up, i, idir, j, k, lb, my_id, my_pw_rank, my_rs_rank, &
          n_shifts, nn, num_threads, position, source_down, source_up, ub, x, y, z
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dshifts, recv_disps, recv_reqs, &
-                                                            recv_sizes, send_disps, send_reqs, &
-                                                            send_sizes, ushifts
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: dshifts, recv_disps, recv_sizes, &
+                                                            send_disps, send_sizes, ushifts
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: bounds, recv_tasks, send_tasks
       INTEGER, DIMENSION(2)                              :: neighbours, pos
       INTEGER, DIMENSION(3) :: coords, lb_recv, lb_recv_down, lb_recv_up, lb_send, lb_send_down, &
          lb_send_up, ub_recv, ub_recv_down, ub_recv_up, ub_send, ub_send_down, ub_send_up
-      INTEGER, DIMENSION(4)                              :: req
       LOGICAL, DIMENSION(3)                              :: halo_swapped
       REAL(KIND=dp)                                      :: pw_sum, rs_sum
       REAL(KIND=dp), DIMENSION(:, :, :), POINTER         :: recv_buf_3d_down, recv_buf_3d_up, &
                                                             send_buf_3d_down, send_buf_3d_up
       TYPE(cp_1d_r_p_type), ALLOCATABLE, DIMENSION(:)    :: recv_bufs, send_bufs
+      TYPE(mp_request_type), ALLOCATABLE, DIMENSION(:)   :: recv_reqs, send_reqs
+      TYPE(mp_request_type), DIMENSION(4)                :: req
 
       num_threads = 1
       my_id = 0
@@ -1026,7 +1028,7 @@ CONTAINS
          ! safety check, to be removed once we're absolute sure the routine is correct
          IF (debug_this_module) THEN
             rs_sum = accurate_sum(rs%r)*ABS(det_3x3(rs%desc%dh))
-            CALL mp_sum(rs_sum, rs%desc%group)
+            CALL rs%desc%group%sum(rs_sum)
          END IF
 
          halo_swapped = .FALSE.
@@ -1095,7 +1097,7 @@ CONTAINS
                   ! post the receive
                   ALLOCATE (recv_buf_3d_down(lb_recv_down(1):ub_recv_down(1), &
                                              lb_recv_down(2):ub_recv_down(2), lb_recv_down(3):ub_recv_down(3)))
-                  CALL mp_irecv(recv_buf_3d_down, source_down, rs%desc%group, req(1))
+                  CALL rs%desc%group%irecv(recv_buf_3d_down, source_down, req(1))
 
                   ! now allocate, pack and send the send buffer
                   nn = PRODUCT(ub_send_down - lb_send_down + 1)
@@ -1117,7 +1119,7 @@ CONTAINS
                   END IF
 !$OMP END PARALLEL
 
-                  CALL mp_isend(send_buf_3d_down, dest_down, rs%desc%group, req(3))
+                  CALL rs%desc%group%isend(send_buf_3d_down, dest_down, req(3))
 
                   ! Now for the other direction
                   CALL cart_shift(rs, idir, n_shifts, source_up, dest_up)
@@ -1155,7 +1157,7 @@ CONTAINS
                   ! post the receive
                   ALLOCATE (recv_buf_3d_up(lb_recv_up(1):ub_recv_up(1), &
                                            lb_recv_up(2):ub_recv_up(2), lb_recv_up(3):ub_recv_up(3)))
-                  CALL mp_irecv(recv_buf_3d_up, source_up, rs%desc%group, req(2))
+                  CALL rs%desc%group%irecv(recv_buf_3d_up, source_up, req(2))
 
                   ! now allocate,pack and send the send buffer
                   nn = PRODUCT(ub_send_up - lb_send_up + 1)
@@ -1177,7 +1179,7 @@ CONTAINS
                   END IF
 !$OMP END PARALLEL
 
-                  CALL mp_isend(send_buf_3d_up, dest_up, rs%desc%group, req(4))
+                  CALL rs%desc%group%isend(send_buf_3d_up, dest_up, req(4))
 
                   ! wait for a recv to complete, then we can unpack
 
@@ -1380,7 +1382,7 @@ CONTAINS
 
          DO i = 0, rs%desc%group_size - 1
             IF (recv_sizes(i) .NE. 0) THEN
-               CALL mp_irecv(recv_bufs(i)%array, i, rs%desc%group, recv_reqs(i))
+               CALL rs%desc%group%irecv(recv_bufs(i)%array, i, recv_reqs(i))
             END IF
          END DO
 
@@ -1406,7 +1408,7 @@ CONTAINS
 
          DO i = 0, rs%desc%group_size - 1
             IF (send_sizes(i) .NE. 0) THEN
-               CALL mp_isend(send_bufs(i)%array, i, rs%desc%group, send_reqs(i))
+               CALL rs%desc%group%isend(send_bufs(i)%array, i, send_reqs(i))
             END IF
          END DO
 
@@ -1609,7 +1611,7 @@ CONTAINS
 
          DO i = 0, rs%desc%group_size - 1
             IF (recv_sizes(i) .NE. 0) THEN
-               CALL mp_irecv(recv_bufs(i)%array, i, rs%desc%group, recv_reqs(i))
+               CALL rs%desc%group%irecv(recv_bufs(i)%array, i, recv_reqs(i))
             END IF
          END DO
 
@@ -1635,7 +1637,7 @@ CONTAINS
 
          DO i = 0, rs%desc%group_size - 1
             IF (send_sizes(i) .NE. 0) THEN
-               CALL mp_isend(send_bufs(i)%array, i, rs%desc%group, send_reqs(i))
+               CALL rs%desc%group%isend(send_bufs(i)%array, i, send_reqs(i))
             END IF
          END DO
 
@@ -1746,7 +1748,7 @@ CONTAINS
                                              lb_recv_down(2):ub_recv_down(2), lb_recv_down(3):ub_recv_down(3)))
 
                   ! recv buffer is now ready, so post the receive
-                  CALL mp_irecv(recv_buf_3d_down, source_down, rs%desc%group, req(1))
+                  CALL rs%desc%group%irecv(recv_buf_3d_down, source_down, req(1))
 
                   ! now allocate,pack and send the send buffer
                   nn = PRODUCT(ub_send_down - lb_send_down + 1)
@@ -1768,7 +1770,7 @@ CONTAINS
                   END IF
 !$OMP END PARALLEL
 
-                  CALL mp_isend(send_buf_3d_down, dest_down, rs%desc%group, req(3))
+                  CALL rs%desc%group%isend(send_buf_3d_down, dest_down, req(3))
 
                   ! Now for the other direction
 
@@ -1810,7 +1812,7 @@ CONTAINS
 
                   ! recv buffer is now ready, so post the receive
 
-                  CALL mp_irecv(recv_buf_3d_up, source_up, rs%desc%group, req(2))
+                  CALL rs%desc%group%irecv(recv_buf_3d_up, source_up, req(2))
 
                   ! now allocate,pack and send the send buffer
                   nn = PRODUCT(ub_send_up - lb_send_up + 1)
@@ -1832,7 +1834,7 @@ CONTAINS
                   END IF
 !$OMP END PARALLEL
 
-                  CALL mp_isend(send_buf_3d_up, dest_up, rs%desc%group, req(4))
+                  CALL rs%desc%group%isend(send_buf_3d_up, dest_up, req(4))
 
                   ! wait for a recv to complete, then we can unpack
 
@@ -2030,6 +2032,7 @@ CONTAINS
       IF (ASSOCIATED(rs_grid%px)) DEALLOCATE (rs_grid%px)
       IF (ASSOCIATED(rs_grid%py)) DEALLOCATE (rs_grid%py)
       IF (ASSOCIATED(rs_grid%pz)) DEALLOCATE (rs_grid%pz)
+      NULLIFY (rs_grid%px, rs_grid%py, rs_grid%pz)
    END SUBROUTINE rs_grid_release
 
 ! **************************************************************************************************
@@ -2051,7 +2054,7 @@ CONTAINS
 
             IF (rs_desc%parallel) THEN
                ! release the group communicator
-               CALL mp_comm_free(rs_desc%group)
+               CALL rs_desc%group%free()
 
                DEALLOCATE (rs_desc%virtual2real)
                DEALLOCATE (rs_desc%real2virtual)
@@ -2070,6 +2073,7 @@ CONTAINS
             DEALLOCATE (rs_desc)
          END IF
       END IF
+      NULLIFY (rs_desc)
    END SUBROUTINE rs_grid_release_descriptor
 
 ! **************************************************************************************************

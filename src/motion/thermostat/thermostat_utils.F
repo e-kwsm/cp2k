@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -41,7 +41,7 @@ MODULE thermostat_utils
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE machine,                         ONLY: m_flush
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_kind_types,             ONLY: get_molecule_kind,&
                                               get_molecule_kind_set,&
                                               molecule_kind_type
@@ -922,7 +922,7 @@ CONTAINS
       TYPE(map_info_type), POINTER                       :: map_info
       TYPE(npt_info_type), DIMENSION(:, :), &
          INTENT(INOUT)                                   :: npt
-      INTEGER, INTENT(IN)                                :: group
+      TYPE(mp_comm_type), INTENT(IN)                     :: group
 
       INTEGER                                            :: i, j, ncoef
 
@@ -937,7 +937,7 @@ CONTAINS
          END DO
       END DO
 
-      IF (map_info%dis_type == do_thermo_communication) CALL mp_sum(map_info%s_kin, group)
+      IF (map_info%dis_type == do_thermo_communication) CALL group%sum(map_info%s_kin)
 
    END SUBROUTINE ke_region_baro
 
@@ -983,7 +983,7 @@ CONTAINS
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind_set(:)
       TYPE(distribution_1d_type), POINTER                :: local_molecules
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
-      INTEGER, INTENT(IN)                                :: group
+      TYPE(mp_comm_type), INTENT(IN)                     :: group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
 
       INTEGER                                            :: first_atom, ii, ikind, imol, imol_local, &
@@ -1026,7 +1026,7 @@ CONTAINS
          END DO
       END DO
 
-      IF (map_info%dis_type == do_thermo_communication) CALL mp_sum(map_info%s_kin, group)
+      IF (map_info%dis_type == do_thermo_communication) CALL group%sum(map_info%s_kin)
 
    END SUBROUTINE ke_region_particles
 
@@ -1049,7 +1049,7 @@ CONTAINS
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind_set(:)
       TYPE(distribution_1d_type), POINTER                :: local_molecules
       TYPE(molecule_type), POINTER                       :: molecule_set(:)
-      INTEGER, INTENT(IN)                                :: group
+      TYPE(mp_comm_type), INTENT(IN)                     :: group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: vel(:, :)
 
       INTEGER                                            :: first_atom, ii, ikind, imol, imol_local, &
@@ -1086,7 +1086,7 @@ CONTAINS
          END DO
       END DO
 
-      IF (map_info%dis_type == do_thermo_communication) CALL mp_sum(map_info%s_kin, group)
+      IF (map_info%dis_type == do_thermo_communication) CALL group%sum(map_info%s_kin)
 
    END SUBROUTINE momentum_region_particles
 
@@ -1218,7 +1218,7 @@ CONTAINS
       TYPE(particle_type), POINTER                       :: particle_set(:)
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind_set(:)
       TYPE(distribution_1d_type), POINTER                :: local_particles
-      INTEGER, INTENT(IN)                                :: group
+      TYPE(mp_comm_type), INTENT(IN)                     :: group
       TYPE(particle_type), OPTIONAL, POINTER             :: core_particle_set(:), &
                                                             shell_particle_set(:)
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: core_vel(:, :), shell_vel(:, :)
@@ -1273,7 +1273,7 @@ CONTAINS
             END DO
          END IF
       END DO
-      IF (map_info%dis_type == do_thermo_communication) CALL mp_sum(map_info%s_kin, group)
+      IF (map_info%dis_type == do_thermo_communication) CALL group%sum(map_info%s_kin)
 
    END SUBROUTINE ke_region_shells
 
@@ -1399,8 +1399,8 @@ CONTAINS
 
       ! Handle the thermostat distribution
       IF (nhc%map_info%dis_type == do_thermo_no_communication) THEN
-         CALL mp_sum(akin, para_env%group)
-         CALL mp_sum(vpot, para_env%group)
+         CALL para_env%group%sum(akin)
+         CALL para_env%group%sum(vpot)
       ELSE IF (nhc%map_info%dis_type == do_thermo_communication) THEN
          CALL communication_thermo_low1(akin, number, para_env)
          CALL communication_thermo_low1(vpot, number, para_env)
@@ -1466,7 +1466,7 @@ CONTAINS
 
       ! Handle the thermostat distribution
       IF (map_info%dis_type == do_thermo_no_communication) THEN
-         CALL mp_sum(akin, para_env%group)
+         CALL para_env%group%sum(akin)
       ELSE IF (map_info%dis_type == do_thermo_communication) THEN
          CALL communication_thermo_low1(akin, number, para_env)
       END IF
@@ -1534,8 +1534,8 @@ CONTAINS
 
       ! Handle the thermostat distribution
       IF (map_info%dis_type == do_thermo_no_communication) THEN
-         CALL mp_sum(akin, para_env%group)
-         CALL mp_sum(deg_of_free, para_env%group)
+         CALL para_env%group%sum(akin)
+         CALL para_env%group%sum(deg_of_free)
       ELSE IF (map_info%dis_type == do_thermo_communication) THEN
          CALL communication_thermo_low1(akin, number, para_env)
          CALL communication_thermo_low1(deg_of_free, number, para_env)
@@ -1830,7 +1830,7 @@ CONTAINS
       DO i = 1, number
          work = 0.0_dp
          work(para_env%mepos + 1) = array(i)
-         CALL mp_sum(work, para_env%group)
+         CALL para_env%group%sum(work)
          ncheck = COUNT(work /= 0.0_dp)
          array(i) = 0.0_dp
          IF (ncheck /= 0) THEN
@@ -1872,7 +1872,7 @@ CONTAINS
       DO i = 1, number2
          work = 0
          work(:, para_env%mepos + 1) = array(:, i)
-         CALL mp_sum(work, para_env%group)
+         CALL para_env%group%sum(work)
          ncheck = 0
          DO j = 1, para_env%num_pe
             IF (ANY(work(:, j) /= 0)) THEN

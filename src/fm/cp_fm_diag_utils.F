@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -32,10 +32,8 @@ MODULE cp_fm_diag_utils
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE kinds,                           ONLY: dp
    USE mathlib,                         ONLY: gcd
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_comm_free,&
-                                              mp_comm_split,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_null,&
+                                              mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -63,7 +61,7 @@ MODULE cp_fm_diag_utils
       LOGICAL                                  :: should_print
       LOGICAL                                  :: elpa_force_redistribute
       ! Temporaries
-      INTEGER                                  :: subgroup
+      TYPE(mp_comm_type)                       :: subgroup
       INTEGER, DIMENSION(:), POINTER           :: group_distribution, &
                                                   group_partition
       TYPE(cp_blacs_env_type), POINTER         :: blacs_env_new
@@ -121,7 +119,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE cp_fm_redistribute_work_init()
 
-      work_redistribute%subgroup = -1
+      work_redistribute%subgroup = mp_comm_null
       NULLIFY (work_redistribute%group_distribution)
       NULLIFY (work_redistribute%group_partition)
       NULLIFY (work_redistribute%blacs_env_new)
@@ -143,7 +141,7 @@ CONTAINS
             CALL cp_blacs_env_release(work_redistribute%blacs_env_new)
             CALL cp_para_env_release(work_redistribute%para_env_new)
          ELSE
-            CALL mp_comm_free(work_redistribute%subgroup)
+            CALL work_redistribute%subgroup%free()
          END IF
          DEALLOCATE (work_redistribute%group_distribution)
          DEALLOCATE (work_redistribute%group_partition)
@@ -297,7 +295,7 @@ CONTAINS
 #if defined(__SCALAPACK)
       REAL(KIND=dp)                            :: fake_local_data(1, 1)
       INTEGER                                  :: fake_descriptor(9), mepos_old, &
-                                                  io_unit, ngroups, ncol_block
+                                                  io_unit, ngroups, ncol_block, blksize, nrow_block
       TYPE(cp_fm_struct_type), POINTER         :: fm_struct_new
       TYPE(cp_para_env_type), POINTER          :: para_env
       TYPE(cp_logger_type), POINTER            :: logger
@@ -326,6 +324,8 @@ CONTAINS
       para_env => matrix%matrix_struct%para_env
       mepos_old = para_env%mepos
       ncol_block = -1 ! normally we also want to adjust the block size according to the optimal # of CPUs
+      nrow_block = -1
+      blksize = -1
 
       rdinfo%matrix_order = matrix%matrix_struct%nrow_global
       rdinfo%num_pe_old = para_env%num_pe
@@ -355,12 +355,22 @@ CONTAINS
             ! calculated number of processors such that no block has 0 columns wouldn't match (see #578):
             ! if the automatically chosen block size is larger than the present one we would still end
             ! up with empty processors
-            CALL cp_fm_get_info(matrix, ncol_block=ncol_block)
          END IF
+
+         CALL cp_fm_get_info(matrix, ncol_block=ncol_block, nrow_block=nrow_block)
+
+         ! On GPUs, ELPA requires the block size to be a power of 2
+         blksize = 1
+         DO WHILE (2*blksize <= MIN(nrow_block, ncol_block))
+            blksize = blksize*2
+         END DO
+         nrow_block = blksize
+         ncol_block = blksize
       END IF
 
-      ! finally, only redistribute if we're going to use less CPUs than before
-      rdinfo%redistribute = (rdinfo%num_pe_old > rdinfo%num_pe_new)
+      ! finally, only redistribute if we're going to use less CPUs than before or changed the block size
+      rdinfo%redistribute = (rdinfo%num_pe_old > rdinfo%num_pe_new) .OR. (blksize >= 0 .AND. &
+                                   ((blksize /= matrix%matrix_struct%ncol_block) .OR. (blksize /= matrix%matrix_struct%nrow_block)))
 
       IF (work_redistribute%should_print .AND. io_unit > 0) THEN
          IF (is_elpa) THEN
@@ -374,7 +384,7 @@ CONTAINS
          END IF
          CALL rdinfo%write(io_unit)
       END IF
-      CALL mp_sync(para_env%group)
+      CALL para_env%group%sync()
 
       ! if the optimal is smaller than num_pe, we will redistribute the input matrix
       IF (rdinfo%redistribute) THEN
@@ -382,9 +392,9 @@ CONTAINS
          ALLOCATE (work_redistribute%group_distribution(0:rdinfo%num_pe_old - 1))
          ALLOCATE (work_redistribute%group_partition(0:1))
          work_redistribute%group_partition = (/rdinfo%num_pe_new, rdinfo%num_pe_old - rdinfo%num_pe_new/)
-         CALL mp_comm_split(comm=para_env%group, sub_comm=work_redistribute%subgroup, &
-                            ngroups=ngroups, group_distribution=work_redistribute%group_distribution, &
-                            n_subgroups=2, group_partition=work_redistribute%group_partition)
+         CALL work_redistribute%subgroup%from_split(comm=para_env%group, &
+                                                    ngroups=ngroups, group_distribution=work_redistribute%group_distribution, &
+                                                    n_subgroups=2, group_partition=work_redistribute%group_partition)
 
          IF (work_redistribute%group_distribution(mepos_old) == 0) THEN
 
@@ -392,7 +402,7 @@ CONTAINS
             NULLIFY (work_redistribute%para_env_new)
             CALL cp_para_env_create(work_redistribute%para_env_new, work_redistribute%subgroup)
             ! test a sync
-            CALL mp_sync(work_redistribute%para_env_new%group)
+            CALL work_redistribute%para_env_new%group%sync()
 
             ! create blacs, should inherit the preferences for the layout and so on, from the higher level
             NULLIFY (work_redistribute%blacs_env_new)
@@ -400,11 +410,19 @@ CONTAINS
 
             ! create new matrix
             NULLIFY (fm_struct_new)
-            CALL cp_fm_struct_create(fmstruct=fm_struct_new, &
-                                     para_env=work_redistribute%para_env_new, &
-                                     context=work_redistribute%blacs_env_new, &
-                                     nrow_global=rdinfo%matrix_order, ncol_global=rdinfo%matrix_order, &
-                                     ncol_block=ncol_block)
+            IF (nrow_block == -1 .OR. ncol_block == -1) THEN
+               CALL cp_fm_struct_create(fmstruct=fm_struct_new, &
+                                        para_env=work_redistribute%para_env_new, &
+                                        context=work_redistribute%blacs_env_new, &
+                                        nrow_global=rdinfo%matrix_order, ncol_global=rdinfo%matrix_order, &
+                                        ncol_block=ncol_block, nrow_block=nrow_block)
+            ELSE
+               CALL cp_fm_struct_create(fmstruct=fm_struct_new, &
+                                        para_env=work_redistribute%para_env_new, &
+                                        context=work_redistribute%blacs_env_new, &
+                                        nrow_global=rdinfo%matrix_order, ncol_global=rdinfo%matrix_order, &
+                                        ncol_block=ncol_block, nrow_block=nrow_block, force_block=.TRUE.)
+            END IF
             CALL cp_fm_create(matrix_new, matrix_struct=fm_struct_new, name="yevd_new_mat")
             CALL cp_fm_create(eigenvectors_new, matrix_struct=fm_struct_new, name="yevd_new_vec")
             CALL cp_fm_struct_release(fm_struct_new)
@@ -504,7 +522,7 @@ CONTAINS
          CALL cp_fm_redistribute_work_finalize(work_redistribute%group_distribution(mepos_old) == 0)
 
          ! finally, also the eigenvalues need to end up on the non-group member tasks
-         CALL mp_bcast(eig, 0, para_env%group)
+         CALL para_env%group%bcast(eig, 0)
       END IF
 
 #else

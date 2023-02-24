@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -74,7 +74,7 @@ MODULE mc_ensembles
                                               mc_moves_p_type,&
                                               mc_simulation_parameters_p_type,&
                                               set_mc_par
-   USE message_passing,                 ONLY: mp_bcast
+   USE message_passing,                 ONLY: mp_comm_type
    USE parallel_rng_types,              ONLY: rng_stream_type
    USE particle_list_types,             ONLY: particle_list_p_type,&
                                               particle_list_type
@@ -135,11 +135,11 @@ CONTAINS
       INTEGER, DIMENSION(1:nboxes)                       :: box_flag, cl, data_unit, diff, istep, &
                                                             move_unit, rm
       INTEGER, DIMENSION(1:3, 1:2)                       :: discrete_array
-      INTEGER :: atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, group, &
-         handle, ibox, idum, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, &
-         iuptrans, iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, &
-         molecule_type_target, nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, &
-         start_atom, start_atom_swap, start_atom_target, start_mol
+      INTEGER :: atom_number, box_number, cell_unit, com_crd, com_ene, com_mol, end_mol, handle, &
+         ibox, idum, imol_type, imolecule, imove, iparticle, iprint, itype, iunit, iuptrans, &
+         iupvolume, iw, jbox, jdum, molecule_type, molecule_type_swap, molecule_type_target, &
+         nchain_total, nmol_types, nmoves, nnstep, nstart, nstep, source, start_atom, &
+         start_atom_swap, start_atom_target, start_mol
       CHARACTER(LEN=default_string_length)               :: unit_str
       CHARACTER(LEN=40), DIMENSION(1:nboxes)             :: cell_file, coords_file, data_file, &
                                                             displacement_file, energy_file, &
@@ -171,6 +171,7 @@ CONTAINS
       TYPE(mc_moves_p_type), DIMENSION(:, :), POINTER    :: move_updates, moves
       TYPE(mc_simulation_parameters_p_type), &
          DIMENSION(:), POINTER                           :: mc_par
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_list_p_type), DIMENSION(:), POINTER  :: particles_old
       TYPE(particle_list_type), POINTER                  :: particles_bias
       TYPE(section_vals_type), POINTER                   :: root_section
@@ -414,9 +415,9 @@ CONTAINS
       END IF
 
       DO ibox = 1, nboxes
-         CALL mp_bcast(cl(ibox), source, group)
-         CALL mp_bcast(rm(ibox), source, group)
-         CALL mp_bcast(diff(ibox), source, group)
+         CALL group%bcast(cl(ibox), source)
+         CALL group%bcast(rm(ibox), source)
+         CALL group%bcast(diff(ibox), source)
          ! set all the units numbers that we just opened in the respective mc_par
          CALL set_mc_par(mc_par(ibox)%mc_par, cl=cl(ibox), rm=rm(ibox), &
                          diff=diff(ibox))
@@ -448,7 +449,7 @@ CONTAINS
 
          IF (ionode) rand = rng_stream%next()
          ! broadcast the random number, to make sure we're on the same move
-         CALL mp_bcast(rand, source, group)
+         CALL group%bcast(rand, source)
 
          IF (rand .LT. pmvolume) THEN
 
@@ -472,7 +473,7 @@ CONTAINS
             CASE ("GEMC_NPT")
                ! we need to select a box based on the probability given in the input file
                IF (ionode) rand = rng_stream%next()
-               CALL mp_bcast(rand, source, group)
+               CALL group%bcast(rand, source)
 
                DO ibox = 1, nboxes
                   IF (rand .LE. pmvol_box(ibox)) THEN
@@ -577,7 +578,7 @@ CONTAINS
 
 ! pick a box at random
             IF (ionode) rand = rng_stream%next()
-            CALL mp_bcast(rand, source, group)
+            CALL group%bcast(rand, source)
 
             DO ibox = 1, nboxes
                IF (rand .LE. pmhmc_box(ibox)) THEN
@@ -603,7 +604,7 @@ CONTAINS
 
             ! first, pick a box to do it for
             IF (ionode) rand = rng_stream%next()
-            CALL mp_bcast(rand, source, group)
+            CALL group%bcast(rand, source)
 
             IF (nboxes .EQ. 2) THEN
                IF (rand .LT. 0.1E0_dp) THEN
@@ -617,7 +618,7 @@ CONTAINS
 
             ! now pick a molecule type to do it for
             IF (ionode) rand = rng_stream%next()
-            CALL mp_bcast(rand, source, group)
+            CALL group%bcast(rand, source)
             molecule_type_swap = 0
             DO imol_type = 1, nmol_types
                IF (rand .LT. pmavbmc_mol(imol_type)) THEN
@@ -659,10 +660,10 @@ CONTAINS
                   rand = rng_stream%next()
 
                END IF
-               CALL mp_bcast(start_atom_swap, source, group)
-               CALL mp_bcast(box_number, source, group)
-               CALL mp_bcast(start_atom_target, source, group)
-               CALL mp_bcast(rand, source, group)
+               CALL group%bcast(start_atom_swap, source)
+               CALL group%bcast(box_number, source)
+               CALL group%bcast(start_atom_target, source)
+               CALL group%bcast(rand, source)
 
                IF (rand .LT. pbias(molecule_type_swap)) THEN
                   move_type_avbmc = 'in'
@@ -693,12 +694,12 @@ CONTAINS
             DO imove = 1, nmoves
 
                IF (ionode) rand = rng_stream%next()
-               CALL mp_bcast(rand, source, group)
+               CALL group%bcast(rand, source)
                IF (rand .LT. pmtraion) THEN
                   ! change molecular conformation
                   ! first, pick a box to do it for
                   IF (ionode) rand = rng_stream%next()
-                  CALL mp_bcast(rand, source, group)
+                  CALL group%bcast(rand, source)
                   IF (nboxes .EQ. 2) THEN
                      IF (rand .LT. 0.75E0_dp) THEN
                         box_number = 1
@@ -711,7 +712,7 @@ CONTAINS
 
                   ! figure out which molecule type we're looking for
                   IF (ionode) rand = rng_stream%next()
-                  CALL mp_bcast(rand, source, group)
+                  CALL group%bcast(rand, source)
                   molecule_type = 0
                   DO imol_type = 1, nmol_types
                      IF (rand .LT. pmtraion_mol(imol_type)) THEN
@@ -740,10 +741,10 @@ CONTAINS
                         ! choose if we're changing a bond length or an angle
                         rand = rng_stream%next()
                      END IF
-                     CALL mp_bcast(rand, source, group)
-                     CALL mp_bcast(start_atom, source, group)
-                     CALL mp_bcast(box_number, source, group)
-                     CALL mp_bcast(molecule_type, source, group)
+                     CALL group%bcast(rand, source)
+                     CALL group%bcast(start_atom, source)
+                     CALL group%bcast(box_number, source)
+                     CALL group%bcast(molecule_type, source)
 
                      ! figure out what kind of move we're doing
                      IF (rand .LT. conf_prob(1, molecule_type)) THEN
@@ -769,7 +770,7 @@ CONTAINS
                   ! translate a whole molecule in the system
                   ! pick a molecule type
                   IF (ionode) rand = rng_stream%next()
-                  CALL mp_bcast(rand, source, group)
+                  CALL group%bcast(rand, source)
                   molecule_type = 0
                   DO imol_type = 1, nmol_types
                      IF (rand .LT. pmtrans_mol(imol_type)) THEN
@@ -786,8 +787,8 @@ CONTAINS
                      CALL find_mc_test_molecule(mc_molecule_info, &
                                                 start_atom, box_number, idum, rng_stream, &
                                                 molecule_type_old=molecule_type)
-                  CALL mp_bcast(start_atom, source, group)
-                  CALL mp_bcast(box_number, source, group)
+                  CALL group%bcast(start_atom, source)
+                  CALL group%bcast(box_number, source)
                   box_flag(box_number) = 1
                   CALL mc_molecule_translation(mc_par(box_number)%mc_par, &
                                                force_env(box_number)%force_env, &
@@ -801,7 +802,7 @@ CONTAINS
                   ! translate a whole cluster in the system
                   ! first, pick a box to do it for
                   IF (ionode) rand = rng_stream%next()
-                  CALL mp_bcast(rand, source, group)
+                  CALL group%bcast(rand, source)
 
                   DO ibox = 1, nboxes
                   IF (rand .LE. pmclus_box(ibox)) THEN
@@ -822,7 +823,7 @@ CONTAINS
                   !     rotate a whole molecule in the system
                   ! pick a molecule type
                   IF (ionode) rand = rng_stream%next()
-                  CALL mp_bcast(rand, source, group)
+                  CALL group%bcast(rand, source)
                   molecule_type = 0
                   DO imol_type = 1, nmol_types
                      IF (rand .LT. pmrot_mol(imol_type)) THEN
@@ -838,8 +839,8 @@ CONTAINS
                      CALL find_mc_test_molecule(mc_molecule_info, &
                                                 start_atom, box_number, idum, rng_stream, &
                                                 molecule_type_old=molecule_type)
-                  CALL mp_bcast(start_atom, source, group)
-                  CALL mp_bcast(box_number, source, group)
+                  CALL group%bcast(start_atom, source)
+                  CALL group%bcast(box_number, source)
                   box_flag(box_number) = 1
                   CALL mc_molecule_rotation(mc_par(box_number)%mc_par, &
                                             force_env(box_number)%force_env, &
@@ -1178,8 +1179,8 @@ CONTAINS
       TYPE(mc_environment_p_type), DIMENSION(:), POINTER :: mc_env
       TYPE(rng_stream_type), INTENT(INOUT)               :: rng_stream
 
-      INTEGER :: current_division, end_atom, group, ibin, idivision, iparticle, iprint, itemp, &
-         iunit, ivirial, iw, nbins, nchain_total, nintegral_divisions, nmol_types, nvirial, &
+      INTEGER :: current_division, end_atom, ibin, idivision, iparticle, iprint, itemp, iunit, &
+         ivirial, iw, nbins, nchain_total, nintegral_divisions, nmol_types, nvirial, &
          nvirial_temps, source, start_atom
       INTEGER, DIMENSION(:), POINTER                     :: mol_type, nunits, nunits_tot
       INTEGER, DIMENSION(:, :), POINTER                  :: nchains
@@ -1196,6 +1197,7 @@ CONTAINS
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
       TYPE(mc_simulation_parameters_p_type), &
          DIMENSION(:), POINTER                           :: mc_par
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_list_p_type), DIMENSION(:), POINTER  :: particles
 
 ! these are current magic numbers for how we compute the virial...
@@ -1325,7 +1327,7 @@ CONTAINS
                                  mass(1:nunits(mol_type(2)), mol_type(2)), &
                                  nunits(mol_type(2)), rng_stream)
          END IF
-         CALL mp_bcast(r_old(:, :), source, group)
+         CALL group%bcast(r_old(:, :), source)
 
          distance = 0.0E0_dp
          ibin = 1

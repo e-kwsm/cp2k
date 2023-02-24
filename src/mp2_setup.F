@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -247,14 +247,16 @@ CONTAINS
                                 i_val=mp2_env%ri_rpa_im_time%kpoint_weights_W_method)
       CALL section_vals_val_get(low_scaling_section, "EXPONENT_TAILORED_WEIGHTS", &
                                 r_val=mp2_env%ri_rpa_im_time%exp_tailored_weights)
-      CALL section_vals_val_get(low_scaling_section, "REL_CUTOFFS_CHI_W", &
-                                r_vals=mp2_env%ri_rpa_im_time%rel_cutoffs_chi_W)
       CALL section_vals_val_get(low_scaling_section, "REGULARIZATION_RI", &
                                 r_val=mp2_env%ri_rpa_im_time%regularization_RI)
       CALL section_vals_val_get(low_scaling_section, "EPS_EIGVAL_S", &
                                 r_val=mp2_env%ri_rpa_im_time%eps_eigval_S)
+      CALL section_vals_val_get(low_scaling_section, "EPS_EIGVAL_S_GAMMA", &
+                                r_val=mp2_env%ri_rpa_im_time%eps_eigval_S_Gamma)
       CALL section_vals_val_get(low_scaling_section, "MAKE_CHI_POS_DEFINITE", &
                                 l_val=mp2_env%ri_rpa_im_time%make_chi_pos_definite)
+      CALL section_vals_val_get(low_scaling_section, "MAKE_OVERLAP_MAT_AO_POS_DEFINITE", &
+                                l_val=mp2_env%ri_rpa_im_time%make_overlap_mat_ao_pos_definite)
       CALL section_vals_val_get(low_scaling_section, "TRUNC_COULOMB_RI_X", &
                                 l_val=mp2_env%ri_rpa_im_time%trunc_coulomb_ri_x)
       CALL section_vals_val_get(low_scaling_section, "DO_EXTRAPOLATE_KPOINTS", &
@@ -263,8 +265,6 @@ CONTAINS
                                 r_val=mp2_env%ri_rpa_im_time%rel_cutoff_trunc_coulomb_ri_x)
       CALL section_vals_val_get(low_scaling_section, "K_MESH_G_FACTOR", &
                                 i_val=mp2_env%ri_rpa_im_time%k_mesh_g_factor)
-      CALL section_vals_val_get(low_scaling_section, "GREENS_FUNCTION", &
-                                i_val=mp2_env%ri_rpa_im_time%periodic_gf)
 
       CALL section_vals_val_get(low_scaling_section, "KEEP_QUADRATURE", &
                                 l_val=mp2_env%ri_rpa_im_time%keep_quad)
@@ -295,6 +295,7 @@ CONTAINS
          mp2_env%method = ri_mp2_method_gpw
       END IF
       CALL section_vals_val_get(mp2_section, "RI_MP2%BLOCK_SIZE", i_val=mp2_env%ri_mp2%block_size)
+      CALL section_vals_val_get(mp2_section, "RI_MP2%NUMBER_INTEGRATION_GROUPS", i_val=mp2_env%ri_mp2%number_integration_groups)
       CALL section_vals_val_get(mp2_section, "RI_MP2%PRINT_DGEMM_INFO", l_val=mp2_env%ri_mp2%print_dgemm_info)
 
       CALL section_vals_val_get(mp2_section, "RI%ROW_BLOCK", i_val=mp2_env%block_size_row)
@@ -375,6 +376,7 @@ CONTAINS
       CALL section_vals_val_get(mp2_section, "CANONICAL_GRADIENTS%EPS_CANONICAL", r_val=mp2_env%ri_grad%eps_canonical)
       CALL section_vals_val_get(mp2_section, "CANONICAL_GRADIENTS%USE_OLD_GRADIENT_CODE", l_val=mp2_env%ri_grad%use_old_grad)
       CALL section_vals_val_get(mp2_section, "CANONICAL_GRADIENTS%DOT_PRODUCT_BLKSIZE", i_val=mp2_env%ri_grad%dot_blksize)
+      CALL section_vals_val_get(mp2_section, "CANONICAL_GRADIENTS%MAX_PARALLEL_COMM", i_val=mp2_env%ri_grad%max_parallel_comm)
       cphf_section => section_vals_get_subs_vals(mp2_section, "CANONICAL_GRADIENTS%CPHF")
       IF (ASSOCIATED(cphf_section)) THEN
          CALL section_vals_val_get(cphf_section, "MAX_ITER", i_val=mp2_env%ri_grad%cphf_max_num_iter)

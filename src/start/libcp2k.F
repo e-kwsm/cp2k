@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -40,6 +40,7 @@ MODULE libcp2k
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp
+   USE message_passing,                 ONLY: mp_comm_type
    USE qs_active_space_types,           ONLY: eri_type_eri_element_func
    USE string_utilities,                ONLY: strlcpy_c2f
 #include "../base/base_uses.f90"
@@ -159,6 +160,7 @@ CONTAINS
 
       CHARACTER(LEN=default_path_length)                 :: ifp, ofp
       INTEGER                                            :: ierr, ncopied
+      TYPE(mp_comm_type)                                 :: my_mpi_comm
       TYPE(section_type), POINTER                        :: input_declaration
 
       ifp = " "; ofp = " "
@@ -167,7 +169,8 @@ CONTAINS
 
       NULLIFY (input_declaration)
       CALL create_cp2k_root_section(input_declaration)
-      CALL create_force_env(new_env_id, input_declaration, ifp, ofp, mpi_comm, ierr=ierr)
+      CALL my_mpi_comm%set_handle(INT(mpi_comm))
+      CALL create_force_env(new_env_id, input_declaration, ifp, ofp, my_mpi_comm, ierr=ierr)
       CALL section_release(input_declaration)
       CPASSERT(ierr == 0)
    END SUBROUTINE cp2k_create_force_env_comm
@@ -422,6 +425,7 @@ CONTAINS
 
       CHARACTER(LEN=default_path_length)                 :: ifp, ofp
       INTEGER                                            :: ncopied
+      TYPE(mp_comm_type)                                 :: my_mpi_comm
       TYPE(section_type), POINTER                        :: input_declaration
 
       ifp = " "; ofp = " "
@@ -430,7 +434,8 @@ CONTAINS
 
       NULLIFY (input_declaration)
       CALL create_cp2k_root_section(input_declaration)
-      CALL run_input(input_declaration, ifp, ofp, empty_initial_variables, mpi_comm)
+      CALL my_mpi_comm%set_handle(INT(mpi_comm))
+      CALL run_input(input_declaration, ifp, ofp, empty_initial_variables, my_mpi_comm)
       CALL section_release(input_declaration)
    END SUBROUTINE cp2k_run_input_comm
 
@@ -534,7 +539,7 @@ CONTAINS
 
          DO i = 0, norb - 1
             DO j = 0, norb - 1
-               CALL cp_fm_get_element(active_space_env%fock_sub(1)%matrix, i + 1, j + 1, mval)
+               CALL cp_fm_get_element(active_space_env%fock_sub(1), i + 1, j + 1, mval)
                buf(norb*i + j) = mval
                buf(norb*j + i) = mval
             END DO

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -45,7 +45,7 @@ MODULE xas_restart
    USE kinds,                           ONLY: default_path_length,&
                                               default_string_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_bcast
+   USE message_passing,                 ONLY: mp_comm_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE qs_density_matrices,             ONLY: calculate_density_matrix
@@ -113,7 +113,7 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'xas_read_restart'
 
       CHARACTER(LEN=default_path_length)                 :: filename
-      INTEGER :: group, handle, i, ia, ie, ispin, my_spin, nao, nao_read, nelectron, nexc_atoms, &
+      INTEGER :: handle, i, ia, ie, ispin, my_spin, nao, nao_read, nelectron, nexc_atoms, &
          nexc_atoms_read, nexc_search, nexc_search_read, nmo, nmo_read, output_unit, rst_unit, &
          source, xas_estate, xas_estate_read, xas_method_read
       LOGICAL                                            :: file_exists
@@ -127,6 +127,7 @@ CONTAINS
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
+      TYPE(mp_comm_type)                                 :: group
 
       CALL timeset(routineN, handle)
 
@@ -172,7 +173,7 @@ CONTAINS
                " not available. Initialization done with GS orbitals"
          END IF
       END IF
-      CALL mp_bcast(file_exists, source, group)
+      CALL group%bcast(file_exists, source)
 
       CALL get_xas_env(xas_env=xas_env, occ_estate=occ_estate, xas_estate=xas_estate, &
                        xas_nelectron=xas_nelectron, nexc_search=nexc_search, &
@@ -194,7 +195,7 @@ CONTAINS
                              " is not possible. Start instead a new XAS run with the new set of atoms. ")
          END IF
 
-         CALL mp_bcast(xas_estate_read, source, group)
+         CALL group%bcast(xas_estate_read, source)
          CALL set_xas_env(xas_env=xas_env, xas_estate=xas_estate_read)
          estate = xas_estate_read
 
@@ -227,8 +228,8 @@ CONTAINS
                END IF
                DEALLOCATE (eig_read, occ_read)
             END IF
-            CALL mp_bcast(eigenvalues, source, group)
-            CALL mp_bcast(occupation_numbers, source, group)
+            CALL group%bcast(eigenvalues, source)
+            CALL group%bcast(occupation_numbers, source)
 
             DO i = 1, nmo
                IF (para_env%ionode) THEN
@@ -236,7 +237,7 @@ CONTAINS
                ELSE
                   vecbuffer(1, :) = 0.0_dp
                END IF
-               CALL mp_bcast(vecbuffer, source, group)
+               CALL group%bcast(vecbuffer, source)
                CALL cp_fm_set_submatrix(mo_coeff, &
                                         vecbuffer, 1, i, nao, 1, transpose=.TRUE.)
             END DO

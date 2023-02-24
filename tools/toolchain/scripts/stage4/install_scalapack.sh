@@ -45,7 +45,11 @@ case "$with_scalapack" in
       mkdir -p "scalapack-${scalapack_ver}/build"
       pushd "scalapack-${scalapack_ver}/build" > /dev/null
 
-      FFLAGS="-fallow-argument-mismatch" cmake -DCMAKE_FIND_ROOT_PATH="$ROOTDIR" \
+      flags=""
+      if ("${FC}" --version | grep -q 'GNU'); then
+        flags=$(allowed_gfortran_flags "-fallow-argument-mismatch")
+      fi
+      FFLAGS=$flags cmake -DCMAKE_FIND_ROOT_PATH="$ROOTDIR" \
         -DCMAKE_INSTALL_PREFIX="${pkg_install_dir}" \
         -DCMAKE_INSTALL_LIBDIR="lib" \
         -DBUILD_SHARED_LIBS=NO \
@@ -82,6 +86,9 @@ if [ "$with_scalapack" != "__DONTUSE__" ]; then
 prepend_path LD_LIBRARY_PATH "${pkg_install_dir}/lib"
 prepend_path LD_RUN_PATH "${pkg_install_dir}/lib"
 prepend_path LIBRARY_PATH "${pkg_install_dir}/lib"
+prepend_path PKG_CONFIG_PATH "$pkg_install_dir/lib/pkgconfig"
+prepend_path CMAKE_PREFIX_PATH "$pkg_install_dir"
+export SCALAPACK_ROOT="${pkg_install_dir}"
 EOF
     cat "${BUILDDIR}/setup_scalapack" >> $SETUPFILE
   fi

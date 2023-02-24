@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -20,6 +20,7 @@ MODULE helium_types
    USE kinds,                           ONLY: default_string_length,&
                                               dp,&
                                               int_8
+   USE message_passing,                 ONLY: mp_comm_type
    USE parallel_rng_types,              ONLY: rng_stream_type
    USE splines_types,                   ONLY: spline_data_type
 #include "../base/base_uses.f90"
@@ -293,7 +294,7 @@ MODULE helium_types
 ! ***************************************************************************
    TYPE helium_solvent_p_type
       TYPE(helium_solvent_type), POINTER   :: helium
-      INTEGER                              :: comm
+      TYPE(mp_comm_type)                   :: comm
       INTEGER, DIMENSION(:), POINTER       :: env_all
    END TYPE helium_solvent_p_type
 

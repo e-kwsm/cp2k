@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -13,7 +13,6 @@
 MODULE rt_propagation
    USE bibliography,                    ONLY: Andermatt2016,&
                                               cite_reference
-   USE cell_types,                      ONLY: cell_type
    USE cp_blacs_env,                    ONLY: cp_blacs_env_type
    USE cp_control_types,                ONLY: dft_control_type,&
                                               rtp_control_type
@@ -21,8 +20,7 @@ MODULE rt_propagation
    USE cp_fm_struct,                    ONLY: cp_fm_struct_create,&
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
-   USE cp_fm_types,                     ONLY: cp_fm_p_type,&
-                                              cp_fm_set_all,&
+   USE cp_fm_types,                     ONLY: cp_fm_set_all,&
                                               cp_fm_to_fm,&
                                               cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -54,7 +52,7 @@ MODULE rt_propagation
    USE machine,                         ONLY: m_walltime
    USE md_environment_types,            ONLY: md_environment_type
    USE pw_env_types,                    ONLY: pw_env_type
-   USE qs_dftb_matrices,                ONLY: build_dftb_overlap
+   USE qs_core_hamiltonian,             ONLY: qs_matrix_h_allocate_imag_from_real
    USE qs_energy_init,                  ONLY: qs_energies_init
    USE qs_energy_types,                 ONLY: qs_energy_type
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -63,14 +61,18 @@ MODULE rt_propagation
                                               external_e_potential
    USE qs_kind_types,                   ONLY: get_qs_kind_set,&
                                               qs_kind_type
-   USE qs_ks_methods,                   ONLY: qs_ks_update_qs_env
-   USE qs_ks_types,                     ONLY: qs_ks_did_change
+   USE qs_ks_methods,                   ONLY: qs_ks_allocate_basics,&
+                                              qs_ks_update_qs_env
+   USE qs_ks_types,                     ONLY: qs_ks_did_change,&
+                                              qs_ks_env_type,&
+                                              set_ks_env
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               init_mo_set,&
                                               mo_set_type
-   USE rt_delta_pulse,                  ONLY: apply_delta_pulse,&
-                                              apply_delta_pulse_mag,&
-                                              apply_delta_pulse_periodic
+   USE qs_rho_methods,                  ONLY: allocate_rho_ao_imag_from_real
+   USE qs_rho_types,                    ONLY: qs_rho_set,&
+                                              qs_rho_type
+   USE rt_delta_pulse,                  ONLY: apply_delta_pulse
    USE rt_hfx_utils,                    ONLY: rtp_hfx_rebuild
    USE rt_propagation_methods,          ONLY: propagation_step
    USE rt_propagation_output,           ONLY: rt_prop_output
@@ -108,7 +110,7 @@ CONTAINS
       TYPE(force_env_type), POINTER                      :: force_env
 
       INTEGER                                            :: aspc_order
-      LOGICAL                                            :: magnetic, vel_reprs
+      LOGICAL                                            :: ks_is_complex, magnetic, vel_reprs
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(global_environment_type), POINTER             :: globenv
       TYPE(qs_energy_type), POINTER                      :: energy
@@ -132,6 +134,7 @@ CONTAINS
       CALL rt_initial_guess(qs_env, force_env, rtp_control)
 
       ! Initializes the extrapolation
+      NULLIFY (rtp)
       CALL get_qs_env(qs_env=qs_env, rtp=rtp, input=input)
       aspc_order = rtp_control%aspc_order
       CALL rtp_history_create(rtp, aspc_order)
@@ -157,14 +160,16 @@ CONTAINS
       CALL section_vals_get(hfx_sections, explicit=rtp%do_hfx)
       CALL section_vals_val_get(print_moments_section, "MAGNETIC", l_val=magnetic)
       CALL section_vals_val_get(print_moments_section, "VEL_REPRS", l_val=vel_reprs)
-      rtp%track_imag_density = magnetic .OR. vel_reprs .OR. rtp_control%velocity_gauge
-      IF (rtp_control%velocity_gauge) THEN
-         rtp%do_hfx = .TRUE.
-      END IF
+      rtp%track_imag_density = magnetic .OR. vel_reprs .OR. rtp_control%velocity_gauge &
+                               .OR. rtp%do_hfx .OR. (.NOT. rtp_control%fixed_ions)
+      ks_is_complex = rtp%do_hfx .OR. rtp_control%velocity_gauge
+
+      CALL rt_init_complex_quantities(qs_env, imag_p=rtp%track_imag_density, &
+                                      imag_ks=ks_is_complex, imag_h=rtp_control%velocity_gauge)
+
       ! Hmm, not really like to initialize with the structure of S but I reckon it is
       ! done everywhere like this
-      IF (rtp%do_hfx .OR. rtp%track_imag_density) &
-         CALL rtp_hfx_rebuild(qs_env)
+      IF (rtp%track_imag_density) CALL rtp_hfx_rebuild(qs_env)
 
       CALL init_propagation_run(qs_env)
       IF (.NOT. rtp_control%fixed_ions) THEN
@@ -198,69 +203,61 @@ CONTAINS
 
       INTEGER                                            :: i, ispin, re
       INTEGER, DIMENSION(2)                              :: nelectron_spin
-      LOGICAL                                            :: periodic_cell
-      TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_new, mos_old
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, matrix_s, rho_new, rho_old
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: mos_new, mos_old
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_ks, rho_new, rho_old
       TYPE(dft_control_type), POINTER                    :: dft_control
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mos
       TYPE(rt_prop_type), POINTER                        :: rtp
       TYPE(rtp_control_type), POINTER                    :: rtp_control
 
-      NULLIFY (matrix_s, dft_control, cell, rtp, rtp_control)
+      NULLIFY (dft_control, rtp, rtp_control)
 
       CALL cite_reference(Andermatt2016)
 
       CALL get_qs_env(qs_env, &
-                      cell=cell, &
                       rtp=rtp, &
-                      matrix_s=matrix_s, &
                       dft_control=dft_control)
       rtp_control => dft_control%rtp_control
 
-      periodic_cell = ANY(cell%perd > 0)
-
-      IF (.NOT. rtp%linear_scaling) THEN
-         CALL get_qs_env(qs_env, mos=mos)
-         CALL get_rtp(rtp=rtp, mos_old=mos_old, mos_new=mos_new)
-         IF (rtp_control%initial_wfn == use_scf_wfn) THEN
-            IF (rtp_control%apply_delta_pulse) THEN
-               IF (dft_control%qs_control%dftb) &
-                  CALL build_dftb_overlap(qs_env, 1, matrix_s)
-               IF (rtp_control%periodic) THEN
-                  CALL apply_delta_pulse_periodic(qs_env, mos_old, mos_new)
-               ELSE
-                  IF (periodic_cell) THEN
-                     CPWARN("This application of the delta pulse is not compatible with PBC!")
-                  END IF
-                  CALL apply_delta_pulse(qs_env, mos_old, mos_new)
-               END IF
-            ELSE IF (rtp_control%apply_delta_pulse_mag) THEN
-               IF (periodic_cell) THEN
-                  CPWARN("This application of the delta pulse is not compatible with PBC!")
-               END IF
-               CALL apply_delta_pulse_mag(qs_env, mos_old, mos_new)
-            ELSE
+      IF (rtp_control%initial_wfn == use_scf_wfn) THEN
+         IF (rtp_control%apply_delta_pulse .OR. rtp_control%apply_delta_pulse_mag) THEN
+            CALL apply_delta_pulse(qs_env, rtp, rtp_control)
+         ELSE
+            IF (.NOT. rtp%linear_scaling) THEN
+               CALL get_rtp(rtp=rtp, mos_old=mos_old)
+               CALL get_qs_env(qs_env, mos=mos)
                DO i = 1, SIZE(mos)
-                  CALL cp_fm_to_fm(mos(i)%mo_coeff, mos_old(2*i - 1)%matrix)
-                  CALL cp_fm_set_all(mos_old(2*i)%matrix, zero, zero)
+                  CALL cp_fm_to_fm(mos(i)%mo_coeff, mos_old(2*i - 1))
+                  CALL cp_fm_set_all(mos_old(2*i), zero, zero)
                END DO
             END IF
          END IF
+      END IF
 
+      IF (.NOT. rtp%linear_scaling) THEN
+         CALL get_rtp(rtp=rtp, mos_old=mos_old, mos_new=mos_new)
          DO i = 1, SIZE(mos_old)
-            CALL cp_fm_to_fm(mos_old(i)%matrix, mos_new(i)%matrix)
+            CALL cp_fm_to_fm(mos_old(i), mos_new(i))
          END DO
          CALL calc_update_rho(qs_env)
       ELSE
-         IF (qs_env%rtp%linear_scaling .AND. rtp_control%initial_wfn == use_scf_wfn) THEN
+         IF (rtp_control%initial_wfn == use_scf_wfn) THEN
             CALL get_qs_env(qs_env, &
                             matrix_ks=matrix_ks, &
                             mos=mos, &
                             nelectron_spin=nelectron_spin)
             IF (ASSOCIATED(mos)) THEN
                !The wavefunction was minimized by an mo based algorith. P is therefore calculated from the mos
-               CALL rt_initialize_rho_from_mos(rtp, mos)
+               IF (ASSOCIATED(rtp%mos)) THEN
+                  IF (ASSOCIATED(rtp%mos%old)) THEN
+                     ! Delta kick was applied and the results is in rtp%mos%old
+                     CALL rt_initialize_rho_from_mos(rtp, mos, mos_old=rtp%mos%old)
+                  ELSE
+                     CALL rt_initialize_rho_from_mos(rtp, mos)
+                  END IF
+               ELSE
+                  CALL rt_initialize_rho_from_mos(rtp, mos)
+               END IF
             ELSE
                !The wavefunction was minimized using a linear scaling method. The density matrix is therefore taken from the ls_scf_env.
                CALL get_rtp(rtp=rtp, rho_old=rho_old, rho_new=rho_new)
@@ -270,10 +267,9 @@ CONTAINS
                   CALL dbcsr_copy(rho_new(re)%matrix, qs_env%ls_scf_env%matrix_p(ispin))
                END DO
             END IF
+            CALL calc_update_rho_sparse(qs_env)
          END IF
-         CALL calc_update_rho_sparse(qs_env)
       END IF
-
       ! Modify KS matrix to include the additional terms in the velocity gauge
       IF (rtp_control%velocity_gauge) THEN
          ! As matrix_h and matrix_h_im are not updated by qs_ks_update_qs_env()
@@ -510,5 +506,40 @@ CONTAINS
       END SELECT
 
    END SUBROUTINE rt_initial_guess
+
+! **************************************************************************************************
+!> \brief ...
+!> \param qs_env ...
+!> \param imag_p ...
+!> \param imag_ks ...
+!> \param imag_h ...
+! **************************************************************************************************
+   SUBROUTINE rt_init_complex_quantities(qs_env, imag_p, imag_ks, imag_h)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      LOGICAL, INTENT(in)                                :: imag_p, imag_ks, imag_h
+
+      TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(qs_ks_env_type), POINTER                      :: ks_env
+      TYPE(qs_rho_type), POINTER                         :: rho
+
+      NULLIFY (ks_env, rho, dft_control)
+
+      CALL get_qs_env(qs_env, &
+                      dft_control=dft_control, &
+                      ks_env=ks_env, &
+                      rho=rho)
+
+      ! rho
+      CALL qs_rho_set(rho, complex_rho_ao=imag_p)
+      IF (imag_p) CALL allocate_rho_ao_imag_from_real(rho, qs_env)
+
+      ! ks
+      CALL set_ks_env(ks_env, complex_ks=imag_ks)
+      IF (imag_ks) CALL qs_ks_allocate_basics(qs_env, is_complex=imag_ks)
+
+      ! h
+      IF (imag_h) CALL qs_matrix_h_allocate_imag_from_real(qs_env)
+
+   END SUBROUTINE rt_init_complex_quantities
 
 END MODULE rt_propagation

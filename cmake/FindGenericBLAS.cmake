@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -29,21 +29,29 @@ find_path(
 
 # check if found
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(
-  GenericBLAS REQUIRED_VARS GenericBLAS_INCLUDE_DIRS GenericBLAS_LIBRARIES)
+if(GenericBLAS_INCLUDE_DIRS)
+  find_package_handle_standard_args(
+    GenericBLAS REQUIRED_VARS GenericBLAS_INCLUDE_DIRS GenericBLAS_LIBRARIES)
+else()
+  find_package_handle_standard_args(GenericBLAS
+                                    REQUIRED_VARS GenericBLAS_LIBRARIES)
+endif()
+
 if(GenericBLAS_CBLAS_LIBRARIES)
   list(APPEND GenericBLAS_LIBRARIES ${GenericBLAS_CBLAS_LIBRARIES})
 endif()
 
 # add target to link against
 if(GenericBLAS_FOUND)
-  if(NOT TARGET GenericBLAS::blas)
-    add_library(GenericBLAS::blas INTERFACE IMPORTED)
+
+  if(NOT TARGET CP2K::BLAS::GenericBLAS::blas)
+    add_library(CP2K::BLAS::GenericBLAS::blas INTERFACE IMPORTED)
   endif()
-  set_property(TARGET GenericBLAS::blas PROPERTY INTERFACE_LINK_LIBRARIES
-                                                 ${GenericBLAS_LIBRARIES})
-  set_property(TARGET GenericBLAS::blas PROPERTY INTERFACE_INCLUDE_DIRECTORIES
-                                                 ${GenericBLAS_INCLUDE_DIRS})
+  set_property(TARGET CP2K::BLAS::GenericBLAS::blas
+               PROPERTY INTERFACE_LINK_LIBRARIES ${GenericBLAS_LIBRARIES})
+  set_property(
+    TARGET CP2K::BLAS::GenericBLAS::blas PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+                                                  ${GenericBLAS_INCLUDE_DIRS})
 endif()
 
 # prevent clutter in cache

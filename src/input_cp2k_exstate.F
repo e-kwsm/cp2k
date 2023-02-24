@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -71,6 +71,14 @@ CONTAINS
                           enum_c_vals=s2a("BEST_AVAILABLE", "ANALYTIC", "NUMERIC"), &
                           enum_i_vals=(/xc_kernel_method_best, xc_kernel_method_analytic, xc_kernel_method_numeric/), &
                           default_i_val=xc_kernel_method_best)
+      CALL section_add_keyword(section, keyword)
+      CALL keyword_release(keyword)
+
+      CALL keyword_create(keyword, __LOCATION__, name="OVERLAP_DELTAT", &
+                          description="Keyword for the computation of the overlap matrix between two consecutive time steps.", &
+                          usage="OVERLAP_DELTAT", &
+                          default_l_val=.FALSE., &
+                          lone_keyword_l_val=.TRUE.)
       CALL section_add_keyword(section, keyword)
       CALL keyword_release(keyword)
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -42,7 +42,6 @@ MODULE qs_band_structure
                                               kpoint_type
    USE machine,                         ONLY: m_walltime
    USE mathconstants,                   ONLY: twopi
-   USE message_passing,                 ONLY: mp_sum
    USE physcon,                         ONLY: angstrom,&
                                               evolt
    USE qs_environment_types,            ONLY: get_qs_env,&
@@ -257,8 +256,8 @@ CONTAINS
                      eigval(1:nmo) = 0.0_dp
                      occnum(1:nmo) = 0.0_dp
                   END IF
-                  CALL mp_sum(eigval, kpoint%para_env_inter_kp%group)
-                  CALL mp_sum(occnum, kpoint%para_env_inter_kp%group)
+                  CALL kpoint%para_env_inter_kp%group%sum(eigval)
+                  CALL kpoint%para_env_inter_kp%group%sum(occnum)
                   IF (bs_data_unit > 0) THEN
                      WRITE (UNIT=bs_data_unit, FMT="(A,I0,T15,A,I0,A,T24,3(1X,F14.8),3X,F14.8)") &
                         "#  Point ", ik, "  Spin ", ispin, ":", xkp(1:3, ik), wkp(ik)

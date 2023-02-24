@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -271,7 +271,6 @@ CONTAINS
             param_name = xc_f03_func_info_get_ext_params_name(xc_info, iparam - 1)
             param_descr = xc_f03_func_info_get_ext_params_description(xc_info, iparam - 1)
             default_val = xc_f03_func_info_get_ext_params_default_value(xc_info, iparam - 1)
-
             NULLIFY (keyword)
             CALL keyword_create(keyword, __LOCATION__, name=TRIM(param_name), &
                                 description=TRIM(param_descr), default_r_val=default_val)

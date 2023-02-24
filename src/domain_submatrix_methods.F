@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -27,9 +27,8 @@ MODULE domain_submatrix_methods
                                               domain_submatrix_type,&
                                               select_row_col
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_allgather,&
-                                              mp_alltoall,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_null,&
+                                              mp_comm_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -92,7 +91,7 @@ CONTAINS
       subm%nrows = -1
       subm%ncols = -1
       subm%nnodes = -1
-      subm%groupid = -1
+      subm%group = mp_comm_null
 
    END SUBROUTINE init_submatrices_0d
 
@@ -111,7 +110,7 @@ CONTAINS
       subm(:)%nrows = -1
       subm(:)%ncols = -1
       subm(:)%nnodes = -1
-      subm(:)%groupid = -1
+      subm(:)%group = mp_comm_null
 
    END SUBROUTINE init_submatrices_1d
 
@@ -130,7 +129,7 @@ CONTAINS
       subm(:, :)%nrows = -1
       subm(:, :)%ncols = -1
       subm(:, :)%nnodes = -1
-      subm(:, :)%groupid = -1
+      subm(:, :)%group = mp_comm_null
 
    END SUBROUTINE init_submatrices_2d
 
@@ -158,7 +157,7 @@ CONTAINS
       ndomainsB = SIZE(copy)
       CPASSERT(ndomains .EQ. ndomainsB)
       copy(:)%nnodes = original(:)%nnodes
-      copy(:)%groupid = original(:)%groupid
+      copy(:)%group = original(:)%group
       DO idomain = 1, ndomains
          IF (original(idomain)%domain .GT. 0) THEN
             CALL copy_submatrix(original(idomain), copy(idomain), copy_data)
@@ -189,7 +188,7 @@ CONTAINS
 
       copy%domain = original%domain
       copy%nnodes = original%nnodes
-      copy%groupid = original%groupid
+      copy%group = original%group
 
       IF (original%domain .GT. 0) THEN
 
@@ -401,7 +400,7 @@ CONTAINS
       subm%nrows = -1
       subm%ncols = -1
       subm%nnodes = -1
-      subm%groupid = -1
+      subm%group = mp_comm_null
 
       IF (ALLOCATED(subm%dbcsr_row)) THEN
          DEALLOCATE (subm%dbcsr_row)
@@ -545,7 +544,7 @@ CONTAINS
       CALL DGEMM(transA, transB, M, N, K, alpha, A%mdata, LDA, B%mdata, LDB, beta, C%mdata, LDC)
 
       C%nnodes = A%nnodes
-      C%groupid = A%groupid
+      C%group = A%group
 
       CALL timestop(handle)
 
@@ -749,7 +748,7 @@ CONTAINS
 
       ! communicate local norm to the other nodes
       ALLOCATE (recv_norm(submatrices(1)%nnodes))
-      CALL mp_allgather(send_norm, recv_norm, submatrices(1)%groupid)
+      CALL submatrices(1)%group%allgather(send_norm, recv_norm)
 
       norm = MAXVAL(recv_norm)
 
@@ -812,7 +811,7 @@ CONTAINS
 
       ! communicate local norm to the other nodes
       ALLOCATE (recv_trace(A(1)%nnodes))
-      CALL mp_allgather(send_trace, recv_trace, A(1)%groupID)
+      CALL A(1)%group%allgather(send_trace, recv_trace)
 
       trace = SUM(recv_trace)
 
@@ -864,6 +863,7 @@ CONTAINS
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: recv_data, send_data
       REAL(KIND=dp), DIMENSION(:), POINTER               :: block_p
       TYPE(dbcsr_distribution_type)                      :: pattern_dist
+      TYPE(mp_comm_type)                                 :: group
 
 !INTEGER, PARAMETER                         :: select_row_col = 1
 !INTEGER, PARAMETER                         :: select_row = 2
@@ -878,6 +878,8 @@ CONTAINS
       ndomains = nblkcols_tot ! RZK-warning not true for atomic distributions
       CALL dbcsr_get_info(distr_pattern, distribution=pattern_dist)
       CALL dbcsr_distribution_get(pattern_dist, numnodes=nNodes, group=GroupID, mynode=myNode)
+
+      CALL group%set_handle(groupid)
 
       matrix_type = dbcsr_get_matrix_type(matrix)
 
@@ -966,7 +968,7 @@ CONTAINS
       !CALL dbcsr_iterator_stop(iter)
 
       ! communicate number of blocks and their sizes to the other nodes
-      CALL mp_alltoall(send_descriptor, recv_descriptor, ldesc, GroupID)
+      CALL group%alltoall(send_descriptor, recv_descriptor, ldesc)
 
       ALLOCATE (send_size_cpu(nNodes), send_offset_cpu(nNodes))
       send_offset_cpu(1) = 0
@@ -1129,11 +1131,11 @@ CONTAINS
       !CALL dbcsr_iterator_stop(iter)
 
       ! send-receive all blocks
-      CALL mp_alltoall(send_data, send_size_cpu, send_offset_cpu, &
-                       recv_data, recv_size_cpu, recv_offset_cpu, GroupID)
+      CALL group%alltoall(send_data, send_size_cpu, send_offset_cpu, &
+                          recv_data, recv_size_cpu, recv_offset_cpu)
       ! send-receive rows and cols of the blocks
-      CALL mp_alltoall(send_data2, send_size2_cpu, send_offset2_cpu, &
-                       recv_data2, recv_size2_cpu, recv_offset2_cpu, GroupID)
+      CALL group%alltoall(send_data2, send_size2_cpu, send_offset2_cpu, &
+                          recv_data2, recv_size2_cpu, recv_offset2_cpu)
 
       DEALLOCATE (send_size_cpu, send_offset_cpu)
       DEALLOCATE (send_size2_cpu, send_offset2_cpu)
@@ -1153,7 +1155,7 @@ CONTAINS
       END IF
       CALL release_submatrices(submatrix)
       submatrix(:)%nnodes = nNodes
-      submatrix(:)%groupID = GroupID
+      submatrix(:)%group = Group
       submatrix(:)%nrows = 0
       submatrix(:)%ncols = 0
 
@@ -1355,6 +1357,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(dbcsr_distribution_type)                      :: pattern_dist
       TYPE(dbcsr_iterator_type)                          :: iter
+      TYPE(mp_comm_type)                                 :: group
 
       CALL timeset(routineN, handle)
 
@@ -1378,6 +1381,8 @@ CONTAINS
 
       CALL dbcsr_get_info(distr_pattern, distribution=pattern_dist)
       CALL dbcsr_distribution_get(pattern_dist, numnodes=nNodes, group=GroupID, mynode=myNode)
+
+      CALL group%set_handle(GroupID)
 
       matrix_type = dbcsr_get_matrix_type(matrix)
       IF (matrix_type .NE. dbcsr_type_no_symmetry) THEN
@@ -1434,7 +1439,7 @@ CONTAINS
       END DO ! loop over domains
 
       ! communicate number of blocks and their sizes to the other nodes
-      CALL mp_alltoall(send_descriptor, recv_descriptor, ldesc, GroupID)
+      CALL group%alltoall(send_descriptor, recv_descriptor, ldesc)
 
       ALLOCATE (send_size_cpu(nNodes), send_offset_cpu(nNodes))
       send_offset_cpu(1) = 0
@@ -1534,11 +1539,11 @@ CONTAINS
       END DO ! loop over domains
 
       ! send-receive all blocks
-      CALL mp_alltoall(send_data, send_size_cpu, send_offset_cpu, &
-                       recv_data, recv_size_cpu, recv_offset_cpu, GroupID)
+      CALL group%alltoall(send_data, send_size_cpu, send_offset_cpu, &
+                          recv_data, recv_size_cpu, recv_offset_cpu)
       ! send-receive rows and cols of the blocks
-      CALL mp_alltoall(send_data2, send_size2_cpu, send_offset2_cpu, &
-                       recv_data2, recv_size2_cpu, recv_offset2_cpu, GroupID)
+      CALL group%alltoall(send_data2, send_size2_cpu, send_offset2_cpu, &
+                          recv_data2, recv_size2_cpu, recv_offset2_cpu)
 
       DEALLOCATE (send_size_cpu, send_offset_cpu)
       DEALLOCATE (send_size2_cpu, send_offset2_cpu)
@@ -1592,7 +1597,7 @@ CONTAINS
 
       TYPE(domain_submatrix_type), DIMENSION(:), &
          INTENT(IN)                                      :: submatrices
-      INTEGER, INTENT(IN)                                :: mpgroup
+      TYPE(mp_comm_type), INTENT(IN)                     :: mpgroup
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'print_submatrices'
 
@@ -1615,7 +1620,7 @@ CONTAINS
                WRITE (*, formatstr) submatrices(i)%mdata(irow, :)
             END DO
          END IF
-         CALL mp_sync(mpgroup)
+         CALL mpgroup%sync()
       END DO
 
       CALL timestop(handle)

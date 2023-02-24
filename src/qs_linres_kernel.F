@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -21,7 +21,7 @@ MODULE qs_linres_kernel
                                               dbcsr_allocate_matrix_set,&
                                               dbcsr_deallocate_matrix_set
    USE cp_fm_types,                     ONLY: cp_fm_get_info,&
-                                              cp_fm_p_type
+                                              cp_fm_type
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_type,&
                                               cp_to_string
@@ -56,7 +56,6 @@ MODULE qs_linres_kernel
                                               lri_environment_type,&
                                               lri_kind_type
    USE lri_ks_methods,                  ONLY: calculate_lri_ks_matrix
-   USE message_passing,                 ONLY: mp_sum
    USE mulliken,                        ONLY: ao_charges
    USE particle_types,                  ONLY: particle_type
    USE pw_env_types,                    ONLY: pw_env_get,&
@@ -139,7 +138,7 @@ CONTAINS
       !
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(qs_p_env_type)                                :: p_env
-      TYPE(cp_fm_p_type), DIMENSION(:)                   :: c0, Av
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(IN)         :: c0, Av
 
       INTEGER                                            :: ispin, ncol
       TYPE(dft_control_type), POINTER                    :: dft_control
@@ -159,10 +158,10 @@ CONTAINS
       END IF
 
       DO ispin = 1, SIZE(c0)
-         CALL cp_fm_get_info(c0(ispin)%matrix, ncol_global=ncol)
+         CALL cp_fm_get_info(c0(ispin), ncol_global=ncol)
          CALL cp_dbcsr_sm_fm_multiply(p_env%kpp1(ispin)%matrix, &
-                                      c0(ispin)%matrix, &
-                                      Av(ispin)%matrix, &
+                                      c0(ispin), &
+                                      Av(ispin), &
                                       ncol=ncol, alpha=1.0_dp, beta=1.0_dp)
       END DO
 
@@ -459,7 +458,7 @@ CONTAINS
                CALL integrate_v_rspace_one_center(v_rspace_new(ispin), qs_env, &
                                                   lri_v_int, .FALSE., "LRI_AUX")
                DO ikind = 1, nkind
-                  CALL mp_sum(lri_v_int(ikind)%v_int, para_env%group)
+                  CALL para_env%group%sum(lri_v_int(ikind)%v_int)
                END DO
                ALLOCATE (k1mat(1))
                k1mat(1)%matrix => kpp1_env%v_ao(ispin)%matrix

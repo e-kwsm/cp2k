@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -40,12 +40,7 @@ MODULE optimize_input
    USE machine,                         ONLY: m_flush,&
                                               m_walltime
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_comm_free,&
-                                              mp_comm_split,&
-                                              mp_comm_split_direct,&
-                                              mp_environ,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE parallel_rng_types,              ONLY: UNIFORM,&
                                               rng_stream_type
    USE physcon,                         ONLY: bohr
@@ -168,9 +163,8 @@ CONTAINS
       CHARACTER(len=default_string_length), &
          ALLOCATABLE, DIMENSION(:, :)                    :: initial_variables
       INTEGER :: color, energies_unit, handle, history_unit, i_atom, i_el, i_frame, i_free_var, &
-         i_var, ierr, mepos_master, mepos_slave, mpi_comm_master, mpi_comm_slave, &
-         mpi_comm_slave_primus, n_atom, n_el, n_frames, n_free_var, n_groups, n_var, new_env_id, &
-         num_pe_master, num_pe_slave, output_unit, restart_unit, state
+         i_var, ierr, mepos_master, mepos_slave, n_atom, n_el, n_frames, n_free_var, n_groups, &
+         n_var, new_env_id, num_pe_master, num_pe_slave, output_unit, restart_unit, state
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: free_var_index
       INTEGER, DIMENSION(:), POINTER                     :: group_distribution
       LOGICAL                                            :: should_stop
@@ -183,6 +177,8 @@ CONTAINS
                                                             force_traj_read, force_var, pos_traj, &
                                                             pos_traj_read
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mp_comm_type)                                 :: mpi_comm_master, mpi_comm_slave, &
+                                                            mpi_comm_slave_primus
       TYPE(opt_state_type)                               :: ostate
       TYPE(section_vals_type), POINTER                   :: oi_section, variable_section
 
@@ -236,11 +232,11 @@ CONTAINS
       ALLOCATE (group_distribution(0:num_pe_master - 1))
       IF (oi_env%fm_env%group_size > para_env%num_pe) oi_env%fm_env%group_size = para_env%num_pe
 
-      CALL mp_comm_split(mpi_comm_master, mpi_comm_slave, n_groups, group_distribution, subgroup_min_size=oi_env%fm_env%group_size)
-      CALL mp_environ(num_pe_slave, mepos_slave, mpi_comm_slave)
+      CALL mpi_comm_slave%from_split(mpi_comm_master, n_groups, group_distribution, subgroup_min_size=oi_env%fm_env%group_size)
+      CALL mpi_comm_slave%environ(num_pe_slave, mepos_slave)
       color = 0
       IF (mepos_slave == 0) color = 1
-      CALL mp_comm_split_direct(mpi_comm_master, mpi_comm_slave_primus, color)
+      CALL mpi_comm_slave_primus%from_split(mpi_comm_master, color)
 
       ! assign initial variables
       n_var = SIZE(oi_env%variables, 1)
@@ -308,7 +304,7 @@ CONTAINS
 
          ! globalize the state
          IF (para_env%mepos == para_env%source) state = ostate%state
-         CALL mp_bcast(state, para_env%source, para_env%group)
+         CALL para_env%group%bcast(state, para_env%source)
 
          ! if required get the energy of this set of params
          IF (state == 2) THEN
@@ -372,8 +368,8 @@ CONTAINS
             ! get data everywhere on the master group, we could reduce the amount of data by reducing to partial RMSD first
             ! furthermore, we should only do this operation among the masters of the slave group
             IF (mepos_slave == 0) THEN
-               CALL mp_sum(energy_var, mpi_comm_slave_primus)
-               CALL mp_sum(force_var, mpi_comm_slave_primus)
+               CALL mpi_comm_slave_primus%sum(energy_var)
+               CALL mpi_comm_slave_primus%sum(force_var)
             END IF
 
             ! now evaluate the target function to be minimized (only valid on mepos_slave==0)
@@ -455,7 +451,7 @@ CONTAINS
          IF (para_env%mepos == para_env%source) THEN
             CALL powell_optimize(ostate%nvar, free_vars, ostate)
          END IF
-         CALL mp_bcast(free_vars, para_env%source, para_env%group)
+         CALL para_env%group%bcast(free_vars, para_env%source)
 
       END DO
 
@@ -464,7 +460,7 @@ CONTAINS
          ostate%state = 8
          CALL powell_optimize(ostate%nvar, free_vars, ostate)
       END IF
-      CALL mp_bcast(free_vars, para_env%source, para_env%group)
+      CALL para_env%group%bcast(free_vars, para_env%source)
       DO i_free_var = 1, n_free_var
          WRITE (initial_variables(2, free_var_index(i_free_var)), *) free_vars(i_free_var)
          oi_env%variables(free_var_index(i_free_var))%value = free_vars(i_free_var)
@@ -484,8 +480,8 @@ CONTAINS
       IF (ASSOCIATED(cell_traj)) DEALLOCATE (cell_traj)
       DEALLOCATE (pos, force, force_traj, pos_traj, force_var)
       DEALLOCATE (group_distribution, energy_traj, energy_var)
-      CALL mp_comm_free(mpi_comm_slave)
-      CALL mp_comm_free(mpi_comm_slave_primus)
+      CALL mpi_comm_slave%free()
+      CALL mpi_comm_slave_primus%free()
 
       CALL timestop(handle)
 

@@ -1,6 +1,6 @@
 #!-------------------------------------------------------------------------------------------------!
 #!   CP2K: A general program to perform molecular dynamics simulations                             !
-#!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                  !
+#!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                  !
 #!                                                                                                 !
 #!   SPDX-License-Identifier: GPL-2.0-or-later                                                     !
 #!-------------------------------------------------------------------------------------------------!
@@ -32,13 +32,13 @@ endif()
 find_package_handle_standard_args(PEXSI DEFAULT_MSG CP2K_PEXSI_INCLUDE_DIRS
                                   CP2K_PEXSI_LINK_LIBRARIES)
 
-if(CP2K_PEXSI_FOUND AND NOT TARGET CP2K_PEXSI::pexsi)
-  add_library(CP2K_PEXSI::pexsi INTERFACE IMPORTED)
-  set_target_properties(CP2K_PEXSI PROPERTIES INTERFACE_LINK_LIBRARIES
-                                              "${CP2K_PEXSI_LINK_LIBRARIES}")
+if(CP2K_PEXSI_FOUND AND NOT TARGET CP2K::PEXSI::pexsi)
+  add_library(CP2K::PEXSI::pexsi INTERFACE IMPORTED)
+  set_target_properties(CP2K::PEXSI PROPERTIES INTERFACE_LINK_LIBRARIES
+                                               "${CP2K_PEXSI_LINK_LIBRARIES}")
   if(DEFINED CP2K_PEXSI_INCLUDE_DIRS)
-    set_target_properties(CP2K_PEXSI PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
-                                                "${CP2K_PEXSI_INCLUDE_DIRS}")
+    set_target_properties(CP2K::PEXSI PROPERTIES INTERFACE_INCLUDE_DIRECTORIES
+                                                 "${CP2K_PEXSI_INCLUDE_DIRS}")
   endif()
 endif()
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -29,7 +29,6 @@ MODULE qs_wannier90
    USE cp_fm_types,                     ONLY: cp_fm_copy_general,&
                                               cp_fm_create,&
                                               cp_fm_get_element,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
    USE cp_log_handling,                 ONLY: cp_logger_get_default_io_unit,&
@@ -61,7 +60,6 @@ MODULE qs_wannier90
                                               kpoint_type
    USE machine,                         ONLY: m_datum
    USE mathconstants,                   ONLY: twopi
-   USE message_passing,                 ONLY: mp_sum
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: angstrom,&
@@ -180,9 +178,9 @@ CONTAINS
       TYPE(berry_matrix_type), DIMENSION(:), POINTER     :: berry_matrix
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: blacs_env
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: fmk1, fmk2
       TYPE(cp_fm_struct_type), POINTER                   :: matrix_struct_mmn, matrix_struct_work
       TYPE(cp_fm_type)                                   :: fm_tmp, mmn_imag, mmn_real
+      TYPE(cp_fm_type), DIMENSION(2)                     :: fmk1, fmk2
       TYPE(cp_fm_type), POINTER                          :: fmdummy, fmi, fmr
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_ks, matrix_s
@@ -290,9 +288,9 @@ CONTAINS
       END IF
 
       CALL get_qs_env(qs_env, para_env=para_env)
-      CALL mp_sum(nntot, para_env%group)
-      CALL mp_sum(nnlist, para_env%group)
-      CALL mp_sum(nncell, para_env%group)
+      CALL para_env%group%sum(nntot)
+      CALL para_env%group%sum(nnlist)
+      CALL para_env%group%sum(nncell)
 
       IF (para_env%ionode) THEN
          ! Write the Wannier90 input file "seed_name.win"
@@ -425,12 +423,10 @@ CONTAINS
                                ncol_global=nmo, &
                                para_env=para_env, &
                                context=blacs_env)
-      ALLOCATE (fmk1(2), fmk2(2))
       CALL cp_fm_create(fm_tmp, matrix_struct_work)
       DO i = 1, 2
-         ALLOCATE (fmk1(i)%matrix, fmk2(i)%matrix)
-         CALL cp_fm_create(fmk1(i)%matrix, matrix_struct_work)
-         CALL cp_fm_create(fmk2(i)%matrix, matrix_struct_work)
+         CALL cp_fm_create(fmk1(i), matrix_struct_work)
+         CALL cp_fm_create(fmk2(i), matrix_struct_work)
       END DO
       ! work matrices for Mmn(k,b) integrals
       NULLIFY (matrix_struct_mmn)
@@ -463,12 +459,12 @@ CONTAINS
                CPASSERT(SIZE(kp%mos, 1) == 2)
                fmr => kp%mos(1, ispin)%mo_coeff
                fmi => kp%mos(2, ispin)%mo_coeff
-               CALL cp_fm_copy_general(fmr, fmk1(1)%matrix, para_env)
-               CALL cp_fm_copy_general(fmi, fmk1(2)%matrix, para_env)
+               CALL cp_fm_copy_general(fmr, fmk1(1), para_env)
+               CALL cp_fm_copy_general(fmi, fmk1(2), para_env)
             ELSE
                NULLIFY (fmr, fmi, kp)
-               CALL cp_fm_copy_general(fmdummy, fmk1(1)%matrix, para_env)
-               CALL cp_fm_copy_general(fmdummy, fmk1(2)%matrix, para_env)
+               CALL cp_fm_copy_general(fmdummy, fmk1(1), para_env)
+               CALL cp_fm_copy_general(fmdummy, fmk1(2), para_env)
             END IF
             ! loop over all connected neighbors
             DO i = 1, nntot
@@ -481,12 +477,12 @@ CONTAINS
                   CPASSERT(SIZE(kp%mos, 1) == 2)
                   fmr => kp%mos(1, ispin)%mo_coeff
                   fmi => kp%mos(2, ispin)%mo_coeff
-                  CALL cp_fm_copy_general(fmr, fmk2(1)%matrix, para_env)
-                  CALL cp_fm_copy_general(fmi, fmk2(2)%matrix, para_env)
+                  CALL cp_fm_copy_general(fmr, fmk2(1), para_env)
+                  CALL cp_fm_copy_general(fmi, fmk2(2), para_env)
                ELSE
                   NULLIFY (fmr, fmi, kp)
-                  CALL cp_fm_copy_general(fmdummy, fmk2(1)%matrix, para_env)
-                  CALL cp_fm_copy_general(fmdummy, fmk2(2)%matrix, para_env)
+                  CALL cp_fm_copy_general(fmdummy, fmk2(1), para_env)
+                  CALL cp_fm_copy_general(fmdummy, fmk2(2), para_env)
                END IF
                !
                ! transfer realspace overlaps to connected k-point
@@ -503,18 +499,18 @@ CONTAINS
                                    is_complex=.TRUE., rs_sign=ksign)
                !
                ! calculate M_(mn)^(k,b)
-               CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(1)%matrix, fm_tmp, nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 0.0_dp, mmn_real)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, 0.0_dp, mmn_imag)
-               CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(2)%matrix, fm_tmp, nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
-               CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(1)%matrix, fm_tmp, nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, 1.0_dp, mmn_imag)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_real)
-               CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(2)%matrix, fm_tmp, nmo)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1)%matrix, fm_tmp, -1.0_dp, mmn_real)
-               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2)%matrix, fm_tmp, -1.0_dp, mmn_imag)
+               CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(1), fm_tmp, nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1), fm_tmp, 0.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2), fm_tmp, 0.0_dp, mmn_imag)
+               CALL cp_dbcsr_sm_fm_multiply(rmatrix, fmk2(2), fm_tmp, nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1), fm_tmp, 1.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2), fm_tmp, -1.0_dp, mmn_real)
+               CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(1), fm_tmp, nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1), fm_tmp, 1.0_dp, mmn_imag)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2), fm_tmp, -1.0_dp, mmn_real)
+               CALL cp_dbcsr_sm_fm_multiply(cmatrix, fmk2(2), fm_tmp, nmo)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(1), fm_tmp, -1.0_dp, mmn_real)
+               CALL parallel_gemm("T", "N", nmo, nmo, nao, 1.0_dp, fmk1(2), fm_tmp, -1.0_dp, mmn_imag)
                !
                ! write to output file
                IF (para_env%ionode) THEN
@@ -540,15 +536,13 @@ CONTAINS
       DEALLOCATE (berry_matrix)
       CALL cp_fm_struct_release(matrix_struct_work)
       DO i = 1, 2
-         CALL cp_fm_release(fmk1(i)%matrix)
-         CALL cp_fm_release(fmk2(i)%matrix)
-         DEALLOCATE (fmk1(i)%matrix, fmk2(i)%matrix)
+         CALL cp_fm_release(fmk1(i))
+         CALL cp_fm_release(fmk2(i))
       END DO
       CALL cp_fm_release(fm_tmp)
       CALL cp_fm_struct_release(matrix_struct_mmn)
       CALL cp_fm_release(mmn_real)
       CALL cp_fm_release(mmn_imag)
-      DEALLOCATE (fmk1, fmk2)
       CALL dbcsr_deallocate_matrix(rmatrix)
       CALL dbcsr_deallocate_matrix(cmatrix)
       !
@@ -582,7 +576,7 @@ CONTAINS
             ELSE
                eigval(1:nmo) = 0.0_dp
             END IF
-            CALL mp_sum(eigval, kpoint%para_env_inter_kp%group)
+            CALL kpoint%para_env_inter_kp%group%sum(eigval)
             eigval(1:nmo) = eigval(1:nmo)*evolt
             ! output
             IF (iunit > 0) THEN

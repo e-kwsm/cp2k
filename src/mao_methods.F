@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -49,7 +49,7 @@ MODULE mao_methods
                                               kpoint_type
    USE lapack,                          ONLY: lapack_ssyev,&
                                               lapack_ssygv
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_types,                  ONLY: particle_type
    USE qs_environment_types,            ONLY: get_qs_env,&
                                               qs_environment_type
@@ -92,8 +92,8 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN)                          :: eps1
       INTEGER, INTENT(IN)                                :: iolevel, iw
 
-      INTEGER                                            :: group, i, iatom, info, jatom, lwork, m, &
-                                                            n, nblk
+      INTEGER                                            :: group_handle, i, iatom, info, jatom, &
+                                                            lwork, m, n, nblk
       INTEGER, DIMENSION(:), POINTER                     :: col_blk_sizes, mao_blk, row_blk, &
                                                             row_blk_sizes
       LOGICAL                                            :: found
@@ -103,6 +103,7 @@ CONTAINS
       TYPE(dbcsr_distribution_type)                      :: dbcsr_dist
       TYPE(dbcsr_iterator_type)                          :: dbcsr_iter
       TYPE(mblocks), ALLOCATABLE, DIMENSION(:)           :: mbl
+      TYPE(mp_comm_type)                                 :: group
 
       CALL dbcsr_get_info(mao_coef, nblkrows_total=nblk)
       ALLOCATE (mbl(nblk))
@@ -141,7 +142,8 @@ CONTAINS
       CALL dbcsr_iterator_stop(dbcsr_iter)
 
       IF (eps1 < 10.0_dp) THEN
-         CALL dbcsr_get_info(mao_coef, row_blk_size=row_blk_sizes, group=group)
+         CALL dbcsr_get_info(mao_coef, row_blk_size=row_blk_sizes, group=group_handle)
+         CALL group%set_handle(group_handle)
          ALLOCATE (row_blk(nblk), mao_blk(nblk))
          mao_blk = 0
          row_blk = row_blk_sizes
@@ -158,7 +160,7 @@ CONTAINS
                mao_blk(iatom) = m
             END IF
          END DO
-         CALL mp_sum(mao_blk, group)
+         CALL group%sum(mao_blk)
          CALL dbcsr_get_info(mao_coef, distribution=dbcsr_dist)
          CALL dbcsr_release(mao_coef)
          CALL dbcsr_create(mao_coef, name="MAO_COEF", dist=dbcsr_dist, &
@@ -182,7 +184,8 @@ CONTAINS
 
       IF (iolevel > 2) THEN
          CALL dbcsr_get_info(mao_coef, col_blk_size=col_blk_sizes, &
-                             row_blk_size=row_blk_sizes, group=group)
+                             row_blk_size=row_blk_sizes, group=group_handle)
+         CALL group%set_handle(group_handle)
          DO iatom = 1, nblk
             n = row_blk_sizes(iatom)
             m = col_blk_sizes(iatom)
@@ -191,7 +194,7 @@ CONTAINS
             IF (ASSOCIATED(mbl(iatom)%mat)) THEN
                w(1:n) = mbl(iatom)%eig(1:n)
             END IF
-            CALL mp_sum(w, group)
+            CALL group%sum(w)
             IF (iw > 0) THEN
                WRITE (iw, '(A,i2,20F8.4)', ADVANCE="NO") " Spectrum/Gap  ", iatom, w(1:m)
                WRITE (iw, '(A,F8.4)') " || ", w(m + 1)
@@ -401,10 +404,11 @@ CONTAINS
       TYPE(dbcsr_type)                                   :: fmat1, fmat2
       REAL(KIND=dp)                                      :: spro
 
-      INTEGER                                            :: group, iatom, jatom, m, n
+      INTEGER                                            :: group_handle, iatom, jatom, m, n
       LOGICAL                                            :: found
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: ablock, bblock
       TYPE(dbcsr_iterator_type)                          :: dbcsr_iter
+      TYPE(mp_comm_type)                                 :: group
 
       spro = 0.0_dp
 
@@ -420,8 +424,9 @@ CONTAINS
       END DO
       CALL dbcsr_iterator_stop(dbcsr_iter)
 
-      CALL dbcsr_get_info(fmat1, group=group)
-      CALL mp_sum(spro, group)
+      CALL dbcsr_get_info(fmat1, group=group_handle)
+      CALL group%set_handle(group_handle)
+      CALL group%sum(spro)
 
    END FUNCTION mao_scalar_product
 
@@ -674,7 +679,7 @@ CONTAINS
                   END DO
                END DO
             END IF
-            CALL mp_sum(weight, para_env%group)
+            CALL para_env%group%sum(weight)
             IF (unit_nr > 0) THEN
                DO ia = 1, na
                   IF (ispin == 1 .AND. ia == 1) THEN

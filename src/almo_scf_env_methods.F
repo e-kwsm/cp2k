@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -195,6 +195,8 @@ CONTAINS
                                 r_val=almo_scf_env%opt_block_diag_pcg%lin_search_eps_error)
       CALL section_vals_val_get(almo_opt_pcg_section, "LIN_SEARCH_STEP_SIZE_GUESS", &
                                 r_val=almo_scf_env%opt_block_diag_pcg%lin_search_step_size_guess)
+      CALL section_vals_val_get(almo_opt_pcg_section, "PRECOND_FILTER_THRESHOLD", &
+                                r_val=almo_scf_env%opt_block_diag_pcg%neglect_threshold)
       CALL section_vals_val_get(almo_opt_pcg_section, "CONJUGATOR", &
                                 i_val=almo_scf_env%opt_block_diag_pcg%conjugator)
       CALL section_vals_val_get(almo_opt_pcg_section, "PRECONDITIONER", &

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -51,8 +51,6 @@ MODULE transport
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_allgather,&
-                                              mp_environ
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
@@ -300,8 +298,7 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'transport_initialize'
 
-      INTEGER                                            :: handle, mp_group, mynode, numnodes, &
-                                                            unit_nr
+      INTEGER                                            :: handle, mynode, numnodes, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
 
       CALL timeset(routineN, handle)
@@ -315,8 +312,7 @@ CONTAINS
          unit_nr = -1
       END IF
 
-      mp_group = logger%para_env%group
-      CALL mp_environ(numnodes, mynode, mp_group)
+      CALL logger%para_env%group%environ(numnodes, mynode)
 
       IF (dbcsr_has_symmetry(template_matrix)) THEN
          CALL dbcsr_copy(transport_env%template_matrix_sym, template_matrix)
@@ -453,7 +449,7 @@ CONTAINS
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'convert_dbcsr_to_csr_interop'
 
-      INTEGER                                  :: handle, mepos, num_pe, mp_group
+      INTEGER                                  :: handle
       INTEGER, ALLOCATABLE, DIMENSION(:)       :: nrows_local_all, first_row_all
       INTEGER(C_INT), DIMENSION(:), POINTER    :: colind_local, rowptr_local, nzerow_local
       REAL(C_DOUBLE), DIMENSION(:), POINTER    :: nzvals_local
@@ -462,9 +458,6 @@ CONTAINS
       CALL timeset(routineN, handle)
 
       logger => cp_get_default_logger()
-      mp_group = logger%para_env%group
-      mepos = logger%para_env%mepos
-      num_pe = logger%para_env%num_pe
 
 ! dbcsr to csr
       CALL dbcsr_convert_dbcsr_to_csr(dbcsr_mat, csr_mat)
@@ -499,15 +492,17 @@ CONTAINS
          csr_interop_mat%nzvals_local = C_LOC(nzvals_local(1))
       END IF
 
-      ALLOCATE (nrows_local_all(0:num_pe - 1), first_row_all(0:num_pe - 1))
-      CALL mp_allgather(csr_mat%nrows_local, nrows_local_all, mp_group)
-      CALL cumsum_i(nrows_local_all, first_row_all)
+      ASSOCIATE (mp_group => logger%para_env%group, mepos => logger%para_env%mepos, num_pe => logger%para_env%num_pe)
+         ALLOCATE (nrows_local_all(0:num_pe - 1), first_row_all(0:num_pe - 1))
+         CALL mp_group%allgather(csr_mat%nrows_local, nrows_local_all)
+         CALL cumsum_i(nrows_local_all, first_row_all)
 
-      IF (mepos .EQ. 0) THEN
-         csr_interop_mat%first_row = 0
-      ELSE
-         csr_interop_mat%first_row = first_row_all(mepos - 1)
-      END IF
+         IF (mepos .EQ. 0) THEN
+            csr_interop_mat%first_row = 0
+         ELSE
+            csr_interop_mat%first_row = first_row_all(mepos - 1)
+         END IF
+      END ASSOCIATE
       csr_interop_mat%nrows_total = csr_mat%nrows_total
       csr_interop_mat%ncols_total = csr_mat%ncols_total
       csr_interop_mat%nze_local = csr_mat%nze_local

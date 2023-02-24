@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -37,8 +37,8 @@ MODULE cp2k_info
    CHARACTER(LEN=*), PARAMETER :: compile_revision = "unknown"
 #endif
 
-   CHARACTER(LEN=*), PARAMETER :: cp2k_version = "CP2K version 2022.1 (Development Version)"
-   CHARACTER(LEN=*), PARAMETER :: cp2k_year = "2022"
+   CHARACTER(LEN=*), PARAMETER :: cp2k_version = "CP2K version 2023.1 (Development Version)"
+   CHARACTER(LEN=*), PARAMETER :: cp2k_year = "2023"
    CHARACTER(LEN=*), PARAMETER :: cp2k_home = "https://www.cp2k.org/"
 
    ! compile time information
@@ -115,11 +115,9 @@ CONTAINS
 #endif
 #if defined(__parallel)
       flags = TRIM(flags)//" parallel"
-#if !defined(__MPI_VERSION) || (__MPI_VERSION > 2)
-      flags = TRIM(flags)//" mpi3"
-#else
-      flags = TRIM(flags)//" mpi2"
 #endif
+#if defined(__MPI_F08)
+      flags = TRIM(flags)//" mpi_f08"
 #endif
 #if defined(__SCALAPACK)
       flags = TRIM(flags)//" scalapack"
@@ -214,6 +212,9 @@ CONTAINS
 #endif
 #if defined(__LIBMAXWELL)
       flags = TRIM(flags)//" libmaxwell"
+#endif
+#if defined(__LIBTORCH)
+      flags = TRIM(flags)//" libtorch"
 #endif
 #if defined(__OFFLOAD_CUDA)
       flags = TRIM(flags)//" offload_cuda"

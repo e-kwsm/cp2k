@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -19,8 +19,7 @@ MODULE kpoint_io
                                               copy_fm_to_dbcsr
    USE cp_files,                        ONLY: close_file,&
                                               open_file
-   USE cp_fm_types,                     ONLY: cp_fm_p_type,&
-                                              cp_fm_read_unformatted,&
+   USE cp_fm_types,                     ONLY: cp_fm_read_unformatted,&
                                               cp_fm_type,&
                                               cp_fm_write_unformatted
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
@@ -37,7 +36,7 @@ MODULE kpoint_io
    USE kinds,                           ONLY: default_path_length
    USE kpoint_types,                    ONLY: get_kpoint_info,&
                                               kpoint_type
-   USE message_passing,                 ONLY: mp_bcast
+   USE message_passing,                 ONLY: mp_comm_type
    USE orbital_pointers,                ONLY: nso
    USE particle_types,                  ONLY: particle_type
    USE qs_dftb_types,                   ONLY: qs_dftb_atom_type
@@ -119,7 +118,7 @@ CONTAINS
                   CALL get_kpoint_info(kpoint=kpoints, cell_to_index=cell_to_index)
                END IF
                CPASSERT(ASSOCIATED(scf_env%scf_work1))
-               fmat => scf_env%scf_work1(1)%matrix
+               fmat => scf_env%scf_work1(1)
 
                DO ispin = 1, nspin
                   IF (ires > 0) WRITE (ires) ispin, nspin, nimages
@@ -299,7 +298,7 @@ CONTAINS
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: denmat
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: fmwork
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT)      :: fmwork
       INTEGER, INTENT(IN)                                :: natom
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: id_nr
@@ -309,9 +308,10 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'read_kpoints_restart'
 
       CHARACTER(LEN=default_path_length)                 :: file_name
-      INTEGER                                            :: group, handle, restart_unit, source
+      INTEGER                                            :: handle, restart_unit, source
       LOGICAL                                            :: exist
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mp_comm_type)                                 :: group
 
       CALL timeset(routineN, handle)
       logger => cp_get_default_logger()
@@ -337,14 +337,11 @@ CONTAINS
 
       END IF
 
-      CPASSERT(ASSOCIATED(fmwork))
-      CPASSERT(ASSOCIATED(fmwork(1)%matrix))
-
-      CALL read_kpoints_restart_low(denmat, kpoints, fmwork(1)%matrix, para_env, &
+      CALL read_kpoints_restart_low(denmat, kpoints, fmwork(1), para_env, &
                                     natom, restart_unit, natom_mismatch)
 
       ! only the io_node returns natom_mismatch, must broadcast it
-      CALL mp_bcast(natom_mismatch, source, group)
+      CALL group%bcast(natom_mismatch, source)
 
       ! Close restart file
       IF (para_env%ionode) CALL close_file(unit_number=restart_unit)
@@ -371,16 +368,19 @@ CONTAINS
 
       TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: denmat
       TYPE(kpoint_type), POINTER                         :: kpoints
-      TYPE(cp_fm_type), POINTER                          :: fmat
+      TYPE(cp_fm_type), INTENT(INOUT)                    :: fmat
       TYPE(cp_para_env_type), POINTER                    :: para_env
       INTEGER, INTENT(IN)                                :: natom, rst_unit
       LOGICAL, INTENT(OUT)                               :: natom_mismatch
 
-      INTEGER :: group, ic, image, ispin, nao, nao_read, natom_read, ni, nimages, nset_max, &
-         nshell_max, nspin, nspin_read, source, version_read
+      INTEGER                                            :: ic, image, ispin, nao, nao_read, &
+                                                            natom_read, ni, nimages, nset_max, &
+                                                            nshell_max, nspin, nspin_read, source, &
+                                                            version_read
       INTEGER, DIMENSION(3)                              :: cell
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       LOGICAL                                            :: natom_match
+      TYPE(mp_comm_type)                                 :: group
 
       group = para_env%group
       source = para_env%source
@@ -415,7 +415,7 @@ CONTAINS
       END IF
 
       ! make natom_match and natom_mismatch uniform across all nodes
-      CALL mp_bcast(natom_match, source, group)
+      CALL group%bcast(natom_match, source)
       natom_mismatch = .NOT. natom_match
       ! handle natom_match false
       IF (natom_mismatch) THEN
@@ -428,9 +428,9 @@ CONTAINS
             IF (para_env%ionode) THEN
                READ (rst_unit) ispin, nspin_read, ni
             END IF
-            CALL mp_bcast(ispin, source, group)
-            CALL mp_bcast(nspin_read, source, group)
-            CALL mp_bcast(ni, source, group)
+            CALL group%bcast(ispin, source)
+            CALL group%bcast(nspin_read, source)
+            CALL group%bcast(ni, source)
             IF (nspin_read /= nspin) THEN
                CALL cp_abort(__LOCATION__, &
                              " READ RESTART : Different spin polarisation not supported")
@@ -439,8 +439,8 @@ CONTAINS
                IF (para_env%ionode) THEN
                   READ (rst_unit) image, cell
                END IF
-               CALL mp_bcast(image, source, group)
-               CALL mp_bcast(cell, source, group)
+               CALL group%bcast(image, source)
+               CALL group%bcast(cell, source)
                !
                CALL cp_fm_read_unformatted(fmat, rst_unit)
                !

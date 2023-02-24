@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -57,7 +57,6 @@ MODULE qs_fb_env_methods
                                               section_vals_val_get
    USE kinds,                           ONLY: default_string_length,&
                                               dp
-   USE message_passing,                 ONLY: mp_max
    USE orbital_pointers,                ONLY: nco,&
                                               ncoset
    USE parallel_gemm_api,               ONLY: parallel_gemm
@@ -198,7 +197,7 @@ CONTAINS
 
       DO ispin = 1, nspin
          CALL copy_dbcsr_to_fm(matrix_ks(ispin)%matrix, &
-                               scf_env%scf_work1(ispin)%matrix)
+                               scf_env%scf_work1(ispin))
       END DO
 
       eps_diis = scf_control%eps_diis
@@ -891,7 +890,7 @@ CONTAINS
 
       ! get the maximum number of local atoms across the procs.
       max_natoms_local = natoms_local
-      CALL mp_max(max_natoms_local, para_env%group)
+      CALL para_env%group%max(max_natoms_local)
 
       ! create the halos, one for each local atom
       ALLOCATE (halos(natoms_local))

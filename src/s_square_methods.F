@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -22,7 +22,6 @@ MODULE s_square_methods
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_type
    USE cp_para_types,                   ONLY: cp_para_env_type
@@ -30,7 +29,6 @@ MODULE s_square_methods
    USE input_constants,                 ONLY: do_s2_constraint,&
                                               do_s2_restraint
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE qs_mo_types,                     ONLY: get_mo_set,&
                                               has_uniform_occupation,&
@@ -69,8 +67,8 @@ CONTAINS
       TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       REAL(KIND=dp), INTENT(OUT)                         :: s_square, s_square_ideal
-      TYPE(cp_fm_p_type), DIMENSION(:), OPTIONAL, &
-         POINTER                                         :: mo_derivs
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT), &
+         OPTIONAL                                        :: mo_derivs
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: strength
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_s_square'
@@ -136,7 +134,7 @@ CONTAINS
                   s2 = s2 + local_data(i, j)**2
                END DO
             END DO
-            CALL mp_sum(s2, para_env%group)
+            CALL para_env%group%sum(s2)
             s_square = s_square_ideal + nbeta - s2
             ! Only needed for constraining or restraining (\cal S)
             IF (PRESENT(mo_derivs)) THEN
@@ -147,14 +145,14 @@ CONTAINS
                CALL get_mo_set(mo_set=mos(2), uniform_occupation=has_uniform_occupation_beta)
                CPASSERT(has_uniform_occupation_beta)
                ! Add -strength*S*C(beta)*(C(alpha)^T*S*C(beta))^T to the alpha MO derivatives
-               CALL parallel_gemm('N', 'T', nao, nalpha, nbeta, -strength, scb, catscb, 1.0_dp, mo_derivs(1)%matrix)
+               CALL parallel_gemm('N', 'T', nao, nalpha, nbeta, -strength, scb, catscb, 1.0_dp, mo_derivs(1))
                ! Create S*C(alpha)
                CALL cp_fm_get_info(c_alpha, matrix_struct=fm_struct_tmp)
                CALL cp_fm_create(sca, fm_struct_tmp, name="S*C(alpha)")
                ! Compute S*C(alpha)
                CALL cp_dbcsr_sm_fm_multiply(matrix_s(1)%matrix, c_alpha, sca, nalpha)
                ! Add -strength*S*C(alpha)*C(alpha)^T*S*C(beta) to the beta MO derivatives
-               CALL parallel_gemm('N', 'N', nao, nbeta, nalpha, -strength, sca, catscb, 1.0_dp, mo_derivs(2)%matrix)
+               CALL parallel_gemm('N', 'N', nao, nbeta, nalpha, -strength, sca, catscb, 1.0_dp, mo_derivs(2))
                CALL cp_fm_release(sca)
             END IF
             CALL cp_fm_release(scb)
@@ -193,7 +191,7 @@ CONTAINS
 
       TYPE(mo_set_type), DIMENSION(:), INTENT(IN)        :: mos
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_derivs
+      TYPE(cp_fm_type), DIMENSION(:), INTENT(INOUT)      :: mo_derivs
       REAL(kind=dp)                                      :: energy
       TYPE(s2_restraint_type), POINTER                   :: s2_restraint_control
       LOGICAL                                            :: just_energy

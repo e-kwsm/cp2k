@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -39,9 +39,9 @@ MODULE mp2_ri_grad
                                               ri_rpa_method_gpw
    USE kinds,                           ONLY: dp
    USE libint_2c_3c,                    ONLY: compare_potential_types
-   USE message_passing,                 ONLY: &
-        mp_allgather, mp_alltoall, mp_irecv, mp_isend, mp_request_null, mp_sendrecv, mp_sum, &
-        mp_wait, mp_waitall
+   USE message_passing,                 ONLY: mp_request_null,&
+                                              mp_request_type,&
+                                              mp_waitall
    USE mp2_eri,                         ONLY: mp2_eri_2c_integrate,&
                                               mp2_eri_3c_integrate,&
                                               mp2_eri_deallocate_forces,&
@@ -138,8 +138,7 @@ CONTAINS
 
       INTEGER                                            :: dimen, eri_method, handle, handle2, i, &
                                                             ikind, ispin, itmp(2), L_counter, LLL, &
-                                                            my_P_end, my_P_size, my_P_start, &
-                                                            natom, nspins
+                                                            my_P_end, my_P_size, my_P_start, nspins
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of, natom_of_kind, &
                                                             virtual
       LOGICAL                                            :: alpha_beta, use_virial
@@ -204,14 +203,14 @@ CONTAINS
       G_PQ_local(my_P_start:my_P_end, :) = mp2_env%ri_grad%Gamma_PQ
       DEALLOCATE (mp2_env%ri_grad%Gamma_PQ)
       G_PQ_local(my_P_start:my_P_end, :) = G_PQ_local(my_P_start:my_P_end, :)/REAL(nspins, dp)
-      CALL mp_sum(G_PQ_local, para_env_sub%group)
+      CALL para_env_sub%group%sum(G_PQ_local)
       IF (.NOT. compare_potential_types(mp2_env%ri_metric, mp2_env%potential_parameter)) THEN
          ALLOCATE (G_PQ_local_2(dimen_RI, my_group_L_size))
          G_PQ_local_2 = 0.0_dp
          G_PQ_local_2(my_P_start:my_P_end, :) = mp2_env%ri_grad%Gamma_PQ_2
          DEALLOCATE (mp2_env%ri_grad%Gamma_PQ_2)
          G_PQ_local_2(my_P_start:my_P_end, :) = G_PQ_local_2(my_P_start:my_P_end, :)/REAL(nspins, dp)
-         CALL mp_sum(G_PQ_local_2, para_env_sub%group)
+         CALL para_env_sub%group%sum(G_PQ_local_2)
       END IF
 
       ! create matrix holding the back transformation (G_P_inu)
@@ -241,7 +240,9 @@ CONTAINS
       NULLIFY (force, virial)
       CALL get_qs_env(qs_env=qs_env, force=force, virial=virial)
 
-      ALLOCATE (natom_of_kind(SIZE(atomic_kind_set)))
+      ! check if we want to calculate the virial
+      use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
+
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, natom_of_kind=natom_of_kind)
       NULLIFY (mp2_force)
       CALL allocate_qs_force(mp2_force, natom_of_kind)
@@ -333,18 +334,11 @@ CONTAINS
       ELSEIF (eri_method == do_eri_gpw) THEN
          CALL get_qs_env(qs_env, ks_env=ks_env)
 
-         natom = SIZE(particle_set)
-
-         ALLOCATE (kind_of(natom))
-         ALLOCATE (atom_of_kind(natom))
          CALL get_atomic_kind_set(atomic_kind_set, kind_of=kind_of, atom_of_kind=atom_of_kind)
 
          ! Supporting stuff for GPW
          CALL prepare_gpw(qs_env, dft_control, e_cutoff_old, cutoff_old, relative_cutoff_old, para_env_sub, pw_env_sub, &
                           auxbas_pw_pool, poisson_env, task_list_sub, rho_r, rho_g, pot_g, psi_L, sab_orb_sub)
-
-         ! check if we want to calculate the virial
-         use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
 
          ! in case virial is required we need auxiliary pw
          ! for calculate the MP2-volume contribution to the virial
@@ -676,8 +670,7 @@ CONTAINS
       INTEGER :: rec_counter, rec_row_size, send_col_size, send_counter, send_pcol, send_prow, &
          send_row_size, size_rec_buffer, size_send_buffer
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii_vet, map_rec_size, map_send_size, &
-                                                            pos_info, pos_info_ex, &
-                                                            proc_2_send_pos, req_send
+                                                            pos_info, pos_info_ex, proc_2_send_pos
       INTEGER, ALLOCATABLE, DIMENSION(:, :) :: grid_2_mepos, mepos_2_grid, my_col_indeces_info_1i, &
          my_col_indeces_info_2a, my_row_indeces_info_1i, my_row_indeces_info_2a, sizes, sizes_1i, &
          sizes_2a
@@ -697,6 +690,7 @@ CONTAINS
          DIMENSION(:)                                    :: buffer_rec, buffer_send
       TYPE(integ_mat_buffer_type_2D), ALLOCATABLE, &
          DIMENSION(:)                                    :: buffer_cyclic
+      TYPE(mp_request_type), ALLOCATABLE, DIMENSION(:)   :: req_send
 
       CALL timeset(routineN, handle)
 
@@ -713,7 +707,7 @@ CONTAINS
 
       ! create all information array
       ALLOCATE (pos_info(0:para_env%num_pe - 1))
-      CALL mp_allgather(para_env_sub%mepos, pos_info, para_env%group)
+      CALL para_env%group%allgather(para_env_sub%mepos, pos_info)
 
       ! get matrix information for the global
       CALL cp_fm_get_info(matrix=L_mu_q, &
@@ -731,7 +725,7 @@ CONTAINS
       ALLOCATE (grid_2_mepos(0:nprow - 1, 0:npcol - 1))
       grid_2_mepos = 0
       grid_2_mepos(myprow, mypcol) = para_env%mepos
-      CALL mp_sum(grid_2_mepos, para_env%group)
+      CALL para_env%group%sum(grid_2_mepos)
 
       ! get matrix information for L1_mu_i
       CALL cp_fm_get_info(matrix=L1_mu_i, &
@@ -745,7 +739,7 @@ CONTAINS
       npcol_1i = L1_mu_i%matrix_struct%context%num_pe(2)
 
       ALLOCATE (sizes_1i(2, 0:para_env_sub%num_pe - 1))
-      CALL mp_allgather([nrow_local_1i, ncol_local_1i], sizes_1i, para_env_sub%group)
+      CALL para_env_sub%group%allgather([nrow_local_1i, ncol_local_1i], sizes_1i)
 
       ! get matrix information for L2_nu_a
       CALL cp_fm_get_info(matrix=L2_nu_a, &
@@ -759,7 +753,7 @@ CONTAINS
       npcol_2a = L2_nu_a%matrix_struct%context%num_pe(2)
 
       ALLOCATE (sizes_2a(2, 0:para_env_sub%num_pe - 1))
-      CALL mp_allgather([nrow_local_2a, ncol_local_2a], sizes_2a, para_env_sub%group)
+      CALL para_env_sub%group%allgather([nrow_local_2a, ncol_local_2a], sizes_2a)
 
       ! Here we perform a ring communication scheme taking into account
       ! for the sub-group distribution of the source matrices.
@@ -773,9 +767,9 @@ CONTAINS
       color_exchange = para_env_sub%mepos
       CALL cp_para_env_split(para_env_exchange, para_env, color_exchange)
       ALLOCATE (pos_info_ex(0:para_env%num_pe - 1))
-      CALL mp_allgather(para_env_exchange%mepos, pos_info_ex, para_env%group)
+      CALL para_env%group%allgather(para_env_exchange%mepos, pos_info_ex)
       ALLOCATE (sizes(2, 0:para_env_exchange%num_pe - 1))
-      CALL mp_allgather([nrow_local, ncol_local], sizes, para_env_exchange%group)
+      CALL para_env_exchange%group%allgather([nrow_local, ncol_local], sizes)
 
       ! 0) store some info about indeces of the fm matrices (subgroup)
       CALL timeset(routineN//"_inx", handle2)
@@ -809,8 +803,8 @@ CONTAINS
          my_col_indeces_info_1i(1, jjB) = send_pcol
          my_col_indeces_info_1i(2, jjB) = j_local
       END DO
-      CALL mp_allgather(my_row_indeces_info_1i, row_indeces_info_1i, para_env_sub%group)
-      CALL mp_allgather(my_col_indeces_info_1i, col_indeces_info_1i, para_env_sub%group)
+      CALL para_env_sub%group%allgather(my_row_indeces_info_1i, row_indeces_info_1i)
+      CALL para_env_sub%group%allgather(my_col_indeces_info_1i, col_indeces_info_1i)
       DEALLOCATE (my_row_indeces_info_1i, my_col_indeces_info_1i)
 
       ! matrix L2_nu_a
@@ -842,8 +836,8 @@ CONTAINS
          my_col_indeces_info_2a(1, jjB) = send_pcol
          my_col_indeces_info_2a(2, jjB) = j_local
       END DO
-      CALL mp_allgather(my_row_indeces_info_2a, row_indeces_info_2a, para_env_sub%group)
-      CALL mp_allgather(my_col_indeces_info_2a, col_indeces_info_2a, para_env_sub%group)
+      CALL para_env_sub%group%allgather(my_row_indeces_info_2a, row_indeces_info_2a)
+      CALL para_env_sub%group%allgather(my_col_indeces_info_2a, col_indeces_info_2a)
       DEALLOCATE (my_row_indeces_info_2a, my_col_indeces_info_2a)
       CALL timestop(handle2)
 
@@ -873,7 +867,7 @@ CONTAINS
       ! and exchange data in order to create map_rec_size
       ALLOCATE (map_rec_size(0:para_env_sub%num_pe - 1))
       map_rec_size = 0
-      CALL mp_alltoall(map_send_size, map_rec_size, 1, para_env_sub%group)
+      CALL para_env_sub%group%alltoall(map_send_size, map_rec_size, 1)
       CALL timestop(handle2)
 
       ! 2) reorder data in sending buffer
@@ -941,7 +935,7 @@ CONTAINS
       CALL timestop(handle2)
 
       ! 3) create the buffer for receive, post the message with irecv
-      !    and send the messages with mp_isend
+      !    and send the messages non-blocking
       CALL timeset(routineN//"_sub_isendrecv", handle2)
       ! count the number of messages to be received
       number_of_rec = 0
@@ -964,8 +958,8 @@ CONTAINS
             buffer_rec(rec_counter)%proc = proc_receive
             ! post the message to be received (not need to send to myself)
             IF (proc_receive /= para_env_sub%mepos) THEN
-               CALL mp_irecv(buffer_rec(rec_counter)%msg, proc_receive, para_env_sub%group, &
-                             buffer_rec(rec_counter)%msg_req)
+               CALL para_env_sub%group%irecv(buffer_rec(rec_counter)%msg, proc_receive, &
+                                             buffer_rec(rec_counter)%msg_req)
             END IF
          END IF
       END DO
@@ -980,8 +974,8 @@ CONTAINS
             IF (proc_send == para_env_sub%mepos) THEN
                buffer_rec(send_counter)%msg(:) = buffer_send(send_counter)%msg
             ELSE
-               CALL mp_isend(buffer_send(send_counter)%msg, proc_send, para_env_sub%group, &
-                             buffer_send(send_counter)%msg_req)
+               CALL para_env_sub%group%isend(buffer_send(send_counter)%msg, proc_send, &
+                                             buffer_send(send_counter)%msg_req)
                req_send(send_counter) = buffer_send(send_counter)%msg_req
             END IF
          END IF
@@ -1012,7 +1006,7 @@ CONTAINS
             rec_counter = rec_counter + 1
 
             ! wait for the message
-            IF (proc_receive /= para_env_sub%mepos) CALL mp_wait(buffer_rec(rec_counter)%msg_req)
+            IF (proc_receive /= para_env_sub%mepos) CALL buffer_rec(rec_counter)%msg_req%wait()
 
             CALL timeset(routineN//"_fill", handle3)
             iii = 0
@@ -1087,9 +1081,8 @@ CONTAINS
          rec_col_size = sizes(2, proc_receive)
 
          mat_rec = 0.0_dp
-         CALL mp_sendrecv(mat_send, proc_send_static, &
-                          mat_rec, proc_receive_static, &
-                          para_env_exchange%group)
+         CALL para_env_exchange%group%sendrecv(mat_send, proc_send_static, &
+                                               mat_rec, proc_receive_static)
 
          mat_send = 0.0_dp
          mat_send(1:rec_row_size, 1:rec_col_size) = mat_rec(1:rec_row_size, 1:rec_col_size) + &
@@ -1098,9 +1091,8 @@ CONTAINS
          DEALLOCATE (buffer_cyclic(proc_receive)%msg)
       END DO
       ! and finally
-      CALL mp_sendrecv(mat_send, proc_send_static, &
-                       mat_rec, proc_receive_static, &
-                       para_env_exchange%group)
+      CALL para_env_exchange%group%sendrecv(mat_send, proc_send_static, &
+                                            mat_rec, proc_receive_static)
       L_mu_q%local_data(1:nrow_local, 1:ncol_local) = mat_rec(1:nrow_local, 1:ncol_local)
       DEALLOCATE (buffer_cyclic)
       DEALLOCATE (mat_send)
@@ -1273,10 +1265,10 @@ CONTAINS
       ! send around the sub_group the local data and check if we
       ! have to update our block with external elements
       ALLOCATE (mepos_2_grid(2, 0:para_env_sub%num_pe - 1))
-      CALL mp_allgather([myprow, mypcol], mepos_2_grid, para_env_sub%group)
+      CALL para_env_sub%group%allgather([myprow, mypcol], mepos_2_grid)
 
       ALLOCATE (sizes(2, 0:para_env_sub%num_pe - 1))
-      CALL mp_allgather([nrow_local, ncol_local], sizes, para_env_sub%group)
+      CALL para_env_sub%group%allgather([nrow_local, ncol_local], sizes)
 
       ALLOCATE (ab_rec(nrow_local, ncol_local))
       DO proc_shift = 1, para_env_sub%num_pe - 1
@@ -1309,9 +1301,8 @@ CONTAINS
          END DO
 
          ab_rec = 0.0_dp
-         CALL mp_sendrecv(ab_send, proc_send, &
-                          ab_rec, proc_receive, &
-                          para_env_sub%group)
+         CALL para_env_sub%group%sendrecv(ab_send, proc_send, &
+                                          ab_rec, proc_receive)
          mp2_env%ri_grad%P_mo(kspin)%local_data(1:nrow_local, 1:ncol_local) = &
             mp2_env%ri_grad%P_mo(kspin)%local_data(1:nrow_local, 1:ncol_local) + &
             ab_rec(1:nrow_local, 1:ncol_local)

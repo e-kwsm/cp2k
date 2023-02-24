@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -27,7 +27,7 @@ MODULE qs_ot
         dbcsr_multiply, dbcsr_release, dbcsr_release_p, dbcsr_scale, dbcsr_scale_by_vector, &
         dbcsr_set, dbcsr_transposed, dbcsr_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE preconditioner,                  ONLY: apply_preconditioner
    USE preconditioner_types,            ONLY: preconditioner_type
    USE qs_ot_types,                     ONLY: qs_ot_type
@@ -113,13 +113,14 @@ CONTAINS
       INTEGER, PARAMETER                                 :: taylor_order = 50
       REAL(KIND=dp), PARAMETER                           :: alpha = 0.1_dp, f2_eps = 0.01_dp
 
-      INTEGER                                            :: blk, col, col_size, group, handle, i, k, &
-                                                            n, p, row, row_size
+      INTEGER                                            :: blk, col, col_size, group_handle, &
+                                                            handle, i, k, n, p, row, row_size
       REAL(dp), DIMENSION(:, :), POINTER                 :: DATA
       REAL(KIND=dp)                                      :: expfactor, f2, norm_fro, norm_gct, tmp
       TYPE(dbcsr_distribution_type)                      :: dist
       TYPE(dbcsr_iterator_type)                          :: iter
       TYPE(dbcsr_type), POINTER                          :: C, Gp1, Gp2, GU, U
+      TYPE(mp_comm_type)                                 :: group
 
       CALL timeset(routineN, handle)
       !
@@ -151,8 +152,9 @@ CONTAINS
          END DO
       END DO
       CALL dbcsr_iterator_stop(iter)
-      CALL dbcsr_get_info(C, group=group)
-      CALL mp_sum(f2, group)
+      CALL dbcsr_get_info(C, group=group_handle)
+      CALL group%set_handle(group_handle)
+      CALL group%sum(f2)
       !
       !
       CALL dbcsr_multiply('T', 'N', 1.0_dp, C, C_NEW, 0.0_dp, GU)

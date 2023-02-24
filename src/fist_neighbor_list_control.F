@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -39,9 +39,9 @@ MODULE fist_neighbor_list_control
    USE input_section_types,             ONLY: section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_max
    USE pair_potential_types,            ONLY: gal21_type,&
                                               gal_type,&
+                                              nequip_type,&
                                               pair_potential_pp_type,&
                                               siepmann_type,&
                                               tersoff_type
@@ -172,7 +172,7 @@ CONTAINS
             END DO
          END DO
 
-         CALL mp_max(dr2_max, para_env%group)
+         CALL para_env%group%max(dr2_max)
 
          ! If the maximum distplacement is too large, ...
          IF (dr2_max > 0.25_dp*verlet_skin**2 .OR. build_from_scratch) THEN
@@ -226,6 +226,9 @@ CONTAINS
                      full_nl(ikind, jkind) = .TRUE.
                   END IF
                   IF (ANY(potparm%pot(ikind, jkind)%pot%type == gal21_type)) THEN
+                     full_nl(ikind, jkind) = .TRUE.
+                  END IF
+                  IF (ANY(potparm%pot(ikind, jkind)%pot%type == nequip_type)) THEN
                      full_nl(ikind, jkind) = .TRUE.
                   END IF
                   full_nl(jkind, ikind) = full_nl(ikind, jkind)

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -39,25 +39,20 @@
 
 MODULE submatrix_dissection
 
-   USE bibliography, ONLY: Lass2018, &
-                           cite_reference
-   USE dbcsr_api, ONLY: &
-      dbcsr_distribution_get, dbcsr_distribution_type, dbcsr_finalize, dbcsr_get_block_p, &
-      dbcsr_get_info, dbcsr_get_stored_coordinates, dbcsr_iterator_blocks_left, &
-      dbcsr_iterator_next_block, dbcsr_iterator_start, dbcsr_iterator_stop, dbcsr_iterator_type, &
-      dbcsr_put_block, dbcsr_type
-   USE message_passing, ONLY: mp_allgather, &
-                              mp_alltoall, &
-                              mp_irecv, &
-                              mp_isend, &
-                              mp_send, &
-                              mp_wait
-   USE kinds, ONLY: dp
-   USE submatrix_types, ONLY: buffer_type, &
-                              bufptr_type, &
-                              intBuffer_type, &
-                              set_type, &
-                              setarray_type
+   USE bibliography,                    ONLY: Lass2018,&
+                                              cite_reference
+   USE dbcsr_api,                       ONLY: &
+        dbcsr_distribution_get, dbcsr_distribution_type, dbcsr_finalize, dbcsr_get_block_p, &
+        dbcsr_get_info, dbcsr_get_stored_coordinates, dbcsr_iterator_blocks_left, &
+        dbcsr_iterator_next_block, dbcsr_iterator_start, dbcsr_iterator_stop, dbcsr_iterator_type, &
+        dbcsr_put_block, dbcsr_type
+   USE kinds,                           ONLY: dp
+   USE message_passing,                 ONLY: mp_comm_type
+   USE submatrix_types,                 ONLY: buffer_type,&
+                                              bufptr_type,&
+                                              intBuffer_type,&
+                                              set_type,&
+                                              setarray_type
 
 !$ USE omp_lib, ONLY: omp_get_max_threads, omp_get_thread_num
 
@@ -72,7 +67,8 @@ MODULE submatrix_dissection
       TYPE(dbcsr_type)                                :: dbcsr_mat
       TYPE(dbcsr_distribution_type)                   :: dist
       LOGICAL                                         :: initialized = .FALSE.
-      INTEGER                                         :: numnodes, group, myrank, nblkcols, nblkrows, nblks, local_blocks, &
+      TYPE(mp_comm_type)                              :: group
+      INTEGER                                         :: numnodes, myrank, nblkcols, nblkrows, nblks, local_blocks, &
                                                          cols_per_sm, number_of_submatrices
       INTEGER, DIMENSION(:), POINTER                  :: row_blk_size, col_blk_size
       INTEGER, DIMENSION(:), ALLOCATABLE              :: coo_cols, coo_rows, coo_col_offsets, coo_cols_local, coo_rows_local, &
@@ -161,7 +157,7 @@ CONTAINS
       TYPE(intBuffer_type), DIMENSION(:), ALLOCATABLE  :: blocks_for_rank
 
       ! Additional structures for threaded parts
-      INTEGER                                          :: numthreads, mytid
+      INTEGER                                          :: numthreads, mytid, group_handle
       ! Indexing starts at 0 to match thread ids
       TYPE(setarray_type), DIMENSION(:), ALLOCATABLE   :: nonzero_rows_t
       TYPE(setarray_type), DIMENSION(:), ALLOCATABLE   :: result_blocks_from_rank_t, result_blocks_for_rank_t, &
@@ -178,8 +174,10 @@ CONTAINS
 
       this%dbcsr_mat = matrix_p
       CALL dbcsr_get_info(matrix=this%dbcsr_mat, nblkcols_total=this%nblkcols, nblkrows_total=this%nblkrows, &
-                          row_blk_size=this%row_blk_size, col_blk_size=this%col_blk_size, group=this%group, distribution=this%dist)
+                         row_blk_size=this%row_blk_size, col_blk_size=this%col_blk_size, group=group_handle, distribution=this%dist)
       CALL dbcsr_distribution_get(dist=this%dist, mynode=this%myrank, numnodes=this%numnodes)
+
+      CALL this%group%set_handle(group_handle)
 
       IF (this%nblkcols .NE. this%nblkrows) THEN
          CPABORT("Number of block rows and cols need to be identical")
@@ -227,7 +225,7 @@ CONTAINS
       CALL dbcsr_iterator_stop(iter)
 
       ! We only know how many blocks we own. What's with the other ranks?
-      CALL mp_allgather(msgout=this%local_blocks, msgin=blocks_per_rank, gid=this%group)
+      CALL this%group%allgather(msgout=this%local_blocks, msgin=blocks_per_rank)
       coo_dsplcmnts(1) = 0
       DO i = 1, this%numnodes - 1
          coo_dsplcmnts(i + 1) = coo_dsplcmnts(i) + blocks_per_rank(i)
@@ -237,10 +235,10 @@ CONTAINS
       this%nblks = SUM(blocks_per_rank)
       ALLOCATE (this%coo_cols(this%nblks), this%coo_rows(this%nblks), this%coo_col_offsets(this%nblkcols + 1), &
                 this%coo_dptr(this%nblks))
-      CALL mp_allgather(msgout=this%coo_rows_local, msgin=this%coo_rows, gid=this%group, rcount=blocks_per_rank, &
-                        rdispl=coo_dsplcmnts)
-      CALL mp_allgather(msgout=this%coo_cols_local, msgin=this%coo_cols, gid=this%group, rcount=blocks_per_rank, &
-                        rdispl=coo_dsplcmnts)
+      CALL this%group%allgatherv(msgout=this%coo_rows_local, msgin=this%coo_rows, rcount=blocks_per_rank, &
+                                 rdispl=coo_dsplcmnts)
+      CALL this%group%allgatherv(msgout=this%coo_cols_local, msgin=this%coo_cols, rcount=blocks_per_rank, &
+                                 rdispl=coo_dsplcmnts)
 
       DEALLOCATE (blocks_per_rank, coo_dsplcmnts)
 
@@ -326,14 +324,7 @@ CONTAINS
       ! Figure out which blocks we need to receive. Blocks are identified here as indices into our COO representation.
       ! TODO: This currently shows limited parallel efficiency. Investigate further.
 
-! gfortran before 8.3 complains about internal symbols not being specified in
-! any data clause when using DEFAULT(NONE) and OOP procedures are called from
-! within the parallel region.
-#if __GNUC__ < 8 || (__GNUC__ == 8 && (__GNUC_MINOR__ < 3))
-      !$OMP PARALLEL DEFAULT(SHARED) &
-#else
-      !$OMP PARALLEL DEFAULT(NONE) &
-#endif
+      !$OMP PARALLEL DEFAULT(OMP_DEFAULT_NONE_WITH_OOP) &
       !$OMP          NUM_THREADS(numthreads) &
       !$OMP          PRIVATE(i,j,k,l,m,l_limit_left,l_limit_right,cur_col,cur_row,mytid) &
       !$OMP          SHARED(result_blocks_from_rank_t,result_blocks_for_rank_t,blocks_from_rank_t,this,numthreads,nonzero_rows_t)
@@ -422,7 +413,7 @@ CONTAINS
       DO i = 0, this%numnodes - 1
          num_blockids_send(i) = blocks_from_rank(i)%elements
       END DO
-      CALL mp_alltoall(num_blockids_send, num_blockids_recv, 1, this%group)
+      CALL this%group%alltoall(num_blockids_send, num_blockids_recv, 1)
       DO i = 0, this%numnodes - 1
          CALL blocks_for_rank(i)%alloc(num_blockids_recv(i))
       END DO
@@ -431,14 +422,14 @@ CONTAINS
       IF (this%numnodes .GT. 1) THEN
          DO i = 1, this%numnodes
             k = MODULO(this%myrank - i, this%numnodes) ! rank to receive from
-            CALL mp_irecv(msgout=blocks_for_rank(k)%data, source=k, comm=this%group, request=blocks_for_rank(k)%mpi_request)
+            CALL this%group%irecv(msgout=blocks_for_rank(k)%data, source=k, request=blocks_for_rank(k)%mpi_request)
          END DO
          DO i = 1, this%numnodes
             k = MODULO(this%myrank + i, this%numnodes) ! rank to send to
-            CALL mp_send(blocks_from_rank(k)%getall(), k, 0, this%group)
+            CALL this%group%send(blocks_from_rank(k)%getall(), k, 0)
          END DO
          DO i = 0, this%numnodes - 1
-            CALL mp_wait(blocks_for_rank(i)%mpi_request)
+            CALL blocks_for_rank(i)%mpi_request%wait()
          END DO
       ELSE
          blocks_for_rank(0)%data = blocks_from_rank(0)%getall()
@@ -513,13 +504,13 @@ CONTAINS
          ! and first trying to receive from our left neighbor.
          DO i = 1, this%numnodes
             k = MODULO(this%myrank - i, this%numnodes) ! rank to receive from
-            CALL mp_irecv(msgout=this%recvbufs(k)%data, source=k, comm=this%group, request=this%recvbufs(k)%mpi_request)
+            CALL this%group%irecv(msgout=this%recvbufs(k)%data, source=k, request=this%recvbufs(k)%mpi_request)
             k = MODULO(this%myrank + i, this%numnodes) ! rank to send to
-            CALL mp_isend(msgin=sendbufs(k)%data, dest=k, comm=this%group, request=sendbufs(k)%mpi_request)
+            CALL this%group%isend(msgin=sendbufs(k)%data, dest=k, request=sendbufs(k)%mpi_request)
          END DO
          DO i = 0, this%numnodes - 1
-            CALL mp_wait(sendbufs(i)%mpi_request)
-            CALL mp_wait(this%recvbufs(i)%mpi_request)
+            CALL sendbufs(i)%mpi_request%wait()
+            CALL this%recvbufs(i)%mpi_request%wait()
          END DO
       ELSE
          this%recvbufs(0)%data = sendbufs(0)%data
@@ -817,13 +808,13 @@ CONTAINS
       IF (this%numnodes .GT. 1) THEN
          DO i = 1, this%numnodes
             k = MODULO(this%myrank - i, this%numnodes) ! rank to receive from
-            CALL mp_irecv(msgout=result_recvbufs(k)%data, source=k, comm=this%group, request=result_recvbufs(k)%mpi_request)
+            CALL this%group%irecv(msgout=result_recvbufs(k)%data, source=k, request=result_recvbufs(k)%mpi_request)
             k = MODULO(this%myrank + i, this%numnodes) ! rank to send to
-            CALL mp_isend(msgin=this%result_sendbufs(k)%data, dest=k, comm=this%group, request=this%result_sendbufs(k)%mpi_request)
+            CALL this%group%isend(msgin=this%result_sendbufs(k)%data, dest=k, request=this%result_sendbufs(k)%mpi_request)
          END DO
          DO i = 0, this%numnodes - 1
-            CALL mp_wait(this%result_sendbufs(i)%mpi_request)
-            CALL mp_wait(result_recvbufs(i)%mpi_request)
+            CALL this%result_sendbufs(i)%mpi_request%wait()
+            CALL result_recvbufs(i)%mpi_request%wait()
          END DO
       ELSE
          result_recvbufs(0)%data = this%result_sendbufs(0)%data

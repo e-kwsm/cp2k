@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -23,7 +23,6 @@ MODULE qs_fb_filter_matrix_methods
    USE kinds,                           ONLY: default_string_length,&
                                               dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_alltoall
    USE particle_types,                  ONLY: particle_type
    USE qs_fb_atomic_halo_types,         ONLY: fb_atomic_halo_create,&
                                               fb_atomic_halo_get,&
@@ -705,9 +704,8 @@ CONTAINS
 
       CALL timeset("fb_fltrmat_add_blkcol_mpi", handle_mpi)
 
-      CALL mp_alltoall(send_buf, send_sizes, send_disps, &
-                       recv_buf, recv_sizes, recv_disps, &
-                       para_env%group)
+      CALL para_env%group%alltoall(send_buf, send_sizes, send_disps, &
+                                   recv_buf, recv_sizes, recv_disps)
 
       CALL timestop(handle_mpi)
 

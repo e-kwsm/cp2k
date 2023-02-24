@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -37,11 +37,8 @@ MODULE rpa_communication
                                               group_dist_d1_type,&
                                               release_group_dist
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_allgather,&
-                                              mp_irecv,&
-                                              mp_isend,&
-                                              mp_sum,&
-                                              mp_wait,&
+   USE message_passing,                 ONLY: mp_request_null,&
+                                              mp_request_type,&
                                               mp_waitall
    USE mp2_ri_grad_util,                ONLY: fm2array,&
                                               prepare_redistribution
@@ -99,8 +96,7 @@ CONTAINS
          number_of_send, proc_receive, proc_send, proc_shift, rec_counter, rec_iaia_end, &
          rec_iaia_size, rec_iaia_start, rec_pcol, rec_prow, ref_send_pcol, ref_send_prow, &
          send_counter, send_pcol, send_prow, size_rec_buffer, size_send_buffer
-      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii_vet, map_rec_size, map_send_size, &
-                                                            req_send
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: iii_vet, map_rec_size, map_send_size
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: grid_2_mepos, grid_ref_2_send_pos, &
                                                             group_grid_2_mepos, indices_map_my, &
                                                             mepos_2_grid, mepos_2_grid_group
@@ -114,6 +110,7 @@ CONTAINS
       TYPE(index_map), ALLOCATABLE, DIMENSION(:)         :: indices_rec
       TYPE(integ_mat_buffer_type), ALLOCATABLE, &
          DIMENSION(:)                                    :: buffer_rec, buffer_send
+      TYPE(mp_request_type), ALLOCATABLE, DIMENSION(:)   :: req_send
 
       CALL timeset(routineN, handle)
 
@@ -170,8 +167,8 @@ CONTAINS
       ! fill the info array
       grid_2_mepos(myprow, mypcol) = para_env_sub%mepos
       ! sum infos
-      CALL mp_sum(grid_2_mepos, para_env_sub%group)
-      CALL mp_allgather([myprow, mypcol], mepos_2_grid, para_env_sub%group)
+      CALL para_env_sub%group%sum(grid_2_mepos)
+      CALL para_env_sub%group%allgather([myprow, mypcol], mepos_2_grid)
 
       ! loop over local index range and define the sending map
       ALLOCATE (map_send_size(0:para_env_sub%num_pe - 1))
@@ -337,8 +334,8 @@ CONTAINS
             IF (map_rec_size(proc_receive) > 0) THEN
                rec_counter = rec_counter + 1
                buffer_rec(rec_counter)%msg = 0.0_dp
-               CALL mp_irecv(buffer_rec(rec_counter)%msg, proc_receive, para_env_sub%group, &
-                             buffer_rec(rec_counter)%msg_req)
+               CALL para_env_sub%group%irecv(buffer_rec(rec_counter)%msg, proc_receive, &
+                                             buffer_rec(rec_counter)%msg_req)
             END IF
          END DO
          ! fill the sending buffer and send the messages
@@ -372,14 +369,14 @@ CONTAINS
                   Gamma_2D(iaia - my_ia_start + 1, kkB)
             END IF
          END DO
-         req_send = 0
+         req_send = mp_request_null
          send_counter = 0
          DO proc_shift = 1, para_env_sub%num_pe - 1
             proc_send = MODULO(para_env_sub%mepos + proc_shift, para_env_sub%num_pe)
             IF (map_send_size(proc_send) > 0) THEN
                send_counter = send_counter + 1
-               CALL mp_isend(buffer_send(send_counter)%msg, proc_send, para_env_sub%group, &
-                             buffer_send(send_counter)%msg_req)
+               CALL para_env_sub%group%isend(buffer_send(send_counter)%msg, proc_send, &
+                                             buffer_send(send_counter)%msg_req)
                req_send(send_counter) = buffer_send(send_counter)%msg_req
             END IF
          END DO
@@ -392,7 +389,7 @@ CONTAINS
             IF (map_rec_size(proc_receive) > 0) THEN
                rec_counter = rec_counter + 1
                ! wait for the message
-               CALL mp_wait(buffer_rec(rec_counter)%msg_req)
+               CALL buffer_rec(rec_counter)%msg_req%wait()
                DO iii = 1, size_rec_buffer
                   i_local = indices_rec(rec_counter)%map(1, iii)
                   j_local = indices_rec(rec_counter)%map(2, iii)
@@ -462,7 +459,7 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:), INTENT(IN)     :: num_entries_rec, num_entries_send
       TYPE(integ_mat_buffer_type), ALLOCATABLE, &
          DIMENSION(:), INTENT(INOUT)                     :: buffer_rec, buffer_send
-      INTEGER, DIMENSION(:, :), POINTER                  :: req_array
+      TYPE(mp_request_type), DIMENSION(:, :), POINTER    :: req_array
       LOGICAL, INTENT(IN), OPTIONAL                      :: do_indx, do_msg
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'communicate_buffer'
@@ -486,10 +483,10 @@ CONTAINS
             IF (num_entries_rec(imepos) > 0) THEN
                rec_counter = rec_counter + 1
                IF (my_do_indx) THEN
-                  CALL mp_irecv(buffer_rec(imepos)%indx, imepos, para_env%group, req_array(rec_counter, 3), tag=4)
+                  CALL para_env%group%irecv(buffer_rec(imepos)%indx, imepos, req_array(rec_counter, 3), tag=4)
                END IF
                IF (my_do_msg) THEN
-                  CALL mp_irecv(buffer_rec(imepos)%msg, imepos, para_env%group, req_array(rec_counter, 4), tag=7)
+                  CALL para_env%group%irecv(buffer_rec(imepos)%msg, imepos, req_array(rec_counter, 4), tag=7)
                END IF
             END IF
          END DO
@@ -498,10 +495,10 @@ CONTAINS
             IF (num_entries_send(imepos) > 0) THEN
                send_counter = send_counter + 1
                IF (my_do_indx) THEN
-                  CALL mp_isend(buffer_send(imepos)%indx, imepos, para_env%group, req_array(send_counter, 1), tag=4)
+                  CALL para_env%group%isend(buffer_send(imepos)%indx, imepos, req_array(send_counter, 1), tag=4)
                END IF
                IF (my_do_msg) THEN
-                  CALL mp_isend(buffer_send(imepos)%msg, imepos, para_env%group, req_array(send_counter, 2), tag=7)
+                  CALL para_env%group%isend(buffer_send(imepos)%msg, imepos, req_array(send_counter, 2), tag=7)
                END IF
             END IF
          END DO

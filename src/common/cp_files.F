@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -30,7 +30,8 @@ MODULE cp_files
              open_file, &
              get_unit_number, &
              file_exists, &
-             get_data_dir
+             get_data_dir, &
+             discover_file
 
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'cp_files'
 

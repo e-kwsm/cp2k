@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -43,7 +43,7 @@ MODULE ewalds_multipole
                             oorootpi, &
                             pi, &
                             sqrthalf
-   USE message_passing, ONLY: mp_sum
+   USE message_passing, ONLY: mp_comm_type
    USE parallel_rng_types, ONLY: UNIFORM, &
                                  rng_stream_type
    USE particle_types, ONLY: particle_type
@@ -149,7 +149,7 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'ewald_multipole_evaluate'
 
-      INTEGER                                            :: group, handle, i, j, size1, size2
+      INTEGER                                            :: handle, i, j, size1, size2
       LOGICAL                                            :: check_debug, check_efield, check_forces, &
                                                             do_task(3)
       LOGICAL, DIMENSION(3, 3)                           :: my_task
@@ -158,6 +158,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:), POINTER               :: efield0_lr, efield0_sr
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: efield1_lr, efield1_sr, efield2_lr, &
                                                             efield2_sr
+      TYPE(mp_comm_type) :: group
 
       CALL cite_reference(Aguado2003)
       CALL cite_reference(Laino2008)
@@ -290,9 +291,9 @@ CONTAINS
       energy_glob_t = energy_glob
       e_rspace_t = e_rspace
       e_bonded_t = e_bonded
-      CALL mp_sum(energy_glob_t, group)
-      CALL mp_sum(e_rspace_t, group)
-      CALL mp_sum(e_bonded_t, group)
+      CALL group%sum(energy_glob_t)
+      CALL group%sum(e_rspace_t)
+      CALL group%sum(e_bonded_t)
       ! Print some info about energetics
       CALL ewald_multipole_print(iw, energy_local, e_rspace_t, e_bonded_t, e_self, e_neut)
 
@@ -300,19 +301,19 @@ CONTAINS
       IF (do_efield) THEN
          IF (PRESENT(efield0)) THEN
             efield0 = efield0_sr + efield0_lr
-            CALL mp_sum(efield0, group)
+            CALL group%sum(efield0)
             DEALLOCATE (efield0_sr)
             DEALLOCATE (efield0_lr)
          END IF
          IF (PRESENT(efield1)) THEN
             efield1 = efield1_sr + efield1_lr
-            CALL mp_sum(efield1, group)
+            CALL group%sum(efield1)
             DEALLOCATE (efield1_sr)
             DEALLOCATE (efield1_lr)
          END IF
          IF (PRESENT(efield2)) THEN
             efield2 = efield2_sr + efield2_lr
-            CALL mp_sum(efield2, group)
+            CALL group%sum(efield2)
             DEALLOCATE (efield2_sr)
             DEALLOCATE (efield2_lr)
          END IF
@@ -664,7 +665,7 @@ CONTAINS
                                                             fac, summe_tmp
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:)        :: summe_ef
       COMPLEX(KIND=dp), ALLOCATABLE, DIMENSION(:, :)     :: summe_st
-      INTEGER :: gpt, group, handle, iparticle, iparticle_kind, iparticle_local, lp, mp, nnodes, &
+      INTEGER :: gpt, handle, iparticle, iparticle_kind, iparticle_local, lp, mp, nnodes, &
                  node, np, nparticle_kind, nparticle_local
       INTEGER, DIMENSION(:, :), POINTER                  :: bds
       LOGICAL                                            :: do_efield0, do_efield1, do_efield2
@@ -679,6 +680,7 @@ CONTAINS
       TYPE(pw_grid_type), POINTER                        :: pw_grid
       TYPE(pw_pool_type), POINTER                        :: pw_pool
       TYPE(structure_factor_type)                        :: exp_igr
+      TYPE(mp_comm_type) :: group
 
       CALL timeset(routineN, handle)
       do_efield0 = do_efield .AND. ASSOCIATED(efield0)
@@ -773,11 +775,11 @@ CONTAINS
             END DO
          END DO
       END DO
-      CALL mp_sum(q_t, group)
-      CALL mp_sum(dipole_t, group)
-      CALL mp_sum(trq_t, group)
-      CALL mp_sum(summe_ef, group)
-      IF (do_stress) CALL mp_sum(summe_st, group)
+      CALL group%sum(q_t)
+      CALL group%sum(dipole_t)
+      CALL group%sum(trq_t)
+      CALL group%sum(summe_ef)
+      IF (do_stress) CALL group%sum(summe_st)
 
       ! Looping over the positive g-vectors
       DO gpt = 1, pw_grid%ngpts_cut_local
@@ -1093,7 +1095,7 @@ CONTAINS
       REAL(KIND=dp), PARAMETER                           :: f23 = 2.0_dp/3.0_dp, &
                                                             f415 = 4.0_dp/15.0_dp
 
-      INTEGER                                            :: ewald_type, group, i, iparticle, &
+      INTEGER                                            :: ewald_type, i, iparticle, &
                                                             iparticle_kind, iparticle_local, j, &
                                                             nparticle_local
       LOGICAL                                            :: do_efield0, do_efield1, do_efield2, &
@@ -1102,6 +1104,7 @@ CONTAINS
                                                             dipole_self, fac1, fac2, fac3, fac4, &
                                                             q, q_neutg, q_self, q_sum, qu_qu_self, &
                                                             radius
+      TYPE(mp_comm_type) :: group
 
       CALL ewald_env_get(ewald_env, ewald_type=ewald_type, alpha=alpha, &
                          group=group)
@@ -1189,12 +1192,12 @@ CONTAINS
          END DO
       END DO
 
-      CALL mp_sum(q_neutg, group)
-      CALL mp_sum(q_self, group)
-      CALL mp_sum(q_sum, group)
-      CALL mp_sum(dipole_self, group)
-      CALL mp_sum(ch_qu_self, group)
-      CALL mp_sum(qu_qu_self, group)
+      CALL group%sum(q_neutg)
+      CALL group%sum(q_self)
+      CALL group%sum(q_sum)
+      CALL group%sum(dipole_self)
+      CALL group%sum(ch_qu_self)
+      CALL group%sum(qu_qu_self)
 
       e_self = -(q_self + f23*(dipole_self - f23*ch_qu_self + f415*qu_qu_self*alpha**2)*alpha**2)*alpha*oorootpi
       fac1 = pi/(2.0_dp*cell%deth)

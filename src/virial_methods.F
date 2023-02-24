@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -22,7 +22,7 @@ MODULE virial_methods
    USE kinds,                           ONLY: dp
    USE mathlib,                         ONLY: det_3x3,&
                                               jacobi
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: pascal
@@ -82,7 +82,7 @@ CONTAINS
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(distribution_1d_type), POINTER                :: local_particles
       TYPE(virial_type), INTENT(INOUT)                   :: virial
-      INTEGER, INTENT(IN)                                :: igroup
+      TYPE(mp_comm_type), INTENT(IN)                     :: igroup
 
       CHARACTER(LEN=*), PARAMETER                        :: routineN = 'virial_evaluate'
 
@@ -113,7 +113,7 @@ CONTAINS
             END DO
          END DO
 
-         CALL mp_sum(virial%pv_kinetic, igroup)
+         CALL igroup%sum(virial%pv_kinetic)
 
          ! total virial
          virial%pv_total = virial%pv_virial + virial%pv_kinetic + virial%pv_constraint

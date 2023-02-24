@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -23,8 +23,7 @@ MODULE cp_cfm_basic_linalg
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: z_one,&
                                               z_zero
-   USE message_passing,                 ONLY: mp_prod,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -427,7 +426,7 @@ CONTAINS
             icol = icol + 1
          END IF
       END DO
-      CALL mp_prod(determinant, matrix_a%matrix_struct%para_env%group)
+      CALL matrix_a%matrix_struct%para_env%group%prod(determinant)
 #else
       lda = SIZE(a, 1)
       CALL zgetrf(nrow_global, nrow_global, a(1, 1), lda, ipivot, info)
@@ -715,7 +714,7 @@ CONTAINS
                icol = icol + 1
             END IF
          END DO
-         CALL mp_prod(determinant, matrix_a%matrix_struct%para_env%group)
+         CALL matrix_a%matrix_struct%para_env%group%prod(determinant)
       END IF
 
       CALL pzgetrs("N", nrow_global, nrow_global, a(1, 1), 1, 1, desca, &
@@ -952,9 +951,10 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'cp_cfm_trace'
 
-      INTEGER                                            :: group, handle, mypcol, myprow, &
-                                                            ncol_local, npcol, nprow, nrow_local
+      INTEGER                                            :: handle, mypcol, myprow, ncol_local, &
+                                                            npcol, nprow, nrow_local
       TYPE(cp_blacs_env_type), POINTER                   :: context
+      TYPE(mp_comm_type)                                 :: group
 
       CALL timeset(routineN, handle)
 
@@ -973,7 +973,7 @@ CONTAINS
       trace = accurate_dot_product(matrix_a%local_data(1:nrow_local, 1:ncol_local), &
                                    matrix_b%local_data(1:nrow_local, 1:ncol_local))
 
-      CALL mp_sum(trace, group)
+      CALL group%sum(trace)
 
       CALL timestop(handle)
 

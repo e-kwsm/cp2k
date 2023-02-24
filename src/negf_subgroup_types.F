@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -20,7 +20,7 @@ MODULE negf_subgroup_types
                                               cp_para_env_release,&
                                               cp_para_env_retain
    USE cp_para_types,                   ONLY: cp_para_env_type
-   USE message_passing,                 ONLY: mp_comm_split
+   USE message_passing,                 ONLY: mp_comm_type
    USE negf_control_types,              ONLY: negf_control_type
 #include "./base/base_uses.f90"
 
@@ -47,9 +47,9 @@ MODULE negf_subgroup_types
       !> Useful to find out the current group index by accessing the 'group_distribution' array.
       INTEGER                                            :: mepos_global
       !> global MPI communicator
-      INTEGER                                            :: mpi_comm_global
+      TYPE(mp_comm_type)                                 :: mpi_comm_global
       !> MPI communicator of the current parallel group
-      INTEGER                                            :: mpi_comm
+      TYPE(mp_comm_type)                                 :: mpi_comm
       !> group_distribution(0:num_pe) : a process with rank 'i' belongs to the parallel group
       !> with index 'group_distribution(i)'
       INTEGER, DIMENSION(:), ALLOCATABLE                 :: group_distribution
@@ -98,8 +98,8 @@ CONTAINS
       IF (is_split) THEN
          ALLOCATE (sub_env%group_distribution(0:para_env_global%num_pe - 1))
 
-         CALL mp_comm_split(comm=para_env_global%group, sub_comm=sub_env%mpi_comm, ngroups=sub_env%ngroups, &
-                            group_distribution=sub_env%group_distribution, subgroup_min_size=negf_control%nprocs)
+         CALL sub_env%mpi_comm%from_split(comm=para_env_global%group, ngroups=sub_env%ngroups, &
+                                          group_distribution=sub_env%group_distribution, subgroup_min_size=negf_control%nprocs)
 
          ! ++ create a new parallel environment based on the given sub-communicator)
          NULLIFY (sub_env%blacs_env, sub_env%para_env)

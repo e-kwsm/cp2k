@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -70,6 +70,7 @@ MODULE qs_collocate_density
                                               dp
    USE lri_environment_types,           ONLY: lri_kind_type
    USE memory_utilities,                ONLY: reallocate
+   USE message_passing,                 ONLY: mp_comm_type
    USE orbital_pointers,                ONLY: coset,&
                                               ncoset
    USE particle_types,                  ONLY: particle_type
@@ -1478,12 +1479,13 @@ CONTAINS
       CHARACTER(len=*), PARAMETER :: routineN = 'calculate_rho_elec'
 
       CHARACTER(LEN=default_string_length)               :: my_basis_type
-      INTEGER                                            :: ga_gb_function, group, handle, ilevel, &
-                                                            img, nimages, nlevels
+      INTEGER                                            :: ga_gb_function, handle, ilevel, img, &
+                                                            nimages, nlevels
       LOGICAL                                            :: any_distributed, my_compute_grad, &
                                                             my_compute_tau, my_soft_valid
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_images
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(mp_comm_type)                                 :: group
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_rho
       TYPE(task_list_type), POINTER                      :: task_list
@@ -1820,8 +1822,13 @@ CONTAINS
                END IF
 
                IF (ikind .NE. ikind_old) THEN
-                  CALL get_qs_kind(qs_kind_set(ikind), softb=my_soft, &
-                                   basis_set=orb_basis_set, basis_type=my_basis_type)
+                  IF (my_soft) THEN
+                     CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, &
+                                      basis_type="ORB_SOFT")
+                  ELSE
+                     CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, &
+                                      basis_type=my_basis_type)
+                  END IF
                   CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
                                          first_sgf=first_sgfa, &
                                          lmax=la_max, &
@@ -1834,8 +1841,13 @@ CONTAINS
                END IF
 
                IF (jkind .NE. jkind_old) THEN
-                  CALL get_qs_kind(qs_kind_set(jkind), softb=my_soft, &
-                                   basis_set=orb_basis_set, basis_type=my_basis_type)
+                  IF (my_soft) THEN
+                     CALL get_qs_kind(qs_kind_set(jkind), basis_set=orb_basis_set, &
+                                      basis_type="ORB_SOFT")
+                  ELSE
+                     CALL get_qs_kind(qs_kind_set(jkind), basis_set=orb_basis_set, &
+                                      basis_type=my_basis_type)
+                  END IF
                   CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
                                          first_sgf=first_sgfb, &
                                          lmax=lb_max, &
@@ -2192,8 +2204,13 @@ CONTAINS
             END IF
 
             IF (ikind .NE. ikind_old) THEN
-               CALL get_qs_kind(qs_kind_set(ikind), softb=my_soft, &
-                                basis_set=orb_basis_set, basis_type=my_basis_type)
+               IF (my_soft) THEN
+                  CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, &
+                                   basis_type="ORB_SOFT")
+               ELSE
+                  CALL get_qs_kind(qs_kind_set(ikind), basis_set=orb_basis_set, &
+                                   basis_type=my_basis_type)
+               END IF
                CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
                                       first_sgf=first_sgfa, &
                                       lmax=la_max, &
@@ -2206,8 +2223,13 @@ CONTAINS
             END IF
 
             IF (jkind .NE. jkind_old) THEN
-               CALL get_qs_kind(qs_kind_set(jkind), softb=my_soft, &
-                                basis_set=orb_basis_set, basis_type=my_basis_type)
+               IF (my_soft) THEN
+                  CALL get_qs_kind(qs_kind_set(jkind), basis_set=orb_basis_set, &
+                                   basis_type="ORB_SOFT")
+               ELSE
+                  CALL get_qs_kind(qs_kind_set(jkind), basis_set=orb_basis_set, &
+                                   basis_type=my_basis_type)
+               END IF
                CALL get_gto_basis_set(gto_basis_set=orb_basis_set, &
                                       first_sgf=first_sgfb, &
                                       lmax=lb_max, &
@@ -2413,8 +2435,8 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'collocate_single_gaussian'
 
       CHARACTER(LEN=default_string_length)               :: my_basis_type
-      INTEGER :: group, group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, maxco, &
-         maxsgf_set, my_index, my_pos, na1, na2, natom, ncoa, nseta, offset, sgfa
+      INTEGER :: group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, maxco, maxsgf_set, &
+         my_index, my_pos, na1, na2, natom, ncoa, nseta, offset, sgfa
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: where_is_the_point
       INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, npgfa, nsgfa
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa
@@ -2424,6 +2446,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: pab, sphi_a, zeta
       TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
+      TYPE(mp_comm_type)                                 :: group
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: mgrid_gspace, mgrid_rspace
       TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_rho
@@ -2607,8 +2630,8 @@ CONTAINS
       CHARACTER(LEN=*), PARAMETER :: routineN = 'calculate_wavefunction'
 
       CHARACTER(LEN=default_string_length)               :: my_basis_type
-      INTEGER :: group, group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, maxco, &
-         maxsgf_set, my_pos, na1, na2, nao, natom, ncoa, nseta, offset, sgfa
+      INTEGER :: group_size, handle, i, iatom, igrid_level, ikind, ipgf, iset, maxco, maxsgf_set, &
+         my_pos, na1, na2, nao, natom, ncoa, nseta, offset, sgfa
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: where_is_the_point
       INTEGER, DIMENSION(:), POINTER                     :: la_max, la_min, npgfa, nsgfa
       INTEGER, DIMENSION(:, :), POINTER                  :: first_sgfa
@@ -2619,6 +2642,7 @@ CONTAINS
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: pab, sphi_a, work, zeta
       TYPE(gridlevel_info_type), POINTER                 :: gridlevel_info
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
+      TYPE(mp_comm_type)                                 :: group
       TYPE(pw_pool_p_type), DIMENSION(:), POINTER        :: pw_pools
       TYPE(pw_type), ALLOCATABLE, DIMENSION(:)           :: mgrid_gspace, mgrid_rspace
       TYPE(realspace_grid_type), DIMENSION(:), POINTER   :: rs_rho

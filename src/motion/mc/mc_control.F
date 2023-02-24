@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -42,7 +42,7 @@ MODULE mc_control
                                               mc_molecule_info_type,&
                                               mc_simpar_type,&
                                               set_mc_par
-   USE message_passing,                 ONLY: mp_bcast
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_kind_list_types,        ONLY: molecule_kind_list_type
    USE molecule_kind_types,             ONLY: atom_type,&
                                               get_molecule_kind,&
@@ -181,9 +181,9 @@ CONTAINS
          DIMENSION(:, :), POINTER                        :: atom_names
       CHARACTER(LEN=20)                                  :: ensemble, mc_ensemble
       CHARACTER(LEN=default_path_length)                 :: dat_file, restart_file_name
-      INTEGER                                            :: group, handle, i, ipart, iunit, &
-                                                            nmol_types, nstart, nunits_tot, &
-                                                            print_level, source, unit
+      INTEGER                                            :: handle, i, ipart, iunit, nmol_types, &
+                                                            nstart, nunits_tot, print_level, &
+                                                            source, unit
       INTEGER, DIMENSION(:), POINTER                     :: nchains, nunits
       LOGICAL                                            :: ionode
       REAL(KIND=dp)                                      :: mc_temp, rand, temperature
@@ -193,6 +193,7 @@ CONTAINS
       TYPE(cp_subsys_type), POINTER                      :: subsys
       TYPE(mc_input_file_type), POINTER                  :: mc_input_file
       TYPE(mc_molecule_info_type), POINTER               :: mc_molecule_info
+      TYPE(mp_comm_type)                                 :: group
       TYPE(particle_list_type), POINTER                  :: particles
 
       CALL timeset(routineN, handle)
@@ -220,11 +221,11 @@ CONTAINS
          READ (unit, *) ensemble
          READ (unit, *) nchains(1:nmol_types)
       END IF
-      CALL mp_bcast(nstart, source, group)
-      CALL mp_bcast(temperature, source, group)
-      CALL mp_bcast(nunits_tot, source, group)
-      CALL mp_bcast(ensemble, source, group)
-      CALL mp_bcast(nchains, source, group)
+      CALL group%bcast(nstart, source)
+      CALL group%bcast(temperature, source)
+      CALL group%bcast(nunits_tot, source)
+      CALL group%bcast(ensemble, source)
+      CALL group%bcast(nchains, source)
 
       ! do some checking
       IF (ABS(temperature - mc_temp) .GT. 0.01E0_dp) THEN
@@ -266,7 +267,7 @@ CONTAINS
          READ (unit, *)
          box_length(1:3) = box_length(1:3)/angstrom ! convert to a.u.
       END IF
-      CALL mp_bcast(box_length, source, group)
+      CALL group%bcast(box_length, source)
       IF (ABS(box_length(1) - abc(1)) .GT. 0.0001E0_dp .OR. &
           ABS(box_length(2) - abc(2)) .GT. 0.0001E0_dp .OR. &
           ABS(box_length(3) - abc(3)) .GT. 0.0001E0_dp) THEN

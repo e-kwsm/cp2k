@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -31,16 +31,11 @@ MODULE dbt_test
    USE dbt_io, ONLY: &
       dbt_write_blocks, dbt_write_block_indices
    USE kinds, ONLY: dp, default_string_length, int_8, dp
-   USE message_passing, ONLY: mp_environ, &
-                              mp_bcast, &
-                              mp_comm_free, &
-                              mp_comm_free, &
-                              mp_sum, &
-                              mp_cart_create
    USE dbt_allocate_wrap, ONLY: allocate_any
    USE dbt_index, ONLY: &
       combine_tensor_index, get_2d_indices_tensor, dbt_get_mapping_info
    USE dbt_tas_test, ONLY: dbt_tas_checksum
+   USE message_passing, ONLY: mp_comm_type
 
 #include "../base/base_uses.f90"
 
@@ -186,7 +181,7 @@ CONTAINS
       INTEGER, INTENT(IN)                         :: ndims
       INTEGER, INTENT(IN)                         :: unit_nr
       LOGICAL, INTENT(IN)                         :: verbose
-      INTEGER, INTENT(IN)                         :: mp_comm
+      TYPE(mp_comm_type), INTENT(IN)              :: mp_comm
       TYPE(dbt_distribution_type)             :: dist1, dist2
       TYPE(dbt_type)                          :: tensor1, tensor2
       INTEGER                                     :: isep, iblk
@@ -206,7 +201,7 @@ CONTAINS
       ! Process grid
       pdims(:) = 0
       CALL dbt_pgrid_create(mp_comm, pdims, comm_nd)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
 
       io_unit = 0
       IF (mynode .EQ. 0) io_unit = unit_nr
@@ -264,7 +259,7 @@ CONTAINS
             ALLOCATE (map1, source=perm(1:isep, iperm))
             ALLOCATE (map2, source=perm(isep + 1:ndims, iperm))
 
-            CALL mp_environ(numnodes, mynode, mp_comm)
+            CALL mp_comm%environ(numnodes, mynode)
             CALL mp_environ_pgrid(comm_nd, pdims, myploc)
 
             #:for dim in range(1, maxdim+1)
@@ -373,7 +368,7 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dbt_setup_test_tensor(tensor, mp_comm, enumerate, ${varlist("blk_ind")}$)
       TYPE(dbt_type), INTENT(INOUT)                  :: tensor
-      INTEGER, INTENT(IN)                                :: mp_comm
+      CLASS(mp_comm_type), INTENT(IN)                     :: mp_comm
       LOGICAL, INTENT(IN)                                :: enumerate
       INTEGER, DIMENSION(:), INTENT(IN), OPTIONAL        :: ${varlist("blk_ind")}$
       INTEGER                                            :: numnodes, mynode
@@ -392,7 +387,7 @@ CONTAINS
       INTEGER, DIMENSION(2)                              :: blk_index_2d, nblks_2d
 
       nblks_alloc = SIZE(blk_ind_1)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
 
       IF (.NOT. enumerate) THEN
          CPASSERT(randmat_counter .NE. 0)
@@ -560,7 +555,7 @@ CONTAINS
                END DO
                CALL dbt_iterator_stop(iterator)
 !$OMP END PARALLEL
-               CALL mp_sum(array, tensor%pgrid%mp_comm_2d)
+               CALL tensor%pgrid%mp_comm_2d%sum(array)
 
             END SUBROUTINE
          #:endfor
@@ -593,7 +588,8 @@ CONTAINS
                OPTIONAL                          :: bounds_3
             LOGICAL, INTENT(IN), OPTIONAL        :: log_verbose
             LOGICAL, INTENT(IN), OPTIONAL        :: write_int
-            INTEGER                              :: io_unit, mynode, numnodes, mp_comm
+            INTEGER                              :: io_unit, mynode, numnodes
+            TYPE(mp_comm_type) :: mp_comm
             INTEGER, DIMENSION(:), ALLOCATABLE   :: size_1, size_2, size_3, &
                                                     order_t1, order_t2, order_t3
             INTEGER, DIMENSION(2, ndims_tensor(tensor_1)) :: bounds_t1
@@ -623,7 +619,7 @@ CONTAINS
             LOGICAL                             :: do_crop_1, do_crop_2
 
             mp_comm = tensor_1%pgrid%mp_comm_2d
-            CALL mp_environ(numnodes, mynode, mp_comm)
+            CALL mp_comm%environ(numnodes, mynode)
             io_unit = -1
             IF (mynode .EQ. 0) io_unit = unit_nr
 

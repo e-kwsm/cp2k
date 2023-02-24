@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -37,7 +37,6 @@ MODULE qs_ks_utils
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: cp_fm_create,&
                                               cp_fm_get_info,&
-                                              cp_fm_p_type,&
                                               cp_fm_release,&
                                               cp_fm_set_all,&
                                               cp_fm_to_fm,&
@@ -54,10 +53,14 @@ MODULE qs_ks_utils
         dbcsr_add, dbcsr_copy, dbcsr_deallocate_matrix, dbcsr_dot, dbcsr_get_info, dbcsr_init_p, &
         dbcsr_multiply, dbcsr_p_type, dbcsr_release_p, dbcsr_scale, dbcsr_scale_by_vector, &
         dbcsr_set, dbcsr_type
+   USE hfx_admm_utils,                  ONLY: tddft_hfx_matrix
+   USE hfx_derivatives,                 ONLY: derivatives_four_center
+   USE hfx_types,                       ONLY: hfx_type
    USE input_constants,                 ONLY: &
         cdft_alpha_constraint, cdft_beta_constraint, cdft_charge_constraint, &
-        cdft_magnetization_constraint, do_admm_aux_exch_func_none, do_ppl_grid, sic_ad, sic_eo, &
-        sic_list_all, sic_list_unpaired, sic_mauri_spz, sic_mauri_us, sic_none
+        cdft_magnetization_constraint, do_admm_aux_exch_func_none, do_admm_exch_scaling_merlot, &
+        do_ppl_grid, sic_ad, sic_eo, sic_list_all, sic_list_unpaired, sic_mauri_spz, sic_mauri_us, &
+        sic_none
    USE input_section_types,             ONLY: section_vals_get_subs_vals,&
                                               section_vals_type,&
                                               section_vals_val_get
@@ -75,7 +78,6 @@ MODULE qs_ks_utils
                                               calculate_ri_forces
    USE lri_ks_methods,                  ONLY: calculate_lri_ks_matrix,&
                                               calculate_ri_ks_matrix
-   USE message_passing,                 ONLY: mp_sum
    USE ps_implicit_types,               ONLY: MIXED_BC,&
                                               MIXED_PERIODIC_BC,&
                                               NEUMANN_BC,&
@@ -143,34 +145,39 @@ CONTAINS
 !> \param energy ...
 !> \param qs_env ...
 !> \param dft_control ...
+!> \param do_hfx ...
 !> \param just_energy ...
 !> \param calculate_forces ...
 !> \param auxbas_pw_pool ...
 ! **************************************************************************************************
-   SUBROUTINE low_spin_roks(energy, qs_env, dft_control, just_energy, &
+   SUBROUTINE low_spin_roks(energy, qs_env, dft_control, do_hfx, just_energy, &
                             calculate_forces, auxbas_pw_pool)
 
       TYPE(qs_energy_type), POINTER                      :: energy
       TYPE(qs_environment_type), POINTER                 :: qs_env
       TYPE(dft_control_type), POINTER                    :: dft_control
-      LOGICAL, INTENT(IN)                                :: just_energy, calculate_forces
+      LOGICAL, INTENT(IN)                                :: do_hfx, just_energy, calculate_forces
       TYPE(pw_pool_type), POINTER                        :: auxbas_pw_pool
 
       CHARACTER(*), PARAMETER                            :: routineN = 'low_spin_roks'
 
-      INTEGER                                            :: handle, ispin, iterm, k, k_alpha, &
+      INTEGER                                            :: handle, irep, ispin, iterm, k, k_alpha, &
                                                             k_beta, n_rep, Nelectron, Nspin, Nterms
       INTEGER, DIMENSION(:), POINTER                     :: ivec
       INTEGER, DIMENSION(:, :, :), POINTER               :: occupations
       LOGICAL                                            :: compute_virial, in_range, &
                                                             uniform_occupation
-      REAL(KIND=dp)                                      :: exc
+      REAL(KIND=dp)                                      :: ehfx, exc
       REAL(KIND=dp), DIMENSION(3, 3)                     :: virial_xc_tmp
       REAL(KIND=dp), DIMENSION(:), POINTER               :: energy_scaling, rvec, scaling
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_h, matrix_p, mo_derivs, rho_ao
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+      TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_h, matrix_hfx, matrix_p, mdummy, &
+                                                            mo_derivs, rho_ao
+      TYPE(dbcsr_p_type), DIMENSION(:, :), POINTER       :: matrix_p2
       TYPE(dbcsr_type), POINTER                          :: dbcsr_deriv, fm_deriv, fm_scaled, &
                                                             mo_coeff
+      TYPE(hfx_type), DIMENSION(:, :), POINTER           :: x_data
       TYPE(mo_set_type), DIMENSION(:), POINTER           :: mo_array
       TYPE(pw_env_type), POINTER                         :: pw_env
       TYPE(pw_pool_type), POINTER                        :: xc_pw_pool
@@ -178,13 +185,33 @@ CONTAINS
       TYPE(pw_type), DIMENSION(:), POINTER               :: rho_g, rho_r, tau, vxc, vxc_tau
       TYPE(qs_ks_env_type), POINTER                      :: ks_env
       TYPE(qs_rho_type), POINTER                         :: rho
-      TYPE(section_vals_type), POINTER                   :: input, low_spin_roks_section, xc_section
+      TYPE(section_vals_type), POINTER                   :: hfx_section, input, &
+                                                            low_spin_roks_section, xc_section
       TYPE(virial_type), POINTER                         :: virial
 
       IF (.NOT. dft_control%low_spin_roks) RETURN
-      NULLIFY (ks_env, rho_ao)
 
       CALL timeset(routineN, handle)
+
+      NULLIFY (ks_env, rho_ao)
+
+      ! Test for not compatible options
+      IF (dft_control%qs_control%gapw .OR. dft_control%qs_control%gapw_xc) THEN
+         CALL cp_abort(__LOCATION__, "GAPW/GAPW_XC are not compatible with low spin ROKS method.")
+      END IF
+      IF (dft_control%do_admm) THEN
+         CALL cp_abort(__LOCATION__, "ADMM not compatible with low spin ROKS method.")
+      END IF
+      IF (dft_control%do_admm) THEN
+         IF (qs_env%admm_env%aux_exch_func /= do_admm_aux_exch_func_none) THEN
+            CALL cp_abort(__LOCATION__, "ADMM with XC correction functional "// &
+                          "not compatible with low spin ROKS method.")
+         END IF
+      END IF
+      IF (dft_control%qs_control%semi_empirical .OR. dft_control%qs_control%dftb .OR. &
+          dft_control%qs_control%xtb) THEN
+         CALL cp_abort(__LOCATION__, "SE/xTB/DFTB are not compatible with low spin ROKS method.")
+      END IF
 
       CALL get_qs_env(qs_env, &
                       ks_env=ks_env, &
@@ -200,6 +227,7 @@ CONTAINS
 
       compute_virial = virial%pv_calculate .AND. (.NOT. virial%pv_numer)
       xc_section => section_vals_get_subs_vals(input, "DFT%XC")
+      hfx_section => section_vals_get_subs_vals(input, "DFT%XC%HF")
 
       ! some assumptions need to be checked
       ! we have two spins
@@ -210,6 +238,9 @@ CONTAINS
       CPASSERT(uniform_occupation)
       CALL get_mo_set(mo_set=mo_array(2), mo_coeff_b=mo_coeff, uniform_occupation=uniform_occupation)
       CPASSERT(uniform_occupation)
+      IF (do_hfx .AND. calculate_forces .AND. compute_virial) THEN
+         CALL cp_abort(__LOCATION__, "ROKS virial with HFX not available.")
+      END IF
 
       NULLIFY (dbcsr_deriv)
       CALL dbcsr_init_p(dbcsr_deriv)
@@ -267,6 +298,16 @@ CONTAINS
                          name="KS matrix low spin roks")
          CALL dbcsr_set(matrix_h(ispin)%matrix, 0.0_dp)
       END DO
+
+      IF (do_hfx) THEN
+         NULLIFY (matrix_hfx)
+         CALL dbcsr_allocate_matrix_set(matrix_hfx, Nspin)
+         DO ispin = 1, Nspin
+            ALLOCATE (matrix_hfx(ispin)%matrix)
+            CALL dbcsr_copy(matrix_hfx(ispin)%matrix, rho_ao(1)%matrix, &
+                            name="HFX matrix low spin roks")
+         END DO
+      END IF
 
       ! grids in real and g space for rho and vxc
       ! tau functionals are not supported
@@ -329,20 +370,56 @@ CONTAINS
 
          energy%exc = energy%exc + energy_scaling(iterm)*exc
 
+         IF (do_hfx) THEN
+            ! Add Hartree-Fock contribution
+            DO ispin = 1, Nspin
+               CALL dbcsr_set(matrix_hfx(ispin)%matrix, 0.0_dp)
+            END DO
+            ehfx = energy%ex
+            CALL tddft_hfx_matrix(matrix_hfx, matrix_p, qs_env, &
+                                  recalc_integrals=.FALSE., update_energy=.TRUE.)
+            energy%ex = ehfx + energy_scaling(iterm)*energy%ex
+         END IF
+
          ! add the corresponding derivatives to the MO derivatives
          IF (.NOT. just_energy) THEN
             ! get the potential in matrix form
             DO ispin = 1, Nspin
+               CALL dbcsr_set(matrix_h(ispin)%matrix, 0.0_dp)
                ! use a work_v_rspace
                work_v_rspace%cr3d = (energy_scaling(iterm)*vxc(ispin)%pw_grid%dvol)* &
                                     vxc(ispin)%cr3d
-               ! zero first ?!
-               CALL dbcsr_set(matrix_h(ispin)%matrix, 0.0_dp)
                CALL integrate_v_rspace(v_rspace=work_v_rspace, pmat=matrix_p(ispin), hmat=matrix_h(ispin), &
                                        qs_env=qs_env, calculate_forces=calculate_forces)
                CALL pw_pool_give_back_pw(auxbas_pw_pool, vxc(ispin))
             END DO
             DEALLOCATE (vxc)
+
+            IF (do_hfx) THEN
+               ! add HFX contribution
+               DO ispin = 1, Nspin
+                  CALL dbcsr_add(matrix_h(ispin)%matrix, matrix_hfx(ispin)%matrix, &
+                                 1.0_dp, energy_scaling(iterm))
+               END DO
+               IF (calculate_forces) THEN
+                  CALL get_qs_env(qs_env, x_data=x_data, para_env=para_env)
+                  IF (x_data(1, 1)%n_rep_hf /= 1) THEN
+                     CALL cp_abort(__LOCATION__, "Multiple HFX section forces not compatible "// &
+                                   "with low spin ROKS method.")
+                  END IF
+                  IF (x_data(1, 1)%do_hfx_ri) THEN
+                     CALL cp_abort(__LOCATION__, "HFX_RI forces not compatible with low spin ROKS method.")
+                  ELSE
+                     irep = 1
+                     NULLIFY (mdummy)
+                     matrix_p2(1:Nspin, 1:1) => matrix_p(1:Nspin)
+                     CALL derivatives_four_center(qs_env, matrix_p2, mdummy, hfx_section, para_env, &
+                                                  irep, compute_virial, &
+                                                  adiabatic_rescale_factor=energy_scaling(iterm))
+                  END IF
+               END IF
+
+            END IF
 
             ! add this to the mo_derivs, again based on the alpha mo_coeff
             DO ispin = 1, Nspin
@@ -367,6 +444,9 @@ CONTAINS
       DEALLOCATE (rho_r, rho_g)
       CALL dbcsr_deallocate_matrix_set(matrix_p)
       CALL dbcsr_deallocate_matrix_set(matrix_h)
+      IF (do_hfx) THEN
+         CALL dbcsr_deallocate_matrix_set(matrix_hfx)
+      END IF
 
       CALL pw_pool_give_back_pw(auxbas_pw_pool, work_v_rspace)
 
@@ -410,9 +490,9 @@ CONTAINS
       REAL(KIND=dp)                                      :: ener, exc
       REAL(KIND=dp), DIMENSION(3, 3)                     :: virial_xc_tmp
       TYPE(cell_type), POINTER                           :: cell
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mo_derivs_local
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
       TYPE(cp_fm_type)                                   :: matrix_hv, matrix_v
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: mo_derivs_local
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dbcsr_p_type)                                 :: orb_density_matrix_p, orb_h_p
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: mo_derivs, rho_ao, tmp_dbcsr
@@ -582,8 +662,7 @@ CONTAINS
       ALLOCATE (mo_derivs_local(SIZE(mo_array, 1)))
       DO I = 1, SIZE(mo_array, 1)
          CALL get_mo_set(mo_set=mo_array(i), mo_coeff=mo_coeff)
-         ALLOCATE (mo_derivs_local(I)%matrix)
-         CALL cp_fm_create(mo_derivs_local(I)%matrix, mo_coeff%matrix_struct)
+         CALL cp_fm_create(mo_derivs_local(I), mo_coeff%matrix_struct)
       END DO
 
       ALLOCATE (rho_r(2))
@@ -646,9 +725,9 @@ CONTAINS
             ! add this to the mo_derivs
             CALL cp_dbcsr_sm_fm_multiply(orb_h, matrix_v, matrix_hv, 1)
             ! silly trick, copy to an array of the right size and add to mo_derivs
-            CALL cp_fm_set_all(mo_derivs_local(sic_orbital_list(3, iorb))%matrix, 0.0_dp)
-            CALL cp_fm_to_fm(matrix_hv, mo_derivs_local(sic_orbital_list(3, iorb))%matrix, 1, 1, sic_orbital_list(2, iorb))
-            CALL copy_fm_to_dbcsr(mo_derivs_local(sic_orbital_list(3, iorb))%matrix, &
+            CALL cp_fm_set_all(mo_derivs_local(sic_orbital_list(3, iorb)), 0.0_dp)
+            CALL cp_fm_to_fm(matrix_hv, mo_derivs_local(sic_orbital_list(3, iorb)), 1, 1, sic_orbital_list(2, iorb))
+            CALL copy_fm_to_dbcsr(mo_derivs_local(sic_orbital_list(3, iorb)), &
                                   tmp_dbcsr(sic_orbital_list(3, iorb))%matrix)
             CALL dbcsr_add(mo_derivs(sic_orbital_list(3, iorb))%matrix, &
                            tmp_dbcsr(sic_orbital_list(3, iorb))%matrix, 1.0_dp, 1.0_dp)
@@ -674,8 +753,7 @@ CONTAINS
       CALL cp_fm_release(matrix_v)
       CALL cp_fm_release(matrix_hv)
       DO I = 1, SIZE(mo_derivs_local, 1)
-         CALL cp_fm_release(mo_derivs_local(I)%matrix)
-         DEALLOCATE (mo_derivs_local(I)%matrix)
+         CALL cp_fm_release(mo_derivs_local(I))
       END DO
       DEALLOCATE (mo_derivs_local)
       DEALLOCATE (rho_r)
@@ -1216,7 +1294,7 @@ CONTAINS
                                                             nspins
       INTEGER, DIMENSION(:, :, :), POINTER               :: cell_to_index
       LOGICAL                                            :: do_ppl, gapw, gapw_xc, lrigpw, rigpw
-      REAL(dp)                                           :: dvol, sign
+      REAL(KIND=dp)                                      :: csign, dvol, fadm
       TYPE(admm_type), POINTER                           :: admm_env
       TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -1314,24 +1392,24 @@ CONTAINS
                DO igroup = 1, SIZE(cdft_control%group)
                   SELECT CASE (cdft_control%group(igroup)%constraint_type)
                   CASE (cdft_charge_constraint)
-                     sign = 1.0_dp
+                     csign = 1.0_dp
                   CASE (cdft_magnetization_constraint)
                      IF (ispin == 1) THEN
-                        sign = 1.0_dp
+                        csign = 1.0_dp
                      ELSE
-                        sign = -1.0_dp
+                        csign = -1.0_dp
                      END IF
                   CASE (cdft_alpha_constraint)
-                     sign = 1.0_dp
+                     csign = 1.0_dp
                      IF (ispin == 2) CYCLE
                   CASE (cdft_beta_constraint)
-                     sign = 1.0_dp
+                     csign = 1.0_dp
                      IF (ispin == 1) CYCLE
                   CASE DEFAULT
                      CPABORT("Unknown constraint type.")
                   END SELECT
                   v_rspace_new(ispin)%cr3d = v_rspace_new(ispin)%cr3d &
-                                             + sign*cdft_control%group(igroup)%weight%cr3d* &
+                                             + csign*cdft_control%group(igroup)%weight%cr3d* &
                                              cdft_control%strength(igroup)
                END DO
             END IF
@@ -1396,7 +1474,7 @@ CONTAINS
                CALL integrate_v_rspace_one_center(v_rspace_new(ispin), qs_env, &
                                                   lri_v_int, calculate_forces, "LRI_AUX")
                DO ikind = 1, nkind
-                  CALL mp_sum(lri_v_int(ikind)%v_int, para_env%group)
+                  CALL para_env%group%sum(lri_v_int(ikind)%v_int)
                END DO
                IF (lri_env%exact_1c_terms) THEN
                   rho_ao => my_rho(ispin, :)
@@ -1417,7 +1495,7 @@ CONTAINS
                CALL integrate_v_rspace_one_center(v_rspace_new(ispin), qs_env, &
                                                   lri_v_int, calculate_forces, "RI_HXC")
                DO ikind = 1, nkind
-                  CALL mp_sum(lri_v_int(ikind)%v_int, para_env%group)
+                  CALL para_env%group%sum(lri_v_int(ikind)%v_int)
                END DO
             ELSE
                rho_ao => my_rho(ispin, :)
@@ -1473,7 +1551,7 @@ CONTAINS
                CALL integrate_v_rspace_one_center(v_rspace, qs_env, &
                                                   lri_v_int, calculate_forces, "LRI_AUX")
                DO ikind = 1, nkind
-                  CALL mp_sum(lri_v_int(ikind)%v_int, para_env%group)
+                  CALL para_env%group%sum(lri_v_int(ikind)%v_int)
                END DO
                IF (lri_env%exact_1c_terms) THEN
                   rho_ao => my_rho(ispin, :)
@@ -1494,7 +1572,7 @@ CONTAINS
                CALL integrate_v_rspace_one_center(v_rspace, qs_env, &
                                                   lri_v_int, calculate_forces, "RI_HXC")
                DO ikind = 1, nkind
-                  CALL mp_sum(lri_v_int(ikind)%v_int, para_env%group)
+                  CALL para_env%group%sum(lri_v_int(ikind)%v_int)
                END DO
             ELSE
                rho_ao => my_rho(ispin, :)
@@ -1583,14 +1661,22 @@ CONTAINS
                      task_list => admm_env%admm_gapw_env%task_list
                      basis_type = "AUX_FIT_SOFT"
                   END IF
+                  fadm = 1.0_dp
+                  ! Calculate bare scaling of force according to Merlot, 1. IF: ADMMP, 2. IF: ADMMS,
+                  IF ((.NOT. admm_env%charge_constrain) .AND. &
+                      (admm_env%scaling_model == do_admm_exch_scaling_merlot)) THEN
+                     fadm = admm_env%gsi(ispin)**2
+                  ELSE IF (admm_env%charge_constrain .AND. &
+                           (admm_env%scaling_model == do_admm_exch_scaling_merlot)) THEN
+                     fadm = (admm_env%gsi(ispin))**(2.0_dp/3.0_dp)
+                  END IF
 
                   CALL integrate_v_rspace(v_rspace=v_rspace_new_aux_fit(ispin), &
                                           pmat=rho_ao_aux(ispin), &
                                           hmat=matrix_ks_aux_fit(ispin), &
                                           qs_env=qs_env, &
                                           calculate_forces=calculate_forces, &
-                                          force_adm=.TRUE., &
-                                          ispin=ispin, &
+                                          force_adm=fadm, &
                                           gapw=.FALSE., & !even if actual GAPW calculation, want to use AUX_FIT_SOFT
                                           basis_type=basis_type, &
                                           task_list_external=task_list)
@@ -1730,7 +1816,7 @@ CONTAINS
             exc = accurate_sum(v_rspace_new(1)%cr3d*rho_r(1)%cr3d)* &
                   v_rspace_new(1)%pw_grid%dvol
             IF (v_rspace_new(1)%pw_grid%para%mode == PW_MODE_DISTRIBUTED) THEN
-               CALL mp_sum(exc, v_rspace_new(1)%pw_grid%para%group)
+               CALL v_rspace_new(1)%pw_grid%para%group%sum(exc)
             END IF
 
 !     IF (v_rspace_new(1)%pw_grid%para%my_pos==0) &
@@ -1817,7 +1903,7 @@ CONTAINS
                             v_rspace_embed(ispin)%pw_grid%dvol
 
          IF (v_rspace_embed(ispin)%pw_grid%para%mode == PW_MODE_DISTRIBUTED) THEN
-            CALL mp_sum(embed_corr_local, v_rspace_embed(ispin)%pw_grid%para%group)
+            CALL v_rspace_embed(ispin)%pw_grid%para%group%sum(embed_corr_local)
          END IF
 
          embed_corr = embed_corr + embed_corr_local

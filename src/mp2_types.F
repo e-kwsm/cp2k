@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -38,6 +38,7 @@ MODULE mp2_types
                                               local_gemm_create,&
                                               local_gemm_destroy,&
                                               local_gemm_set_op_threshold_gpu
+   USE message_passing,                 ONLY: mp_request_type
    USE qs_force_types,                  ONLY: qs_force_type
    USE qs_p_env_types,                  ONLY: qs_p_env_type
 #include "./base/base_uses.f90"
@@ -116,7 +117,7 @@ MODULE mp2_types
    END TYPE mp2_gpw_type
 
    TYPE ri_mp2_type
-      INTEGER                  :: block_size
+      INTEGER                  :: block_size, number_integration_groups
       LOGICAL                  :: print_dgemm_info
    END TYPE
 
@@ -145,20 +146,20 @@ MODULE mp2_types
 
    TYPE ri_rpa_im_time_type
       INTEGER                  :: cut_memory
-      LOGICAL                  :: memory_info, make_chi_pos_definite, trunc_coulomb_ri_x, keep_quad, &
+      LOGICAL                  :: memory_info, make_chi_pos_definite, make_overlap_mat_ao_pos_definite, &
+                                  trunc_coulomb_ri_x, keep_quad, &
                                   do_kpoints_from_Gamma, do_extrapolate_kpoints
       REAL(KIND=dp)            :: eps_filter, &
                                   eps_filter_factor, eps_compress, exp_tailored_weights, regularization_RI, &
-                                  eps_eigval_S, rel_cutoff_trunc_coulomb_ri_x
-      REAL(KIND=dp), DIMENSION(:), POINTER :: rel_cutoffs_chi_W, tau_tj, tau_wj, tj, wj
+                                  eps_eigval_S, eps_eigval_S_Gamma, rel_cutoff_trunc_coulomb_ri_x
+      REAL(KIND=dp), DIMENSION(:), POINTER :: tau_tj, tau_wj, tj, wj
       REAL(KIND=dp), DIMENSION(:, :), POINTER :: weights_cos_tf_t_to_w, weights_cos_tf_w_to_t
-      REAL(KIND=dp), DIMENSION(2) :: abs_cutoffs_chi_W
       REAL(KIND=dp), DIMENSION(:), ALLOCATABLE :: Eigenval_Gamma, wkp_V
       INTEGER                  :: group_size_P, group_size_3c, kpoint_weights_W_method, k_mesh_g_factor
       INTEGER, DIMENSION(:), POINTER     :: kp_grid
       INTEGER, DIMENSION(3) ::  kp_grid_extra
       LOGICAL                  :: do_im_time_kpoints
-      INTEGER                  :: min_bsize, min_bsize_mo, periodic_gf, nkp_orig, nkp_extra
+      INTEGER                  :: min_bsize, min_bsize_mo, nkp_orig, nkp_extra
       TYPE(kpoint_type), POINTER :: kpoints_G, kpoints_Sigma, kpoints_Sigma_no_xc
       INTEGER, ALLOCATABLE, DIMENSION(:)      :: starts_array_mc_RI, ends_array_mc_RI, &
                                                  starts_array_mc_block_RI, &
@@ -236,6 +237,7 @@ MODULE mp2_types
       LOGICAL                  :: free_hfx_buffer
       LOGICAL                  :: use_old_grad
       INTEGER :: dot_blksize
+      INTEGER :: max_parallel_comm
    END TYPE
 
    TYPE mp2_type
@@ -277,13 +279,13 @@ MODULE mp2_types
       INTEGER, DIMENSION(:), ALLOCATABLE  :: sizes
       INTEGER, DIMENSION(:, :), ALLOCATABLE  :: indx
       INTEGER :: proc
-      INTEGER :: msg_req
+      TYPE(mp_request_type) :: msg_req
    END TYPE
 
    TYPE integ_mat_buffer_type_2D
       REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE  :: msg
       INTEGER :: proc
-      INTEGER :: msg_req
+      TYPE(mp_request_type) :: msg_req
    END TYPE
 
    TYPE pair_list_type_mp2

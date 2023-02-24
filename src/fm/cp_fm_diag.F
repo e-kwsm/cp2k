@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -47,7 +47,9 @@ MODULE cp_fm_diag
                     dp
    USE machine, ONLY: default_output_unit, &
                       m_memory
-   USE message_passing, ONLY: mp_bcast
+#if defined (__SCALAPACK)
+   USE message_passing, ONLY: mp_comm_type
+#endif
 #if defined (__HAS_IEEE_EXCEPTIONS)
    USE ieee_exceptions, ONLY: ieee_get_halting_mode, &
                               ieee_set_halting_mode, &
@@ -1035,12 +1037,13 @@ CONTAINS
 #if defined(__SCALAPACK)
       TYPE(cp_blacs_env_type), POINTER :: context
 
-      INTEGER :: myprow, mypcol, nprow, npcol, ictxt_loc, block_dim_row, block_dim_col, &
-                 info, ev_row_block_size, iam, source, allgrp, mynumrows, ictxt, mype, npe, &
+      INTEGER :: myprow, mypcol, nprow, npcol, block_dim_row, block_dim_col, &
+                 info, ev_row_block_size, iam, source, mynumrows, mype, npe, &
                  q_loc
       REAL(KIND=dp), DIMENSION(:, :), ALLOCATABLE :: a_loc, ev_loc
       INTEGER, DIMENSION(9)                        :: desca, descz, desc_a_block, &
                                                       desc_ev_loc
+      TYPE(mp_comm_type):: allgrp, ictxt, ictxt_loc
       INTEGER, EXTERNAL :: numroc, indxl2g, indxg2l
 #endif
 
@@ -1081,12 +1084,12 @@ CONTAINS
       CALL cp_blacs_gridinit(ictxt_loc, 'Row-major', NPROW*NPCOL, 1)
 
       CALL descinit(desc_a_block, block_dim_row, block_dim_col, block_dim_row, &
-                    block_dim_col, 0, 0, ictxt_loc, block_dim_row, info)
+                    block_dim_col, 0, 0, ictxt_loc%get_handle(), block_dim_row, info)
 
       CALL pdgemr2d(block_dim_row, block_dim_col, A, 1, start_sec_block, desca, &
-                    A_loc, 1, 1, desc_a_block, ictxt)
+                    A_loc, 1, 1, desc_a_block, ictxt%get_handle())
       ! Only the master (root) process received data yet
-      CALL mp_bcast(A_loc, 0, allgrp)
+      CALL allgrp%bcast(A_loc, 0)
 
       ! Since each process owns now the upper block, the eigenvectors can be re-sorted in such a way that
       ! each process has a NN*1 grid, i.e. the process owns a bunch of rows which can be modified locally
@@ -1098,10 +1101,10 @@ CONTAINS
 
       ALLOCATE (EV_loc(mynumrows, N), c_ip(mynumrows))
 
-      CALL descinit(desc_ev_loc, N, N, ev_row_block_size, N, 0, 0, ictxt_loc, &
+      CALL descinit(desc_ev_loc, N, N, ev_row_block_size, N, 0, 0, ictxt_loc%get_handle(), &
                     mynumrows, info)
 
-      CALL pdgemr2d(N, N, EV, 1, 1, descz, EV_loc, 1, 1, desc_ev_loc, ictxt)
+      CALL pdgemr2d(N, N, EV, 1, 1, descz, EV_loc, 1, 1, desc_ev_loc, ictxt%get_handle())
 
       ! Start block diagonalization of matrix
 
@@ -1138,7 +1141,7 @@ CONTAINS
       END DO
 
       ! Copy eigenvectors back to the original distribution
-      CALL pdgemr2d(N, N, EV_loc, 1, 1, desc_ev_loc, EV, 1, 1, descz, ictxt)
+      CALL pdgemr2d(N, N, EV_loc, 1, 1, desc_ev_loc, EV, 1, 1, descz, ictxt%get_handle())
 
       ! Release work storage
       DEALLOCATE (A_loc, EV_loc, c_ip)

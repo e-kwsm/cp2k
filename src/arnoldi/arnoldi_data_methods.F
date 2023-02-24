@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -107,6 +107,7 @@ CONTAINS
       INTEGER                                            :: selection_crit, nval_request, nrestarts
       LOGICAL                                            :: generalized_ev, iram
 
+      INTEGER :: pcol_handle, group_handle
       LOGICAL                                            :: subgroups_defined
       TYPE(arnoldi_control_type), POINTER                :: control
       TYPE(dbcsr_distribution_type)                      :: distri
@@ -116,11 +117,13 @@ CONTAINS
       CALL dbcsr_get_info(matrix=matrix(1)%matrix, distribution=distri)
       CALL dbcsr_mp_grid_setup(distri)
       CALL dbcsr_distribution_get(distri, &
-                                  group=control%mp_group, &
+                                  group=group_handle, &
                                   mynode=control%myproc, &
                                   subgroups_defined=subgroups_defined, &
-                                  prow_group=control%prow_group, &
-                                  pcol_group=control%pcol_group)
+                                  pcol_group=pcol_handle)
+
+      CALL control%mp_group%set_handle(group_handle)
+      CALL control%pcol_group%set_handle(pcol_handle)
 
       IF (.NOT. subgroups_defined) &
          CPABORT("arnoldi only with subgroups")

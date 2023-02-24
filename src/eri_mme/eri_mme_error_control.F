@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -22,7 +22,6 @@ MODULE eri_mme_error_control
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: pi,&
                                               twopi
-   USE message_passing,                 ONLY: mp_sum
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -476,8 +475,8 @@ CONTAINS
                                           2.0_dp/3.0_dp, prefactor)
       END DO
 
-      CALL mp_sum(S_G_l, para_env%group)
-      CALL mp_sum(S_G_u, para_env%group)
+      CALL para_env%group%sum(S_G_l)
+      CALL para_env%group%sum(S_G_u)
 
       S_G_u = S_G_u*2.0_dp ! to include negative values of G
 

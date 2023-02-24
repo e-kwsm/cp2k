@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -55,8 +55,7 @@ MODULE distribution_methods
    USE mathconstants,                   ONLY: pi
    USE mathlib,                         ONLY: gcd,&
                                               lcm
-   USE message_passing,                 ONLY: mp_sum,&
-                                              mp_sync
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_kind_types,             ONLY: get_molecule_kind,&
                                               get_molecule_kind_set,&
                                               molecule_kind_type
@@ -121,7 +120,7 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'distribute_molecules_1d'
 
-      INTEGER :: atom_a, bin, group, handle, iatom, imolecule, imolecule_kind, imolecule_local, &
+      INTEGER :: atom_a, bin, handle, iatom, imolecule, imolecule_kind, imolecule_local, &
          imolecule_prev_kind, iparticle_kind, ipe, iw, kind_a, molecule_a, mype, n, natom, nbins, &
          nload, nmolecule, nmolecule_kind, nparticle_kind, npe, nsgf, output_unit
       INTEGER(int_8)                                     :: bin_price
@@ -133,6 +132,7 @@ CONTAINS
       TYPE(cp_heap_type)                                 :: bin_heap_count, bin_heap_fill
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind
+      TYPE(mp_comm_type)                                 :: group
 
 ! integer n_local_molecules
 ! integer, allocatable :: all_local_molecules(:)
@@ -345,7 +345,7 @@ CONTAINS
          work(:) = 0
 
          work(mype) = SUM(nmolecule_local)
-         CALL mp_sum(work, group)
+         CALL group%sum(work)
 
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, &
@@ -358,7 +358,7 @@ CONTAINS
             CALL m_flush(output_unit)
          END IF
 
-         CALL mp_sync(group)
+         CALL group%sync()
 
          DO ipe = 1, npe
             IF (ipe == mype) THEN
@@ -379,7 +379,7 @@ CONTAINS
                END DO
             END IF
             CALL m_flush(iw)
-            CALL mp_sync(group)
+            CALL group%sync()
          END DO
 
 !     *** Print particle distribution ***
@@ -387,7 +387,7 @@ CONTAINS
          work(:) = 0
 
          work(mype) = SUM(nparticle_local)
-         CALL mp_sum(work, group)
+         CALL group%sum(work)
 
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, &
@@ -400,7 +400,7 @@ CONTAINS
             CALL m_flush(output_unit)
          END IF
 
-         CALL mp_sync(group)
+         CALL group%sync()
 
          DO ipe = 1, npe
             IF (ipe == mype) THEN
@@ -421,7 +421,7 @@ CONTAINS
                END DO
             END IF
             CALL m_flush(iw)
-            CALL mp_sync(group)
+            CALL group%sync()
          END DO
          DEALLOCATE (work)
 
@@ -489,10 +489,10 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'distribute_molecules_2d'
 
-      INTEGER :: cluster_price, cost_model, group, handle, iatom, iatom_mol, iatom_one, ikind, &
-         imol, imolecule, imolecule_kind, iparticle_kind, ipcol, iprow, iw, kind_a, mypcol, &
-         myprow, n, natom, natom_mol, nclusters, nmolecule, nmolecule_kind, nparticle_kind, npcol, &
-         nprow, nsgf, output_unit
+      INTEGER :: cluster_price, cost_model, handle, iatom, iatom_mol, iatom_one, ikind, imol, &
+         imolecule, imolecule_kind, iparticle_kind, ipcol, iprow, iw, kind_a, mypcol, myprow, n, &
+         natom, natom_mol, nclusters, nmolecule, nmolecule_kind, nparticle_kind, npcol, nprow, &
+         nsgf, output_unit
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: cluster_list, cluster_prices, &
                                                             nparticle_local_col, &
                                                             nparticle_local_row, work
@@ -508,6 +508,7 @@ CONTAINS
       TYPE(cp_logger_type), POINTER                      :: logger
       TYPE(gto_basis_set_type), POINTER                  :: orb_basis_set
       TYPE(molecule_kind_type), POINTER                  :: molecule_kind
+      TYPE(mp_comm_type)                                 :: group
       TYPE(section_vals_type), POINTER                   :: distribution_section
 
 !...
@@ -767,7 +768,7 @@ CONTAINS
 
          IF (mypcol == 1) work(myprow) = SUM(distribution_2d%n_local_rows)
 
-         CALL mp_sum(work, group)
+         CALL group%sum(work)
 
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, &
@@ -789,7 +790,7 @@ CONTAINS
 
          IF (myprow == 1) work(mypcol) = SUM(distribution_2d%n_local_cols)
 
-         CALL mp_sum(work, group)
+         CALL group%sum(work)
 
          IF (output_unit > 0) THEN
             WRITE (UNIT=output_unit, &

@@ -3,9 +3,9 @@
 # CP2K (Intel/MKL x86_64) arch file for Linux clusters
 #
 # Tested with: Intel 20.4/21.4/22.2 , Intel MPI, Intel MKL,
-#              LIBINT 2.6.0, LIBXC 6.0.0, ELPA 2022.05.001,
-#              PLUMED 2.8.0, SPGLIB 1.16.2, LIBVORI 220621,
-#              GSL 2.7, COSMA 2.6.2, SIRIUS 7.3.2
+#              LIBINT 2.6.0, LIBXC 6.1.0, ELPA 2022.11.001,
+#              PLUMED 2.8.1, SPGLIB 1.16.2, LIBVORI 220621,
+#              GSL 2.7, COSMA 2.6.2, SIRIUS 7.4.3
 # on the Merlin cluster (PSI)
 #
 # Usage: Source this arch file and then run make as instructed.
@@ -13,7 +13,7 @@
 #        Optionally, the Intel compiler version can be specified as argument.
 #        Replace or adapt the "module add" commands below if needed.
 #
-# Author: Matthias Krack (26.10.2022)
+# Author: Matthias Krack (03.02.2023)
 #
 # \
    if [[ "${0}" == "${BASH_SOURCE}" ]]; then \
@@ -28,7 +28,7 @@
       module add ${1}; \
       module list; \
    fi; \
-   ./install_cp2k_toolchain.sh --install-all --no-arch-files --target-cpu=${target_cpu} --with-intelmpi --with-mkl; \
+   ./install_cp2k_toolchain.sh --install-all -j${maxtasks} --no-arch-files --target-cpu=${target_cpu} --with-intelmpi --with-mkl; \
    source ./install/setup; \
    cd ../..; \
    echo; \
@@ -48,14 +48,14 @@ DO_CHECKS      := no
 SHARED         := no
 TARGET_CPU     := native
 USE_COSMA      := 2.6.2
-USE_ELPA       := 2022.05.001
+USE_ELPA       := 2022.11.001
 USE_LIBINT     := 2.6.0
 USE_LIBPEXSI   := 1.2.0
 USE_LIBVORI    := 220621
-USE_LIBXC      := 6.0.0
+USE_LIBXC      := 6.1.0
 USE_LIBXSMM    := 1.17
-USE_PLUMED     := 2.8.0
-USE_SIRIUS     := 7.3.2
+USE_PLUMED     := 2.8.1
+USE_SIRIUS     := 7.4.3
 USE_SPGLIB     := 1.16.2
 # Only needed for SIRIUS
 LIBVDWXC_VER   := 0.4.0
@@ -84,7 +84,6 @@ DFLAGS         := -D__parallel
 DFLAGS         += -D__SCALAPACK
 DFLAGS         += -D__MKL
 DFLAGS         += -D__FFTW3
-DFLAGS         += -D__MPI_VERSION=3
 DFLAGS         += -D__MAX_CONTR=$(strip $(MAX_CONTR))
 
 INSTALL_PATH   := $(PWD)/tools/toolchain/install
@@ -289,7 +288,7 @@ ifneq ($(USE_GSL),)
 endif
 
 ifeq ($(SHARED), yes)
-   LIBS           += -Wl,-rpath=$(MKL_LIB) -L$(MKL_LIB) -lbmkl_scalapack_lp64
+   LIBS           += -Wl,-rpath=$(MKL_LIB) -L$(MKL_LIB) -lmkl_scalapack_lp64
    LIBS           += -Wl,--start-group
    LIBS           += -lmkl_intel_lp64
    LIBS           += -lmkl_sequential
@@ -324,5 +323,8 @@ LIBS           += -lz -lstdc++
 # Required due to memory leak that occurs if high optimisations are used
 mp2_optimize_ri_basis.o: mp2_optimize_ri_basis.F
 	$(FC) -c $(subst O2,O0,$(FCFLAGS)) $<
+# Required due to SEGFAULTS occurring for higher optimisation levels
+paw_basis_types.o: paw_basis_types.F
+	$(FC) -c $(subst O2,O1,$(FCFLAGS)) $<
 
 # End

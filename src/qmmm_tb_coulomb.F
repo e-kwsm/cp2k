@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -33,7 +33,6 @@ MODULE qmmm_tb_coulomb
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: oorootpi,&
                                               pi
-   USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
    USE pw_poisson_types,                ONLY: do_ewald_ewald,&
                                               do_ewald_none,&
@@ -84,8 +83,8 @@ CONTAINS
       INTEGER                                            :: atom_i, atom_j, blk, ewald_type, handle, &
                                                             i, ia, iatom, ikind, jatom, jkind, &
                                                             natom, nmat
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: atom_of_kind, kind_of
       INTEGER, DIMENSION(3)                              :: periodic
-      INTEGER, DIMENSION(:), POINTER                     :: atom_of_kind, kind_of
       LOGICAL                                            :: found, use_virial
       REAL(KIND=dp)                                      :: alpha, deth, dfr, dr, fi, fr, gmij
       REAL(KIND=dp), DIMENSION(3)                        :: fij, rij
@@ -195,7 +194,7 @@ CONTAINS
                                gmcharge, mcharge, calculate_forces, virial, use_virial, atprop)
       END SELECT
       !
-      CALL mp_sum(gmcharge(:, 1), para_env%group)
+      CALL para_env%group%sum(gmcharge(:, 1))
       !
       ! add self charge interaction and background charge contribution
       gmcharge(:, 1) = gmcharge(:, 1) - 2._dp*alpha*oorootpi*mcharge(:)
@@ -206,7 +205,6 @@ CONTAINS
       energy%qmmm_el = energy%qmmm_el + 0.5_dp*SUM(mcharge(:)*gmcharge(:, 1))
       !
       IF (calculate_forces) THEN
-         ALLOCATE (atom_of_kind(natom), kind_of(natom))
          CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, &
                                   kind_of=kind_of, &
                                   atom_of_kind=atom_of_kind)
@@ -260,9 +258,6 @@ CONTAINS
          END IF
       END IF
 
-      IF (calculate_forces) THEN
-         DEALLOCATE (atom_of_kind, kind_of)
-      END IF
       DEALLOCATE (gmcharge)
 
       CALL timestop(handle)

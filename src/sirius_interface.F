@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -168,7 +168,7 @@ CONTAINS
 
       ! create context of simulation
       CALL pwdft_env_get(pwdft_env, para_env=para_env)
-      sirius_mpi_comm = para_env%group
+      sirius_mpi_comm = para_env%group%get_handle()
       CALL sirius_create_context(sirius_mpi_comm, sctx)
 
 !     the "fun" starts.
@@ -700,7 +700,7 @@ CONTAINS
 
          ALLOCATE (cforces(n2, n1))
          cforces = 0.0_C_DOUBLE
-         CALL sirius_get_forces(gs_handler, 'total', cforces(1, 1))
+         CALL sirius_get_forces(gs_handler, 'total', cforces)
          ! Sirius computes the forces but cp2k use the gradient everywhere
          ! so a minus sign is needed.
          ! note also that sirius and cp2k store the forces transpose to each other
@@ -712,7 +712,7 @@ CONTAINS
 
       IF (calculate_stress_tensor) THEN
          cstress = 0.0_C_DOUBLE
-         CALL sirius_get_stress_tensor(gs_handler, 'total', cstress(1, 1))
+         CALL sirius_get_stress_tensor(gs_handler, 'total', cstress)
          stress(1:3, 1:3) = cstress(1:3, 1:3)
          CALL pwdft_env_set(pwdft_env=pwdft_env, stress=stress)
       END IF
@@ -790,9 +790,9 @@ CONTAINS
          END DO
          DO ik = 1, nkpts
             DO ispn = 1, nspins
-               CALL sirius_get_band_energies(ks_handler, ik, ispn, slist(1))
+               CALL sirius_get_band_energies(ks_handler, ik, ispn, slist)
                energies(1:nbands, ispn, ik) = slist(1:nbands)
-               CALL sirius_get_band_occupancies(ks_handler, ik, ispn, slist(1))
+               CALL sirius_get_band_occupancies(ks_handler, ik, ispn, slist)
                occupations(1:nbands, ispn, ik) = slist(1:nbands)
             END DO
          END DO
@@ -856,9 +856,7 @@ CONTAINS
 
          DEALLOCATE (energies, occupations, wkpt, slist)
          DEALLOCATE (hist, occval, ehist)
-
       END IF
-
    END SUBROUTINE cp_sirius_print_results
 
 END MODULE sirius_interface

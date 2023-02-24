@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -47,7 +47,6 @@ MODULE rpa_rse
                                               section_vals_type,&
                                               section_vals_val_get
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
    USE mp2_types,                       ONLY: mp2_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE pw_types,                        ONLY: pw_release,&
@@ -261,7 +260,7 @@ CONTAINS
          rse_corr = rse_corr + corr
       END DO
 
-      CALL mp_sum(rse_corr, para_env%group)
+      CALL para_env%group%sum(rse_corr)
 
       rse_corr = rse_corr/nspins
 
@@ -634,7 +633,7 @@ CONTAINS
 
       END DO
 
-      CALL mp_sum(rse_corr, para_env%group)
+      CALL para_env%group%sum(rse_corr)
       rse_corr = rse_corr/nspins
 
       CALL timestop(handle)

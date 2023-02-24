@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -93,7 +93,7 @@ MODULE almo_scf_optimizer
    USE kinds,                           ONLY: dp
    USE machine,                         ONLY: m_flush,&
                                               m_walltime
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE particle_methods,                ONLY: get_particle_set
    USE particle_types,                  ONLY: particle_type
    USE qs_energy_types,                 ONLY: qs_energy_type
@@ -880,7 +880,7 @@ CONTAINS
       CHARACTER(LEN=20)                                  :: iter_type
       INTEGER :: cg_iteration, dim_op, fixed_line_search_niter, handle, idim0, ielem, ispin, &
          iteration, line_search_iteration, max_iter, my_special_case, ndomains, nmo, nspins, &
-         outer_iteration, outer_max_iter, para_group, prec_type, reim, unit_nr
+         outer_iteration, outer_max_iter, para_group_handle, prec_type, reim, unit_nr
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: nocc
       LOGICAL :: blissful_neglect, converged, just_started, line_search, normalize_orbitals, &
          optimize_theta, outer_prepare_to_exit, penalty_occ_local, penalty_occ_vol, &
@@ -902,6 +902,7 @@ CONTAINS
          STsiginv_0, tempNOcc, tempNOcc_1, tempOccOcc
       TYPE(domain_submatrix_type), ALLOCATABLE, &
          DIMENSION(:, :)                                 :: bad_modes_projector_down, domain_r_down
+      TYPE(mp_comm_type)                                 :: para_group
 
       CALL timeset(routineN, handle)
 
@@ -1315,7 +1316,8 @@ CONTAINS
                   ALLOCATE (z2(nmo))
                   ALLOCATE (reim_diag(nmo))
 
-                  CALL dbcsr_get_info(tempOccOcc(ispin), group=para_group)
+                  CALL dbcsr_get_info(tempOccOcc(ispin), group=para_group_handle)
+                  CALL para_group%set_handle(para_group_handle)
 
                   DO idim0 = 1, SIZE(op_sm_set_qs, 2) ! this loop is over miller ind
 
@@ -1339,7 +1341,7 @@ CONTAINS
 
                         reim_diag = 0.0_dp
                         CALL dbcsr_get_diag(tempOccOcc(ispin), reim_diag)
-                        CALL mp_sum(reim_diag, para_group)
+                        CALL para_group%sum(reim_diag)
                         z2(:) = z2(:) + reim_diag(:)*reim_diag(:)
 
                      END DO
@@ -2020,7 +2022,7 @@ CONTAINS
       CHARACTER(LEN=30)                                  :: iter_type, print_string
       INTEGER :: cg_iteration, dim_op, handle, iatom, idim0, isgf, ispin, iteration, &
          line_search_iteration, linear_search_type, max_iter, natom, ncol, nspins, &
-         outer_iteration, outer_max_iter, para_group, prec_type, reim, unit_nr
+         outer_iteration, outer_max_iter, para_group_handle, prec_type, reim, unit_nr
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: first_sgf, last_sgf, nocc, nsgf
       LOGICAL                                            :: converged, d_bfgs, just_started, l_bfgs, &
                                                             line_search, outer_prepare_to_exit, &
@@ -2043,6 +2045,7 @@ CONTAINS
          tempOccOcc2, tempOccOcc3
       TYPE(dbcsr_type), ALLOCATABLE, DIMENSION(:, :, :)  :: m_B0
       TYPE(lbfgs_history_type)                           :: nlmo_lbfgs_history
+      TYPE(mp_comm_type)                                 :: para_group
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
       TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
 
@@ -2413,7 +2416,8 @@ CONTAINS
 
             DO ispin = 1, nspins
 
-               CALL dbcsr_get_info(m_sig_sqrti_ii(ispin), group=para_group)
+               CALL dbcsr_get_info(m_sig_sqrti_ii(ispin), group=para_group_handle)
+               CALL para_group%set_handle(para_group_handle)
 
                ! compute diagonal (a^t.sigma0.a)^(-1/2)
                CALL dbcsr_multiply("N", "N", 1.0_dp, &
@@ -2428,7 +2432,7 @@ CONTAINS
                                    retain_sparsity=.TRUE.)
                ALLOCATE (diagonal(nocc(ispin)))
                CALL dbcsr_get_diag(m_sig_sqrti_ii(ispin), diagonal)
-               CALL mp_sum(diagonal, para_group)
+               CALL para_group%sum(diagonal)
                ! TODO: works for zero diagonal elements?
                diagonal(:) = 1.0_dp/SQRT(diagonal(:))
                CALL dbcsr_set(m_sig_sqrti_ii(ispin), 0.0_dp)
@@ -6299,7 +6303,7 @@ CONTAINS
          CALL dbcsr_scale(m_tmp_no_2, &
                           envelope_amplitude)
          CALL dbcsr_set(m_tmp_no_3, 0.0_dp)
-         CALL dbcsr_filter(m_tmp_no_3, eps=eps_filter)
+         CALL dbcsr_filter(m_tmp_no_3, eps_filter)
          CALL dbcsr_hadamard_product(m_tmp_no_1, &
                                      m_tmp_no_2, &
                                      m_tmp_no_3, &
@@ -6312,7 +6316,7 @@ CONTAINS
                                      m_quench_t, &
                                      m_grad_out)
       END IF
-      CALL dbcsr_filter(m_grad_out, eps=eps_filter)
+      CALL dbcsr_filter(m_grad_out, eps_filter)
 
       CALL dbcsr_release(m_tmp_no_1)
       CALL dbcsr_release(m_tmp_no_2)
@@ -6474,10 +6478,12 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER                        :: routineN = 'compute_obj_nlmos'
 
-      INTEGER                                            :: handle, idim0, ielem, para_group, reim
+      INTEGER                                            :: handle, idim0, ielem, para_group_handle, &
+                                                            reim
       REAL(KIND=dp)                                      :: det1, fval
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: reim_diag, z2
       TYPE(dbcsr_type)                                   :: tempNOcc1, tempOccOcc1, tempOccOcc2
+      TYPE(mp_comm_type)                                 :: para_group
 
       CALL timeset(routineN, handle)
 
@@ -6496,7 +6502,8 @@ CONTAINS
       ALLOCATE (z2(nocc))
       ALLOCATE (reim_diag(nocc))
 
-      CALL dbcsr_get_info(tempOccOcc2, group=para_group)
+      CALL dbcsr_get_info(tempOccOcc2, group=para_group_handle)
+      CALL para_group%set_handle(para_group_handle)
 
       DO idim0 = 1, SIZE(m_B0, 2) ! this loop is over miller ind
 
@@ -6519,7 +6526,7 @@ CONTAINS
 
             reim_diag = 0.0_dp
             CALL dbcsr_get_diag(tempOccOcc2, reim_diag)
-            CALL mp_sum(reim_diag, para_group)
+            CALL para_group%sum(reim_diag)
             z2(:) = z2(:) + reim_diag(:)*reim_diag(:)
 
          END DO
@@ -6652,7 +6659,7 @@ CONTAINS
             CALL dbcsr_get_diag(m_temp_oo_4, tg_diagonal)
             CALL dbcsr_set(m_temp_oo_4, 0.0_dp)
             CALL dbcsr_set_diag(m_temp_oo_4, tg_diagonal)
-            !CALL mp_sum(tg_diagonal, para_group)
+            !CALL para_group%sum(tg_diagonal)
             z2(:) = z2(:) + tg_diagonal(:)*tg_diagonal(:)
 
             CALL dbcsr_multiply("N", "N", 1.0_dp, &
@@ -6907,7 +6914,7 @@ CONTAINS
             overlap_sqrti=m_sig_sqrti_ii_out)
       END IF
 
-      CALL dbcsr_filter(m_t_out, eps=eps_filter)
+      CALL dbcsr_filter(m_t_out, eps_filter)
 
       CALL dbcsr_release(m_tmp_no_1)
       CALL dbcsr_release(m_tmp_oo_1)
@@ -7127,7 +7134,7 @@ CONTAINS
                                           upper_to_full=.TRUE.)
          END IF !skip_inversion
 
-         CALL dbcsr_filter(m_prec_out, eps=eps_filter)
+         CALL dbcsr_filter(m_prec_out, eps_filter)
 
       ELSE
 
@@ -7186,7 +7193,7 @@ CONTAINS
       !!!        blacs_env=almo_scf_env%blacs_env,&
       !!!        upper_to_full=.TRUE.)
       !!!CALL dbcsr_filter(prec_vv,&
-      !!!        eps=almo_scf_env%eps_filter)
+      !!!        almo_scf_env%eps_filter)
       !!!
 
       ! re-create the matrix because desymmetrize is buggy -
@@ -7222,7 +7229,7 @@ CONTAINS
       !CALL dbcsr_desymmetrize(almo_scf_env%matrix_sigma(ispin),&
       !        prec_oo)
       !CALL dbcsr_filter(prec_oo,&
-      !        eps=almo_scf_env%eps_filter)
+      !        almo_scf_env%eps_filter)
 
       !! invert using cholesky
       !CALL dbcsr_create(prec_oo_inv,&
@@ -9322,7 +9329,7 @@ CONTAINS
                                        para_env=almo_scf_env%para_env, &
                                        blacs_env=almo_scf_env%blacs_env, &
                                        upper_to_full=.TRUE.)
-         CALL dbcsr_filter(m_s_inv, eps=almo_scf_env%eps_filter)
+         CALL dbcsr_filter(m_s_inv, almo_scf_env%eps_filter)
 
       END IF ! s_inv
 
@@ -9784,7 +9791,7 @@ CONTAINS
                                                       blacs_env=almo_scf_env%blacs_env, &
                                                       upper_to_full=.TRUE.)
                         CALL dbcsr_filter(m_model_hessian_inv(ispin), &
-                                          eps=almo_scf_env%eps_filter)
+                                          almo_scf_env%eps_filter)
                      END DO
 
                   ELSE

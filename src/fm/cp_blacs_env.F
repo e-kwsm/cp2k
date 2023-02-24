@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -24,7 +24,8 @@ MODULE cp_blacs_env
    USE kinds,                           ONLY: dp
    USE machine,                         ONLY: m_flush
    USE mathlib,                         ONLY: gcd
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_null,&
+                                              mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -61,7 +62,8 @@ MODULE cp_blacs_env
 ! **************************************************************************************************
    TYPE cp_blacs_env_type
       INTEGER, DIMENSION(2) :: mepos, num_pe
-      INTEGER :: group, my_pid, n_pid, ref_count
+      TYPE(mp_comm_type) :: group = mp_comm_null
+      INTEGER :: my_pid, n_pid, ref_count
       TYPE(cp_para_env_type), POINTER :: para_env
       INTEGER, DIMENSION(:, :), POINTER :: blacs2mpi
       INTEGER, DIMENSION(:, :), POINTER :: mpi2blacs
@@ -155,7 +157,6 @@ CONTAINS
       CPASSERT(.NOT. ASSOCIATED(blacs_env))
 
       ALLOCATE (blacs_env)
-      blacs_env%group = 0
       blacs_env%ref_count = 1
       blacs_env%mepos(:) = 0
       blacs_env%num_pe(:) = 1
@@ -238,7 +239,7 @@ CONTAINS
       CPASSERT(stat == 0)
       blacs_env%blacs2mpi = 0
       blacs_env%blacs2mpi(blacs_env%mepos(1), blacs_env%mepos(2)) = para_env%mepos
-      CALL mp_sum(blacs_env%blacs2mpi, para_env%group)
+      CALL para_env%group%sum(blacs_env%blacs2mpi)
       ALLOCATE (blacs_env%mpi2blacs(2, 0:para_env%num_pe - 1))
       blacs_env%mpi2blacs = -1
       DO ipcol = 0, blacs_env%num_pe(2) - 1
@@ -305,7 +306,7 @@ CONTAINS
 
       IF (ASSOCIATED(blacs_env)) THEN
          WRITE (unit=unit_nr, fmt="('  group=',i10,', ref_count=',i10,',')", &
-                iostat=iostat) blacs_env%group, blacs_env%ref_count
+                iostat=iostat) blacs_env%group%get_handle(), blacs_env%ref_count
          CPASSERT(iostat == 0)
          WRITE (unit=unit_nr, fmt="('  mepos=(',i8,',',i8,'),')", &
                 iostat=iostat) blacs_env%mepos(1), blacs_env%mepos(2)
@@ -323,7 +324,7 @@ CONTAINS
          END IF
          IF (ASSOCIATED(blacs_env%para_env)) THEN
             WRITE (unit=unit_nr, fmt="('  para_env=<cp_para_env id=',i6,'>,')") &
-               blacs_env%para_env%group
+               blacs_env%para_env%group%get_handle()
          ELSE
             WRITE (unit=unit_nr, fmt="('  para_env=*null*')")
          END IF

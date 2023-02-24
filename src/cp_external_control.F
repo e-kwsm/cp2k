@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -23,8 +23,7 @@ MODULE cp_external_control
    USE kinds,                           ONLY: default_string_length,&
                                               dp
    USE machine,                         ONLY: m_walltime
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_probe
+   USE message_passing,                 ONLY: mp_comm_type
 #include "./base/base_uses.f90"
 
    IMPLICIT NONE
@@ -36,7 +35,7 @@ MODULE cp_external_control
    PUBLIC :: external_control
    PUBLIC :: set_external_comm
 
-   INTEGER, SAVE :: external_comm = -1
+   TYPE(mp_comm_type), SAVE :: external_comm
    INTEGER, SAVE :: external_master_id = -1
    INTEGER, SAVE :: scf_energy_message_tag = -1
    INTEGER, SAVE :: exit_tag = -1
@@ -55,7 +54,8 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE set_external_comm(comm, in_external_master_id, &
                                 in_scf_energy_message_tag, in_exit_tag)
-      INTEGER, INTENT(IN)                                :: comm, in_external_master_id
+      TYPE(mp_comm_type), INTENT(IN)                     :: comm
+      INTEGER, INTENT(IN)                                :: in_external_master_id
       INTEGER, INTENT(IN), OPTIONAL                      :: in_scf_energy_message_tag, in_exit_tag
 
       CPASSERT(in_external_master_id .GE. 0)
@@ -66,7 +66,7 @@ CONTAINS
       IF (PRESENT(in_scf_energy_message_tag)) &
          scf_energy_message_tag = in_scf_energy_message_tag
       IF (PRESENT(in_exit_tag)) THEN
-         ! the exit tag should be different from the mp_probe tag default
+         ! the exit tag should be different from the mpi_probe tag default
          CPASSERT(in_exit_tag .NE. -1)
          exit_tag = in_exit_tag
       END IF
@@ -125,7 +125,7 @@ CONTAINS
       ! check for incomming messages and if it is tagged with the exit tag
       IF (exit_tag .NE. -1) THEN
          i = external_master_id
-         CALL mp_probe(source=i, comm=external_comm, tag=tag)
+         CALL external_comm%probe(source=i, tag=tag)
          IF (tag .EQ. exit_tag) should_stop = .TRUE.
       END IF
 
@@ -223,7 +223,7 @@ CONTAINS
             END IF
          END IF
       END IF
-      CALL mp_bcast(should_stop, logger%para_env%source, logger%para_env%group)
+      CALL logger%para_env%group%bcast(should_stop, logger%para_env%source)
 
       check_always = should_stop
 

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -34,8 +34,7 @@ MODULE f77_interface
         cp_get_default_logger, cp_logger_create, cp_logger_get_default_unit_nr, cp_logger_release, &
         cp_logger_retain, cp_logger_type, cp_rm_default_logger, cp_to_string
    USE cp_output_handling,              ONLY: cp_iterate
-   USE cp_para_env,                     ONLY: cp_para_env_create,&
-                                              cp_para_env_release,&
+   USE cp_para_env,                     ONLY: cp_para_env_release,&
                                               cp_para_env_retain
    USE cp_para_types,                   ONLY: cp_para_env_type
    USE cp_result_methods,               ONLY: get_results,&
@@ -97,7 +96,7 @@ MODULE f77_interface
                                               m_getcwd,&
                                               m_memory
    USE message_passing,                 ONLY: &
-        add_mp_perf_env, get_mp_perf_env, mp_comm_world, mp_environ, mp_max, mp_perf_env_release, &
+        add_mp_perf_env, get_mp_perf_env, mp_comm_type, mp_comm_world, mp_perf_env_release, &
         mp_perf_env_retain, mp_perf_env_type, mp_world_finalize, mp_world_init, rm_mp_perf_env
    USE metadynamics_types,              ONLY: meta_env_type
    USE metadynamics_utils,              ONLY: metadyn_read
@@ -206,9 +205,9 @@ CONTAINS
       LOGICAL, INTENT(in)                                :: init_mpi
       INTEGER, INTENT(out)                               :: ierr
 
-      INTEGER                                            :: mpi_comm_default, numtask, taskid, &
-                                                            unit_nr
+      INTEGER                                            :: numtask, taskid, unit_nr
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mp_comm_type)                                 :: mpi_comm_default
 
       IF (.NOT. module_initialized) THEN
          ! install error handler hooks
@@ -221,7 +220,7 @@ CONTAINS
          CALL init_preconnection_list()
 
          ! get runtime information
-         CALL get_runtime_info
+         CALL get_runtime_info()
 
          IF (init_mpi) THEN
             ! get the default system wide communicator
@@ -235,9 +234,8 @@ CONTAINS
          CALL add_timer_env()
 
          ! re-create the para_env and log with correct (reordered) ranks
-         NULLIFY (default_para_env)
-         CALL cp_para_env_create(default_para_env, group=mpi_comm_default, &
-                                 owns_group=.FALSE.)
+         ALLOCATE (default_para_env)
+         default_para_env = mpi_comm_default
          IF (default_para_env%ionode) THEN
             unit_nr = default_output_unit
          ELSE
@@ -263,7 +261,7 @@ CONTAINS
 
          ! Select active offload device when available.
          IF (offload_get_device_count() > 0) THEN
-            CALL mp_environ(numtask=numtask, taskid=taskid, groupid=mpi_comm_default)
+            CALL mpi_comm_default%environ(numtask=numtask, taskid=taskid)
             CALL offload_set_chosen_device(MOD(taskid, offload_get_device_count()))
          END IF
 
@@ -271,15 +269,15 @@ CONTAINS
          ! Attach the time handler hooks to DBCSR
 #if defined __DBCSR_ACC
          IF (offload_get_device_count() > 0) THEN
-            CALL dbcsr_init_lib(default_para_env%group, timeset_hook, timestop_hook, &
+            CALL dbcsr_init_lib(default_para_env%group%get_handle(), timeset_hook, timestop_hook, &
                                 cp_abort_hook, cp_warn_hook, io_unit=unit_nr, &
                                 accdrv_active_device_id=offload_get_chosen_device())
          ELSE
-            CALL dbcsr_init_lib(default_para_env%group, timeset_hook, timestop_hook, &
+            CALL dbcsr_init_lib(default_para_env%group%get_handle(), timeset_hook, timestop_hook, &
                                 cp_abort_hook, cp_warn_hook, io_unit=unit_nr)
          END IF
 #else
-         CALL dbcsr_init_lib(default_para_env%group, timeset_hook, timestop_hook, &
+         CALL dbcsr_init_lib(default_para_env%group%get_handle(), timeset_hook, timestop_hook, &
                              cp_abort_hook, cp_warn_hook, io_unit=unit_nr)
 #endif
          CALL pw_gpu_init()
@@ -554,7 +552,8 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       CHARACTER(len=*), INTENT(in)                       :: input_path
       CHARACTER(len=*), INTENT(in), OPTIONAL             :: output_path
-      INTEGER, INTENT(in), OPTIONAL                      :: mpi_comm, output_unit
+      TYPE(mp_comm_type), INTENT(IN), OPTIONAL           :: mpi_comm
+      INTEGER, INTENT(in), OPTIONAL                      :: output_unit
       LOGICAL, INTENT(in), OPTIONAL                      :: owns_out_unit
       TYPE(section_vals_type), OPTIONAL, POINTER         :: input
       INTEGER, INTENT(out), OPTIONAL                     :: ierr
@@ -599,7 +598,8 @@ CONTAINS
                fp_env, eip_env, pwdft_env, mixed_env, qs_env, qmmm_env, embed_env)
       new_env_id = -1
       IF (PRESENT(mpi_comm)) THEN
-         CALL cp_para_env_create(para_env, group=mpi_comm, owns_group=.FALSE.)
+         ALLOCATE (para_env)
+         para_env = mpi_comm
       ELSE
          para_env => default_para_env
          CALL cp_para_env_retain(para_env)
@@ -904,7 +904,7 @@ CONTAINS
       DEALLOCATE (i_force_eval)
       timer_env => get_timer_env()
       mp_perf_env => get_mp_perf_env()
-      CALL mp_max(last_f_env_id, para_env%group)
+      CALL para_env%group%max(last_f_env_id)
       last_f_env_id = last_f_env_id + 1
       new_env_id = last_f_env_id
       n_f_envs = n_f_envs + 1
@@ -1435,7 +1435,7 @@ CONTAINS
       TYPE(section_type), POINTER                        :: input_declaration
       CHARACTER(len=*), INTENT(in)                       :: input_file_path, output_file_path
       LOGICAL, INTENT(in), OPTIONAL                      :: echo_input
-      INTEGER, INTENT(in), OPTIONAL                      :: mpi_comm
+      TYPE(mp_comm_type), INTENT(in), OPTIONAL           :: mpi_comm
       CHARACTER(len=default_path_length), &
          DIMENSION(:, :), INTENT(IN)                     :: initial_variables
       INTEGER, INTENT(out)                               :: ierr
@@ -1450,8 +1450,8 @@ CONTAINS
       IF (PRESENT(echo_input)) my_echo_input = echo_input
 
       IF (PRESENT(mpi_comm)) THEN
-         NULLIFY (para_env)
-         CALL cp_para_env_create(para_env, group=mpi_comm)
+         ALLOCATE (para_env)
+         para_env = mpi_comm
       ELSE
          para_env => default_para_env
          CALL cp_para_env_retain(para_env)

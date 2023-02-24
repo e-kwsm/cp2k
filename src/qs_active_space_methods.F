@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -33,8 +33,8 @@ MODULE qs_active_space_methods
                                               cp_fm_struct_release,&
                                               cp_fm_struct_type
    USE cp_fm_types,                     ONLY: &
-        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_init_random, cp_fm_p_type, &
-        cp_fm_release, cp_fm_set_all, cp_fm_set_element, cp_fm_to_fm, cp_fm_type
+        cp_fm_create, cp_fm_get_element, cp_fm_get_info, cp_fm_init_random, cp_fm_release, &
+        cp_fm_set_all, cp_fm_set_element, cp_fm_to_fm, cp_fm_type
    USE cp_fm_vect,                      ONLY: cp_fm_vect_dealloc
    USE cp_log_handling,                 ONLY: cp_get_default_logger,&
                                               cp_logger_get_default_io_unit,&
@@ -64,8 +64,7 @@ MODULE qs_active_space_methods
    USE machine,                         ONLY: m_walltime
    USE mathconstants,                   ONLY: fourpi
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE parallel_gemm_api,               ONLY: parallel_gemm
    USE particle_list_types,             ONLY: particle_list_type
    USE particle_types,                  ONLY: particle_type
@@ -211,9 +210,9 @@ CONTAINS
       TYPE(atomic_kind_type), POINTER                    :: atomic_kind
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_blacs_env_type), POINTER                   :: context
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: mos_localized
       TYPE(cp_fm_struct_type), POINTER                   :: fm_struct_tmp
       TYPE(cp_fm_type)                                   :: fm_dummy, mo_virt
+      TYPE(cp_fm_type), ALLOCATABLE, DIMENSION(:)        :: mos_localized
       TYPE(cp_fm_type), POINTER                          :: fm_ref, fm_target, fm_target_active, &
                                                             fm_target_inactive, fmat, mo_coeff
       TYPE(cp_para_env_type), POINTER                    :: para_env
@@ -816,14 +815,12 @@ CONTAINS
          loc_section => section_vals_get_subs_vals(as_input, "LOCALIZE")
          CPASSERT(ASSOCIATED(loc_section))
          loc_print => section_vals_get_subs_vals(as_input, "LOCALIZE%PRINT")
-         NULLIFY (mos_localized)
          ALLOCATE (mos_localized(nspins))
          CALL get_qs_env(qs_env, mos=mos)
          DO ispin = 1, nspins
             CALL get_mo_set(mo_set=mos(ispin), mo_coeff=mo_coeff)
-            ALLOCATE (mos_localized(ispin)%matrix)
-            CALL cp_fm_create(mos_localized(ispin)%matrix, mo_coeff%matrix_struct)
-            CALL cp_fm_to_fm(mo_coeff, mos_localized(ispin)%matrix)
+            CALL cp_fm_create(mos_localized(ispin), mo_coeff%matrix_struct)
+            CALL cp_fm_to_fm(mo_coeff, mos_localized(ispin))
          END DO
          ! occupied states
          NULLIFY (qs_loc_env_occ)
@@ -834,7 +831,7 @@ CONTAINS
                           mos_localized=mos_localized, do_homo=.TRUE.)
          DO ispin = 1, nspins
             CALL qs_loc_driver(qs_env, qs_loc_env_occ, loc_print, myspin=ispin, &
-                               ext_mo_coeff=mos_localized(ispin)%matrix)
+                               ext_mo_coeff=mos_localized(ispin))
          END DO
          ! virtual states
          NULLIFY (qs_loc_env_virt)
@@ -847,7 +844,7 @@ CONTAINS
                               loc_coeff=mos_localized)
          DO ispin = 1, nspins
             CALL qs_loc_driver(qs_env, qs_loc_env_virt, loc_print, myspin=ispin, &
-                               ext_mo_coeff=mos_localized(ispin)%matrix)
+                               ext_mo_coeff=mos_localized(ispin))
          END DO
          !
          ! get definition of subspace
@@ -1011,7 +1008,7 @@ CONTAINS
          END IF
          nn1 = (n1*(n1 + 1))/2
          nn2 = (n2*(n2 + 1))/2
-         CALL dbcsr_csr_create(eri_mat, nn1, nn2, 0_int_8, 0, 0, para_env%group)
+         CALL dbcsr_csr_create(eri_mat, nn1, nn2, 0_int_8, 0, 0, para_env%group%get_handle())
          active_space_env%eri%norb = nmo
       END DO
 
@@ -1062,9 +1059,7 @@ CONTAINS
       DO isp = 1, nspins
          mo_set => active_space_env%mos_active(isp)
          CALL get_mo_set(mo_set, mo_coeff=mo_coeff, nmo=nmo)
-         NULLIFY (active_space_env%p_active(isp)%matrix)
-         ALLOCATE (active_space_env%p_active(isp)%matrix)
-         CALL create_subspace_matrix(mo_coeff, active_space_env%p_active(isp)%matrix, nmo)
+         CALL create_subspace_matrix(mo_coeff, active_space_env%p_active(isp), nmo)
       END DO
       SELECT CASE (mselect)
       CASE DEFAULT
@@ -1073,7 +1068,7 @@ CONTAINS
          focc = 2.0_dp
          IF (nspins == 2) focc = 1.0_dp
          DO isp = 1, nspins
-            fmat => active_space_env%p_active(isp)%matrix
+            fmat => active_space_env%p_active(isp)
             CALL cp_fm_set_all(fmat, alpha=0.0_dp)
             n1 = active_space_env%nelec_total(isp) - active_space_env%nelec_inactive_spinwise(isp)
             DO i = 1, nactive_orb(isp)
@@ -1088,7 +1083,7 @@ CONTAINS
          focc = 2.0_dp
          IF (nspins == 2) focc = 1.0_dp
          DO isp = 1, nspins
-            fmat => active_space_env%p_active(isp)%matrix
+            fmat => active_space_env%p_active(isp)
             CALL cp_fm_set_all(fmat, alpha=0.0_dp)
             n1 = active_space_env%nelec_total(isp) - active_space_env%nelec_inactive_spinwise(isp)
             DO i = 1, nactive_orb(isp)
@@ -1153,8 +1148,7 @@ CONTAINS
       ! Kohn-Sham / Fock operator
       IF (ASSOCIATED(active_space_env%ks_sub)) THEN
          DO is = 1, SIZE(active_space_env%ks_sub)
-            CALL cp_fm_release(active_space_env%ks_sub(is)%matrix)
-            DEALLOCATE (active_space_env%ks_sub(is)%matrix)
+            CALL cp_fm_release(active_space_env%ks_sub(is))
          END DO
          DEALLOCATE (active_space_env%ks_sub)
       END IF
@@ -1165,15 +1159,13 @@ CONTAINS
       ALLOCATE (active_space_env%ks_sub(nspins))
       DO is = 1, nspins
          CALL get_mo_set(mo_set=mos(is), mo_coeff=mo_coeff, nmo=nmo)
-         IF (.NOT. ASSOCIATED(active_space_env%ks_sub(is)%matrix)) ALLOCATE (active_space_env%ks_sub(is)%matrix)
-         CALL subspace_operator(mo_coeff, nmo, ks_matrix(is, 1)%matrix, active_space_env%ks_sub(is)%matrix)
+         CALL subspace_operator(mo_coeff, nmo, ks_matrix(is, 1)%matrix, active_space_env%ks_sub(is))
       END DO
 
       ! Vxc matrix
       IF (ASSOCIATED(active_space_env%vxc_sub)) THEN
          DO is = 1, SIZE(active_space_env%vxc_sub)
-            CALL cp_fm_release(active_space_env%vxc_sub(is)%matrix)
-            DEALLOCATE (active_space_env%vxc_sub(is)%matrix)
+            CALL cp_fm_release(active_space_env%vxc_sub(is))
          END DO
          DEALLOCATE (active_space_env%vxc_sub)
       END IF
@@ -1183,16 +1175,14 @@ CONTAINS
          ALLOCATE (active_space_env%vxc_sub(nspins))
          DO is = 1, nspins
             CALL get_mo_set(mo_set=mos(is), mo_coeff=mo_coeff, nmo=nmo)
-            IF (.NOT. ASSOCIATED(active_space_env%vxc_sub(is)%matrix)) ALLOCATE (active_space_env%vxc_sub(is)%matrix)
-            CALL subspace_operator(mo_coeff, nmo, matrix_vxc(is)%matrix, active_space_env%vxc_sub(is)%matrix)
+            CALL subspace_operator(mo_coeff, nmo, matrix_vxc(is)%matrix, active_space_env%vxc_sub(is))
          END DO
       END IF
 
       ! Core Hamiltonian
       IF (ASSOCIATED(active_space_env%h_sub)) THEN
          DO is = 1, SIZE(active_space_env%h_sub)
-            CALL cp_fm_release(active_space_env%h_sub(is)%matrix)
-            DEALLOCATE (active_space_env%h_sub(is)%matrix)
+            CALL cp_fm_release(active_space_env%h_sub(is))
          END DO
          DEALLOCATE (active_space_env%h_sub)
       END IF
@@ -1204,8 +1194,7 @@ CONTAINS
       ALLOCATE (active_space_env%h_sub(nspins))
       DO is = 1, nspins
          CALL get_mo_set(mo_set=mos(is), mo_coeff=mo_coeff, nmo=nmo)
-         IF (.NOT. ASSOCIATED(active_space_env%h_sub(is)%matrix)) ALLOCATE (active_space_env%h_sub(is)%matrix)
-         CALL subspace_operator(mo_coeff, nmo, h_matrix(1, 1)%matrix, active_space_env%h_sub(is)%matrix)
+         CALL subspace_operator(mo_coeff, nmo, h_matrix(1, 1)%matrix, active_space_env%h_sub(is))
       END DO
 
       CALL timestop(handle)
@@ -1319,6 +1308,7 @@ CONTAINS
       TYPE(cell_type), POINTER                           :: cell
       TYPE(cp_fm_type), POINTER                          :: mo_coeff
       TYPE(dft_control_type), POINTER                    :: dft_control
+      TYPE(mp_comm_type)                                 :: mp_group
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
          POINTER                                         :: sab_orb_sub
       TYPE(particle_type), DIMENSION(:), POINTER         :: particle_set
@@ -1459,13 +1449,14 @@ CONTAINS
       rho_r%cr3d = 0.0D0
       CALL pw_transfer(rho_r, rho_g)
       dvol = rho_r%pw_grid%dvol
+      CALL mp_group%set_handle(eri_env%eri(1)%csr_mat%mp_group)
 
       ! calculate the integrals
       intcount = 0
       DO isp1 = 1, nspins
          CALL get_mo_set(mo_set=mos(isp1), nmo=nmo1)
          nmm = (nmo1*(nmo1 + 1))/2
-         irange = get_irange_csr(nmm, eri_env%eri(1)%csr_mat%mp_group)
+         irange = get_irange_csr(nmm, mp_group)
          DO i1 = 1, SIZE(orbitals, 1)
             iwa1 = orbitals(i1, isp1)
             IF (eri_env%eri_gpw%store_wfn) THEN
@@ -1923,7 +1914,7 @@ CONTAINS
                nmo = active_space_env%eri%norb
                ALLOCATE (fmat(nmo, nmo))
                ! TODO: extend to arbitrary active orbitals
-               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(1)%matrix, fmat)
+               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(1), fmat)
                IF (iw > 0) THEN
                   i3 = 0; i4 = 0
                   DO m1 = 1, SIZE(active_space_env%active_orbitals, 1)
@@ -1977,7 +1968,7 @@ CONTAINS
                ! alpha
                nmo = active_space_env%eri%norb
                ALLOCATE (fmat(nmo, nmo))
-               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(1)%matrix, fmat)
+               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(1), fmat)
                IF (iw > 0) THEN
                   i3 = 0; i4 = 0
                   DO m1 = 1, norb
@@ -1992,7 +1983,7 @@ CONTAINS
                DEALLOCATE (fmat)
                ! beta
                ALLOCATE (fmat(nmo, nmo))
-               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(2)%matrix, fmat)
+               CALL replicate_and_symmetrize_matrix(nmo, active_space_env%fock_sub(2), fmat)
                IF (iw > 0) THEN
                   i3 = 0; i4 = 0
                   DO m1 = 1, SIZE(active_space_env%active_orbitals, 1)
@@ -2079,8 +2070,8 @@ CONTAINS
          ALLOCATE (ks_mat(norb, norb), ks_ref(norb, norb), p_mat(norb, norb))
          ks_ref = 0.0_dp
 
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(1)%matrix, p_mat)
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(1)%matrix, ks_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(1), p_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(1), ks_mat)
          !
          !
          eri => active_space_env%eri%eri(1)%csr_mat
@@ -2096,19 +2087,17 @@ CONTAINS
          !
          IF (ASSOCIATED(active_space_env%fock_sub)) THEN
             DO is = 1, SIZE(active_space_env%fock_sub)
-               CALL cp_fm_release(active_space_env%fock_sub(is)%matrix)
-               DEALLOCATE (active_space_env%fock_sub(is)%matrix)
+               CALL cp_fm_release(active_space_env%fock_sub(is))
             END DO
             DEALLOCATE (active_space_env%fock_sub)
          END IF
          ALLOCATE (active_space_env%fock_sub(nspins))
          DO is = 1, nspins
-            matrix => active_space_env%ks_sub(is)%matrix
-            ALLOCATE (active_space_env%fock_sub(is)%matrix)
-            CALL cp_fm_create(active_space_env%fock_sub(is)%matrix, matrix%matrix_struct, &
+            matrix => active_space_env%ks_sub(is)
+            CALL cp_fm_create(active_space_env%fock_sub(is), matrix%matrix_struct, &
                               name="Active Fock operator")
          END DO
-         matrix => active_space_env%fock_sub(1)%matrix
+         matrix => active_space_env%fock_sub(1)
          DO i1 = 1, norb
             DO i2 = 1, norb
                mval = ks_mat(i1, i2)
@@ -2127,10 +2116,10 @@ CONTAINS
               &     p_a_mat(norb, norb), p_b_mat(norb, norb))
          ks_a_ref(:, :) = 0.0_dp; ks_b_ref(:, :) = 0.0_dp
 
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(1)%matrix, p_a_mat)
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(2)%matrix, p_b_mat)
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(1)%matrix, ks_a_mat)
-         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(2)%matrix, ks_b_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(1), p_a_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%p_active(2), p_b_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(1), ks_a_mat)
+         CALL replicate_and_symmetrize_matrix(norb, active_space_env%ks_sub(2), ks_b_mat)
          !
          !
          eri_aa => active_space_env%eri%eri(1)%csr_mat
@@ -2152,27 +2141,25 @@ CONTAINS
          !
          IF (ASSOCIATED(active_space_env%fock_sub)) THEN
             DO is = 1, SIZE(active_space_env%fock_sub)
-               CALL cp_fm_release(active_space_env%fock_sub(is)%matrix)
-               DEALLOCATE (active_space_env%fock_sub(is)%matrix)
+               CALL cp_fm_release(active_space_env%fock_sub(is))
             END DO
             DEALLOCATE (active_space_env%fock_sub)
          END IF
          ALLOCATE (active_space_env%fock_sub(nspins))
          DO is = 1, nspins
-            matrix => active_space_env%ks_sub(is)%matrix
-            ALLOCATE (active_space_env%fock_sub(is)%matrix)
-            CALL cp_fm_create(active_space_env%fock_sub(is)%matrix, matrix%matrix_struct, &
+            matrix => active_space_env%ks_sub(is)
+            CALL cp_fm_create(active_space_env%fock_sub(is), matrix%matrix_struct, &
                               name="Active Fock operator")
          END DO
 
-         matrix => active_space_env%fock_sub(1)%matrix
+         matrix => active_space_env%fock_sub(1)
          DO i1 = 1, norb
             DO i2 = 1, norb
                mval = ks_a_mat(i1, i2)
                CALL cp_fm_set_element(matrix, i1, i2, mval)
             END DO
          END DO
-         matrix => active_space_env%fock_sub(2)%matrix
+         matrix => active_space_env%fock_sub(2)
          DO i1 = 1, norb
             DO i2 = 1, norb
                mval = ks_b_mat(i1, i2)
@@ -2201,11 +2188,13 @@ CONTAINS
                                                             irptr, m1, m2, nindex, nmo_total, norb
       INTEGER, DIMENSION(2)                              :: irange
       REAL(dp)                                           :: erint
+      TYPE(mp_comm_type)                                 :: mp_group
 
       norb = SIZE(active_orbitals, 1)
       nmo_total = SIZE(p_mat, 1)
       nindex = (nmo_total*(nmo_total + 1))/2
-      irange = get_irange_csr(nindex, eri%mp_group)
+      CALL mp_group%set_handle(eri%mp_group)
+      irange = get_irange_csr(nindex, mp_group)
       DO m1 = 1, norb
          i1 = active_orbitals(m1, 1)
          DO m2 = m1, norb
@@ -2253,7 +2242,7 @@ CONTAINS
             ks_ref(i2, i1) = ks_ref(i1, i2)
          END DO
       END DO
-      CALL mp_sum(ks_ref, eri%mp_group)
+      CALL mp_group%sum(ks_ref)
 
    END SUBROUTINE build_subspace_fock_matrix
 
@@ -2279,11 +2268,13 @@ CONTAINS
                                                             norb, spin1, spin2
       INTEGER, DIMENSION(2)                              :: irange
       REAL(dp)                                           :: erint
+      TYPE(mp_comm_type)                                 :: mp_group
 
       norb = SIZE(active_orbitals, 1)
       nmo_total = SIZE(p_a_mat, 1)
       nindex = (nmo_total*(nmo_total + 1))/2
-      irange = get_irange_csr(nindex, eri_aa%mp_group)
+      CALL mp_group%set_handle(eri_aa%mp_group)
+      irange = get_irange_csr(nindex, mp_group)
       IF (tr_mixed_eri) THEN
          spin1 = 2
          spin2 = 1
@@ -2332,7 +2323,8 @@ CONTAINS
       END DO
       !
 
-      irange = get_irange_csr(nindex, eri_ab%mp_group)
+      CALL mp_group%set_handle(eri_ab%mp_group)
+      irange = get_irange_csr(nindex, mp_group)
       DO m1 = 1, norb
          i1 = active_orbitals(m1, 1)
          DO m2 = m1, norb
@@ -2365,7 +2357,8 @@ CONTAINS
             ks_a_ref(i2, i1) = ks_a_ref(i1, i2)
          END DO
       END DO
-      CALL mp_sum(ks_a_ref, eri_aa%mp_group)
+      CALL mp_group%set_handle(eri_aa%mp_group)
+      CALL mp_group%sum(ks_a_ref)
 
    END SUBROUTINE build_subspace_spin_fock_matrix
 
@@ -2447,8 +2440,8 @@ CONTAINS
 
       INTEGER                                            :: handle, ispin, nao, nmo, nspins
       LOGICAL                                            :: should_stop
-      TYPE(cp_fm_p_type), DIMENSION(:), POINTER          :: p_ref
       TYPE(cp_fm_type)                                   :: lamat, vec
+      TYPE(cp_fm_type), DIMENSION(:), POINTER            :: p_ref
       TYPE(cp_fm_type), POINTER                          :: fm_active, pmat
       TYPE(cp_para_env_type), POINTER                    :: para_env
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: rho_ao
@@ -2470,7 +2463,7 @@ CONTAINS
          pinact => active_space_env%pmat_inactive(ispin)%matrix
          CALL dbcsr_copy(rho_ao(ispin)%matrix, pinact)
          ! create active density matrix in AO basis
-         pmat => p_ref(ispin)%matrix
+         pmat => p_ref(ispin)
 
          CALL cp_fm_create(lamat, pmat%matrix_struct)
          CALL cp_fm_to_fm(pmat, lamat)
@@ -2522,7 +2515,7 @@ CONTAINS
                pinact => active_space_env%pmat_inactive(ispin)%matrix
                CALL dbcsr_copy(rho_ao(ispin)%matrix, pinact)
                ! create active density matrix in AO basis
-               pmat => p_ref(ispin)%matrix
+               pmat => p_ref(ispin)
 
                CALL cp_fm_create(lamat, pmat%matrix_struct)
                CALL cp_fm_to_fm(pmat, lamat)
@@ -2674,7 +2667,7 @@ CONTAINS
 
       ! Find active DM dimensions
       DO ispin = 1, nspins
-         CALL cp_fm_get_info(matrix=active_space_env%p_active(ispin)%matrix, ncol_global=nmo)
+         CALL cp_fm_get_info(matrix=active_space_env%p_active(ispin), ncol_global=nmo)
          nmos(ispin) = nmo
       END DO
 
@@ -2747,12 +2740,12 @@ CONTAINS
 
       ! Copy to full matrix structure
       ! Broadcast the DM on all processes
-      CALL mp_bcast(p_act, para_env%source, para_env%group)
-      IF (nspins .EQ. 2) CALL mp_bcast(p_act_beta, para_env%source, para_env%group)
+      CALL para_env%group%bcast(p_act, para_env%source)
+      IF (nspins .EQ. 2) CALL para_env%group%bcast(p_act_beta, para_env%source)
 
       DO ispin = 1, nspins
          ! Copy to fm_type structure
-         CALL cp_fm_get_info(matrix=active_space_env%p_active(ispin)%matrix, &
+         CALL cp_fm_get_info(matrix=active_space_env%p_active(ispin), &
                              nrow_local=nrow_local, &
                              ncol_local=ncol_local, &
                              col_indices=col_indices, &
@@ -2763,10 +2756,10 @@ CONTAINS
             DO MMM = 1, ncol_local
                m_global = col_indices(MMM)
                IF (ispin .EQ. 1) THEN
-                  active_space_env%p_active(ispin)%matrix%local_data(LLL, MMM) = &
+                  active_space_env%p_active(ispin)%local_data(LLL, MMM) = &
                      p_act(l_global, m_global)
                ELSE
-                  active_space_env%p_active(ispin)%matrix%local_data(LLL, MMM) = &
+                  active_space_env%p_active(ispin)%local_data(LLL, MMM) = &
                      p_act_beta(l_global, m_global)
                END IF
             END DO ! MMM

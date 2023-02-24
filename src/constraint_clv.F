@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -924,17 +924,22 @@ CONTAINS
       END IF
 
       res = 0.0_dp
-      DO i = 1, SIZE(colvar%i_atom)
-         iatom = colvar%i_atom(i)
-         tmp1 = colvar%dsdr(1:3, i)
-         IF (my_roll) THEN
+      IF (my_roll) THEN
+         DO i = 1, SIZE(colvar%i_atom)
+            iatom = colvar%i_atom(i)
+            tmp1 = colvar%dsdr(1:3, i)
             tmp3 = colvar_old%dsdr(1:3, i)
             tmp2 = MATMUL(rmat, tmp3)
-         ELSE
+            res = res + DOT_PRODUCT(tmp1, tmp2)*imass(iatom)
+         END DO
+      ELSE
+         DO i = 1, SIZE(colvar%i_atom)
+            iatom = colvar%i_atom(i)
+            tmp1 = colvar%dsdr(1:3, i)
             tmp2 = colvar_old%dsdr(1:3, i)
-         END IF
-         res = res + DOT_PRODUCT(tmp1, tmp2)*imass(iatom)
-      END DO
+            res = res + DOT_PRODUCT(tmp1, tmp2)*imass(iatom)
+         END DO
+      END IF
 
    END FUNCTION eval_Jac_colvar
 

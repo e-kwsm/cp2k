@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -30,9 +30,8 @@ MODULE dbt_tas_test
                                               dbt_tas_type
    USE kinds,                           ONLY: dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_cart_create,&
-                                              mp_comm_free,&
-                                              mp_environ
+   USE message_passing,                 ONLY: mp_cart_type,&
+                                              mp_comm_type
 #include "../../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -69,8 +68,9 @@ CONTAINS
    SUBROUTINE dbt_tas_setup_test_matrix(matrix, mp_comm_out, mp_comm, nrows, ncols, rbsizes, &
                                         cbsizes, dist_splitsize, name, sparsity, reuse_comm)
       TYPE(dbt_tas_type), INTENT(OUT)                    :: matrix
-      INTEGER, INTENT(OUT)                               :: mp_comm_out
-      INTEGER, INTENT(IN)                                :: mp_comm
+      TYPE(mp_cart_type), INTENT(OUT)                    :: mp_comm_out
+
+      CLASS(mp_comm_type), INTENT(IN)                     :: mp_comm
       INTEGER(KIND=int_8), INTENT(IN)                    :: nrows, ncols
       INTEGER, DIMENSION(nrows), INTENT(IN)              :: rbsizes
       INTEGER, DIMENSION(ncols), INTENT(IN)              :: cbsizes
@@ -115,8 +115,8 @@ CONTAINS
          mp_comm_out = dbt_tas_mp_comm(mp_comm, nrows, ncols)
       END IF
 
-      CALL mp_environ(numnodes, mynode, mp_comm_out)
-      CALL mp_environ(numnodes, pdims, pcoord, mp_comm_out)
+      CALL mp_comm_out%environ(numnodes, mynode)
+      CALL mp_comm_out%environ_cart(numnodes, pdims, pcoord)
 
       row_dist_obj = dbt_tas_dist_cyclic(dist_splitsize(1), pdims(1), nrows)
       col_dist_obj = dbt_tas_dist_cyclic(dist_splitsize(2), pdims(2), ncols)
@@ -187,7 +187,7 @@ CONTAINS
       REAL(KIND=dp), INTENT(IN), OPTIONAL                :: filter_eps
       INTEGER, INTENT(IN), OPTIONAL                      :: io_unit
 
-      INTEGER                                            :: comm_dbm, handle1, handle2, mp_comm
+      INTEGER                                            :: handle1, handle2
       INTEGER, CONTIGUOUS, DIMENSION(:), POINTER :: cd_a, cd_b, cd_c, col_block_sizes_a, &
          col_block_sizes_b, col_block_sizes_c, rd_a, rd_b, rd_c, row_block_sizes_a, &
          row_block_sizes_b, row_block_sizes_c
@@ -195,6 +195,7 @@ CONTAINS
       TYPE(dbm_distribution_obj)                         :: dist_a, dist_b, dist_c
       TYPE(dbm_type)                                     :: dbm_a, dbm_a_mm, dbm_b, dbm_b_mm, dbm_c, &
                                                             dbm_c_mm
+      TYPE(mp_cart_type)                                 :: comm_dbm, mp_comm
 
 !
 ! TODO: Dedup with code in dbt_tas_test_mm.
@@ -222,7 +223,7 @@ CONTAINS
 
          CALL dbt_tas_get_split_info(dbt_tas_info(matrix_a), mp_comm=mp_comm)
          npdims(:) = 0
-         CALL mp_cart_create(mp_comm, 2, npdims, myploc, comm_dbm)
+         CALL comm_dbm%create(mp_comm, 2, npdims, myploc)
 
          ALLOCATE (rd_a(SIZE(dbm_get_row_block_sizes(dbm_a))))
          ALLOCATE (rd_b(SIZE(dbm_get_row_block_sizes(dbm_b))))
@@ -297,7 +298,7 @@ CONTAINS
          CALL dbm_distribution_release(dist_b)
          CALL dbm_distribution_release(dist_c)
 
-         CALL mp_comm_free(comm_dbm)
+         CALL comm_dbm%free()
       END IF
 
    END SUBROUTINE
@@ -325,8 +326,7 @@ CONTAINS
       REAL(KIND=dp), PARAMETER                           :: test_tol = 1.0E-10_dp
 
       CHARACTER(LEN=8)                                   :: status_str
-      INTEGER                                            :: comm_dbm, io_unit, mp_comm, mynode, &
-                                                            numnodes
+      INTEGER                                            :: io_unit, mynode, numnodes
       INTEGER, CONTIGUOUS, DIMENSION(:), POINTER :: cd_a, cd_b, cd_c, col_block_sizes_a, &
          col_block_sizes_b, col_block_sizes_c, rd_a, rd_b, rd_c, row_block_sizes_a, &
          row_block_sizes_b, row_block_sizes_c
@@ -336,13 +336,14 @@ CONTAINS
       TYPE(dbm_distribution_obj)                         :: dist_a, dist_b, dist_c
       TYPE(dbm_type)                                     :: dbm_a, dbm_a_mm, dbm_b, dbm_b_mm, dbm_c, &
                                                             dbm_c_mm, dbm_c_mm_check
+      TYPE(mp_cart_type)                                 :: comm_dbm, mp_comm
 
 !
 ! TODO: Dedup with code in dbt_tas_benchmark_mm.
 !
 
       CALL dbt_tas_get_split_info(dbt_tas_info(matrix_a), mp_comm=mp_comm)
-      CALL mp_environ(numnodes, mynode, mp_comm)
+      CALL mp_comm%environ(numnodes, mynode)
       abort = .FALSE.
       io_unit = -1
       IF (mynode .EQ. 0) io_unit = unit_nr
@@ -356,7 +357,7 @@ CONTAINS
       CALL dbt_tas_convert_to_dbm(matrix_c, dbm_c)
 
       npdims(:) = 0
-      CALL mp_cart_create(mp_comm, 2, npdims, myploc, comm_dbm)
+      CALL comm_dbm%create(mp_comm, 2, npdims, myploc)
 
       ALLOCATE (rd_a(SIZE(dbm_get_row_block_sizes(dbm_a))))
       ALLOCATE (rd_b(SIZE(dbm_get_row_block_sizes(dbm_b))))
@@ -460,7 +461,7 @@ CONTAINS
       CALL dbm_distribution_release(dist_b)
       CALL dbm_distribution_release(dist_c)
 
-      CALL mp_comm_free(comm_dbm)
+      CALL comm_dbm%free()
 
    END SUBROUTINE dbt_tas_test_mm
 

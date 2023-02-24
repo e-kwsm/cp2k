@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -21,7 +21,7 @@ MODULE gaussian_gridlevels
                                               section_vals_type
    USE kinds,                           ONLY: dp,&
                                               int_8
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -86,9 +86,10 @@ CONTAINS
       TYPE(gridlevel_info_type)                          :: gridlevel_info
       TYPE(cp_para_env_type), OPTIONAL, POINTER          :: para_env
 
-      INTEGER                                            :: group, i, output_unit
+      INTEGER                                            :: i, output_unit
       LOGICAL                                            :: do_io
       TYPE(cp_logger_type), POINTER                      :: logger
+      TYPE(mp_comm_type)                                 :: group
 
       NULLIFY (logger)
       logger => cp_get_default_logger()
@@ -102,8 +103,8 @@ CONTAINS
 
       IF (do_io) THEN
 
-         CALL mp_sum(gridlevel_info%total_count, group)
-         CALL mp_sum(gridlevel_info%count, group)
+         CALL group%sum(gridlevel_info%total_count)
+         CALL group%sum(gridlevel_info%count)
 
          output_unit = cp_print_key_unit_nr(logger, gridlevel_info%print_section, &
                                             "", extension=".Log")

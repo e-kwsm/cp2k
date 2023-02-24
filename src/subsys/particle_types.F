@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -19,7 +19,7 @@
 MODULE particle_types
    USE atomic_kind_types,               ONLY: atomic_kind_type
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
 #include "../base/base_uses.f90"
 
    IMPLICIT NONE
@@ -120,7 +120,7 @@ CONTAINS
    SUBROUTINE update_particle_set(particle_set, int_group, pos, vel, for, add)
 
       TYPE(particle_type), INTENT(INOUT)                 :: particle_set(:)
-      INTEGER, INTENT(IN)                                :: int_group
+      TYPE(mp_comm_type), INTENT(IN)                     :: int_group
       REAL(KIND=dp), INTENT(INOUT), OPTIONAL             :: pos(:, :), vel(:, :), for(:, :)
       LOGICAL, INTENT(IN), OPTIONAL                      :: add
 
@@ -140,7 +140,7 @@ CONTAINS
       IF (PRESENT(add)) my_add = add
 
       IF (update_pos) THEN
-         CALL mp_sum(pos, int_group)
+         CALL int_group%sum(pos)
          IF (my_add) THEN
             DO iparticle = 1, nparticle
                particle_set(iparticle)%r(:) = particle_set(iparticle)%r(:) + pos(:, iparticle)
@@ -152,7 +152,7 @@ CONTAINS
          END IF
       END IF
       IF (update_vel) THEN
-         CALL mp_sum(vel, int_group)
+         CALL int_group%sum(vel)
          IF (my_add) THEN
             DO iparticle = 1, nparticle
                particle_set(iparticle)%v(:) = particle_set(iparticle)%v(:) + vel(:, iparticle)
@@ -164,7 +164,7 @@ CONTAINS
          END IF
       END IF
       IF (update_for) THEN
-         CALL mp_sum(for, int_group)
+         CALL int_group%sum(for)
          IF (my_add) THEN
             DO iparticle = 1, nparticle
                particle_set(iparticle)%f(:) = particle_set(iparticle)%f(:) + for(:, iparticle)

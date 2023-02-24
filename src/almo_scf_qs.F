@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -50,7 +50,7 @@ MODULE almo_scf_qs
                                               do_bondparm_covalent,&
                                               do_bondparm_vdw
    USE kinds,                           ONLY: dp
-   USE message_passing,                 ONLY: mp_allgather
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_types,                  ONLY: get_molecule_set_info,&
                                               molecule_type
    USE particle_types,                  ONLY: particle_type
@@ -871,6 +871,7 @@ CONTAINS
       TYPE(dbcsr_p_type), DIMENSION(:), POINTER          :: matrix_s
       TYPE(dbcsr_type)                                   :: matrix_s_sym
       TYPE(molecule_type), DIMENSION(:), POINTER         :: molecule_set
+      TYPE(mp_comm_type)                                 :: group
       TYPE(neighbor_list_iterator_p_type), &
          DIMENSION(:), POINTER                           :: nl_iterator, nl_iterator2
       TYPE(neighbor_list_set_p_type), DIMENSION(:), &
@@ -944,6 +945,7 @@ CONTAINS
 
       CALL dbcsr_get_info(almo_scf_env%quench_t(ispin), distribution=dist)
       CALL dbcsr_distribution_get(dist, numnodes=nNodes, group=GroupID, mynode=mynode)
+      CALL group%set_handle(groupid)
 
       ! create global atom neighbor list from the local lists
       ! first, calculate number of local pairs
@@ -977,7 +979,7 @@ CONTAINS
 
       ! third, communicate local length to the other nodes
       ALLOCATE (list_length_cpu(nNodes), list_offset_cpu(nNodes))
-      CALL mp_allgather(2*local_list_length, list_length_cpu, GroupID)
+      CALL group%allgather(2*local_list_length, list_length_cpu)
 
       ! fourth, create a global list
       list_offset_cpu(1) = 0
@@ -989,8 +991,8 @@ CONTAINS
 
       ! fifth, communicate all list data
       ALLOCATE (global_list(global_list_length))
-      CALL mp_allgather(local_list, global_list, &
-                        list_length_cpu, list_offset_cpu, GroupID)
+      CALL group%allgatherv(local_list, global_list, &
+                            list_length_cpu, list_offset_cpu)
       DEALLOCATE (list_length_cpu, list_offset_cpu)
       DEALLOCATE (local_list)
 
@@ -1393,7 +1395,7 @@ CONTAINS
 
       ! first, communicate map sizes on the other nodes
       ALLOCATE (domain_entries_cpu(nNodes), offset_for_cpu(nNodes))
-      CALL mp_allgather(2*domain_map_local_entries, domain_entries_cpu, GroupID)
+      CALL group%allgather(2*domain_map_local_entries, domain_entries_cpu)
 
       ! second, create
       offset_for_cpu(1) = 0
@@ -1410,8 +1412,8 @@ CONTAINS
          domain_map_local(2*(ientry - 1) + 1) = almo_scf_env%domain_map(ispin)%pairs(ientry, 1)
          domain_map_local(2*ientry) = almo_scf_env%domain_map(ispin)%pairs(ientry, 2)
       END DO
-      CALL mp_allgather(domain_map_local, domain_map_global, &
-                        domain_entries_cpu, offset_for_cpu, GroupID)
+      CALL group%allgatherv(domain_map_local, domain_map_global, &
+                            domain_entries_cpu, offset_for_cpu)
       DEALLOCATE (domain_entries_cpu, offset_for_cpu)
       DEALLOCATE (domain_map_local)
 

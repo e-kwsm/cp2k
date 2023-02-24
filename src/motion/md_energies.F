@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -68,7 +68,6 @@ MODULE md_energies
    USE md_environment_types,            ONLY: get_md_env,&
                                               md_environment_type,&
                                               set_md_env
-   USE message_passing,                 ONLY: mp_max
    USE motion_utils,                    ONLY: write_simulation_cell,&
                                               write_stress_tensor,&
                                               write_trajectory
@@ -814,7 +813,7 @@ CONTAINS
 
       CALL m_memory()
       max_memory = m_memory_max
-      CALL mp_max(max_memory, para_env%group)
+      CALL para_env%group%max(max_memory)
 
    END FUNCTION sample_memory
 

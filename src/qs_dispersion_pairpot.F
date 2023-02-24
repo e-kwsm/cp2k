@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -47,10 +47,7 @@ MODULE qs_dispersion_pairpot
                                               dp
    USE mathconstants,                   ONLY: twopi
    USE memory_utilities,                ONLY: reallocate
-   USE message_passing,                 ONLY: mp_bcast,&
-                                              mp_max,&
-                                              mp_shift,&
-                                              mp_sum
+   USE message_passing,                 ONLY: mp_comm_type
    USE molecule_types,                  ONLY: molecule_type
    USE particle_types,                  ONLY: particle_type
    USE physcon,                         ONLY: bohr,&
@@ -90,7 +87,8 @@ MODULE qs_dispersion_pairpot
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'qs_dispersion_pairpot'
 
    PUBLIC :: qs_dispersion_pairpot_init, calculate_dispersion_pairpot, &
-             qs_scaling_init, qs_scaling_dftd3, qs_scaling_dftd3bj
+             qs_scaling_init, qs_scaling_dftd3, qs_scaling_dftd3bj, &
+             qs_dispersion_setcn
 
    TYPE dcnum_type
       INTEGER                                :: neighbors
@@ -350,6 +348,60 @@ CONTAINS
    END SUBROUTINE qs_dispersion_pairpot_init
 
 ! **************************************************************************************************
+!> \brief ...
+!> \param atomic_kind_set ...
+!> \param qs_kind_set ...
+!> \param dispersion_env ...
+!> \param para_env ...
+! **************************************************************************************************
+   SUBROUTINE qs_dispersion_setcn(atomic_kind_set, qs_kind_set, dispersion_env, para_env)
+      TYPE(atomic_kind_type), DIMENSION(:), POINTER      :: atomic_kind_set
+      TYPE(qs_kind_type), DIMENSION(:), POINTER          :: qs_kind_set
+      TYPE(qs_dispersion_type), POINTER                  :: dispersion_env
+      TYPE(cp_para_env_type), POINTER                    :: para_env
+
+      CHARACTER(LEN=default_string_length)               :: filename
+      INTEGER                                            :: i, ikind, max_elem, maxc, nkind
+      REAL(KIND=dp)                                      :: dum
+      TYPE(qs_atom_dispersion_type), POINTER             :: disp
+
+      nkind = SIZE(atomic_kind_set)
+      IF (dispersion_env%type /= xc_vdw_fun_pairpot) THEN
+         DO ikind = 1, nkind
+            ALLOCATE (disp)
+            disp%type = dftd3_pp
+            disp%defined = .TRUE.
+            CALL set_qs_kind(qs_kind_set(ikind), dispersion=disp)
+         END DO
+      END IF
+
+      max_elem = 94
+      maxc = 5
+      dispersion_env%max_elem = max_elem
+      dispersion_env%maxc = maxc
+      ALLOCATE (dispersion_env%maxci(max_elem))
+      ALLOCATE (dispersion_env%c6ab(max_elem, max_elem, maxc, maxc, 3))
+      ALLOCATE (dispersion_env%r0ab(max_elem, max_elem))
+      ALLOCATE (dispersion_env%rcov(max_elem))
+      ALLOCATE (dispersion_env%r2r4(max_elem))
+      ALLOCATE (dispersion_env%cn(max_elem))
+      ! get filename of parameter file
+      filename = dispersion_env%parameter_file_name
+      CALL dftd3_c6_param(dispersion_env%c6ab, dispersion_env%maxci, filename, para_env)
+      CALL setr0ab(dispersion_env%r0ab, dispersion_env%rcov, dispersion_env%r2r4)
+      ! the default coordination numbers
+      CALL setcn(dispersion_env%cn)
+      DO i = 1, max_elem
+         dum = 0.5_dp*dispersion_env%r2r4(i)*REAL(i, dp)**0.5_dp
+         dispersion_env%r2r4(i) = SQRT(dum)
+      END DO
+      dispersion_env%k1 = 16.0_dp
+      dispersion_env%k2 = 4._dp/3._dp
+      dispersion_env%k3 = -4._dp
+      dispersion_env%rcov = dispersion_env%k2*dispersion_env%rcov*bohr
+      dispersion_env%alp = 14._dp
+
+   END SUBROUTINE qs_dispersion_setcn
 
 ! **************************************************************************************************
 !> \brief ...
@@ -1294,7 +1346,6 @@ CONTAINS
       IF (calculate_forces .OR. debugall) THEN
          NULLIFY (force)
          CALL get_qs_env(qs_env=qs_env, force=force)
-         ALLOCATE (atom_of_kind(natom), kind_of(natom))
          CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind, kind_of=kind_of)
          use_virial = virial%pv_availability .AND. (.NOT. virial%pv_numer)
          IF (use_virial .AND. debugall) THEN
@@ -1305,7 +1356,6 @@ CONTAINS
          END IF
       ELSE IF ((dispersion_env%pp_type == vdw_pairpot_dftd3 .OR. &
                 dispersion_env%pp_type == vdw_pairpot_dftd3bj) .AND. dispersion_env%doabc) THEN
-         ALLOCATE (atom_of_kind(natom), kind_of(natom))
          CALL get_atomic_kind_set(atomic_kind_set, atom_of_kind=atom_of_kind, kind_of=kind_of)
       END IF
 
@@ -1421,7 +1471,7 @@ CONTAINS
          CALL d3_cnumber(qs_env, dispersion_env, cnumbers, dcnum, ghost, floating, atomnumber, &
                          calculate_forces, debugall)
 
-         CALL mp_sum(cnumbers, para_env%group)
+         CALL para_env%group%sum(cnumbers)
          ! for parallel runs we have to update dcnum on all processors
          IF (calculate_forces .OR. debugall) THEN
             CALL dcnum_distribute(dcnum, para_env)
@@ -2029,17 +2079,17 @@ CONTAINS
       END IF
 
       ! set dispersion energy
-      CALL mp_sum(evdw, para_env%group)
+      CALL para_env%group%sum(evdw)
       evdw = evdw + (elrc6 + elrc8 + elrc9)
       energy = evdw
 
       IF ((dispersion_env%pp_type == vdw_pairpot_dftd3 .OR. &
            dispersion_env%pp_type == vdw_pairpot_dftd3bj) .AND. debugall) THEN
-         CALL mp_sum(e6tot, para_env%group)
-         CALL mp_sum(e8tot, para_env%group)
-         CALL mp_sum(e9tot, para_env%group)
-         CALL mp_sum(nab, para_env%group)
-         CALL mp_sum(nabc, para_env%group)
+         CALL para_env%group%sum(e6tot)
+         CALL para_env%group%sum(e8tot)
+         CALL para_env%group%sum(e9tot)
+         CALL para_env%group%sum(nab)
+         CALL para_env%group%sum(nabc)
          e6tot = e6tot + elrc6
          e8tot = e8tot + elrc8
          e9tot = e9tot + elrc9
@@ -2073,7 +2123,7 @@ CONTAINS
             ikind = kind_of(iatom)
             atom_a = atom_of_kind(iatom)
             fdij(1:3) = force(ikind)%dispersion(:, atom_a)
-            CALL mp_sum(fdij, para_env%group)
+            CALL para_env%group%sum(fdij)
             gnorm = gnorm + SUM(ABS(fdij))
             IF (unit_nr > 0) WRITE (unit_nr, "(i5,i7,3F20.14)") iatom, ikind, fdij
          END DO
@@ -2084,7 +2134,7 @@ CONTAINS
          END IF
          IF (use_virial) THEN
             dvirial = virial%pv_virial - dvirial
-            CALL mp_sum(dvirial, para_env%group)
+            CALL para_env%group%sum(dvirial)
             IF (unit_nr > 0) THEN
                WRITE (unit_nr, *) "Stress Tensor (dispersion)"
                WRITE (unit_nr, "(3G20.12)") dvirial
@@ -2092,10 +2142,6 @@ CONTAINS
                WRITE (unit_nr, *)
             END IF
          END IF
-      END IF
-
-      IF (calculate_forces .OR. debugall .OR. dispersion_env%doabc) THEN
-         DEALLOCATE (atom_of_kind, kind_of)
       END IF
 
       DEALLOCATE (dodisp, ghost, floating, atomnumber, rcpbc, radd2, c6d2)
@@ -2222,14 +2268,14 @@ CONTAINS
          CALL open_file(file_name=filename, unit_number=funit, file_form="FORMATTED")
          READ (funit, *) nl, nlines
       END IF
-      CALL mp_bcast(nl, para_env%source, para_env%group)
-      CALL mp_bcast(nlines, para_env%source, para_env%group)
+      CALL para_env%group%bcast(nl, para_env%source)
+      CALL para_env%group%bcast(nlines, para_env%source)
       ALLOCATE (pars(nl))
       IF (para_env%ionode) THEN
          READ (funit, *) pars(1:nl)
          CALL close_file(unit_number=funit)
       END IF
-      CALL mp_bcast(pars, para_env%source, para_env%group)
+      CALL para_env%group%bcast(pars, para_env%source)
 
       ! Store C6AB coefficients in an array
       c6ab = -1._dp
@@ -3302,11 +3348,11 @@ CONTAINS
       TYPE(dcnum_type), DIMENSION(:)                     :: dcnum
       TYPE(cp_para_env_type), POINTER                    :: para_env
 
-      INTEGER                                            :: group, i, ia, ipe, jn, n, natom, ntmax, &
-                                                            ntot
+      INTEGER                                            :: i, ia, ipe, jn, n, natom, ntmax, ntot
       INTEGER, ALLOCATABLE, DIMENSION(:)                 :: list, nloc
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:)           :: dvals
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: rik
+      TYPE(mp_comm_type)                                 :: group
 
 ! we only have to do something if this is a parallel run
 
@@ -3320,7 +3366,7 @@ CONTAINS
          END DO
          ntot = SUM(nloc)
          ntmax = ntot
-         CALL mp_max(ntmax, group)
+         CALL group%max(ntmax)
          ALLOCATE (list(ntmax), dvals(ntmax), rik(3, ntmax))
          list = 0
          dvals = 0._dp
@@ -3336,11 +3382,11 @@ CONTAINS
          END DO
          DO ipe = 1, para_env%num_pe - 1
             !send/receive packed data
-            CALL mp_shift(nloc, group)
+            CALL group%shift(nloc)
             !unpack received data
-            CALL mp_shift(list, group)
-            CALL mp_shift(dvals, group)
-            CALL mp_shift(rik, group)
+            CALL group%shift(list)
+            CALL group%shift(dvals)
+            CALL group%shift(rik)
             !add data to local dcnum
             i = 0
             DO ia = 1, natom

@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -35,7 +35,6 @@ MODULE xtb_ehess
    USE kinds,                           ONLY: dp
    USE mathconstants,                   ONLY: oorootpi,&
                                               pi
-   USE message_passing,                 ONLY: mp_sum
    USE particle_types,                  ONLY: particle_type
    USE pw_poisson_types,                ONLY: do_ewald_ewald,&
                                               do_ewald_none,&
@@ -86,9 +85,9 @@ CONTAINS
 
       INTEGER :: blk, ewald_type, handle, i, ia, iatom, icol, ikind, irow, is, j, jatom, jkind, &
          la, lb, lmaxa, lmaxb, natom, natorb_a, natorb_b, ni, nj, nkind, nmat, za, zb
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of
       INTEGER, DIMENSION(25)                             :: laoa, laob
       INTEGER, DIMENSION(3)                              :: cellind, periodic
-      INTEGER, DIMENSION(:), POINTER                     :: kind_of
       LOGICAL                                            :: defined, do_ewald, found
       REAL(KIND=dp)                                      :: alpha, deth, dr, etaa, etab, gmij, kg, &
                                                             rcut, rcuta, rcutb
@@ -227,8 +226,8 @@ CONTAINS
 
       ! global sum of gamma*p arrays
       CALL get_qs_env(qs_env=qs_env, para_env=para_env)
-      CALL mp_sum(gmcharge(:, 1), para_env%group)
-      CALL mp_sum(gchrg(:, :, 1), para_env%group)
+      CALL para_env%group%sum(gmcharge(:, 1))
+      CALL para_env%group%sum(gchrg(:, :, 1))
 
       IF (xtb_control%coulomb_lr) THEN
          IF (do_ewald) THEN
@@ -240,7 +239,6 @@ CONTAINS
          END IF
       END IF
 
-      ALLOCATE (kind_of(natom))
       CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set)
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, kind_of=kind_of)
 
@@ -296,7 +294,7 @@ CONTAINS
          CPABORT("QMMM not available in xTB response calculations")
       END IF
 
-      DEALLOCATE (gmcharge, gchrg, kind_of)
+      DEALLOCATE (gmcharge, gchrg)
 
       CALL timestop(handle)
 
@@ -318,9 +316,8 @@ CONTAINS
 
       CHARACTER(len=*), PARAMETER :: routineN = 'dftb3_diagonal_hessian'
 
-      INTEGER                                            :: blk, handle, icol, ikind, irow, is, &
-                                                            jkind, natom
-      INTEGER, DIMENSION(:), POINTER                     :: kind_of
+      INTEGER                                            :: blk, handle, icol, ikind, irow, is, jkind
+      INTEGER, ALLOCATABLE, DIMENSION(:)                 :: kind_of
       LOGICAL                                            :: found
       REAL(KIND=dp)                                      :: gmij, ui, uj
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: ksblock, sblock
@@ -331,8 +328,7 @@ CONTAINS
 
       CALL timeset(routineN, handle)
 
-      CALL get_qs_env(qs_env=qs_env, matrix_s_kp=matrix_s, natom=natom)
-      ALLOCATE (kind_of(natom))
+      CALL get_qs_env(qs_env=qs_env, matrix_s_kp=matrix_s)
       CALL get_qs_env(qs_env=qs_env, atomic_kind_set=atomic_kind_set, qs_kind_set=qs_kind_set)
       CALL get_atomic_kind_set(atomic_kind_set=atomic_kind_set, kind_of=kind_of)
       ! no k-points; all matrices have been transformed to periodic bsf
@@ -353,7 +349,6 @@ CONTAINS
          END DO
       END DO
       CALL dbcsr_iterator_stop(iter)
-      DEALLOCATE (kind_of)
 
       CALL timestop(handle)
 

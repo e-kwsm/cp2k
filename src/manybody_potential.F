@@ -1,6 +1,6 @@
 !--------------------------------------------------------------------------------------------------!
 !   CP2K: A general program to perform molecular dynamics simulations                              !
-!   Copyright 2000-2022 CP2K developers group <https://cp2k.org>                                   !
+!   Copyright 2000-2023 CP2K developers group <https://cp2k.org>                                   !
 !                                                                                                  !
 !   SPDX-License-Identifier: GPL-2.0-or-later                                                      !
 !--------------------------------------------------------------------------------------------------!
@@ -36,6 +36,10 @@ MODULE manybody_potential
                                               gal21_energy,&
                                               gal21_forces,&
                                               setup_gal21_arrays
+   USE manybody_nequip,                 ONLY: destroy_nequip_arrays,&
+                                              nequip_add_force_virial,&
+                                              nequip_energy_store_force_virial,&
+                                              setup_nequip_arrays
    USE manybody_quip,                   ONLY: quip_add_force_virial,&
                                               quip_energy_store_force_virial
    USE manybody_siepmann,               ONLY: destroy_siepmann_arrays,&
@@ -48,11 +52,10 @@ MODULE manybody_potential
                                               setup_tersoff_arrays,&
                                               tersoff_energy,&
                                               tersoff_forces
-   USE message_passing,                 ONLY: mp_sum
    USE pair_potential_types,            ONLY: &
         ea_type, eam_pot_type, gal21_pot_type, gal21_type, gal_pot_type, gal_type, &
-        pair_potential_pp_type, pair_potential_single_type, quip_type, siepmann_pot_type, &
-        siepmann_type, tersoff_pot_type, tersoff_type
+        nequip_pot_type, nequip_type, pair_potential_pp_type, pair_potential_single_type, &
+        quip_type, siepmann_pot_type, siepmann_type, tersoff_pot_type, tersoff_type
    USE particle_types,                  ONLY: particle_type
    USE util,                            ONLY: sort
 #include "./base/base_uses.f90"
@@ -99,10 +102,10 @@ CONTAINS
          nloc_size, npairs, nparticle, nparticle_local, nr_h3O, nr_o, nr_oh, nunique
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a, work_list
       INTEGER, DIMENSION(:, :), POINTER                  :: glob_loc_list, list, sort_list
-      LOGICAL                                            :: any_gal, any_gal21, any_quip, &
-                                                            any_siepmann, any_tersoff
-      REAL(KIND=dp)                                      :: drij, embed, pot_loc, pot_quip, qr, &
-                                                            rab2_max, rij(3)
+      LOGICAL                                            :: any_gal, any_gal21, any_nequip, &
+                                                            any_quip, any_siepmann, any_tersoff
+      REAL(KIND=dp)                                      :: drij, embed, pot_loc, pot_nequip, &
+                                                            pot_quip, qr, rab2_max, rij(3)
       REAL(KIND=dp), DIMENSION(3)                        :: cell_v, cvi
       REAL(KIND=dp), DIMENSION(:, :), POINTER            :: glob_cell_v
       REAL(KIND=dp), POINTER                             :: fembed(:)
@@ -112,6 +115,7 @@ CONTAINS
       TYPE(gal21_pot_type), POINTER                      :: gal21
       TYPE(gal_pot_type), POINTER                        :: gal
       TYPE(neighbor_kind_pairs_type), POINTER            :: neighbor_kind_pair
+      TYPE(nequip_pot_type), POINTER                     :: nequip
       TYPE(pair_potential_pp_type), POINTER              :: potparm
       TYPE(pair_potential_single_type), POINTER          :: pot
       TYPE(pos_type), DIMENSION(:), POINTER              :: r_last_update_pbc
@@ -124,6 +128,7 @@ CONTAINS
       any_gal = .FALSE.
       any_gal21 = .FALSE.
       any_quip = .FALSE.
+      any_nequip = .FALSE.
       CALL timeset(routineN, handle)
       CALL fist_nonbond_env_get(fist_nonbond_env, r_last_update_pbc=r_last_update_pbc, &
                                 potparm=potparm, eam_data=eam_data)
@@ -151,7 +156,7 @@ CONTAINS
                pot_manybody = pot_manybody + embed
             END DO
             ! communicate data
-            CALL mp_sum(fembed, para_env%group)
+            CALL para_env%group%sum(fembed)
             DO iparticle = 1, nparticle
                IF (particle_set(iparticle)%atomic_kind%kind_number == ikind) THEN
                   eam_data(iparticle)%f_embed = fembed(iparticle)
@@ -167,6 +172,7 @@ CONTAINS
             pot => potparm%pot(ikind, jkind)%pot
             any_tersoff = any_tersoff .OR. ANY(pot%type == tersoff_type)
             any_quip = any_quip .OR. ANY(pot%type == quip_type)
+            any_nequip = any_nequip .OR. ANY(pot%type == nequip_type)
             any_siepmann = any_siepmann .OR. ANY(pot%type == siepmann_type)
             any_gal = any_gal .OR. ANY(pot%type == gal_type)
             any_gal21 = any_gal21 .OR. ANY(pot%type == gal21_type)
@@ -178,6 +184,16 @@ CONTAINS
          CALL quip_energy_store_force_virial(particle_set, cell, atomic_kind_set, potparm, &
                                              fist_nonbond_env, pot_quip, para_env)
          pot_manybody = pot_manybody + pot_quip
+      END IF
+      ! NEQUIP
+      IF (any_nequip) THEN
+         NULLIFY (glob_loc_list, glob_cell_v, glob_loc_list_a)
+         CALL setup_nequip_arrays(nonbonded, potparm, glob_loc_list, glob_cell_v, glob_loc_list_a, cell)
+         CALL nequip_energy_store_force_virial(nonbonded, particle_set, cell, atomic_kind_set, potparm, &
+                                               nequip, glob_loc_list_a, r_last_update_pbc, pot_nequip, &
+                                               fist_nonbond_env, para_env)
+         pot_manybody = pot_manybody + pot_nequip
+         CALL destroy_nequip_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
       END IF
       ! TERSOFF
       IF (any_tersoff) THEN
@@ -539,8 +555,8 @@ CONTAINS
       INTEGER, ALLOCATABLE, DIMENSION(:, :)              :: eam_kinds_index
       INTEGER, DIMENSION(:), POINTER                     :: glob_loc_list_a, work_list
       INTEGER, DIMENSION(:, :), POINTER                  :: glob_loc_list, list, sort_list
-      LOGICAL                                            :: any_gal, any_gal21, any_quip, &
-                                                            any_siepmann, any_tersoff
+      LOGICAL                                            :: any_gal, any_gal21, any_nequip, &
+                                                            any_quip, any_siepmann, any_tersoff
       REAL(KIND=dp) :: f_eam, fac, fr(3), ptens11, ptens12, ptens13, ptens21, ptens22, ptens23, &
          ptens31, ptens32, ptens33, rab(3), rab2, rab2_max, rtmp(3)
       REAL(KIND=dp), DIMENSION(3)                        :: cell_v, cvi
@@ -559,6 +575,7 @@ CONTAINS
 
       any_tersoff = .FALSE.
       any_quip = .FALSE.
+      any_nequip = .FALSE.
       any_siepmann = .FALSE.
       any_gal = .FALSE.
       any_gal21 = .FALSE.
@@ -616,6 +633,7 @@ CONTAINS
             any_siepmann = any_siepmann .OR. ANY(pot%type == siepmann_type)
             any_gal = any_gal .OR. ANY(pot%type == gal_type)
             any_gal21 = any_gal21 .OR. ANY(pot%type == gal21_type)
+            any_nequip = any_nequip .OR. ANY(pot%type == nequip_type)
             i = eam_kinds_index(ikind, jkind)
             IF (i == -1) CYCLE
             ! EAM
@@ -981,6 +999,11 @@ CONTAINS
             END DO Kind_Group_Loop6
          END DO
          CALL destroy_gal_arrays(glob_loc_list, glob_cell_v, glob_loc_list_a)
+      END IF
+
+      ! NEQUIP
+      IF (any_nequip) THEN
+         CALL nequip_add_force_virial(fist_nonbond_env, f_nonbond, pv_nonbond, use_virial)
       END IF
 
       IF (use_virial) THEN
