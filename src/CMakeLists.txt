@@ -1828,14 +1828,17 @@ add_executable(dbt_unittest dbt/dbt_unittest.F)
 add_executable(dbt_tas_unittest dbt/tas/dbt_tas_unittest.F)
 add_executable(gx_ac_unittest gx_ac_unittest.F)
 
-# with cmake 4.0, generator expression does not work
+# with cmake 4.0, generator expression does not work:
+# > CMake Error: Error required internal CMake variable not set, cmake may not be built correctly.
+# > Missing variable is:
+# > CMAKE_$<IF:$<CXX_COMPILER_ID:IntelLLVM>,Fortran,CXX>_LINK_EXECUTABLE
 set(_linker_language "CXX")
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL IntelLLVM)
   set(_linker_language "Fortran")
 endif()
 set_target_properties(
   cp2k-bin
-  PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+  PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "${_linker_language}"
              POSITION_INDEPENDENT_CODE ON
              LINKER_LANGUAGE "${_linker_language}"
              OUTPUT_NAME "cp2k.${__cp2k_ext}")
@@ -1845,7 +1848,7 @@ target_link_libraries(cp2k-bin PUBLIC cp2k)
 foreach(_app ${__CP2K_APPS})
   set_target_properties(
     ${_app}
-    PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+    PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "${_linker_language}"
                POSITION_INDEPENDENT_CODE ON
                LINKER_LANGUAGE "${_linker_language}"
                OUTPUT_NAME "${_app}.${__cp2k_ext}")
