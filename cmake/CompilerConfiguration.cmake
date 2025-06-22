@@ -7,7 +7,7 @@
 
 set(CP2K_C_COMPILER_LIST
     "GNU;Intel;IntelLLVM;NAG;Cray;PGI;NVHPC;Clang;AppleClang")
-set(CP2K_Fortran_COMPILER_LIST "GNU;Intel;IntelLLVM;NAG;Cray;PGI;NVHPC")
+set(CP2K_Fortran_COMPILER_LIST "GNU;Intel;IntelLLVM;LLVMFlang;NAG;Cray;PGI;NVHPC")
 
 if(NOT CMAKE_C_COMPILER_ID IN_LIST CP2K_C_COMPILER_LIST)
   message(
@@ -167,6 +167,7 @@ add_compile_options(
 # Baseline
 add_compile_options(
   "$<$<COMPILE_LANG_AND_ID:Fortran,PGI,NVHPC>:-Mfreeform;-Mextend;-Mallocatable=03>"
+  "$<$<COMPILE_LANG_AND_ID:Fortran,LLVMFlang>:-ffree-form;-std=f2018;-cpp>"
   "$<$<COMPILE_LANG_AND_ID:Fortran,NAG>:-f2008;-free;-Warn=reallocation;-Warn=subnormal>"
   "$<$<COMPILE_LANG_AND_ID:Fortran,Cray>:-f;free;-M3105;-ME7212;-hnoacc;-M1234>"
 )
@@ -176,6 +177,7 @@ add_compile_options(
 # Release
 add_compile_options(
   "$<$<AND:$<CONFIG:RELEASE>,$<COMPILE_LANG_AND_ID:Fortran,PGI,NVHPC>>:-fast>"
+  "$<$<AND:$<CONFIG:RELEASE>,$<COMPILE_LANG_AND_ID:Fortran,LLVMFlang>>:-O3;-g>"
   "$<$<AND:$<CONFIG:RELEASE>,$<COMPILE_LANG_AND_ID:Fortran,Cray>>:-O2;-G2>"
   "$<$<AND:$<CONFIG:RELEASE>,$<COMPILE_LANG_AND_ID:Fortran,NAG>>:-gline>")
 add_compile_options(
@@ -191,6 +193,7 @@ add_compile_options(
 # Debug
 add_compile_options(
   "$<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANG_AND_ID:Fortran,PGI,NVHPC>>:-g>"
+  "$<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANG_AND_ID:Fortran,LLVMFlang>>:-O2;-g>"
   "$<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANG_AND_ID:Fortran,Cray>>:-G2>")
 add_compile_options(
   "$<$<AND:$<CONFIG:DEBUG>,$<COMPILE_LANG_AND_ID:C,PGI,NVHPC>>:-fast>"
