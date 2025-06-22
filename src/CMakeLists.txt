@@ -1828,11 +1828,16 @@ add_executable(dbt_unittest dbt/dbt_unittest.F)
 add_executable(dbt_tas_unittest dbt/tas/dbt_tas_unittest.F)
 add_executable(gx_ac_unittest gx_ac_unittest.F)
 
+# with cmake 4.0, generator expression does not work
+set(linker_language "CXX")
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL IntelLLVM)
+  set(linker_language "Fortran")
+endif()
 set_target_properties(
   cp2k-bin
   PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
              POSITION_INDEPENDENT_CODE ON
-             LINKER_LANGUAGE "CXX"
+             LINKER_LANGUAGE "${linker_language}"
              OUTPUT_NAME "cp2k.${__cp2k_ext}")
 
 target_link_libraries(cp2k-bin PUBLIC cp2k)
@@ -1842,7 +1847,7 @@ foreach(_app ${__CP2K_APPS})
     ${_app}
     PROPERTIES IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
                POSITION_INDEPENDENT_CODE ON
-               LINKER_LANGUAGE "CXX"
+               LINKER_LANGUAGE "${linker_language}"
                OUTPUT_NAME "${_app}.${__cp2k_ext}")
 
   if(CP2K_USE_ACCEL MATCHES HIP)
