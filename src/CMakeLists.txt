@@ -1716,6 +1716,7 @@ endif()
 
 target_compile_features(cp2k PUBLIC cuda_std_11)
 target_include_directories(cp2k PUBLIC $<INSTALL_INTERFACE:include/cp2k>)
+target_link_options(cp2k PUBLIC "$<$<Fortran_COMPILER_ID:IntelLLVM>:-nofor-main>")
 
 if(TARGET cp2k_dbm_opencl_kernel)
   add_dependencies(cp2k cp2k_dbm_opencl_kernel)
